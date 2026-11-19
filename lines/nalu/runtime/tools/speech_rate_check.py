@@ -28,6 +28,11 @@ EPISODE_MEAN_MIN_CPS = 4.5
 DEFAULT_TARGET_CPS = 4.9
 EPISODE_MEAN_MIN_WPS = 2.6
 DEFAULT_TARGET_WPS = 2.8
+#: Japanese characters / Korean syllables per second (2026-11-18): the zh target and floor scaled by the
+#: lang_profile natural rates (ja 6.0, ko 5.0 against zh 4.2).
+DEFAULT_TARGET_UNITS = {"ja": 7.0, "ko": 5.8}
+EPISODE_MEAN_MIN_UNITS = {"ja": 6.4, "ko": 5.3}
+RATE_UNITS = {"ja": "characters_per_second", "ko": "syllables_per_second"}
 CONFLICT_EMOTIONS = {"急", "怒", "惧", "慌", "狠", "惊"}
 _CJK = re.compile(r"[一-鿿]")
 
@@ -44,7 +49,10 @@ def word_count(text: str) -> int:
 
 
 def spoken_count(text: str, language: str = "zh") -> int:
-    """Characters (zh) or words (en) of real speech."""
+    """Characters (zh / ja), syllables (ko) or words (en) of real speech."""
+    if language in DEFAULT_TARGET_UNITS:
+        import lang_profile as _lang  # noqa: PLC0415 - runtime tools dir is on sys.path
+        return _lang.speech_units(text, language)
     return word_count(text) if language == "en" else cjk_count(text)
 
 
@@ -61,6 +69,8 @@ def shot_targets(contract: dict[str, Any], language: str = "zh") -> dict[str, di
         delivery = shot.get("dialogue_delivery") or {}
         out[str(shot.get("shot_id"))] = {
             "cps": (float(delivery.get("english_words_per_second") or DEFAULT_TARGET_WPS) if language == "en"
+                    else float(delivery.get("speech_units_per_second") or DEFAULT_TARGET_UNITS[language])
+                    if language in DEFAULT_TARGET_UNITS
                     else float(delivery.get("chinese_characters_per_second") or DEFAULT_TARGET_CPS)),
             "hook": bool(flags.get("hook")),
             "conflict": bool(flags.get("conflict_line")) or str(perf.get("emotion") or "") in CONFLICT_EMOTIONS,
@@ -73,7 +83,8 @@ def measure_unit(unit_id: str, segments: list[dict[str, Any]], expected_dialogue
     """Realised cps (zh) / wps (en) over the unit's real speech segments vs the mean director target."""
     rows = [s for s in segments or [] if isinstance(s, dict)]
     chars = sum(spoken_count(s.get("text"), language) for s in rows)
-    default_target = DEFAULT_TARGET_WPS if language == "en" else DEFAULT_TARGET_CPS
+    default_target = (DEFAULT_TARGET_WPS if language == "en" else DEFAULT_TARGET_UNITS.get(language)
+                      or DEFAULT_TARGET_CPS)
     # Timing basis (2026-09-18, first E06 data): whisper SEGMENT bounds are padded to the VAD chunk
     # (a 4-character line measured over a 7.6 s wind segment; short lines land on 1.00 / 2.00 s), which
     # under-measures cps and would trigger rerolls on measurement noise.  When the ASR rows carry
@@ -99,6 +110,8 @@ def measure_unit(unit_id: str, segments: list[dict[str, Any]], expected_dialogue
                               "hook_or_conflict_line": hook_or_conflict, "tier": "N/A", "code": None, "status": "PASS"}
     if language == "en":
         result["rate_unit"] = "words_per_second"
+    elif language in RATE_UNITS:
+        result["rate_unit"] = RATE_UNITS[language]
     if not expected_dialogue or not target or result["measured_cps"] is None:
         result["tier"] = "NOT_APPLICABLE" if not expected_dialogue else "UNMEASURED"
         return result
@@ -130,6 +143,17 @@ def episode_summary(unit_results: list[dict[str, Any]], language: str = "zh") ->
     chars = sum(int(r.get("spoken_chars") or 0) for r in unit_results)
     seconds = sum(float(r.get("speech_seconds") or 0) for r in unit_results)
     mean = round(chars / seconds, 3) if seconds > 0 else None
+    if language in EPISODE_MEAN_MIN_UNITS:
+        floor = EPISODE_MEAN_MIN_UNITS[language]
+        unit = {"ja": "chars/s", "ko": "syllables/s"}[language]
+        return {"authority": "SUPERVISOR_ORDERS seq=29 规则 6", "rate_unit": RATE_UNITS[language],
+                "units_measured": sum(1 for r in unit_results if r.get("measured_cps") is not None),
+                "mean_measured_cps": mean, "episode_mean_min_cps": floor,
+                "below_episode_min": (mean is not None and mean < floor),
+                "minor": [r["unit_id"] for r in unit_results if r.get("tier") == "MINOR"],
+                "blocker": [r["unit_id"] for r in unit_results if r.get("tier") == "BLOCKER"],
+                "checkpoint_line": (f"- 规则 6 语速：全片实测均值 {mean} {unit}（< {floor}，S8 看片对照）" if mean is not None and mean < floor
+                                    else (f"- 规则 6 语速：全片实测均值 {mean} {unit}" if mean is not None else "- 规则 6 语速：无实测"))}
     if language == "en":
         floor = EPISODE_MEAN_MIN_WPS
         return {"authority": "SUPERVISOR_ORDERS seq=29 规则 6", "rate_unit": "words_per_second",

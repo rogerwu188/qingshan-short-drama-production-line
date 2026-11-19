@@ -53,6 +53,7 @@ import stage_time_ledger as _time_ledger
 import episode_previs as _previs  # plan §4: zero-credit previs, run before every paid stage
 import unit_timing_map as _timing  # plan §6: beat/shot/request/returned/cut durations, recorded separately
 import voice_over_narration as _vo  # V.O. narration: S4 synthesis, S7 placement/mix
+import lang_profile as _lang  # zh/en/ja/ko dialogue-language profile (2026-11-18)
 
 import argparse
 import copy
@@ -958,13 +959,15 @@ def project_scope_check(
     return detail
 
 
-#: spoken-dialogue languages the production path supports ("zh" is the historical default)
-DIALOGUE_LANGUAGES = ("zh", "en")
-DIALOGUE_LANGUAGE_LOCALES = {"zh": "zh-CN", "en": "en-US"}
+#: spoken-dialogue languages the production path supports ("zh" is the historical default); ja / ko since
+#: 2026-11-18 (lang_profile.py holds every per-language value; tools/tests pins the two tuples equal)
+DIALOGUE_LANGUAGES = ("zh", "en", "ja", "ko")
+DIALOGUE_LANGUAGE_LOCALES = {"zh": "zh-CN", "en": "en-US", "ja": "ja-JP", "ko": "ko-KR"}
 
 
 def _dialogue_language_code(value: Any) -> str | None:
-    """"zh" / "zh-CN" / "zh-Hans" -> "zh"; "en" / "en-US" -> "en"; anything else -> None."""
+    """"zh" / "zh-CN" / "zh-Hans" -> "zh"; "en-US" -> "en"; "ja-JP" -> "ja"; "ko-KR" -> "ko"; else None.
+    Before 2026-11-18 only zh / en were known, so a ja / ko declaration was silently produced as Chinese."""
     text = str(value or "").strip().lower().replace("_", "-")
     for code in DIALOGUE_LANGUAGES:
         if text == code or text.startswith(code + "-"):
@@ -983,6 +986,15 @@ def resolve_dialogue_language(contract: Any, config: Any) -> str:
     from_config = _dialogue_language_code((project or {}).get("language")
                                           if isinstance(project, dict) else None)
     return from_config or "zh"
+
+
+def _whisper_model_name(language: Any) -> str:
+    """"small" (the historical model) for zh / en / ko; ja prefers a locally installed "medium"."""
+    try:
+        from portable_runtime import language_whisper_model_name  # engine tools/ is on sys.path
+    except ImportError:  # pragma: no cover - a stripped deployment keeps the historical model
+        return "small"
+    return language_whisper_model_name(language)
 
 
 def ctx_language(ctx: Any) -> str:
@@ -1096,7 +1108,7 @@ class Ctx:
 
     @property
     def language(self) -> str:
-        """The episode's dialogue language ("zh" | "en"), resolved once per run by
+        """The episode's dialogue language ("zh" | "en" | "ja" | "ko"), resolved once per run by
         resolve_dialogue_language.  Not cached until the generation contract exists (S1 writes it)."""
         if self._language is None:
             contract = read_json(self.p.contract, None) if self.p.contract.is_file() else None
@@ -3282,8 +3294,8 @@ def voice_over_asr(wav: Path, text: str, language: str) -> dict[str, Any]:
     """Free faster-whisper check of one V.O. wav (same model/settings/recall as source_video_dialogue_gate)."""
     import source_video_dialogue_gate as _svdg  # noqa: PLC0415 - engine tools/ is on sys.path
     from faster_whisper import WhisperModel  # type: ignore  # noqa: PLC0415
-    model = WhisperModel("small", device="cpu", compute_type="int8")
-    joiner = " " if language == "en" else ""
+    model = WhisperModel(_whisper_model_name(language), device="cpu", compute_type="int8")
+    joiner = " " if language == "en" else _lang.profile(language).joiner
 
     def _pass(prompt: str | None) -> tuple[str, float]:
         segments, _ = model.transcribe(str(wav), language=language, vad_filter=True, beam_size=5,
@@ -8175,7 +8187,7 @@ def s7_episode_endcard(ctx: Ctx, res: StageResult) -> Path | None:
     out = ctx.p.assembly / f"{ctx.episode}_endcard_3s_9x16.mp4"
     try:
         brief = _title.load_brief(Path(f"{_np.RUNTIME_ROOT}"), ctx.episode)
-        language = "en" if str(ctx_language(ctx)).lower().startswith("en") else "zh"
+        language = _lang.language_code(ctx_language(ctx)) or "zh"
         series, episode_line = _title.title_lines(brief, ctx.episode, language)
         if not series:
             res.details["episode_endcard"] = {"status": "SKIPPED", "reason": "NO_BRIEF_TITLE"}
@@ -9161,7 +9173,7 @@ def transcribe_units(ctx: Ctx, media_dir: Path, episode: str, *,
     clips = sorted(media_dir.glob(f"{episode}-VU-*.mp4"))
     if not clips:
         return {}
-    model = WhisperModel("small", device="cpu", compute_type="int8")
+    model = WhisperModel(_whisper_model_name(ctx_language(ctx)), device="cpu", compute_type="int8")
 
     def _one(mp4: Path) -> list[dict[str, Any]]:
         return transcribe_clip(model, mp4, ctx_language(ctx), words=words)
@@ -10373,7 +10385,9 @@ def stage_s7(ctx: Ctx) -> StageResult:
                                 # (subtitle_asr_agreement >= 95 %, babble outside cues <= 1 s); read per
                                 # release segment, cached incrementally by media sha (F2: large-v3 whole-file
                                 # took 2 h on this 8 GB machine)
-                                "--readback-asr-json", p.readback_asr, "--readback-model", s7_asr_model()]
+                                "--readback-asr-json", p.readback_asr, "--readback-model", s7_asr_model(),
+                                # ja / ko read back in their own language (zh / en keep the historical call)
+                                *(["--language", ctx_language(ctx)] if ctx_language(ctx) in ("ja", "ko") else [])]
     if chain_windows_ok:
         # line windows rebuilt on the finished candidate by the post-level chain (unit-bounded, Roger 2026-10-30):
         # the pre-levelling windows sat on pre-trim offsets (E12: 13 wholly outside their unit)

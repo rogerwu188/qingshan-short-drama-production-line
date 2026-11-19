@@ -8,12 +8,13 @@ Run AFTER lines/nalu/runtime/tools/bootstrap_runtime_root.py.  Each fix below wa
      project_id must equal the series id NALU-YEWUJIANG (S1 project_scope_check).
   3. runtime/series_scopes.json         child processes run CURRENT_PORTABLE and refuse to start without it.
   4. qingshan.json                      authorization block placeholder + episode budget cap (paid lock stays false).
-  5. qingshan.json project.language     the series' spoken-dialogue language (--language zh|en).  The engine
+  5. qingshan.json project.language     the series' spoken-dialogue language (--language zh|en|ja|ko).  The engine
      resolves it contract dialogue_language -> project.language -> zh (nalu_pipeline.resolve_dialogue_language),
-     so an English series must set it here or ASR, dialogue QA, subtitles and the H3 language tag run as Chinese.
+     so an English / Japanese / Korean series must set it here or ASR, dialogue QA, subtitles and the H3
+     language tag run as Chinese.
 
 usage: apply_runtime_fixups.py --runtime-root $NALU_RUNTIME_ROOT --character <角色名>=CHAR-<ID>:<pinyin_slug> \
-           [--character ... ] [--cap <credits>] [--language zh|en]
+           [--character ... ] [--cap <credits>] [--language zh|en|ja|ko]
 """
 from __future__ import annotations
 
@@ -31,13 +32,27 @@ def dump(path: Path, data: dict) -> None:
     print("fixed", path)
 
 
+def prefetch_japanese_whisper() -> None:
+    """Japanese ASR uses faster-whisper "medium" (owner 2026-11-18; tools/portable_runtime.LANGUAGE_WHISPER_MODELS).
+    Fetch it once in the background (free, ~1.5 GB) so this step never blocks; until it is complete every ASR
+    pass falls back to "small"."""
+    import subprocess
+    import sys
+    try:
+        subprocess.Popen([sys.executable, "-c", "from faster_whisper import download_model; download_model('medium')"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        print("whisper medium (Japanese ASR): background download started")
+    except OSError as exc:  # the engine still runs on "small"
+        print(f"whisper medium (Japanese ASR): not prefetched ({exc})")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--runtime-root", required=True)
     ap.add_argument("--character", action="append", default=[],
                     help="<display name>=<CHAR-ID>:<pinyin_slug>, one per speaking character")
     ap.add_argument("--cap", type=int, default=2500)
-    ap.add_argument("--language", choices=["zh", "en"],
+    ap.add_argument("--language", choices=["zh", "en", "ja", "ko"],
                     help="the series' dialogue language (= brief dialogue_language); omitted = leave as is (zh)")
     a = ap.parse_args()
     root = Path(a.runtime_root).expanduser().resolve()
@@ -72,8 +87,11 @@ def main() -> int:
     # episodes that have not been built yet.
     gen["video_model"] = "MiniMax-H3"
     gen["video_profile"] = "MINIMAX_H3_768P_9X16"
+    if a.language == "ja":
+        prefetch_japanese_whisper()
     if a.language:
-        cfg.setdefault("project", {})["language"] = {"zh": "zh-CN", "en": "en-US"}[a.language]
+        cfg.setdefault("project", {})["language"] = {"zh": "zh-CN", "en": "en-US", "ja": "ja-JP",
+                                                     "ko": "ko-KR"}[a.language]
     cfg.setdefault("authorization", {"supervisor_orders_path": str(rt / "SUPERVISOR_ORDERS.json"),
                                      "paid_order_seq": 0, "latest_order_seq": 0, "line_owner_id": ""})
     dump(root / "qingshan.json", cfg)

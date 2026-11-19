@@ -45,6 +45,18 @@ POLICY_PATH = Path(__file__).resolve().parents[1] / "configs" / f"{POLICY_ID}.js
 
 #: a run this long shared with the source is the writer copying, not adapting
 VERBATIM_MIN_RUN = 8
+#: the same copied phrase is longer in Japanese characters / Korean syllables (2026-11-18)
+VERBATIM_MIN_RUN_BY_LANGUAGE = {"ja": 12, "ko": 10}
+
+
+def verbatim_min_run_for(language: Any, policy: dict[str, Any] | None = None) -> int:
+    """zh / en: the policy's verbatim_min_run (unchanged); ja / ko: verbatim_min_run_by_language, else 12 / 10."""
+    policy = policy or {}
+    code = str(language or "").strip().lower()[:2]
+    if code in VERBATIM_MIN_RUN_BY_LANGUAGE:
+        by_language = policy.get("verbatim_min_run_by_language") or {}
+        return int(by_language.get(code) or VERBATIM_MIN_RUN_BY_LANGUAGE[code])
+    return int(policy.get("verbatim_min_run") or VERBATIM_MIN_RUN)
 
 #: classical / instruction-manual markers that read as written prose when spoken
 WRITTEN_REGISTER_MARKERS = (
@@ -316,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     fingerprints = {name: spec for name, spec in ((contract_payload.get("speech_fingerprints") or {}).items())}
     report = analyse(lines, source_text, fingerprints=fingerprints,
-                     verbatim_min_run=int(policy.get("verbatim_min_run") or VERBATIM_MIN_RUN))
+                     verbatim_min_run=verbatim_min_run_for(contract_payload.get("dialogue_language"), policy))
     report["episode"] = episode
     if args.out:
         Path(args.out).write_text(json.dumps(report, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")

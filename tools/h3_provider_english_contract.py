@@ -16,8 +16,9 @@ from typing import Any
 
 
 SCHEMA = "qingshan.h3_provider_english_contract.v1_source_sha_bound"
-CJK = re.compile(r"[\u3400-\u9fff]")
-DIALOGUE_TAG = re.compile(r"<d>\[(?:Chinese|English)\]\s*(.*?)</d>", re.DOTALL)
+#: Han, kana and Hangul (Japanese / Korean dialogue lines, 2026-11-18): none of them may reach the English prose
+CJK = re.compile(r"[\u3400-\u9fff\u3041-\u3096\u30a1-\u30fa\uac00-\ud7a3]")
+DIALOGUE_TAG = re.compile(r"<d>\[(?:Chinese|English|Japanese|Korean)\]\s*(.*?)</d>", re.DOTALL)
 QUOTED_CJK = re.compile(r"(?:\"[^\"\n]*[\u3400-\u9fff][^\"\n]*\"|[“”「」『』][^\n]*[\u3400-\u9fff])")
 
 #: The only Chinese allowed outside the dialogue tags: the MiniMax-H3 provider expert's constraint sentences,

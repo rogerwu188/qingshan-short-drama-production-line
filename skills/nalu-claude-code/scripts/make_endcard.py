@@ -2,11 +2,14 @@
 """Make the 3 s 9:16 studio end card S7 requires: $NALU_RUNTIME_ROOT/brand/NALU_MOTION_endcard_3s_9x16.mp4.
 
 usage: make_endcard.py --runtime-root $NALU_RUNTIME_ROOT --title <剧名> --subtitle "第一集 · <集名>"
-                       [--language zh|en] [--font <ttf/ttc>]
+                       [--language zh|en|ja|ko] [--font <ttf/ttc>]
 --language zh (default): draws 未完待续; font = first existing of --font, $QINGSHAN_CJK_FONT, Noto CJK (Linux),
   Hiragino (macOS); a CJK font is required.
 --language en: draws TO BE CONTINUED; font = first existing of --font, $QINGSHAN_LATIN_FONT, DejaVu Sans,
   Liberation Sans, Noto Sans, Arial/Helvetica (macOS), else Pillow's built-in default font. Never needs CJK.
+--language ja: draws つづく; --language ko: draws 다음 화에 계속; font = first existing of --font,
+  $QINGSHAN_JA_FONT / $QINGSHAN_KO_FONT, Noto Sans CJK JP / KR, the Noto Sans CJK collection (Linux; it carries
+  kana and Hangul), Hiragino / Apple SD Gothic Neo (macOS), then the zh CJK chain.
 Every line is auto-fitted (font shrunk, subtitle/title wrapped to 2 lines if needed) to <= 88% of the frame width.
 """
 import argparse
@@ -34,7 +37,21 @@ LATIN_CANDIDATES = [
     "/System/Library/Fonts/Helvetica.ttc",
     "/Library/Fonts/Arial.ttf",
 ]
-TAGLINE = {"zh": "未完待续", "en": "TO BE CONTINUED"}
+TAGLINE = {"zh": "未完待续", "en": "TO BE CONTINUED", "ja": "つづく", "ko": "다음 화에 계속"}  # = lang_profile endcard
+#: language faces first, then the Noto Sans CJK collection (it carries kana and Hangul) before the zh chain
+LANGUAGE_CANDIDATES = {
+    "ja": ["/usr/share/fonts/opentype/noto/NotoSansCJKjp-Regular.otf",
+           "/usr/share/fonts/noto-cjk/NotoSansCJKjp-Regular.otf",
+           *CANDIDATES[:3],
+           "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",
+           "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc"],
+    "ko": ["/usr/share/fonts/opentype/noto/NotoSansCJKkr-Regular.otf",
+           "/usr/share/fonts/noto-cjk/NotoSansCJKkr-Regular.otf",
+           *CANDIDATES[:3],
+           "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+           "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+           "/Library/Fonts/Arial Unicode.ttf"],
+}
 W, H = 720, 1280
 MAX_TEXT_WIDTH = int(W * 0.88)
 
@@ -44,6 +61,12 @@ def resolve_font(language, explicit=""):
         pool = [explicit, os.environ.get("QINGSHAN_LATIN_FONT", ""), os.environ.get("NALU_LATIN_FONT", ""),
                 *LATIN_CANDIDATES]
         return next((f for f in pool if f and Path(f).is_file()), None)  # None = Pillow default font
+    if language in LANGUAGE_CANDIDATES:
+        env = "QINGSHAN_JA_FONT" if language == "ja" else "QINGSHAN_KO_FONT"
+        pool = [explicit, os.environ.get(env, ""), *LANGUAGE_CANDIDATES[language], *CANDIDATES]
+        font = next((f for f in pool if f and Path(f).is_file()), None)
+        if font:
+            return font
     pool = [explicit, os.environ.get("QINGSHAN_CJK_FONT", ""), *CANDIDATES]
     font = next((f for f in pool if f and Path(f).is_file()), None)
     if not font:
@@ -122,7 +145,7 @@ def main(argv=None):
     ap.add_argument("--runtime-root", required=True)
     ap.add_argument("--title", required=True)
     ap.add_argument("--subtitle", default="")
-    ap.add_argument("--language", choices=["zh", "en"], default="zh")
+    ap.add_argument("--language", choices=["zh", "en", "ja", "ko"], default="zh")
     ap.add_argument("--font", default="")
     ap.add_argument("--out", default="", help="per-episode card mp4 (PNG next to it); default = the global brand card")
     a = ap.parse_args(argv)

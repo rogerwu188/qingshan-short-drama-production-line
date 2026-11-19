@@ -5,6 +5,7 @@
   "enabled_from_episode": "E15",
   "activation_note": "Offline S1 gate, no provider call. Active from E15 (being reworked) onward, or when the writing contract declares dialogue_register_policy=DIALOGUE_REGISTER_V1. Never retroactive for delivered episodes.",
   "verbatim_min_run": 8,
+  "verbatim_min_run_by_language": {"ja": 12, "ko": 10},
   "rules": {
     "DR1": "DIALOGUE_SOURCE_VERBATIM: a spoken line shares a run of >= verbatim_min_run characters with the episode's source chapter — the novel's sentence was moved into the script instead of adapted",
     "DR2": "DIALOGUE_WRITTEN_REGISTER: a spoken line carries written/classical register markers (为何/之/乃/特制/灵性 …) or narrates a judged comparison about the speaker ('我的力气比他大，速度比他慢') — that is prose or inner monologue, not speech",

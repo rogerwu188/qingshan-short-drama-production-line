@@ -216,6 +216,9 @@ def evaluate(contract: dict, policy: dict, *, current_policy: bool = False) -> d
                 if language == "en":  # words, not letters (CAMERA_GRAMMAR_V1 contracts only)
                     dtxt = dtxt.split(":", 1)[1] if ":" in dtxt[:24] else dtxt
                     cps = (sh.get("dialogue_delivery") or {}).get("english_words_per_second")
+                elif language in ("ja", "ko"):  # characters / syllables (lang_profile)
+                    dtxt = dtxt.split(":", 1)[1] if ":" in dtxt[:24] else dtxt
+                    cps = (sh.get("dialogue_delivery") or {}).get("speech_units_per_second")
                 need = npr.min_dialogue_seconds(dtxt, cps, language)
                 if secs < need:
                     row["flags"].append(f"R8_DIALOGUE_SHOT_SHORTER_THAN_{need:g}S")

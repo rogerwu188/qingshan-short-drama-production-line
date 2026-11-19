@@ -11,7 +11,8 @@ import subprocess
 from difflib import SequenceMatcher
 from pathlib import Path
 
-from tools.portable_runtime import resolve_media_binary, resolve_whisper_model
+from tools.portable_runtime import language_whisper_model, resolve_media_binary, resolve_whisper_model
+from tools import lang_profile as _lang
 from tools.basic_dialogue_qa_policy import evaluate_dialogue_findings
 
 
@@ -29,10 +30,16 @@ def english_words(value: str) -> list[str]:
     return re.findall(r"[a-z0-9]+(?:'[a-z0-9]+)*", value.lower().replace("\u2019", "'"))
 
 
+#: languages normalised by lang_profile (kana -> hiragana / Hangul kept); zh / en keep their historical rules
+PROFILE_LANGUAGES = ("ja", "ko")
+
+
 def spoken(value: str, language: str = "zh") -> str:
     """Language-specific normalized speech text ("" means no speech)."""
     if language == "en":
         return " ".join(english_words(value))
+    if language in PROFILE_LANGUAGES:
+        return _lang.normalise(value, language)
     return chinese(value)
 
 
@@ -48,6 +55,16 @@ def recall(expected: str, actual: str, language: str = "zh") -> float:
             ).get_matching_blocks()
         )
         return matched / len(expected_words)
+    if language in PROFILE_LANGUAGES:
+        # character recall (ja: kana/kanji after katakana -> hiragana; ko: Hangul syllables, spaces dropped)
+        expected_text, actual_text = spoken(expected, language), spoken(actual, language)
+        if not expected_text:
+            return 1.0
+        if expected_text in actual_text:
+            return 1.0
+        matched = sum(block.size for block in SequenceMatcher(
+            None, expected_text, actual_text, autojunk=False).get_matching_blocks())
+        return matched / len(expected_text)
     expected_text, actual_text = chinese(expected), chinese(actual)
     if not expected_text:
         return 1.0
@@ -66,6 +83,9 @@ def transcription_prompt(expected: str, language: str = "zh") -> str:
     """Keep punctuation-only cues from turning into Whisper hallucinations."""
     if language == "en":
         return " ".join(expected.split())
+    if language in PROFILE_LANGUAGES:
+        # the authored text itself (kana/kanji or Hangul with its spaces), punctuation stripped
+        return " ".join(re.sub(r"[^\w\s]", " ", expected).split())
     return chinese(expected)
 
 
@@ -121,6 +141,8 @@ def evaluate(
 ) -> dict:
     failures: list[str] = []
     english = language == "en"
+    # ja / ko report the language-neutral codes English uses ("mandarin" would be wrong)
+    neutral_codes = english or language in PROFILE_LANGUAGES
     streams = probe_payload.get("streams") or []
     video_stream = any(row.get("codec_type") == "video" for row in streams)
     audio_stream = any(row.get("codec_type") == "audio" for row in streams)
@@ -140,17 +162,18 @@ def evaluate(
     if rows and (any(not value for value in expected_ids) or len(set(expected_ids)) != len(expected_ids)):
         failures.append("dialogue_ids_missing_or_duplicate")
     if rows and any(not spoken(value, language) for value in expected_texts):
-        failures.append("expected_text_missing" if english else "expected_mandarin_text_missing")
-    expected = (" " if english else "").join(expected_texts)
+        failures.append("expected_text_missing" if neutral_codes else "expected_mandarin_text_missing")
+    expected = (" " if english else _lang.profile(language).joiner if language in PROFILE_LANGUAGES
+                else "").join(expected_texts)
     score = recall(expected, transcript, language)
     if rows and not spoken(transcript, language):
-        failures.append("native_speech_missing" if english else "native_mandarin_speech_missing")
+        failures.append("native_speech_missing" if neutral_codes else "native_mandarin_speech_missing")
     elif rows and score < minimum_recall:
         failures.append(f"dialogue_recall_below_threshold:{score:.3f}")
     if require_no_dialogue and spoken(transcript, language):
         failures.append(
             "unexpected_native_speech_present"
-            if english
+            if neutral_codes
             else "unexpected_native_mandarin_speech_present"
         )
     if rows and segments and float(segments[-1].get("end") or 0) >= duration - 0.05:
@@ -191,7 +214,7 @@ def main() -> int:
     parser.add_argument("--ffprobe")
     parser.add_argument("--minimum-recall", type=float, default=0.55)
     parser.add_argument("--require-no-dialogue", action="store_true")
-    parser.add_argument("--language", choices=("zh", "en"), default="zh")
+    parser.add_argument("--language", choices=("zh", "en", "ja", "ko"), default="zh")
     args = parser.parse_args()
     video = args.video.expanduser().resolve()
     if not video.is_file():
@@ -209,11 +232,14 @@ def main() -> int:
     if (rows or args.require_no_dialogue) and any(
         row.get("codec_type") == "audio" for row in probe_payload.get("streams") or []
     ):
-        model_ref, model_source = resolve_whisper_model(args.model)
+        # ja prefers a locally installed "medium" (owner 2026-11-18); zh / en / ko resolve exactly as before
+        model_ref, model_source = (language_whisper_model(args.language, args.model)
+                                   if args.language in PROFILE_LANGUAGES else resolve_whisper_model(args.model))
         from faster_whisper import WhisperModel
 
         model = WhisperModel(model_ref, device="cpu", compute_type="int8")
-        expected = (" " if args.language == "en" else "").join(
+        joiner = " " if args.language == "en" else _lang.profile(args.language).joiner
+        expected = joiner.join(
             str(row.get("spoken_text") or row.get("text") or "") for row in rows
         )
         segments, _ = model.transcribe(
@@ -231,9 +257,7 @@ def main() -> int:
             }
             for segment in segments
         ]
-        transcript = (" " if args.language == "en" else "").join(
-            row["text"] for row in segments_payload
-        )
+        transcript = joiner.join(row["text"] for row in segments_payload)
     report = evaluate(
         video,
         rows,

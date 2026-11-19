@@ -369,6 +369,8 @@ def scripted_mouth_action(translated: Any) -> bool:
     return any(_SILENT_MOUTH_ACTION.search(text) for text in _strings(translated))
 SHORT_LINE_CLAUSE = "Deliver this short line unhurried, over at least one full second, with a natural pause before and after it."
 SHORT_LINE_MAX_CHARS = 4
+#: the same ~1 s short line in Japanese characters / Korean syllables (lang_profile rates 6.0 / 5.0 vs zh 4.2)
+SHORT_LINE_MAX_UNITS = {"ja": 6, "ko": 5}
 
 
 def _locked_dialogue_plan(plan: dict[str, Any] | None) -> bool:
@@ -397,7 +399,8 @@ def _camera(plan: dict[str, Any], *, combat: bool = False) -> str:
 # ---------------------------------------------------------------------------
 
 SHOT_SCOPE_SCHEMA = "qingshan.h3_shot_scope.v1_entity_beat_bound"
-_CJK = re.compile(r"[㐀-鿿]")
+#: CJK that must never leak into the English machine prose: Han, kana and Hangul (ja / ko literals, 2026-11-18)
+_CJK = re.compile(r"[㐀-鿿\u3041-\u3096\u30a1-\u30fa\uac00-\ud7a3]")
 _BODY_PART_WORDS = {
     "HAND": "hand", "HANDS": "hands", "PAW": "paw", "PAWS": "paws",
     "ARM": "arm", "ARMS": "arms", "LEG": "legs", "LEGS": "legs",
@@ -837,18 +840,18 @@ def locked_camera_move_conflicts(text: str) -> list[str]:
     return findings
 
 
-DIALOGUE_LANGUAGE_TAGS = {"zh": "Chinese", "en": "English"}
+DIALOGUE_LANGUAGE_TAGS = {"zh": "Chinese", "en": "English", "ja": "Japanese", "ko": "Korean"}  # = lang_profile h3_tag
 
 
 def _dialogue_partition(raw: str, language: str = "zh") -> tuple[str, str, str]:
-    """``speaker：words``; English dialogue may also use an ASCII colon.
+    """``speaker：words``; English / Japanese / Korean dialogue may also use an ASCII colon.
 
     A long line split into same-speaker continuation lines (build_nalu_preproduction repeats the prefix on each
     fragment) is one utterance: the continuation labels are metadata, never spoken words, and the fragments are
     joined (no separator in Chinese, a space in English).  Field device …1324 E04-VU-010 rendered
     ``<d>[Chinese] …灵石，\n金公子：我搜集了…</d>`` and H3 would have read the label aloud."""
     speaker, separator, words = raw.partition("：")
-    if not separator and language == "en":
+    if not separator and language in ("en", "ja", "ko"):
         speaker, separator, words = raw.partition(":")
     if separator and "\n" in words:
         label = speaker.strip()
@@ -861,7 +864,7 @@ def _dialogue_partition(raw: str, language: str = "zh") -> tuple[str, str, str]:
                     break
             if line:
                 fragments.append(line)
-        words = (" " if language == "en" else "").join(fragments)
+        words = (" " if language in ("en", "ko") else "").join(fragments)  # Korean is spaced like English
     return speaker, separator, words
 
 
@@ -1257,7 +1260,7 @@ def _beat(
         evidence[f"{prefix}.CROSSMODAL_BINDING"] = (
             f"{subject}={image_slot}={speaker_slot}={audio_slot}"
         )
-        if locked_dialogue_policy and len(_CJK.findall(words)) <= SHORT_LINE_MAX_CHARS:
+        if locked_dialogue_policy and len(_CJK.findall(words)) <= SHORT_LINE_MAX_UNITS.get(language, SHORT_LINE_MAX_CHARS):
             # F4/F8 2026-10-30: H3 squeezed 2–4 character lines into 0.4–0.8 s; give them breathing room
             line += " " + SHORT_LINE_CLAUSE
             evidence[f"{prefix}.SHORT_LINE_DELIVERY"] = SHORT_LINE_CLAUSE

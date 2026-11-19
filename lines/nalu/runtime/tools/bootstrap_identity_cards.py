@@ -153,7 +153,8 @@ def culture_lock_for(episode: str, generation_contract: dict[str, Any] | None = 
             contract["forbidden_influences"] = list(dict.fromkeys(
                 list(contract.get("forbidden_influences") or [])
                 + AUTHORED_WORLD_FALLBACK_CONTRACT["forbidden_influences"]))
-        lang = "en" if str(language or "").strip().lower().startswith("en") else "zh"
+        # the image-prompt block is Chinese only for a Chinese line; en / ja / ko get the English block
+        lang = "en" if str(language or "").strip().lower()[:2] in ("en", "ja", "ko") else "zh"
         return contract, authored_world_prompt_block(contract, language=lang)
     if number is not None and number >= QINGSHAN_ACTIVE_FROM_EPISODE:
         return QINGSHAN_VISUAL_CULTURE_CONTRACT, qingshan_visual_prompt_block(QINGSHAN_VISUAL_CULTURE_CONTRACT)

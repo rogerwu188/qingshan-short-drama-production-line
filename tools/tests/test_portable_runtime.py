@@ -17,7 +17,9 @@ class PortableRuntimeTests(unittest.TestCase):
             self.assertEqual(source, "explicit")
 
     def test_whisper_env_accepts_model_identifier(self):
-        with patch.dict(os.environ, {"QINGSHAN_WHISPER_MODEL": "medium"}, clear=False):
+        # a host that has the model cached (Japanese lines fetch "medium", 2026-11-18) resolves the snapshot path
+        with patch.dict(os.environ, {"QINGSHAN_WHISPER_MODEL": "medium"}, clear=False), \
+                patch("tools.portable_runtime._cached_whisper_snapshot", return_value=None):
             model, source = resolve_whisper_model()
         self.assertEqual(model, "medium")
         self.assertEqual(source, "model_identifier")

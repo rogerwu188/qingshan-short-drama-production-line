@@ -1063,8 +1063,8 @@ def validate_task(task: dict[str, Any]) -> None:
         if english_machine_rescue:
             if not task.get("provider_entity_token_map"):
                 raise ValueError(f"{task['task_key']} English rescue lacks provider entity token map")
-            outside_dialogue = re.sub(r"<d>\[Chinese\].*?</d>", "", prompt_text, flags=re.DOTALL)
-            if re.search(r"[\u3400-\u9fff]", outside_dialogue):
+            outside_dialogue = re.sub(r"<d>\[(?:Chinese|Japanese|Korean)\].*?</d>", "", prompt_text, flags=re.DOTALL)
+            if re.search(r"[\u3400-\u9fff\u3041-\u3096\u30a1-\u30fa\uac00-\ud7a3]", outside_dialogue):
                 raise ValueError(f"{task['task_key']} English rescue exposes CJK outside dialogue")
         if str(task.get("model") or "").lower() in {"minimax-h3", "h3"}:
             expected_transport = [str(row.get("voice_reference_url") or "") for row in bindings]

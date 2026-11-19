@@ -106,7 +106,11 @@ def scene_hints(reports: Path) -> dict[str, dict[str, int]]:
 # --------------------------------------------------------------------------- rule choice
 def _clause_text(rule: dict[str, Any], language: str) -> str:
     clause = (rule.get("application") or {}).get("prompt_clause") or {}
-    order = ("en", "zh") if language == "en" else ("zh", "en")
+    code = str(language or "").strip().lower()[:2]
+    # Japanese / Korean (2026-11-18): their own clause, else the English one (a Chinese clause is not a
+    # directing note a ja / ko writer acts on), Chinese last
+    order = (("en", "zh") if language == "en" else (code, "en", "zh") if code in ("ja", "ko")
+             else ("zh", "en"))
     return next((str(clause[k]).strip() for k in order if isinstance(clause.get(k), str) and clause[k].strip()), "")
 
 
@@ -230,6 +234,8 @@ def prepare(*, engine: Path, runtime: Path, episode: str, line: str = "nalu",
         profile = episode_profile(Path(runtime), episode)
         caps_cfg = config.get("capabilities") if isinstance(config.get("capabilities"), dict) else {}
         language = profile["language"] or str(caps_cfg.get("language") or "zh")
+        if language[:2] in ("ja", "ko"):  # "ja-jp" / "ko-kr" briefs match rules scoped to "ja" / "ko"
+            language = language[:2]
         caps = {"model": caps_cfg.get("model") or c.UNKNOWN, "engine_api_version": run.api, "stage": AUTHORING_STAGE,
                 "language": language, "genre": profile["genre"], "flags": []}
         rules, decisions = directing_rules(run.rules(), caps)

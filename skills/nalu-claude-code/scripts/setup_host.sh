@@ -142,7 +142,7 @@ fi
 SUDO=""; sudo -n true 2>/dev/null && SUDO="sudo -n"
 if [ -n "$SUDO" ] && command -v apt-get >/dev/null; then
   run $SUDO apt-get update -qq
-  run $SUDO apt-get install -y -qq git ffmpeg fonts-noto-cjk build-essential python3-dev curl xz-utils
+  run $SUDO apt-get install -y -qq git ffmpeg fonts-noto-cjk build-essential python3-dev curl xz-utils poppler-utils
 fi
 mkdir -p "$HOME/.local/bin" "$HOME/.local/share/fonts"
 # the loudness/levelling tools need ffmpeg >= 6; Ubuntu 22.04's apt ffmpeg is 4.4 and fails them (field device
@@ -239,6 +239,13 @@ export NALU_ENGINE_ROOT="$ENGINE" NALU_RUNTIME_ROOT="$RUNTIME" NALU_WORK_ROOT="$
 export NALU_QA_WORKERS=1 NALU_Q2_WORKERS=1 QINGSHAN_CJK_FONT="$FONT"
 export PATH="\$HOME/.local/bin:\$HOME/.npm-global/bin:\$PATH"
 EOF
+# Japanese dialogue ASR uses faster-whisper "medium" (owner 2026-11-18, tools/portable_runtime.LANGUAGE_WHISPER_MODELS);
+# a Japanese runtime (qingshan.json project.language ja-*) or NALU_WHISPER_PREFETCH_MEDIUM=1 fetches it once, never
+# fatal: until it is there every ASR pass falls back to "small".  zh / en / ko lines never download it.
+if grep -q '"language": *"ja' "$RUNTIME/qingshan.json" 2>/dev/null || [ "${NALU_WHISPER_PREFETCH_MEDIUM:-0}" = 1 ]; then
+  .qingshan-venv/bin/python -c "from faster_whisper import download_model; download_model('medium')" >>"$LOG" 2>&1 \
+    && NOTES+=("whisper medium ready (Japanese ASR)") || NOTES+=("whisper medium not fetched; Japanese ASR uses small")
+fi
 STEP_python=OK
 
 # ---------------------------------------------------------------- 5. codex + provider
