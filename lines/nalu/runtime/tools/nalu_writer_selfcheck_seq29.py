@@ -5,6 +5,8 @@ Roger 2026-09-18《E05/E06 生产线补正 —— 追加：语速 / 镜长 / 表
 
   规则 5  镜长跟台词走，禁「说完保持」
     5a  对白镜 target_seconds = ceil_0.5(台词字数 / 字每秒 + 0.5)；不得套模板（超出 +0.5 s 即 FAIL）
+        韩语 / 日语台词与 static_design_gate R8 用同一算法（nalu_prompt_rules.dialogue_min_seconds：去掉说话人标签，
+        音节 / 字数 ÷ speech_units_per_second）；韩语 ≤ 18 音节、日语 ≤ 22 字的台词最多需要 4.5 s，更长的句子由编剧拆成两镜
     5b  action 字段（primary_action / performance / constraints）不得出现 保持/口型闭合/静止/定住 类收尾指令
     5c  无对白镜 ≤ 5 s；对白镜 performance.body_action 必须是进行中的身体动作（琐碎动作不算）
   规则 7  禁令与表演分栏，每个对白镜必有情绪动词＋身体动作
@@ -61,26 +63,28 @@ def _spoken(dialogue: str) -> str:
     return text.split("：", 1)[1] if "：" in text[:24] else text  # long English speaker names too (lab E09)
 
 
-def derived_dialogue_seconds(dialogue: str, cps: float | None) -> float:
+def derived_dialogue_seconds(dialogue: str, cps: float | None, delivery: dict[str, Any] | None = None,
+                             language: str | None = None) -> float:
     """Rule 5a: line seconds + 0.5, rounded UP to 0.5 s (10 chars @ 5.0 → 2.5 s).
 
     A shot with several lines (one speaker's lines in one take, owner 2026-11-01) is timed by all its lines
     together, each without its ``Speaker：`` prefix; a single line is timed exactly as before.
 
     A line with no CJK character at all is English: timed by words (same as static_design_gate R8),
-    never letter by letter; Chinese lines always contain CJK and are unchanged."""
+    never letter by letter; Chinese lines always contain CJK and are unchanged.
+
+    Korean / Japanese lines (Hangul / kana, or any line of a ja / ko contract) are timed by the one calculation
+    static_design_gate R8 also uses (nalu_prompt_rules.dialogue_min_seconds: every speaker label stripped,
+    syllables / characters at the shot's ``speech_units_per_second``), so 5a's floor is R8's floor and the
+    5a window [derived, derived + 1.0 s] always contains a length R8 accepts."""
+    shared = npr.dialogue_min_seconds(dialogue, delivery, language)
+    if shared is not None:
+        return shared
     rows = [row for row in str(dialogue or "").splitlines() if row.strip()]
     spoken = _spoken(dialogue) if len(rows) < 2 else " ".join(_spoken(row) for row in rows)
     if not re.search(r"[\u3400-\u9fff]", spoken) and re.search(r"[A-Za-z]", spoken):
         spoken = spoken.split(":", 1)[1] if ":" in spoken[:24] else spoken
         return npr.min_dialogue_seconds(spoken, None, "en")
-    # Korean (Hangul) / Japanese (kana) lines: timed by syllables / characters (lang_profile); a Chinese line
-    # never carries either script and is unchanged
-    script = ("ko" if re.search("[\uac00-\ud7a3]", spoken)
-              else "ja" if re.search("[\u3041-\u3096\u30a1-\u30fa]", spoken) else None)
-    if script:
-        spoken = spoken.split(":", 1)[1] if ":" in spoken[:24] else spoken
-        return npr.min_dialogue_seconds(spoken, None, script)
     return npr.min_dialogue_seconds(spoken, cps)
 
 
@@ -353,7 +357,7 @@ def evaluate(contract: dict[str, Any], lexicon: dict[str, Any] | None = None) ->
             continue
         m["dialogue_shots"] += 1
         cps = (shot.get("dialogue_delivery") or {}).get("chinese_characters_per_second")
-        derived = derived_dialogue_seconds(dialogue, cps)
+        derived = derived_dialogue_seconds(dialogue, cps, shot.get("dialogue_delivery"), contract.get("dialogue_language"))
         m["derived_seconds_by_shot"][sid] = derived
         # 5a — the shot length follows the line
         if target > max(derived + TEMPLATE_TOLERANCE_S, floor_s) + 1e-9:

@@ -12,8 +12,10 @@ Free, offline.  Reads <EP>_GENERATION_CONTRACT_v1.json and checks the authored c
   R7  (seq=10) a no-dialogue shot >= 3 s must carry body-level motion in its action text or a moving camera
       family (ARC/TRACK/CRANE/HANDHELD): micro-motion under PUSH_IN/LOCKED measured as an unmotivated
       static hold (E02-VU-010)
-  R8  (seq=10) a dialogue shot must last >= spoken_chars/cps + 1.0 s lead + 0.5 s tail (E02-VU-029's last
-      syllable was cut)
+  R8  (seq=10) a dialogue shot must last >= spoken_chars/cps + 0.5 s tail, rounded up to 0.5 s (E02-VU-029's last
+      syllable was cut; seq=29 5a dropped the original 1.0 s lead, nalu_prompt_rules.DLG_LEAD_S = 0).  Korean /
+      Japanese lines use the exact seq29 5a calculation (nalu_prompt_rules.dialogue_min_seconds), so R8's floor
+      is 5a's floor; a line too long for the 5 s speaking unit is split by the writer, not stretched
 
 CAMERA_GRAMMAR_V1 (line owner 2026-10-22; contracts declaring camera_grammar_policy=CAMERA_GRAMMAR_V1 only):
 the forced-motion rules R1-R4/R6/R7 are REPORT_ONLY ("advisories"), and English dialogue is timed in words.
@@ -141,6 +143,7 @@ def evaluate(contract: dict, policy: dict, *, current_policy: bool = False) -> d
     locked_dialogue = _locked_dialogue_active(contract)  # LOCKED_DIALOGUE_CAMERA_V1: same, plus R9/R10
     writer_motive = locked_dialogue and _writer_motive_required(contract)  # E13+: R11
     language = _vo.contract_language(contract) if grammar else "zh"
+    declared_language = _vo.contract_language(contract)  # ja / ko timing does not depend on CAMERA_GRAMMAR_V1
     rows, failures, advisories = [], [], []
     prev_locked = False
     axis_run, prev_key, prev_scene = 0, None, None
@@ -207,7 +210,12 @@ def evaluate(contract: dict, policy: dict, *, current_policy: bool = False) -> d
             if not dlg and secs >= 3.0 and not any(v in act for v in npr.BODY_VERBS) \
                     and fam not in npr.MOVING_CAMERA:
                 row["flags"].append("R7_NO_DIALOGUE_HOLD_WITHOUT_BODY_MOTION")
-            if dlg:
+            # Korean / Japanese lines: the calculation seq29 5a uses (npr.dialogue_min_seconds), whether or not
+            # the contract is CAMERA_GRAMMAR_V1 -- every speaker label stripped, syllables / characters at the
+            # shot's speech_units_per_second (device 0080 KO-01 E01: R8 4.0 s vs 5a <= 2.5 s on one line)
+            need = npr.dialogue_min_seconds(ps.get("dialogue"), sh.get("dialogue_delivery"),
+                                            declared_language) if dlg else None
+            if dlg and need is None:
                 dtxt = ps.get("dialogue")
                 dtxt = dtxt if isinstance(dtxt, str) else " ".join(
                     str(x.get("text") if isinstance(x, dict) else x) for x in (dtxt or []))
@@ -216,10 +224,8 @@ def evaluate(contract: dict, policy: dict, *, current_policy: bool = False) -> d
                 if language == "en":  # words, not letters (CAMERA_GRAMMAR_V1 contracts only)
                     dtxt = dtxt.split(":", 1)[1] if ":" in dtxt[:24] else dtxt
                     cps = (sh.get("dialogue_delivery") or {}).get("english_words_per_second")
-                elif language in ("ja", "ko"):  # characters / syllables (lang_profile)
-                    dtxt = dtxt.split(":", 1)[1] if ":" in dtxt[:24] else dtxt
-                    cps = (sh.get("dialogue_delivery") or {}).get("speech_units_per_second")
                 need = npr.min_dialogue_seconds(dtxt, cps, language)
+            if dlg:
                 if secs < need:
                     row["flags"].append(f"R8_DIALOGUE_SHOT_SHORTER_THAN_{need:g}S")
         except Exception as exc:  # noqa: BLE001 - the rule module is optional for old contracts

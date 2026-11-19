@@ -74,8 +74,12 @@ def estimated_line_seconds(lines: list[str] | str, language: str = "zh",
     rows = lines.splitlines() if isinstance(lines, str) else list(lines)
     cps = float(delivery.get("chinese_characters_per_second") or DEFAULT_CHINESE_CHARACTERS_PER_SECOND)
     wps = float(delivery.get("english_words_per_second") or DEFAULT_ENGLISH_WORDS_PER_SECOND)
+    # ja / ko: the shot's authored speech_units_per_second, the rate static_design_gate R8 and seq29 5a read
+    # (nalu_prompt_rules.dialogue_rate); zh / en calls are unchanged
+    ups = delivery.get("speech_units_per_second") if language in ("ja", "ko") else None
+    extra = {"speech_units_per_second": float(ups)} if isinstance(ups, (int, float)) and ups > 0 else {}
     return round(sum(estimated_spoken_seconds(row, language=language, chinese_characters_per_second=cps,
-                                              english_words_per_second=wps)
+                                              english_words_per_second=wps, **extra)
                      for row in rows if str(row).strip()), 3)
 
 
