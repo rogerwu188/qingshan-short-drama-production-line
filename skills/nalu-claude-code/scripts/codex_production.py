@@ -45,6 +45,11 @@ QUOTA_RE = re.compile(r"\b(401|402|403|429)\b|quota|insufficient|balance|余额|
 #: and sat idle waiting for the 6-hourly agent heartbeat).  Hard quota / auth errors still go to the agent.
 RATE_LIMIT_RE = re.compile(r"\b429\b|too many requests|rate[ _-]?limit", re.I)
 HARD_QUOTA_RE = re.compile(r"\b(401|402|403)\b|insufficient|balance|余额|额度|quota exceeded|invalid[_ ]api[_ ]key", re.I)
+# A resumed thread the provider refuses outright (device …1485, 2026-11-19: codex-cli 0.170.0 replays its tool
+# declarations as an `additional_tools` input item on `exec resume`; HopsAPI's Responses endpoint answers
+# invalid_request_error / param input[0].type before the first token).  Resuming that thread can never work, so the
+# next resume hands off to a fresh thread instead of burning the no-status resumes.
+RESUME_REJECTED_RE = re.compile(r"invalid_request_error.*input\[\d+\]\.type|additional_tools", re.I | re.S)
 RATE_LIMIT_MAX_RESUMES = 12
 MAX_NO_STATUS_RESUMES = 3
 
@@ -692,6 +697,10 @@ def resume(episode: str, message: str) -> dict[str, Any]:
     session["codex_thread_id"] = sid
     write_json(d / "session.json", session)
     fresh = fresh_thread_decision(sid)
+    last_err = str(parse_log(Path(session.get("log") or "")).get("last_error") or "")
+    if not fresh["fresh"] and RESUME_REJECTED_RE.search(last_err):
+        fresh = {"fresh": True, "reason": "RESUME_REJECTED_BY_PROVIDER", "error": last_err[:200],
+                 "last_input_tokens": None, "threshold": None}
     if fresh["fresh"]:
         return resume_in_fresh_thread(episode, message, sid, fresh)
     return launch(episode, message + "\n（提醒：本轮最后一行仍须是 NALU_STATUS 单行 JSON。）", sid)
