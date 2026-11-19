@@ -382,6 +382,29 @@ class ReferenceSemanticsPrecheckTest(unittest.TestCase):
             report["reference_role_semantics_failures"],
         )
 
+    def test_unprefixed_location_id_bound_as_scene_passes(self):
+        """Fleet device ...1485 JA-01 E01 (2026-11-19): location_id ROYAL_HALL has no LOC- prefix."""
+        report = precheck_submission_inputs(
+            self._task([
+                {"entity_id": "CHAR-A", "role": "CHARACTER_REFERENCE", "path": "a.png"},
+                {"entity_id": "ROYAL_HALL", "role": "scene", "path": "hall.png"},
+                {"entity_id": "ROYAL_HALL", "role": "global_space_map", "path": "map.png"},
+            ]),
+            enforce=True,
+        )
+        self.assertNotIn("REFERENCE_ROLE_SEMANTICS_INVALID", report["failures"])
+        self.assertEqual(report["reference_role_semantics_failures"], [])
+
+    def test_unprefixed_declared_character_bound_as_scene_still_fails(self):
+        task = self._task([{"entity_id": "HERO", "role": "SCENE", "path": "a.png"}])
+        task["canonical_characters"] = ["HERO"]
+        task["prompt_contract"]["visible_characters"] = ["HERO"]
+        report = precheck_submission_inputs(task, enforce=True)
+        self.assertIn(
+            "REFERENCE_ROLE_NAMESPACE_CONFLICT:HERO",
+            report["reference_role_semantics_failures"],
+        )
+
     def test_prop_plate_labelled_as_identity_role_fails(self):
         report = precheck_submission_inputs(
             self._task([{"entity_id": "PROP-DEER", "role": "CHARACTER", "path": "d.png"}]),
