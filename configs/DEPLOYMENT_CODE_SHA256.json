@@ -5861,7 +5861,7 @@
     },
     {
       "path": "tools/provider_scope_projection.py",
-      "sha256": "a921c4626516b91d56edace9f43cd8c03a437c1b5ae7f248acbb0ff1e4a38662"
+      "sha256": "de90c1a9f2d2ec537cc29a8093b3ff4cf571096dc535c5dbb3d9570a144af6aa"
     },
     {
       "path": "tools/provider_semantic_coverage.py",
@@ -6641,7 +6641,7 @@
     },
     {
       "path": "tools/shot_media_admission_gate.py",
-      "sha256": "96f610fcd4e14d0e31c2a3a68d3690b25e68c6c19d23f7b7be06ee75866464e9"
+      "sha256": "8f38047fedeffd35fb24c2439f5631ef794d20cfdf3e326eeb442768dc1f913e"
     },
     {
       "path": "tools/shot_prompt_professionalism_gate.py",
@@ -8709,7 +8709,7 @@
     },
     {
       "path": "tools/tests/test_pregen_consistency_retry_closure.py",
-      "sha256": "d1a433f28cd99f3a462c5427f3283eb399b33a187a0e97bbe5d65bee6a635835"
+      "sha256": "54971ae4e00f985bb8fb47acb6d33cd9a54d2a7bfdad817c39eed7dcbff79c42"
     },
     {
       "path": "tools/tests/test_prepare_agentcut_release_branding.py",

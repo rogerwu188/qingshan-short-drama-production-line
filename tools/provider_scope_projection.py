@@ -106,6 +106,18 @@ def binding_role_for(entity_id: str, role: Any = None) -> str:
     return "IDENTITY"
 
 
+# Id namespaces binding_role_for recognises.  An id outside them (an authored location id such as
+# ROYAL_HALL) says nothing about what the plate is: the IDENTITY fallthrough above is a default, not evidence.
+KNOWN_ENTITY_NAMESPACES = (
+    "CHAR-", "PROP-", "OBJ-", "SET-", "CREATURE-", "ANIMAL-", "SPACE-",
+    "GSM-", "EGSM-", "LOC-", "SUBSPACE-", "ROOM-", "ZONE-", "FIXED-", "ANGLE-",
+)
+
+
+def has_known_namespace(entity_id: Any) -> bool:
+    return str(entity_id or "").strip().upper().startswith(KNOWN_ENTITY_NAMESPACES)
+
+
 # Identity tiers a character catalog row may declare.  Only NAMED roles carry a
 # face that must be reproduced exactly; the other two may appear on screen but
 # are not identity-gated.  Without this tier a walk-on had exactly one possible

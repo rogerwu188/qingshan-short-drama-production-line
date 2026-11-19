@@ -16,9 +16,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from tools.provider_scope_projection import binding_role_for
+    from tools.provider_scope_projection import binding_role_for, has_known_namespace
 except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
-    from provider_scope_projection import binding_role_for
+    from provider_scope_projection import binding_role_for, has_known_namespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -411,6 +411,9 @@ def precheck_submission_inputs(
     bound_props: set[str] = set()
     reference_semantics_failures: list[str] = []
     path_to_identity_entities: dict[str, set[str]] = {}
+    declared_entities = characters | props | {
+        str(value) for value in (task.get("identity_authority_exempt_character_ids") or []) if value
+    }
     for row in bindings:
         entity_id = str(row.get("entity_id") or "")
         role = str(row.get("role") or "").upper()
@@ -426,6 +429,14 @@ def precheck_submission_inputs(
         # nothing downstream used to notice, because only role-less ids and
         # file SHAs were ever compared.
         namespace_role = binding_role_for(entity_id, None)
+        # An id with no recognised namespace carries no claim to contradict.  Location ids are authored
+        # free-form (the scene binding's entity_id is the script's location_id), so a scene plate of
+        # ROYAL_HALL was read as an identity id and failed every S5 precheck of a new series (fleet device
+        # ...1485 JA-01 E01, 2026-11-19).  Only a declared non-identity role is trusted this way, and never
+        # for an id the unit declares as one of its characters or props.
+        if (binding_role == "NON_IDENTITY" and not has_known_namespace(entity_id)
+                and entity_id not in declared_entities):
+            namespace_role = binding_role
         if binding_role != namespace_role:
             # The role claim and the id namespace disagree about what this
             # plate is.  An explicit role that contradicts the namespace is the
