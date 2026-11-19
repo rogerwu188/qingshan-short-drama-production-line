@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2491,
+  "file_count": 2492,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -849,7 +849,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_qa.py",
-      "sha256": "d6a16be2e27f89ed1501881d78462917e155c9cf34b1163e6763c1beeb1caf7b"
+      "sha256": "4b22a01f14a2354c922f029061e2ec7ea8c60640d283307be2cad7565d374aea"
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_register.py",
@@ -8774,6 +8774,10 @@
     {
       "path": "tools/tests/test_prompt_batch_qa_sheet_identity.py",
       "sha256": "e7f6324705cf3d486397dd07cee77ceb75feb003bde88ebde1c9752c395e7f65"
+    },
+    {
+      "path": "tools/tests/test_prompt_batch_qa_unprefixed_location.py",
+      "sha256": "1bc5ea9fa826de45b372488868eb94f239de5683ca76f57324b1d59ffd14675f"
     },
     {
       "path": "tools/tests/test_prompt_batch_register_monologue_reuse.py",

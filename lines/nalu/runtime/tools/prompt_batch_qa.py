@@ -203,6 +203,22 @@ def mentions_hide_coat(text: str) -> bool:
     return False
 
 
+def keyframe_place_ids(kf_text: str):
+    """Read the location / room / place-map ids back out of a rendered keyframe prompt.
+
+    The location id is the writer's own ``location_id`` and the room / map ids are derived
+    from it (``ROOM-<id>``, ``GSM-<project>-<id>``), so none of them is guaranteed to carry a
+    ``LOC-`` prefix or to avoid underscores.  A new series whose locations are named
+    ``ROYAL_HALL`` rendered 「地点：ROYAL_HALL｜房间：ROOM-ROYAL_HALL」 and the old
+    ``LOC-[A-Z0-9-]+`` pattern read that as "no location line", failing every keyframe of the
+    batch.  Match the fields by their delimiters; the caller still compares the location with
+    the scene row for equality.
+    """
+    loc = re.search(r"地点：([^｜\s]+)｜房间：([^｜\s]+)", kf_text)
+    gm = re.search(r"→ (\S+) → SUBSPACE", kf_text)
+    return loc, gm
+
+
 def keyframe_contract_cast(spec) -> list[str]:
     """Names the keyframe must show: the shot cast minus people hidden at entry and minus
     offscreen speakers.  bind_dialogue_cast appends a speaker who is not in the visible cast as
@@ -457,10 +473,10 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
         if scope_removals:
             chk("kf_lighting_participants_scoped_to_cast", True,
                 ",".join(sorted({r["name"] for r in scope_removals})))
-        loc = re.search(r"地点：(LOC-[A-Z0-9-]+)｜房间：(ROOM-[A-Z0-9-]+)", kf_text)
-        gm = re.search(r"→ (GSM-[A-Z0-9-]+) → SUBSPACE", kf_text)
+        loc, gm = keyframe_place_ids(kf_text)
         chk("kf_location_matches_scene", bool(loc) and loc.group(1) == sc["location_id"], loc.group(1) if loc else "")
-        chk("kf_room_exists_in_gsm", bool(loc and gm and loc.group(2) in kf_text), f"{gm.group(1) if gm else ''}/{loc.group(2) if loc else ''}")
+        # an id the builder could not resolve renders as the literal None; that is not a room
+        chk("kf_room_exists_in_gsm", bool(loc and gm and "None" not in (loc.group(2), gm.group(1))), f"{gm.group(1) if gm else ''}/{loc.group(2) if loc else ''}")
         chk("kf_no_completion_state_leak", shot["completion_state"] not in section(kf_text, "entry_state") , shot["completion_state"][:30])
         chk("kf_9_16_and_no_text_rule", "9:16" in kf_text and "不得出现任何文字" in kf_text, "")
         # K087: an authored-prose gap must never reach the provider.  When the writer leaves a
