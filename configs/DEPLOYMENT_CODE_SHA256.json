@@ -5489,7 +5489,7 @@
     },
     {
       "path": "tools/level_native_release_audio.py",
-      "sha256": "02852f8e61118d45efaf31caddfc6a8e713006dd1e389eb8e73b7013c855091b"
+      "sha256": "06e8dae29a9f485d9094ce74a9b4b7f77a15e74542538db1832739c50e2c2821"
     },
     {
       "path": "tools/lighting_participant_scope.py",
@@ -6577,7 +6577,7 @@
     },
     {
       "path": "tools/s7_audio_smoothing.py",
-      "sha256": "736ed0c3002135c39553554a66337387ee7aac97e42d34e6427c2f276ad5f71c"
+      "sha256": "8c1f03ffad0cdfcd5b5c2af1156af6892db9361343cb6103761351a545687fb8"
     },
     {
       "path": "tools/scene_authority_lock.py",

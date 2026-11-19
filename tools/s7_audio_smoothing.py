@@ -34,6 +34,10 @@ import re
 import subprocess
 from pathlib import Path
 from typing import Any, Callable
+try:
+    from ffmpeg_caps import alimiter_latency as _alimiter_latency
+except ImportError:  # pragma: no cover - imported as tools.<module>
+    from tools.ffmpeg_caps import alimiter_latency as _alimiter_latency
 
 SCHEMA = "nalu.unit_audio_levelling.v1"
 
@@ -164,7 +168,7 @@ def render_levelled(source: Path, picture: Path, out: Path, gain_db: float, *, f
     unit audio contract requires (audio_postproduction_contract SPEAKING_AUDIO_VIDEO_SOURCE_MISMATCH)."""
     limit = 10 ** (ceiling_dbtp / 20.0)
     chain = (f"aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,volume={gain_db:.3f}dB,"
-             f"aresample=192000,alimiter=limit={limit:.6f}:attack=5:release=50:level=false:latency=1,aresample=48000")
+             f"aresample=192000,alimiter=limit={limit:.6f}:attack=5:release=50:level=false{_alimiter_latency(ffmpeg)},aresample=48000")
     out.parent.mkdir(parents=True, exist_ok=True)
     run = subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(picture), "-i", str(source),
                           "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-af", chain,

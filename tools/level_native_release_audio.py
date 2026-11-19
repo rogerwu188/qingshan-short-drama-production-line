@@ -10,6 +10,10 @@ import os
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+try:
+    from ffmpeg_caps import alimiter_latency as _alimiter_latency
+except ImportError:  # pragma: no cover - imported as tools.<module>
+    from tools.ffmpeg_caps import alimiter_latency as _alimiter_latency
 
 try:
     from tools.native_audio_loudness_contract import (
@@ -236,11 +240,11 @@ def level_release(
         # (a -1.5 dB limit came out at -0.8 dBTP, -2.5 dB at -2.0), so the linear branch keeps the same
         # -2.5 dB AAC headroom the static branch already uses; integrated loudness is unaffected (-14.0/-14.1).
         linear = linear + ",aresample=192000"
-        limiter = f"alimiter=limit={STATIC_TRUE_PEAK_LIMIT_LINEAR}:attack=5:release=50:level=false:latency=1,"
+        limiter = f"alimiter=limit={STATIC_TRUE_PEAK_LIMIT_LINEAR}:attack=5:release=50:level=false{_alimiter_latency()},"
         if static_units:
             # static program gain; the limiter runs 4x oversampled (true peak) with headroom for the AAC encode
             linear = f"volume={program_gain + program_trim:.3f}dB,aresample=192000"
-            limiter = f"alimiter=limit={STATIC_TRUE_PEAK_LIMIT_LINEAR}:attack=5:release=50:level=false:latency=1,"
+            limiter = f"alimiter=limit={STATIC_TRUE_PEAK_LIMIT_LINEAR}:attack=5:release=50:level=false{_alimiter_latency()},"
         filters.append(
             premix + "," + linear + ","
             + limiter
