@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2510,
+  "file_count": 2512,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -805,7 +805,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "5589786c5e5beadcac46ab5a1366b4ccc7dd6e3d9725ee5b9648cb30dedf3f16"
+      "sha256": "b630975017d494b19f84b862ffcba87f59bd04336239a17ac44b1b5462f1e1a2"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -4609,7 +4609,7 @@
     },
     {
       "path": "tools/episode_parallel_batch_supervisor.py",
-      "sha256": "bed33fbed9d5600b042758f01a5a668423335662be47c090e48f0a19b2f3920e"
+      "sha256": "a6e9bf8fadc0f2bbed2df45a6cdb302ad3e6adc8453b7d52fd97259d16cd4ce6"
     },
     {
       "path": "tools/episode_post_publish_cleanup.py",
@@ -6966,6 +6966,10 @@
     {
       "path": "tools/sync_e59_locked_assets_to_runtime_library.py",
       "sha256": "bd9e8070cb0faf0ce011b5bb647fb44930a75f7c58216708e3b2b5bcf0844316"
+    },
+    {
+      "path": "tools/tail_frame_text_clean.py",
+      "sha256": "4e5517238bd244f84b58aa3893d955fad7885985345694be40575024a1400800"
     },
     {
       "path": "tools/task_lane_global_wait_gate.py",
@@ -9438,6 +9442,10 @@
     {
       "path": "tools/tests/test_symbolic_shot_legibility_gate.py",
       "sha256": "7c488da8b0963ef61c50960044fa412bdf1e639789b5aa6d5a9852dbecac35e0"
+    },
+    {
+      "path": "tools/tests/test_tail_frame_text_clean.py",
+      "sha256": "0f0c102a137d6de9b87caa2583a4daca647d2641932cf51b434ba62f8360763a"
     },
     {
       "path": "tools/tests/test_tail_unit_entity_anchors.py",

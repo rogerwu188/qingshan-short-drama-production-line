@@ -2143,6 +2143,18 @@ def task_config_is_ready(task: dict) -> bool:
     return "READY" in status and "SUBMIT" in status
 
 
+def _tail_text_clean(partial: Path, final: Path) -> dict:
+    """tools/tail_frame_text_clean.py over a freshly extracted tail frame; fail-open."""
+    try:
+        from tools import tail_frame_text_clean as ttc
+
+        orig, sidecar = ttc.companion_paths(final)
+        return ttc.clean_tail_frame(partial, original_copy=orig, sidecar=sidecar)
+    except Exception as exc:  # noqa: BLE001 - never block binding on the cleaner
+        print(f"[supervisor] WARNING: tail-frame text clean unavailable ({exc}); original frame kept", file=sys.stderr)
+        return {"status": "FAIL_OPEN", "tail_text_cleaned": False, "boxes": [], "error": str(exc)}
+
+
 def bind_predecessor_tail_frame(task: dict, dependency: dict) -> bool:
     """Bind an accepted predecessor tail as the sole first temporal anchor."""
     contract = task.get("action_sequence_contract") or {}
@@ -2157,13 +2169,20 @@ def bind_predecessor_tail_frame(task: dict, dependency: dict) -> bool:
     destination.parent.mkdir(parents=True, exist_ok=True)
     if not destination.is_file():
         ffmpeg = str(resolve_media_binary("ffmpeg"))
+        partial = destination.with_name(f"{destination.stem}.part{destination.suffix or '.png'}")
         for tail_offset in ("-0.10", "-0.20", "-0.50"):
+            partial.unlink(missing_ok=True)
             proc = subprocess.run([
                 ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
-                "-sseof", tail_offset, "-i", str(source), "-frames:v", "1", "-q:v", "2", str(destination),
+                "-sseof", tail_offset, "-i", str(source), "-frames:v", "1", "-q:v", "2", str(partial),
             ], cwd=ROOT, check=False)
-            if proc.returncode == 0 and destination.is_file() and destination.stat().st_size > 0:
+            if proc.returncode == 0 and partial.is_file() and partial.stat().st_size > 0:
+                # H3 burns the spoken line into the picture and it often lasts to the last
+                # frame; clean it here so it never propagates down the tail chain.
+                task["predecessor_tail_text_clean"] = _tail_text_clean(partial, destination)
+                os.replace(partial, destination)
                 break
+        partial.unlink(missing_ok=True)
         if not destination.is_file() or destination.stat().st_size == 0:
             return False
     destination_ref = str(destination_value)

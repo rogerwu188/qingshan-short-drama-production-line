@@ -5854,6 +5854,19 @@ def release_unposted_waves(ctx: Ctx, wave_state: dict[str, Any]) -> list[dict[st
     return released
 
 
+def _tail_text_clean(partial: Path, final: Path) -> dict[str, Any]:
+    """Inpaint H3-burned caption text off the tail frame before it anchors the next unit
+    (engine tools/tail_frame_text_clean.py; fail-open, NALU_TAIL_TEXT_CLEAN=0 opts out)."""
+    try:
+        import tail_frame_text_clean as _ttc  # engine tools/ is on sys.path
+        orig, sidecar = _ttc.companion_paths(final)
+        return _ttc.clean_tail_frame(partial, original_copy=orig, sidecar=sidecar)
+    except Exception as exc:  # noqa: BLE001 - never block the pipeline on the cleaner
+        print(f"[nalu_pipeline] WARNING: tail-frame text clean unavailable ({exc}); original frame kept",
+              file=sys.stderr)
+        return {"status": "FAIL_OPEN", "tail_text_cleaned": False, "boxes": [], "error": str(exc)}
+
+
 def extract_real_final_frame(ctx: Ctx, unit_id: str) -> dict[str, Any]:
     """ffmpeg last-frame grab of the harvested unit video (same recipe as the engine's
     episode_parallel_batch_supervisor.bind_predecessor_tail_frame: -sseof -0.10/-0.20/-0.50)."""
@@ -5886,10 +5899,13 @@ def extract_real_final_frame(ctx: Ctx, unit_id: str) -> dict[str, Any]:
         proc = subprocess.run([_media.require_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-sseof", off,
                                "-i", str(src), "-frames:v", "1", "-q:v", "2", str(partial)], check=False)
         if proc.returncode == 0 and partial.is_file() and partial.stat().st_size > 0:
+            clean = _tail_text_clean(partial, dst)
             os.replace(partial, dst)
             dst.with_suffix(".source.sha256").write_text(source_sha + "\n", encoding="utf-8")
             return {"unit_id": unit_id, "status": "EXTRACTED", "path": str(dst), "sha256": sha256_file(dst),
-                    "source": str(src), "source_sha256": source_sha, "sseof": off}
+                    "source": str(src), "source_sha256": source_sha, "sseof": off,
+                    "tail_text_cleaned": bool(clean.get("tail_text_cleaned")),
+                    "tail_text_clean": clean}
         partial.unlink(missing_ok=True)
     return {"unit_id": unit_id, "status": "EXTRACT_FAILED", "source": str(src)}
 
