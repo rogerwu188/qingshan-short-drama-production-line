@@ -9445,9 +9445,7 @@ def s7_camera_motion_gate(ctx: Ctx, res: StageResult) -> dict[str, Any] | None:
                 gate=str(gate_json))
     if status == "PASS" or not final_sha:
         return step
-    orders_path = ctx.authority.get("orders_path")
-    orders = (_rga._orders(orders_path, expected_latest_seq=ctx.authority.get("latest_order_seq") or 0, engine_root=ENGINE)
-              if orders_path and not ctx.authority_blockers else [])
+    orders = _gate_acceptance_orders(ctx)
     order = _rga.find_acceptance(orders, episode=ctx.episode, gate_id="FINAL-CUT-CAMERA-MOTION", failing=failing,
                                  media_sha256=final_sha, media_item_id="camera_motion",
                                  expected_issuer=ctx.authority.get("line_owner_id") or "", engine_root=ENGINE)
@@ -9488,9 +9486,7 @@ def s7_burned_text_cover_acceptance(ctx: Ctx, res: StageResult, subbed: Path, co
         return None
     failing = [BURNED_TEXT_COVER_DETECTOR]
     media_sha = sha256_file(subbed)
-    orders_path = ctx.authority.get("orders_path")
-    orders = (_rga._orders(orders_path, expected_latest_seq=ctx.authority.get("latest_order_seq") or 0, engine_root=ENGINE)
-              if orders_path and not ctx.authority_blockers else [])
+    orders = _gate_acceptance_orders(ctx)
     order = _rga.find_acceptance(orders, episode=ctx.episode, gate_id=BURNED_TEXT_COVER_GATE_ID, failing=failing,
                                  media_sha256=media_sha, media_item_id=BURNED_TEXT_COVER_DETECTOR,
                                  expected_issuer=ctx.authority.get("line_owner_id") or "", engine_root=ENGINE)
@@ -9915,9 +9911,8 @@ def s7_default_release_acceptance(ctx: Ctx, final_qa: dict[str, Any], review_rej
         return {"status": BLOCKED, "blockers": list(final_qa.get("blockers") or ["FINAL_PACKAGE_QA_NOT_PASS"])}
     sha = sha256_file(ctx.p.final_candidate)
     authority = getattr(ctx, "authority", None) or {}
-    orders_path, issuer = authority.get("orders_path"), authority.get("line_owner_id") or ""
-    orders = (_rga._orders(orders_path, expected_latest_seq=authority.get("latest_order_seq") or 0, engine_root=ENGINE)
-              if orders_path and not getattr(ctx, "authority_blockers", None) else [])
+    issuer = authority.get("line_owner_id") or ""
+    orders = _gate_acceptance_orders(ctx)
     order = _rga.find_acceptance(orders, episode=ctx.episode, gate_id=FINAL_RELEASE_GATE_ID, failing=failing,
                                  media_sha256=sha, media_item_id=FINAL_RELEASE_MEDIA_ITEM,
                                  expected_issuer=issuer, engine_root=ENGINE) if issuer else None
@@ -10322,6 +10317,106 @@ def promote_final_candidate(p: Any) -> dict[str, Any]:
         tmp.replace(dst)
         out[key] = str(dst); out[f"{key}_sha256"] = src_sha; out[f"{key}_action"] = "COPIED"
     return out
+
+
+def _gate_acceptance_orders(ctx: Any) -> list[dict[str, Any]]:
+    """The private order inbox as the S7 gate acceptances read it.
+
+    Gate acceptances are non-paid: ``roger_gate_acceptance`` validates the inbox (schema, unique seqs, latest
+    seq or self-acknowledging newer non-paid orders), the issuer and the source receipt itself.  They used to be
+    read only when ``ctx.authority_blockers`` was empty -- but that list also carries the PAID order's refusals
+    (episode scope, cap, issuer of the paid row ...), which say nothing about a gate acceptance.  A device whose
+    paid order no longer covered the episode therefore read NO orders at every S7 gate, while the read-only
+    helper (which reads the inbox directly) matched the same order (device 1101 E18, 2026-11-20).  Only the
+    coordinates an acceptance needs are required here: an absolute inbox path and a configured line owner."""
+    authority = getattr(ctx, "authority", None) or {}
+    orders_path = authority.get("orders_path")
+    issuer = str(authority.get("line_owner_id") or "")
+    if not orders_path or not issuer or not Path(str(orders_path)).is_absolute():
+        return []
+    return _rga._orders(orders_path, expected_latest_seq=authority.get("latest_order_seq") or 0,
+                        engine_root=ENGINE, expected_issuer=issuer)
+
+
+RELEASE_LOUDNESS_GATE_ID = "RELEASE-AUDIO-LOUDNESS"
+RELEASE_LOUDNESS_MEDIA_ITEM = "UNIT_LOUDNESS_OUT_OF_ROLE_RANGE"   # historical binding key, still honoured first
+_LOUDNESS_VALUE_RE = re.compile(r"^-?\d+(?:\.\d+)?(?:LU|LUFS|DBTP)?$", re.IGNORECASE)
+
+
+def _loudness_failure_identity(failure: str) -> str:
+    """A levelling failure without its measured values: ``UNIT_LOUDNESS_OUT_OF_ROLE_RANGE:VU-03:-20.1:DIALOGUE``
+    -> ``UNIT_LOUDNESS_OUT_OF_ROLE_RANGE:VU-03:DIALOGUE``; ``ADJACENT_..:VU-01->VU-02:8.4LU`` -> ``ADJACENT_..:VU-01->VU-02``."""
+    return ":".join(part for part in str(failure).split(":") if not _LOUDNESS_VALUE_RE.match(part.strip()))
+
+
+def _loudness_binding_keys(failing: list[str]) -> list[str | None]:
+    """Media-binding keys a RELEASE-AUDIO-LOUDNESS order may use for the levelled file: the historical key,
+    every failure-code prefix (what record_supervisor_order.py derives from ``--detector``), the gate id, the
+    file role, and the plain ``decision.media_sha256``.  The sha itself must still match exactly."""
+    keys: list[str | None] = [RELEASE_LOUDNESS_MEDIA_ITEM]
+    keys += sorted({str(f).split(":", 1)[0] for f in failing if str(f)})
+    keys += [RELEASE_LOUDNESS_GATE_ID, "final_levelled", "loudness", None]
+    return keys
+
+
+def s7_release_loudness_acceptance(ctx: Any, p: Any, failing: list[str],
+                                   final_sha: str | None) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """The line-owner order that carries a FAILed release levelling, plus how it matched (or why not).
+
+    Rule 1 (exact): an active, receipted GATE_FAIL_ACCEPTANCE for this episode and gate (spelling normalised),
+    covering every current failure verbatim, bound to the sha256 of the current levelled file under any of
+    ``_loudness_binding_keys``.
+
+    Rule 2 (recorded drift, narrowest re-render case): the order is bound to the sha256 of a levelled file this
+    S7 parked as superseded (``<stem>__superseded_*`` report next to the current one) that was made from the
+    SAME picture stream (``source_video_stream_sha256`` equal), and the order's failures cover the current ones
+    by identity -- code + unit + role with the measured LU values stripped.  A re-level of the same cut moves the
+    numbers by a few tenths and changes the file's sha; it does not add a failing unit.  A different picture, a
+    new failing unit/code, another episode/gate/issuer, or no receipt never matches.  The drift is recorded."""
+    info: dict[str, Any] = {"gate_id": RELEASE_LOUDNESS_GATE_ID, "failing": list(failing),
+                            "media": str(p.final_levelled), "media_sha256": final_sha}
+    if not failing or not final_sha:
+        info["reason"] = "NO_FAILURES_OR_NO_LEVELLED_FILE"
+        return None, info
+    orders = _gate_acceptance_orders(ctx)
+    info["orders_read"] = len(orders)
+    issuer = str((getattr(ctx, "authority", None) or {}).get("line_owner_id") or "")
+    order, item = _rga.find_acceptance_any_binding(
+        orders, episode=ctx.episode, gate_id=RELEASE_LOUDNESS_GATE_ID, failing=failing, media_sha256=final_sha,
+        expected_issuer=issuer, media_item_ids=_loudness_binding_keys(failing), engine_root=ENGINE)
+    if order is not None:
+        info.update(rule="EXACT_SHA", media_item_id=item)
+        return order, info
+    current = read_json(p.leveled_audio_report, {}) or {}
+    picture = current.get("source_video_stream_sha256")
+    report = Path(str(p.leveled_audio_report))
+    prior: dict[str, str] = {}
+    for parked in sorted(report.parent.glob(f"{report.stem}__superseded_*{report.suffix}")):
+        old = read_json(parked, {}) or {}
+        old_sha = str((old.get("output_release") or {}).get("sha256") or "")
+        if picture and old.get("source_video_stream_sha256") == picture and old_sha and old_sha != final_sha:
+            prior[old_sha] = str(parked)
+    ids = [_loudness_failure_identity(f) for f in failing]
+    if prior and len(set(ids)) == len(ids):
+        stripped = []
+        for row in orders:
+            dec = row.get("decision") or {}
+            stripped.append({**row, "decision": {**dec, "detectors": sorted(
+                {_loudness_failure_identity(d) for d in dec.get("detectors") or [] if str(d)})}})
+        for old_sha, parked in prior.items():
+            hit, item = _rga.find_acceptance_any_binding(
+                stripped, episode=ctx.episode, gate_id=RELEASE_LOUDNESS_GATE_ID, failing=ids, media_sha256=old_sha,
+                expected_issuer=issuer, media_item_ids=_loudness_binding_keys(failing), engine_root=ENGINE)
+            if hit is not None:
+                original = next(r for r in orders if r.get("seq") == hit.get("seq"))
+                info.update(rule="RECORDED_DRIFT_SAME_PICTURE", media_item_id=item, bound_sha256=old_sha,
+                            bound_report=parked, source_video_stream_sha256=picture,
+                            failure_identities=sorted(ids))
+                return original, info
+    info["reason"] = ("NO_ORDERS_READ (inbox path/owner/latest seq)" if not orders
+                      else "NO_ORDER_MATCHES_EPISODE_GATE_FAILURES_AND_SHA")
+    info["binding_keys_tried"] = [k if k is not None else "media_sha256" for k in _loudness_binding_keys(failing)]
+    return None, info
 
 
 def _reusable_release_level(p: Any, source: Any) -> dict[str, Any] | None:
@@ -11556,17 +11651,8 @@ def _stage_s7_pass(ctx: Ctx) -> StageResult:
         level_report = read_json(p.leveled_audio_report, {}) or {}
         failing = list(level_report.get("failures") or [])
         final_sha = sha256_file(p.final_levelled) if p.final_levelled.is_file() else None
-        order = None
-        if failing and final_sha:
-            orders_path = ctx.authority.get("orders_path")
-            orders = (_rga._orders(orders_path,
-                                   expected_latest_seq=ctx.authority.get("latest_order_seq") or 0,
-                                   engine_root=ENGINE)
-                      if orders_path and not ctx.authority_blockers else [])
-            order = _rga.find_acceptance(
-                orders, episode=ctx.episode, gate_id="RELEASE-AUDIO-LOUDNESS",
-                failing=failing, media_sha256=final_sha, media_item_id="UNIT_LOUDNESS_OUT_OF_ROLE_RANGE",
-                expected_issuer=ctx.authority.get("line_owner_id") or "", engine_root=ENGINE)
+        order, match = s7_release_loudness_acceptance(ctx, p, failing, final_sha)
+        res.details["release_audio_loudness_acceptance_lookup"] = match
         if order is None:
             res.steps.extend(steps)
             res.blockers = ["RELEASE_AUDIO_LEVELLING_FAILED"]
@@ -11575,10 +11661,15 @@ def _stage_s7_pass(ctx: Ctx) -> StageResult:
                                  "--output/--qa — bump --version if this episode was levelled once "
                                  "already.")
             return res
-        record = _rga.acceptance_record(order, episode=ctx.episode, gate_id="RELEASE-AUDIO-LOUDNESS",
-                                        failing=failing, media_sha256=final_sha,
-                                        media_item_id="UNIT_LOUDNESS_OUT_OF_ROLE_RANGE",
+        bound_sha = match.get("bound_sha256") or final_sha
+        record = _rga.acceptance_record(order, episode=ctx.episode, gate_id=RELEASE_LOUDNESS_GATE_ID,
+                                        failing=failing, media_sha256=bound_sha,
+                                        media_item_id=match.get("media_item_id"),
                                         gate_result_path=str(p.leveled_audio_report))
+        if match.get("rule") == "RECORDED_DRIFT_SAME_PICTURE":
+            record.update(media_sha256=final_sha, binding_drift={
+                k: match.get(k) for k in ("rule", "bound_sha256", "bound_report", "source_video_stream_sha256",
+                                          "failure_identities")})
         acceptance_path = p.assembly / "final_qa" / f"{ctx.episode}_RELEASE_AUDIO_LOUDNESS_ACCEPTANCE.json"
         acceptance_path.parent.mkdir(parents=True, exist_ok=True)
         acceptance_path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -11688,11 +11779,7 @@ def _stage_s7_pass(ctx: Ctx) -> StageResult:
         gate_result = read_json(p.assembly / f"{ctx.episode}_FINAL_CUT_AUDIENCE_GATE.json", {}) or {}
         failing = _rga.failing_detectors(gate_result)
         final_sha = sha256_file(p.final_candidate) if p.final_candidate.is_file() else None
-        orders_path = ctx.authority.get("orders_path")
-        orders = (_rga._orders(orders_path,
-                               expected_latest_seq=ctx.authority.get("latest_order_seq") or 0,
-                               engine_root=ENGINE)
-                  if orders_path and not ctx.authority_blockers else [])
+        orders = _gate_acceptance_orders(ctx)
         order = _rga.find_acceptance(
             orders, episode=ctx.episode, gate_id="FINAL-CUT-AUDIENCE-DETECTORS",
             failing=failing, media_sha256=final_sha, media_item_id="loudness",
