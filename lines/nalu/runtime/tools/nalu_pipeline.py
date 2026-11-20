@@ -9853,6 +9853,47 @@ def kb_success_exemplars(ctx: Ctx, final_audience: dict[str, Any]) -> dict[str, 
         return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:160]}"}
 
 
+def kb_cast_and_lines(ctx: Ctx) -> tuple[list[tuple[Any, Any]], list[str]]:
+    """The cast names (``(character_id, name)``, aliases included) and dialogue lines of the episode contract -- passed
+    to the knowledge-event scrubbers only so they can keep them OUT of the fleet-shared events."""
+    contract = read_json(ctx.p.contract, {}) or {}
+    name_keys = ("canonical_name", "name", "display_name", "name_en", "english_name", "character")
+    cast: list[tuple[Any, Any]] = []
+    for row in contract.get("character_entities") or []:
+        if not isinstance(row, dict):
+            continue
+        cast += [(row.get("character_id"), row.get(key)) for key in name_keys if row.get(key)]
+        cast += [(row.get("character_id"), alias) for alias in row.get("aliases") or [] if isinstance(alias, str)]
+    lines = [str(row.get("text") or "") for row in (contract.get("audio_contract") or {}).get("dialogue_units") or []
+             if isinstance(row, dict) and row.get("text")]
+    return cast, lines
+
+
+def kb_final_review_findings(ctx: Ctx, final_audience: dict[str, Any]) -> dict[str, Any]:
+    """Every confirmed finding of the independent final review (reviewer problems, must-check DEFECTs, confirmed
+    Gemini A/V findings -- the set the final fix round acts on) as ``FINAL_REVIEW:<kind>|<language>`` knowledge
+    events (nalu_knowledge_events.record_final_review_findings), so the knowledge base learns author-side lessons
+    from a poor episode.  Runs for the first review and for the review after a fix round (``review_round``); the
+    release train counts distinct episodes, so a finding that survives the round does not double.  Best-effort."""
+    try:
+        report = str(final_audience.get("report") or "")
+        if not report or not Path(report).is_file():
+            return {"status": "NO_REVIEW_REPORT"}
+        checklist = Path(report).parent / f"{ctx.episode}_QA_DEFECT_CHECKLIST.json"
+        record = read_json(final_fix_record_path(ctx), {}) or {}
+        first_sha = (record.get("first_review") or {}).get("final_video_sha256")
+        sha = final_audience.get("final_video_sha256")
+        review_round = ("after_fix" if record.get("status") in FINAL_FIX_IN_PROGRESS and first_sha and sha
+                        and sha != first_sha else "first")
+        cast, lines = kb_cast_and_lines(ctx)
+        return kb_events("record_final_review_findings", episode=ctx.episode, report_path=report,
+                         checklist_path=str(checklist) if checklist.is_file() else None, media_sha256=sha,
+                         language=ctx_language(ctx), cast_names=cast, dialogue_lines=lines,
+                         review_round=review_round)
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:160]}"}
+
+
 def kb_craft_standard_gaps(ctx: Ctx, final_audience: dict[str, Any]) -> dict[str, Any]:
     """NALU_CRAFT_STANDARD_v1 (owner 2026-11-17): the independent reviewer's top craft gaps
     (``<EP>_CRAFT_STANDARD.json`` beside the score report) as ``CRAFT_STD_GAP|<item id>`` knowledge events
@@ -9863,12 +9904,7 @@ def kb_craft_standard_gaps(ctx: Ctx, final_audience: dict[str, Any]) -> dict[str
         craft = Path(report).parent / f"{ctx.episode}_CRAFT_STANDARD.json" if report else None
         if craft is None or not craft.is_file():
             return {"status": "NO_CRAFT_STANDARD_BLOCK"}
-        contract = read_json(ctx.p.contract, {}) or {}
-        name_keys = ("canonical_name", "name", "display_name", "name_en", "english_name", "character")
-        cast = [(row.get("character_id"), row.get(key)) for row in contract.get("character_entities") or []
-                if isinstance(row, dict) for key in name_keys if row.get(key)]
-        lines = [str(row.get("text") or "") for row in (contract.get("audio_contract") or {}).get("dialogue_units") or []
-                 if isinstance(row, dict) and row.get("text")]
+        cast, lines = kb_cast_and_lines(ctx)
         return kb_events("record_craft_gaps", episode=ctx.episode, craft_path=str(craft),
                          media_sha256=final_audience.get("final_video_sha256"), language=ctx_language(ctx),
                          cast_names=cast, dialogue_lines=lines)
@@ -11820,6 +11856,7 @@ def _stage_s7_pass(ctx: Ctx) -> StageResult:
         res.details["knowledge_events_exemplars"] = kb_success_exemplars(ctx, final_audience)
         res.details["knowledge_events_craft_standard"] = kb_craft_standard_gaps(ctx, final_audience)
         res.details["knowledge_events_qa_defects"] = kb_qa_defects(ctx, final_audience)
+        res.details["knowledge_events_final_review_findings"] = kb_final_review_findings(ctx, final_audience)
     if final_audience["status"] != PASS and not review_rejected:
         res.status = (REVIEW_REQUIRED
                       if final_audience["status"] == REVIEW_REQUIRED else BLOCKED)

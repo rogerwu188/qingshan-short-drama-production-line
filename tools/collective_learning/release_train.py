@@ -14,7 +14,8 @@ Flow (all thresholds in ``DEFAULTS``, overridable with ``--config``):
                 legacy run-level technical types) are never lessons; engine items are listed separately in the
                 review request.  A cluster is eligible when seen on >= ``min_devices`` independent
                 devices (``Service._independent_sources``: copies and replays collapse) OR >= ``min_episodes``
-                distinct (device, episode) pairs.
+                distinct (device, episode) pairs; author-side (DIRECTING_GUIDANCE) clusters use
+                ``directing_min_devices`` / ``directing_min_episodes`` instead.
 2. review hook  ``export-review`` writes the eligible, unhandled clusters to a review-request JSON; the reviewer
                 (patrol / Claude, via an admin command) answers with a review-result JSON: per cluster APPROVE
                 (with the full rule: trigger, recommendation, scope, ...) or REJECT (with a reason).
@@ -79,6 +80,14 @@ DEFAULTS: dict[str, Any] = {
     "min_devices": 3,
     "min_episodes": 5,
     "lookback_days": 30,
+    #: author-side lessons (DIRECTING_GUIDANCE: craft-standard gaps, final-review findings routed to the writer) are
+    #: eligible on these lower thresholds (line owner 2026-11-20: single-language lines with one device each must be
+    #: able to learn; the 12-24 h canary guards against a bad rule).  Model / engineering clusters keep the strict
+    #: ``min_devices`` / ``min_episodes``.  A cluster is author-side when its failure type starts with one of
+    #: ``directing_prefixes`` or its newest event carries ``evidence.lesson_route == "DIRECTING_GUIDANCE"``.
+    "directing_prefixes": ["CRAFT_STD_GAP"],
+    "directing_min_devices": 2,
+    "directing_min_episodes": 2,
     "batch_max": 5,
     "max_active_rules": 40,
     "canary_hours": 24,
@@ -188,7 +197,7 @@ def evidence_sample(event: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {"device": event.get("device_id"), "episode": event.get("episode_id"),
                            "stage": event.get("stage"), "symptom": str(event.get("symptom") or "")[:300]}
     for key in ("failure_code", "detail_category", "item", "asset_kind", "units_failed", "units_in_round",
-                "default_accepted", "accepted_order_seq"):
+                "default_accepted", "accepted_order_seq", "language", "lesson_route", "review_round"):
         if ev.get(key) not in (None, ""):
             out[key] = ev[key]
     samples = ev.get("samples")
@@ -199,6 +208,18 @@ def evidence_sample(event: dict[str, Any]) -> dict[str, Any]:
     if isinstance(ev.get("detail"), dict):
         out["detail"] = ev["detail"]
     return out
+
+
+def lesson_route(events: list[dict[str, Any]], prefixes: Any = ()) -> str | None:
+    """``DIRECTING_GUIDANCE`` when the cluster is an author-side lesson (prefix match or the newest event's
+    ``evidence.lesson_route``), else the newest event's route (``MODEL_CONSTRAINT`` ...) or None."""
+    if not events:
+        return None
+    ft = failure_type(events[-1])
+    if any(ft == p or ft.startswith(str(p) + ":") or ft.startswith(str(p) + "|") for p in prefixes or ()):
+        return "DIRECTING_GUIDANCE"
+    route = _evidence(events[-1]).get("lesson_route")
+    return str(route) if isinstance(route, str) and route else None
 
 
 def cluster_id(ftype: str) -> str:
@@ -306,6 +327,11 @@ class Train:
             for e in reversed(events):
                 if e.get("symptom") not in symptoms:
                     symptoms.append(str(e.get("symptom")))
+            route = lesson_route(events, self.cfg.get("directing_prefixes") or ())
+            directing = route == "DIRECTING_GUIDANCE"
+            min_devices = int(self.cfg["directing_min_devices" if directing else "min_devices"])
+            min_episodes = int(self.cfg["directing_min_episodes" if directing else "min_episodes"])
+            languages = sorted({str(_evidence(e).get("language")) for e in events if _evidence(e).get("language")})
             out.append({
                 "cluster_id": cluster_id(key), "failure_type": ftype, "cluster_key": key,
                 "detail_category": key[len(ftype) + 1:] if key != ftype else None,
@@ -317,9 +343,11 @@ class Train:
                                     for e in events[-3:]],
                 "evidence_samples": self._evidence_samples(events),
                 "models": sorted({str(e.get("provider_model_version")) for e in events})[:5],
+                **({"lesson_route": route} if route else {}),
+                **({"languages": languages} if languages else {}),
+                "thresholds": {"min_devices": min_devices, "min_episodes": min_episodes},
                 "event_ids": ids[-50:],
-                "eligible": (sources["independent_sources"] >= int(self.cfg["min_devices"])
-                             or len(episodes) >= int(self.cfg["min_episodes"])),
+                "eligible": (sources["independent_sources"] >= min_devices or len(episodes) >= min_episodes),
             })
         return out
 
@@ -384,7 +412,8 @@ class Train:
             "schema": REQUEST_SCHEMA, "request_id": request_id, "tenant": self.tenant, "created_at": _iso(now),
             "batch_max": int(self.cfg["batch_max"]), "active_rules": self._active_count(state),
             "rule_cap": int(self.cfg["max_active_rules"]), "free_rule_slots": slots,
-            "thresholds": {k: self.cfg[k] for k in ("min_devices", "min_episodes", "lookback_days")},
+            "thresholds": {k: self.cfg[k] for k in ("min_devices", "min_episodes", "lookback_days",
+                                                    "directing_min_devices", "directing_min_episodes")},
             "instructions": (
                 "For each cluster decide APPROVE or REJECT with a reason.  APPROVE only a problem a prompt-level "
                 "rule can prevent; give the rule: category (DIRECTING_HEURISTIC|MODEL_CONSTRAINT|"
@@ -394,7 +423,7 @@ class Train:
                 "DIRECTING_GUIDANCE, prompt_clause: {zh, en}}.  BEAT_DIRECTION / NEGATIVE_CONSTRAINT clauses go "
                 "into the provider video prompt (scope.stages [VIDEO_COMPILE]).  DIRECTING_GUIDANCE is a lesson "
                 "for the AUTHOR -- Codex writing the dispatch, script, storyboard and shot prompt_specs -- injected "
-                "into its episode start prompt (scope.stages [SCRIPT_AUTHORING]; optional scope.languages [zh|en] "
+                "into its episode start prompt (scope.stages [SCRIPT_AUTHORING]; optional scope.languages [zh|en|ja|ko] "
                 "and scope.genres [X2C category name]); use it when the fix is how the episode is written, e.g. "
                 "\"open every episode on an on-screen conflict in the first 3 s\" or \"keep expository dialogue "
                 "under 3 lines per scene\" (category DIRECTING_HEURISTIC, with exceptions).  A cluster keyed "
@@ -404,6 +433,18 @@ class Train:
                 "DIRECTING_GUIDANCE rule (category DIRECTING_HEURISTIC, scope.stages [SCRIPT_AUTHORING]) whose "
                 "trigger and recommendation cite the item id and whose prompt_clause restates that item's Codex line "
                 "with the numbers the samples show; REJECT it only when the samples contradict each other.  "
+                "A cluster keyed FINAL_REVIEW:<kind>|<language> (e.g. FINAL_REVIEW:PACING|ko) is a recurring "
+                "CONFIRMED finding of the independent final review (reviewer problem, must-check DEFECT or a Gemini "
+                "A/V finding the reviewer confirmed) on that dialogue language; its samples carry the source, "
+                "severity, time window and an anonymised description.  lesson_route DIRECTING_GUIDANCE (kinds "
+                "PACING, STORY, LENGTH, STATIC_SHOT_SPLIT, OTHER) means an AUTHOR-side lesson: APPROVE it as a "
+                "DIRECTING_GUIDANCE rule (category DIRECTING_HEURISTIC, scope.stages [SCRIPT_AUTHORING], "
+                "scope.languages [<language>]) that turns the descriptions into one general writing / directing "
+                "instruction (never the story itself: no names, places or plot); REJECT when the descriptions do "
+                "not share one cause.  lesson_route MODEL_CONSTRAINT (BURNED_TEXT, FACE_DRIFT, COSTUME_IDENTITY, "
+                "LOOKALIKE, VOICE, ASR_MISMATCH) may become a provider-prompt clause only when a clause can plausibly "
+                "prevent it.  Author-side clusters (CRAFT_STD_GAP, lesson_route DIRECTING_GUIDANCE) are offered "
+                "from directing_min_episodes episodes (one device is enough); the canary decides whether they help.  "
                 "At most batch_max approvals ship per day; extra approvals wait in the backlog.  Never put money, gates, authority "
                 "or secrets into a clause.  Each cluster's evidence_samples carry the concrete cause (unit, "
                 "scene/shot label, measured vs threshold, transcript / reviewer-note excerpt); detail_category is "
