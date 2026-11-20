@@ -209,12 +209,19 @@ def materialise(episode: str, submitted: dict[str, Any], submitted_path: Path) -
     return record
 
 
-def verify(episode: str) -> dict[str, Any]:
-    """Re-run the ENGINE's own validator on every receipt against the current keyframe."""
+def verify(episode: str, units: list[str] | None = None) -> dict[str, Any]:
+    """Re-run the ENGINE's own validator on every receipt against the current keyframe.
+
+    ``units`` (S6 chain step, 2026-11-19): validate only these units -- the ones a rolling wave is about to
+    submit.  The caller only ever acted on in-scope rows, so the verdict for every submitted unit is exactly
+    the same; out-of-scope units are simply not re-hashed and re-validated on every chain step.  None = all."""
     gate = engine_module("shot_media_admission_gate")
     exp = Expectations(episode)
+    scope = set(units) if units else None
     rows = []
     for unit_id, contract in sorted(exp.start_frame_units.items()):
+        if scope is not None and unit_id not in scope:
+            continue
         path = evidence_path(episode, unit_id)
         keyframe = Path(str(contract.get("reference_path") or ""))
         expected_sha = sha256_file(keyframe) if keyframe.is_file() else None
@@ -235,6 +242,8 @@ def main() -> int:
     w = sub.add_parser("write"); w.add_argument("--episode", required=True); w.add_argument("--review", required=True, type=Path)
     for name in ("verify", "status"):
         x = sub.add_parser(name); x.add_argument("--episode", required=True)
+        x.add_argument("--units", default=None,
+                       help="JSON list (or comma-separated) of unit ids to validate; default every unit")
     args = ap.parse_args()
     if args.cmd == "write":
         submitted = read_json(args.review)
@@ -245,7 +254,12 @@ def main() -> int:
         rec = materialise(args.episode, submitted, args.review)
         print(json.dumps({"status": rec["status"], "units": rec["unit_count"], "pass": rec["pass_count"], "out": rec["_written_to"]}, ensure_ascii=False))
         return 0 if rec["status"] == "PASS" else 2
-    rep = verify(args.episode)
+    units = None
+    if args.units:
+        text = args.units.strip()
+        units = [str(u) for u in json.loads(text)] if text.startswith("[") else \
+            [u.strip() for u in text.split(",") if u.strip()]
+    rep = verify(args.episode, units)
     print(json.dumps({k: rep[k] for k in ("episode", "units", "pass", "missing", "failing")}, ensure_ascii=False))
     return 0 if not rep["missing"] and not rep["failing"] else 2
 

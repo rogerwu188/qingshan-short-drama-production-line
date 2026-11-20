@@ -42,8 +42,16 @@ OK = {"PASS", "SKIPPED"}
 #: by itself).  A stage whose EVERY blocker is one of these needs no judgement: the same command is simply re-run.
 #: interval_s = the wait the contract prescribed between re-runs; max_reruns = how many unattended re-runs before
 #: the producer is woken to judge (VIDEO: ~6 h of rendering/queueing; image outage: the contract's 6 tries).
+#: VIDEO_NOT_ALL_COMPLETED (2026-11-19, S6 chain-step latency): 240 s -> 75 s between re-runs, so a landed
+#: predecessor is picked up at the next 3-min tick instead of ~6 min later; the re-run cap scales by the same
+#: factor (90 x 240 s = 288 x 75 s = 6 h) so the unattended wait budget is unchanged.  A re-run that only polls
+#: exits in seconds (it keeps polling in-run only after it POSTed a chain step, bounded by
+#: NALU_S6_INRUN_POLL_MAX_SECONDS), so the rerun count still tracks wall time.
+VIDEO_REMOTE_WAIT_INTERVAL_S = 75
+VIDEO_REMOTE_WAIT_BUDGET_S = 90 * 240
 REMOTE_WAIT: dict[str, dict[str, int]] = {
-    "VIDEO_NOT_ALL_COMPLETED": {"interval_s": 240, "max_reruns": 90},
+    "VIDEO_NOT_ALL_COMPLETED": {"interval_s": VIDEO_REMOTE_WAIT_INTERVAL_S,
+                                "max_reruns": VIDEO_REMOTE_WAIT_BUDGET_S // VIDEO_REMOTE_WAIT_INTERVAL_S},
     "HOPSAPI_IMAGE_PROVIDER_OUTAGE": {"interval_s": 600, "max_reruns": 6},
 }
 WAIT, ACT = "WAIT", "ACT"
