@@ -357,7 +357,19 @@ def parse_block(block: Any, *, duration: float | None = None) -> dict[str, Any]:
     if not isinstance(block, dict):
         return {**out, "status": "MALFORMED", "notes": [f"block_not_object:{type(block).__name__}"]}
     raw = block.get("items") if isinstance(block.get("items"), dict) else block
+    verification = block.get("gemini_verification")
+    if isinstance(verification, list):
+        out["gemini_verification"] = {}
+        for row in verification:
+            if not isinstance(row, dict) or not re.fullmatch(r"[GS]\d{1,3}", str(row.get("id") or "")):
+                continue
+            decision = _clean(row.get("decision"), 12).upper()
+            out["gemini_verification"][str(row["id"])] = {
+                "decision": decision if decision in ("CONFIRMED", "DISMISSED") else "UNSURE",
+                "reason": _clean(row.get("reason"))}
     for key, row in (raw or {}).items():
+        if key == "gemini_verification":
+            continue
         iid = _normalise_id(key)
         if iid is None:
             out["notes"].append(f"unknown_item:{_clean(key, 30)}")
@@ -410,7 +422,68 @@ def _measured_findings(measurements: dict[str, Any]) -> list[dict[str, Any]]:
     for row in (measurements.get("bgm") or {}).get("flagged") or []:
         out.append({"item_id": "QA-BGM-DISCONTINUOUS", "window": [row.get("start"), row.get("end")],
                     "source": "MEASURED", "detail": ",".join(row.get("reasons") or [])})
+    # the local A/V evidence pack (av_evidence_pack.py, video-native final review 2026-11-19)
+    pack = measurements.get("av_evidence_pack") or {}
+    for row in pack.get("burned_text_runs") or []:
+        out.append({"item_id": "QA-BURNED-TEXT", "window": row.get("window"), "source": "AV_PACK_OCR",
+                    "detail": "GARBLED" if row.get("garbled") else "BURNED_TEXT_RUN"})
+    for row in pack.get("tail_cut_suspects") or []:
+        out.append({"item_id": "QA-DIALOGUE-TAIL-CUT", "at_seconds": row.get("cut"), "source": "AV_PACK_AUDIO",
+                    "detail": f"gap {row.get('gap_s')} s, {row.get('level_db')} dB at the cut"})
+    if not str(pack.get("bgm_source") or "").startswith("S7"):  # S7 plan segments are already flagged above
+        for row in pack.get("bgm_suspects") or []:
+            out.append({"item_id": "QA-BGM-DISCONTINUOUS", "window": row.get("window"), "source": "AV_PACK_AUDIO",
+                        "detail": ",".join(row.get("reasons") or [])})
+    for row in pack.get("wrap_suspects") or []:
+        if "PIXEL_LONE_SHORT_ROW" in (row.get("reasons") or []):
+            out.append({"item_id": "QA-SUBTITLE-WRAP", "window": row.get("window"), "source": "AV_PACK_PIXELS",
+                        "detail": "PIXEL_LONE_SHORT_ROW"})
+    for row in (pack.get("lookalike") or {}).get("suspects") or []:
+        out.append({"item_id": "QA-LOOKALIKE-CAST", "source": "AV_PACK_FACES",
+                    **({"window": [row.get("start"), row.get("end")]} if row.get("start") is not None else {}),
+                    "detail": f"{row.get('kind')} cosine {row.get('cosine')}"})
     return out
+
+
+GEMINI_MATCH_S = 1.5
+
+
+def _finding_time(f: dict[str, Any]) -> tuple[float, float] | None:
+    if _num(f.get("at_seconds")) is not None:
+        return float(f["at_seconds"]), float(f["at_seconds"])
+    window = f.get("window") or []
+    if len(window) == 2 and _num(window[0]) is not None:
+        return float(window[0]), float(_num(window[1]) if _num(window[1]) is not None else window[0])
+    return None
+
+
+def gemini_block(gemini: dict[str, Any] | None, parsed: dict[str, Any],
+                 reviewer_findings: list[dict[str, Any]]) -> dict[str, Any]:
+    """The video-native pass (gemini_video_review.py) with the Codex reviewer's verdict on each finding: CONFIRMED
+    (named in qa_defect_checklist.gemini_verification, or a reviewer DEFECT of the same item within GEMINI_MATCH_S),
+    DISMISSED (with the reviewer's reason) or UNVERIFIED."""
+    if not isinstance(gemini, dict) or not gemini:
+        return {}
+    verification = parsed.get("gemini_verification") or {}
+    rows = []
+    for f in gemini.get("findings") or []:
+        decision = verification.get(str(f.get("id"))) or {}
+        status = decision.get("decision")
+        if status not in ("CONFIRMED", "DISMISSED"):
+            near = any(r["item_id"] == f.get("item") and (_finding_time(r) or (-99, -99))[0] - GEMINI_MATCH_S
+                       <= float(f.get("end") or f.get("start") or 0) and float(f.get("start") or 0)
+                       <= (_finding_time(r) or (-99, -99))[1] + GEMINI_MATCH_S for r in reviewer_findings)
+            status = "CONFIRMED" if near else "UNVERIFIED"
+        rows.append({"id": f.get("id"), "item": f.get("item"), "window": [f.get("start"), f.get("end")],
+                     "severity": f.get("severity"), "status": status, "note": _clean(f.get("description"), 160),
+                     **({"reviewer_reason": decision.get("reason")} if decision.get("reason") else {})})
+    checks = [{"id": c.get("id"), "gemini": c.get("decision"),
+               "reviewer": (verification.get(str(c.get("id"))) or {}).get("decision"),
+               "suspect": c.get("suspect")} for c in gemini.get("suspect_checks") or []]
+    count = {k: sum(1 for r in rows if r["status"] == k) for k in ("CONFIRMED", "DISMISSED", "UNVERIFIED")}
+    return {"status": gemini.get("status"), "reason": gemini.get("reason"), "model": gemini.get("model"),
+            "cost_credits": gemini.get("cost_credits"), "findings": rows, "suspect_checks": checks[:40],
+            "counts": count, "verdict": gemini.get("verdict")}
 
 
 def routing(item_id: str, *, maskable: bool = True) -> str:
@@ -423,7 +496,7 @@ def routing(item_id: str, *, maskable: bool = True) -> str:
 
 
 def build_record(parsed: dict[str, Any], measurements: dict[str, Any], *, episode: str,
-                 bindings: dict[str, Any] | None = None) -> dict[str, Any]:
+                 bindings: dict[str, Any] | None = None, gemini: dict[str, Any] | None = None) -> dict[str, Any]:
     """The checklist record: per item the reviewer verdict + findings and the measured flags, with routing."""
     findings: list[dict[str, Any]] = []
     for iid, row in (parsed.get("items") or {}).items():
@@ -432,6 +505,7 @@ def build_record(parsed: dict[str, Any], measurements: dict[str, Any], *, episod
         for f in row.get("findings") or [{}]:
             findings.append({"item_id": iid, "source": "REVIEWER", **f})
     measured = _measured_findings(measurements or {})
+    video = gemini_block(gemini, parsed, findings)
     items = {}
     for iid in ITEM_IDS:
         reviewer = (parsed.get("items") or {}).get(iid) or {}
@@ -441,12 +515,17 @@ def build_record(parsed: dict[str, Any], measurements: dict[str, Any], *, episod
                   reviewer.get("verdict") or ("MEASURED_FLAG_UNREVIEWED" if flags else "NOT_REVIEWED"))
         items[iid] = {"title_zh": ITEMS[iid]["title_zh"], "status": status, "reviewer_findings": own,
                       "measured_flags": flags[:12], "routing": routing(iid),
-                      "craft_item": ITEMS[iid]["craft_item"]}
+                      "craft_item": ITEMS[iid]["craft_item"],
+                      **({"gemini_findings": [g for g in video["findings"] if g["item"] == iid][:12]}
+                         if video else {})}
     defects = [iid for iid, row in items.items() if row["status"] == "DEFECT"]
     return {"schema": SCHEMA, "episode": episode, "authority": AUTHORITY, "parse": {
                 "status": parsed.get("status"), "notes": parsed.get("notes") or []},
             "bindings": bindings or {}, "items": items, "defects": defects,
             "flagged_unreviewed": [iid for iid, row in items.items() if row["status"] == "MEASURED_FLAG_UNREVIEWED"],
+            **({"video_review": video} if video else {}),
+            **({"letterbox_measured": ((measurements or {}).get("av_evidence_pack") or {}).get("letterbox_shots")}
+               if ((measurements or {}).get("av_evidence_pack") or {}).get("letterbox_shots") else {}),
             "auto_recut": {"status": "NO_HOOK", "note": (
                 "S7 re-cut renders only an authored UNIT_RECUT_PLAN; no free automatic re-cut exists for these "
                 "items, so they are listed in the S8 owner-approval checkpoint instead")}}
@@ -470,7 +549,9 @@ def event_specs(record: dict[str, Any]) -> list[dict[str, Any]]:
                                  "craft_item": row.get("craft_item"), "status": row.get("status"),
                                  "detail": {"at_seconds": times,
                                             "reviewer_findings": len(row.get("reviewer_findings") or []),
-                                            "measured_flags": len(row.get("measured_flags") or [])}}})
+                                            "measured_flags": len(row.get("measured_flags") or []),
+                                            "gemini_confirmed": sum(1 for g in row.get("gemini_findings") or []
+                                                                    if g.get("status") == "CONFIRMED")}}})
     return out
 
 
@@ -489,6 +570,20 @@ def checkpoint_lines(record: dict[str, Any] | None) -> list[str]:
                 stamps.append(f"{float(f['window'][0]):.1f}-{float(f['window'][1] or f['window'][0]):.1f}s")
         lines.append(f"| `{iid}` | {row.get('title_zh')} | **{row.get('status')}** | "
                      f"{', '.join(stamps[:8]) or '—'} | {row.get('routing')} |")
+    video = record.get("video_review") or {}
+    if video:
+        counts = video.get("counts") or {}
+        lines += ["", f"Video-native pass ({video.get('model')}, {video.get('cost_credits')} credits, "
+                      f"{video.get('status')}): {len(video.get('findings') or [])} findings -- confirmed by the reviewer "
+                      f"{counts.get('CONFIRMED', 0)}, dismissed {counts.get('DISMISSED', 0)}, unverified "
+                      f"{counts.get('UNVERIFIED', 0)}"]
+        for g in [g for g in video.get("findings") or [] if g.get("status") != "DISMISSED"][:10]:
+            window = g.get("window") or [None, None]
+            lines.append(f"- `{g.get('id')}` {g.get('item')} {window[0]}-{window[1]}s {g.get('severity')} "
+                         f"**{g.get('status')}**: {g.get('note')}")
+    if record.get("letterbox_measured"):
+        lines += ["", "Letterboxed / pillarboxed shots measured in the final cut: " + ", ".join(
+            f"{(r.get('window') or [0, 0])[0]}-{(r.get('window') or [0, 0])[1]}s" for r in record["letterbox_measured"])]
     lines += ["", f"S7 auto re-cut: {record.get('auto_recut', {}).get('note', '')}", ""]
     return lines
 

@@ -422,6 +422,10 @@ def prepare(*, episode: str, video: Path, metrics_path: Path, contact_sheet: Pat
     # is intended; warping, off-model frames and mid-clip style drift are what it scores (render_style.py)
     style = _render_style.normalise(render_style) or _episode_render_style(episode)
     anime = style == _render_style.ANIME
+    # local A/V evidence pack (video-native final review, line owner 2026-11-19): advisory, SHA-bound, free
+    av_pack = build_av_evidence_pack(episode, video=video, video_sha=video_sha, shots=shots, asr=_asr,
+                                     subtitle_report_path=subtitle_report_path, out_dir=metrics_path.parent,
+                                     render_style=style, defect_request=defect_request)
     refs = {
         "final_video": {"path": str(video), "sha256": video_sha},
         "objective_metrics": {"path": str(metrics_path.resolve()), "sha256": _sha(metrics_path)},
@@ -434,6 +438,7 @@ def prepare(*, episode: str, video: Path, metrics_path: Path, contact_sheet: Pat
             "status": technical_status,
         },
         "subtitle_burnin": subtitle_evidence,
+        **(av_pack or {}),
     }
     request = {
         "schema": REQUEST_SCHEMA,
@@ -894,6 +899,56 @@ def qa_defect_measurements(episode: str, *, shots: list[dict[str, Any]], asr: An
         audio_bed_path=assembly / f"{episode}_AUDIO_BED.json")
 
 
+def build_av_evidence_pack(episode: str, *, video: Path, video_sha: str, shots: list[dict[str, Any]], asr: Any,
+                           subtitle_report_path: Path | None, out_dir: Path, render_style: str | None,
+                           defect_request: dict[str, Any] | None) -> dict[str, Any]:
+    """The local evidence pack (av_evidence_pack.py) written to ``<EP>_AV_EVIDENCE_PACK.json`` and returned as the
+    request's evidence rows (``av_evidence_pack`` + ``cast_lineup_sheet``, path + sha, verified at submit).  Its
+    summary is also handed to the must-check list as ``measurements.av_evidence_pack``.  Advisory: any failure (or
+    NALU_AV_EVIDENCE_PACK=off) returns {} and the request is written without it."""
+    if str(os.environ.get("NALU_AV_EVIDENCE_PACK") or "").strip().lower() in ("off", "0", "false"):
+        return {}
+    try:
+        import av_evidence_pack as _pack  # noqa: PLC0415
+        info = _pack.probe(video)
+        if not info.get("width") or not info.get("height"):
+            return {}
+        subtitle = read_json(subtitle_report_path, {}) if subtitle_report_path else {}
+        ass = (subtitle or {}).get("ass") if isinstance(subtitle, dict) else None
+        ass_text = Path(str(ass)).read_text(encoding="utf-8") if ass and Path(str(ass)).is_file() else None
+        measured = ((defect_request or {}).get("measurements") or {})
+        pack = _pack.build(video, shots=shots, asr=asr, ass_text=ass_text, render_style=render_style,
+                           bgm_measurement=measured.get("bgm"), out_dir=out_dir, episode=episode,
+                           media_sha256=video_sha, info=info)
+        path = out_dir / f"{episode}_AV_EVIDENCE_PACK.json"
+        _atomic_json(path, pack)
+        if isinstance(defect_request, dict) and isinstance(defect_request.get("measurements"), dict):
+            defect_request["measurements"]["av_evidence_pack"] = pack.get("summary") or {}
+        rows: dict[str, Any] = {"av_evidence_pack": {"path": str(path), "sha256": _sha(path),
+                                                     "media_sha256": video_sha, "authority": "ADVISORY_NOT_A_GATE"}}
+        sheet = (pack.get("lookalike_cast") or {}).get("lineup_sheet")
+        if sheet and Path(sheet).is_file():
+            rows["cast_lineup_sheet"] = {"path": str(Path(sheet).resolve()), "sha256": _sha(Path(sheet))}
+        return rows
+    except Exception:  # noqa: BLE001 -- advisory: the request is written without the pack
+        return {}
+
+
+def gemini_review_path(episode: str) -> Path:
+    """Where codex_production.launch_reviewer writes the video-native pass (``final_reviewer/gemini_review.json``)."""
+    runtime = Path(os.environ.get("NALU_RUNTIME_ROOT") or str(RUNTIME)).expanduser()
+    return runtime / "claude_code" / episode / "final_reviewer" / "gemini_review.json"
+
+
+def gemini_review_for(request: dict[str, Any], request_sha: str) -> dict[str, Any]:
+    """The video-native pass bound to THIS request (same request sha), else {}."""
+    path = gemini_review_path(str(request.get("episode")))
+    record = read_json(path, {}) if path.is_file() else {}
+    if not isinstance(record, dict) or record.get("request_sha256") != request_sha:
+        return {}
+    return {**record, "_sha256": sha256_file(path)}
+
+
 def _record_qa_defects(request: dict[str, Any], request_sha: str, answers: dict[str, Any],
                        report_path: Path) -> dict[str, Any]:
     """Advisory: the must-check defect list (reviewer block, parsed leniently, + the measured flags) written to
@@ -904,10 +959,13 @@ def _record_qa_defects(request: dict[str, Any], request_sha: str, answers: dict[
     try:
         duration = float((request.get("objective_summary") or {}).get("duration_seconds") or 0.0) or None
         parsed = _qa_defects.parse_block(answers.get("qa_defect_checklist"), duration=duration)
+        gemini = gemini_review_for(request, request_sha)
         record = _qa_defects.build_record(
             parsed, block_request.get("measurements") or {}, episode=str(request.get("episode")),
             bindings={"request_sha256": request_sha, "final_video_sha256": (request.get("media") or {}).get("sha256"),
-                      "reviewer_model": (answers.get("reviewer") or {}).get("model")})
+                      "reviewer_model": (answers.get("reviewer") or {}).get("model"),
+                      **({"gemini_review_sha256": gemini.get("_sha256")} if gemini else {})},
+            gemini=gemini)
         path = report_path.parent / f"{request.get('episode')}_QA_DEFECT_CHECKLIST.json"
         _atomic_json(path, record)
         return {"status": parsed.get("status"), "path": str(path), "sha256": _sha(path),
