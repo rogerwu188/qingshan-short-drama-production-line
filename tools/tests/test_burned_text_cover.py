@@ -125,37 +125,24 @@ class VerifyScopeTests(unittest.TestCase):
 
 
 class CaptionPlateTests(unittest.TestCase):
-    """E13 2026-11-01 viewing note: subtitles keep a transparent plate; only the burned-text bar is dark."""
+    """E13 2026-11-01: captions keep a transparent plate.  Owner 2026-11-19: the dark bar / band-wide blur is
+    retired (tight text-box blur only) and the caption is never drawn on a blurred box."""
 
-    def test_bar_alpha_can_be_set_per_episode(self):
+    def test_band_wide_bar_and_blur_styles_are_retired(self):
         policy = json.loads((pathlib.Path(__file__).resolve().parents[2]
                              / 'configs/H3_BURNED_TEXT_COVER_V1.json').read_text(encoding='utf-8'))
-        self.assertIn('E13', policy['bar_rgba_by_episode'])
-        self.assertLess(policy['bar_rgba_by_episode']['E13'][3], policy['bar_rgba'][3])
+        for key in ('bar_rgba', 'bar_rgba_by_episode', 'cover_style_by_episode', 'blur_radius'):
+            self.assertNotIn(key, policy)
+        self.assertLessEqual(policy['cover']['max_area_fraction'], 0.12)
 
-    def test_the_default_bar_is_fully_opaque(self):
-        # Fleet 2026-11-14 (E12 S7): at alpha 235 the burned line still read through the bar and the verify
-        # refused the episode (H3_BURNED_TEXT_STILL_VISIBLE, hits only inside the band).  A dark BAR that is
-        # meant to hide text must hide it completely; weaker bars exist only as explicit per-episode entries.
-        policy = json.loads((pathlib.Path(__file__).resolve().parents[2]
-                             / 'configs/H3_BURNED_TEXT_COVER_V1.json').read_text(encoding='utf-8'))
-        self.assertEqual(policy['bar_rgba'][3], 255)
-        styles = policy.get('cover_style_by_episode') or {}
-        for episode, rgba in (policy.get('bar_rgba_by_episode') or {}).items():
-            if rgba[3] < 255:
-                self.assertEqual(styles.get(episode), 'BLUR', episode)
-
-    def test_the_caption_plate_is_never_painted_dark(self):
-        # The caption keeps its transparent plate (E13 note 「字幕底以前都是透明的」): nothing in the caption
-        # block may paint a background.  It does sit INSIDE the cover band once a cover exists, so the burned
-        # line is hidden under our one caption row instead of showing as a second row (E13「有两排字幕了」).
+    def test_the_caption_plate_is_never_painted_dark_and_keeps_its_normal_place(self):
         source = (pathlib.Path(__file__).resolve().parents[2]
                   / 'lines/nalu/runtime/tools/build_burnin_subtitles.py').read_text(encoding='utf-8')
         caption_block = source[source.index('for i, (s_t, e_t, ln) in enumerate(events):'):
                                source.index('last = f"[v{len(events)}]"')]
-        self.assertNotIn('cover["rgba"]', caption_block)
+        self.assertNotIn('rgba', caption_block)
         self.assertIn('Image.new("RGBA", (W, LINE_H * len(rows) + 24), (0, 0, 0, 0))', caption_block)
-        self.assertIn('if cover else H - MARGIN_BOTTOM - img.height', caption_block)
+        self.assertIn('caption_y(H - MARGIN_BOTTOM - img.height', caption_block)
 
 
 class CaptionOutsideBandTests(unittest.TestCase):

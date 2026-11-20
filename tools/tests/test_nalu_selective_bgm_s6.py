@@ -68,6 +68,9 @@ class SelectiveBgmS6Test(unittest.TestCase):
             "NALU_VENV_PYTHON": sys.executable,
         })
         self.env.pop("GIGGLE_API_KEY", None)
+        # the 5 s fixture cue is shorter than the 12 s no-fragment floor (bgm_cue_shaping); this test is about the
+        # transaction reuse, so the floor is lowered for it
+        self.env["NALU_BGM_MIN_CUE_SECONDS"] = "4"
 
     def tearDown(self) -> None:
         self.tmp.cleanup()

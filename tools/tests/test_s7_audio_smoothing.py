@@ -47,11 +47,11 @@ class BgmDuckTest(unittest.TestCase):
         row = cue(dialogue_duck_db=smooth.STAMPED_DUCK_DB, duck_shape=smooth.duck_shape(cue()["dialogue_windows"]))
         expr = sbgm.duck_expr(row)
         self.assertEqual(expr.count("cos(PI*"), 7)          # one ramp pair per merged window
-        self.assertTrue(expr.startswith("1-(1-0.5012)*"))   # -6 dB
+        self.assertTrue(expr.startswith("1-(1-0.3162)*"))   # -10 dB (owner 2026-11-19)
         self.assertIn("/0.4,0,1)", expr)                    # 0.4 s down
         self.assertIn("/1.2,0,1)", expr)                    # 1.2 s up
-        self.assertGreaterEqual(smooth.STAMPED_DUCK_DB, -6.0)  # bgm_authenticity_gate -6..-10 contract
-        self.assertLessEqual(smooth.STAMPED_DUCK_DB, -6.0)
+        self.assertGreaterEqual(smooth.STAMPED_DUCK_DB, -10.0)  # bgm_authenticity_gate -6..-10 contract
+        self.assertLessEqual(smooth.STAMPED_DUCK_DB, -10.0)
 
     def test_unstamped_duck_expression_is_unchanged(self) -> None:
         row = cue(dialogue_windows=[{"start": 23.3, "end": 24.22}, {"start": 29.134, "end": 30.114}])

@@ -15,6 +15,8 @@ for _path in (str(REPO), str(REPO / "tools"), str(REPO / "lines" / "nalu" / "run
 
 import performance_cut as pc  # noqa: E402
 
+BEAT = pc._guard.POST_LINE_BEAT_SECONDS  # owner 2026-11-19: the post-line beat replaced the 0.4 s tail pad
+
 
 def seg(*words):
     return {"start": words[0][0], "end": words[-1][1], "text": "".join(w for _, _, w in words),
@@ -87,18 +89,22 @@ class SpeakingUnitTests(unittest.TestCase):
         words = chars(0.5, "我从今天清早起就一直守在这里") + chars(3.5, "还有一件事情要说")
         rep = pc.plan(c, grouping({"U": ["S1"]}), {"U": [seg(*words)]}, {"U": 6.0})
         r = row(rep, "U")
-        self.assertEqual(r["after_out"], round(2.74 + pc.TAIL_PAD, 3))  # line end + pad comes first here
+        self.assertEqual(r["after_out"], round(2.74 + BEAT, 3))  # line end + post-line beat comes first here
         self.assertEqual(r["after_in"], round(0.5 - pc.HEAD_LEAD, 3))
         words = chars(0.5, "我从今天清早起就一直守在这里") + chars(2.9, "还有一件事情要说")
         r = row(pc.plan(c, grouping({"U": ["S1"]}), {"U": [seg(*words)]}, {"U": 6.0}), "U")
-        self.assertEqual(r["after_out"], round(2.9 - pc.SPEECH_GAP, 3))  # invented speech starts sooner
+        # invented speech starts sooner, but never before the tail guard (owner 2026-11-19: last syllable kept)
+        self.assertEqual(r["after_out"], round(max(2.9 - pc.SPEECH_GAP, 2.74 + pc._guard.TAIL_GUARD_SECONDS), 3))
+        words = chars(0.5, "我从今天清早起就一直守在这里") + chars(3.2, "还有一件事情要说")
+        r = row(pc.plan(c, grouping({"U": ["S1"]}), {"U": [seg(*words)]}, {"U": 6.0}), "U")
+        self.assertEqual(r["after_out"], round(3.2 - pc.SPEECH_GAP, 3))
         self.assertEqual(r["reasons"], ["TRIM_HEAD_TO_LINE", "TRIM_TAIL_UNSCRIPTED"])
 
     def test_plain_line_keeps_lead_and_tail_pad(self):
         c = contract({"S1": [("A", "不练了！")]})
         rep = pc.plan(c, grouping({"U": ["S1"]}), {"U": [seg(*chars(2.0, "不练了", step=0.3))]}, {"U": 4.458})
         r = row(rep, "U")
-        self.assertEqual((r["after_in"], r["after_out"]), (1.85, round(2.9 + pc.TAIL_PAD, 3)))
+        self.assertEqual((r["after_in"], r["after_out"]), (1.85, round(2.9 + BEAT, 3)))
         self.assertEqual(r["reasons"], ["TRIM_HEAD_TO_LINE", "TRIM_TAIL_TO_LINE"])
 
     def test_repeated_line_keeps_last_complete_occurrence(self):
@@ -134,7 +140,7 @@ class SpeakingUnitTests(unittest.TestCase):
         words = [(0.2, 0.4, " It"), (0.4, 0.6, " was"), (0.6, 1.0, " clamped,"), (1.2, 1.6, " clamped"),
                  (1.6, 1.8, " to"), (1.8, 1.9, " the"), (1.9, 2.3, " floor.")]
         r = row(pc.plan(c, grouping({"U": ["S1"]}), {"U": [seg(*words)]}, {"U": 4.0}), "U")
-        self.assertEqual((r["after_in"], r["after_out"]), (0.05, 2.7))  # only head/tail; the take is never spliced
+        self.assertEqual((r["after_in"], r["after_out"]), (0.05, round(2.3 + BEAT, 3)))  # only head/tail; never spliced
         self.assertNotIn("DROP_REPEAT", r["reasons"])
 
     def test_english_misheard_word_and_trailing_babble(self):
@@ -144,7 +150,7 @@ class SpeakingUnitTests(unittest.TestCase):
                  (3.3, 3.8, " lust")]
         r = row(pc.plan(c, grouping({"U": ["S1"]}), {"U": [seg(*words)]}, {"U": 4.5}), "U")
         self.assertEqual(r["removed_tail_text"], "all in lust")
-        self.assertEqual(r["after_out"], round(min(1.8 + pc.TAIL_PAD, 2.6 - pc.SPEECH_GAP), 3))
+        self.assertEqual(r["after_out"], round(min(1.8 + BEAT, 2.6 - pc.SPEECH_GAP), 3))
 
     def test_silent_last_shot_is_kept_unless_speech_follows(self):
         c = contract({"S1": [("A", "不练了！")]})

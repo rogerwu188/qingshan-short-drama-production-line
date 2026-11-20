@@ -31,8 +31,8 @@ class FitCuesToCutTest(unittest.TestCase):
         self.assertEqual(windows["A"], (20.0, 80.0))
 
     def test_never_below_min_cue(self):
-        windows = {"A": (0.0, 9.0)}
-        bgm.fit_cues_to_cut(windows, 10.0)
+        windows = {"A": (0.0, 13.0)}
+        bgm.fit_cues_to_cut(windows, 14.0)
         self.assertGreaterEqual(windows["A"][1] - windows["A"][0], bgm.MIN_CUE_SECONDS)
 
 

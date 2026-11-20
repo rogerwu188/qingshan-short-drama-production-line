@@ -81,27 +81,67 @@ def ass_time(t: float) -> str:
     t = max(0.0, t); h = int(t // 3600); m = int(t % 3600 // 60); s = t % 60
     return f"{h}:{m:02d}:{s:05.2f}"
 
+#: Line-breaking rules (kinsoku; owner 2026-11-19: 「我和我姐姐差点被你的同伴对付了」 / 「！」 left the exclamation mark
+#: alone on the second row).  No row may START with closing punctuation, no row may END with an opening bracket,
+#: and no row is a single character.  The zh / ja wrap and the cue splitter both follow these rules.
+NO_LINE_START = set("，。！？、；：」』）】》〉〕］｝’”…—～・ー,.!?;:)]}%·ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ々〻゛゜ヽヾゝゞ")
+NO_LINE_END = set("「『（【《〈〔［｛‘“([{")
+CLAUSE_PUNCT = set("，。！？；：、,.!?;:")
+
+
+def _break_ok(text: str, i: int) -> bool:
+    """A row break before ``text[i]`` keeps the kinsoku rules (``text`` without spaces counted)."""
+    return (0 < i < len(text) and text[i] not in NO_LINE_START and text[i - 1] not in NO_LINE_END
+            and text[i - 1:i + 1] not in ("……", "——"))
+
+
+def _visible_len(row: str) -> int:
+    return len(row.replace(" ", ""))
+
+
 def wrap(text: str, width: int = 15) -> str:
+    """zh / ja character wrap: the fewest rows of at most ``width`` characters (a closing punctuation mark may
+    hang one past it), rows as even as possible, a break after clause punctuation preferred, never breaking
+    against the kinsoku rules, never a one-character row."""
     text = text.strip()
     if len(text) <= width:
         return text
-    # prefer a break at punctuation near the middle
-    cut = None
-    for i in range(min(len(text) - 1, width), max(1, len(text) // 3), -1):
-        if text[i - 1] in "，。！？；：、":
-            cut = i; break
-    cut = cut or width
-    return text[:cut] + "\\N" + wrap(text[cut:], width)
+    rows = -(-len(text) // width)
+    target = len(text) / rows
+    best, best_cost = None, float("inf")
+    for i in range(2, len(text) - 1):
+        head = text[:i]
+        limit = width + (1 if head[-1] in NO_LINE_START else 0)
+        if len(head) > limit or not _break_ok(text, i):
+            continue
+        cost = abs(i - target) - (3.5 if head[-1] in CLAUSE_PUNCT else 0.0)
+        # the rest must still fit the remaining rows
+        if len(text) - i > width * (rows - 1) + 1:
+            cost += 50
+        if cost < best_cost:
+            best, best_cost = i, cost
+    if best is None:  # nothing satisfies the rules (very short text): the old hard cut, rules relaxed
+        best = min(width, len(text) - 2) if len(text) > 3 else len(text)
+        if best >= len(text):
+            return text
+    return text[:best] + "\\N" + wrap(text[best:], width)
 
 def wrap_en(text: str, width: int = EN_WRAP_CHARS) -> str:
     """Word-boundary wrap, at most 2 lines: a line over ``width`` is split at the word
-    boundary that best balances the two halves (never inside a word)."""
+    boundary that best balances the two halves (never inside a word).  A split that would leave a row of one
+    character, start a row with closing punctuation or end one with an opening bracket is used only when
+    nothing else exists (ko: 「…했어 !」)."""
     text = " ".join(text.split())
     words = text.split(" ")
     if len(text) <= width or len(words) < 2:
         return text
+
+    def bad(i: int) -> int:
+        a, b = " ".join(words[:i]), " ".join(words[i:])
+        return int(_visible_len(a) <= 1 or _visible_len(b) <= 1 or b[:1] in NO_LINE_START or a[-1:] in NO_LINE_END)
+
     best = min(range(1, len(words)),
-               key=lambda i: (max(len(" ".join(words[:i])), len(" ".join(words[i:]))),
+               key=lambda i: (bad(i), max(len(" ".join(words[:i])), len(" ".join(words[i:]))),
                               -int(words[i - 1][-1:] in ",.;:!?")))
     return " ".join(words[:best]) + "\\N" + " ".join(words[best:])
 
@@ -145,7 +185,12 @@ def split_cues(text: str, fits, language: str = "zh") -> list[str]:
     target = len(text) / n
 
     def cost(i: int, j: int) -> float:
-        c = ((len(joiner.join(tokens[i:j])) - target) / target) ** 2
+        chunk = joiner.join(tokens[i:j])
+        c = ((len(chunk) - target) / target) ** 2
+        # kinsoku (owner 2026-11-19): a cue never starts with closing punctuation, never ends with an opening
+        # bracket and is never one character -- heavily priced, not forbidden, so a split always exists
+        if (i > 0 and chunk[:1] in NO_LINE_START) or (j < T and chunk[-1:] in NO_LINE_END) or _visible_len(chunk) <= 1:
+            c += 100.0
         return c if j == T or tokens[j - 1][-1:] in CUE_BREAK_PUNCT else c + 0.5
 
     # best[k][j]: cheapest split of tokens[:j] into k cues
@@ -324,23 +369,54 @@ def contract_lines_by_unit(contract: dict, shot2unit: dict[str, str], id2name: d
     return lines_by_unit, unmapped
 
 
-def cover_geometries(covered: list[tuple[float, float, dict[str, float]]], intervals: list[list[float]],
-                     base: tuple[int, int, int, int], width: int, height: int) -> list[tuple[int, int, int, int]]:
-    """Pixel (y, h, x0, x1) of the cover of each burned-text run, in the order of ``intervals``.
-
-    ``covered`` is the scan's (start, end, band-as-frame-fractions) per run; when it does not line up with
-    ``intervals`` (an older scan output) every run takes ``base``, the episode's band.  A cover never shrinks below ``base``.
-    """
-    if len(covered) != len(intervals):
-        return [base for _ in intervals]
+def blur_boxes_px(covered: list[tuple[float, float, list[dict]]], width: int, height: int
+                  ) -> list[tuple[float, float, tuple[int, int, int, int]]]:
+    """(start, end, (x, y, w, h)) in even pixels for every BLUR box of the scan (H3_BURNED_TEXT_COVER_V1 tight
+    cover, owner 2026-11-19); SKIP boxes (over the area cap / on a face) are never drawn."""
     out = []
-    for _start, _end, band in covered:
-        y0 = max(0, int(round(band["y0"] * height))); y1 = min(height, int(-(-band["y1"] * height // 1)))
-        x0 = max(0, int(round(band["x0"] * width))); x1 = min(width, int(-(-band["x1"] * width // 1)))
-        y0, x0 = min(y0, base[0]), min(x0, base[2])
-        y1, x1 = max(y1, base[0] + base[1]), max(x1, base[3])
-        out.append((y0, y1 - y0, x0, x1))
+    for start, end, boxes in covered:
+        for box in boxes:
+            if str(box.get("action") or "") != "BLUR":
+                continue
+            x0 = max(0, int(box["x0"] * width) // 2 * 2); y0 = max(0, int(box["y0"] * height) // 2 * 2)
+            x1 = min(width // 2 * 2, math.ceil(box["x1"] * width / 2) * 2)
+            y1 = min(height // 2 * 2, math.ceil(box["y1"] * height / 2) * 2)
+            if x1 - x0 >= 4 and y1 - y0 >= 4:
+                out.append((float(start), float(end), (x0, y0, x1 - x0, y1 - y0)))
     return out
+
+
+def blur_sigma(box_h: int, cover_cfg: dict) -> float:
+    """Gaussian sigma for one text box: proportional to its height (glyph strokes vanish), clamped."""
+    k = float(cover_cfg.get("blur_sigma_per_height", 0.35))
+    return round(min(float(cover_cfg.get("blur_sigma_max", 14)), max(float(cover_cfg.get("blur_sigma_min", 4)), k * box_h)), 2)
+
+
+def caption_y(default_y: int, cap_h: int, cap_x: tuple[int, int], start: float, end: float,
+              blurs: list[tuple[float, float, tuple[int, int, int, int]]], height: int, gap: int = 8,
+              bottom_margin: int = 24, top_limit: float = 0.5) -> int:
+    """Where to draw one caption so it never sits on a blurred box on screen with it (owner 2026-11-19).
+
+    The caption keeps its normal place unless a blur box active during [start, end] overlaps it; then it goes
+    just below the boxes when there is room above the bottom margin, else just above them (not above
+    ``top_limit`` of the frame); when neither fits it stays where it was."""
+    hit = [r for s0, e0, r in blurs if s0 < end and e0 > start
+           and not (r[0] + r[2] <= cap_x[0] or r[0] >= cap_x[1])
+           and not (r[1] + r[3] <= default_y or r[1] >= default_y + cap_h)]
+    if not hit:
+        return default_y
+    active = [r for s0, e0, r in blurs if s0 < end and e0 > start and not (r[0] + r[2] <= cap_x[0] or r[0] >= cap_x[1])]
+    top = min(r[1] for r in hit)
+    bottom = max(r[1] + r[3] for r in hit)
+    below = bottom + gap
+    if below + cap_h <= height - bottom_margin and not any(
+            not (r[1] + r[3] <= below or r[1] >= below + cap_h) for r in active):
+        return below
+    above = top - gap - cap_h
+    if above >= int(top_limit * height) and not any(
+            not (r[1] + r[3] <= above or r[1] >= above + cap_h) for r in active):
+        return above
+    return default_y
 
 
 def main() -> int:
@@ -356,9 +432,9 @@ def main() -> int:
     ap.add_argument("--split-long-captions", action="store_true",
                     help="CAMERA_GRAMMAR_V1: a line too long for 2 normal-size rows becomes sequential cues")
     ap.add_argument("--cover-band", action="store_true",
-                    help="H3_BURNED_TEXT_COVER_V1: captions sit on a dark bar over the band H3 burns its text into")
+                    help="H3_BURNED_TEXT_COVER_V1: blur the burned text boxes of --cover-intervals; captions move clear of them")
     ap.add_argument("--cover-intervals", type=Path,
-                    help="burned_text_cover.py scan output: the bar is also shown over these [start, end] runs")
+                    help="burned_text_cover.py scan output: per burned-text run, the tight boxes to blur")
     ap.add_argument("--unit-recut", type=Path,
                     help="<EP>_UNIT_RECUT.json (Roger 2026-10-30 E12 item 3): per re-cut unit, contract lines whose audio "
                          "the re-cut dropped are not burned in, truncated lines take the override text; the unit's ASR "
@@ -487,54 +563,28 @@ def main() -> int:
     inputs, chain = [], []
     W, H, MARGIN_BOTTOM, LINE_H = 720, 1280, 170, 54
     cover = None
+    blurs: list[tuple[float, float, tuple[int, int, int, int]]] = []
+    gap_px = 8
     if a.cover_band:
         sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
         import burned_text_cover as _btc
         _pol = _btc.policy()
-        band = _btc.band_for(a.episode, _pol)
-        # Line owner 2026-11-01 (E13 viewing notes: 字幕黑底): the bar exists only to hide the line H3 burned into
-        # the picture, so it is drawn only over the burned-text runs and can be weakened per episode; captions
-        # themselves keep their transparent style with a black outline.
-        rgba = tuple(((_pol.get("bar_rgba_by_episode") or {}).get(a.episode) or _pol["bar_rgba"]))
-        cover = {"y": int(round(band["y0"] * H)), "h": int(round((band["y1"] - band["y0"]) * H)),
-                 "x0": int(round(band["x0"] * W)), "x1": int(round(band["x1"] * W)), "rgba": rgba,
-                 "intervals": (json.loads(a.cover_intervals.read_text(encoding="utf-8")).get("intervals") or []
-                               if a.cover_intervals else [])}
-        style = str(((_pol.get("cover_style_by_episode") or {}).get(a.episode) or _pol.get("cover_style") or "BAR")).upper()
-        cover["style"] = style
-        # Each burned-text run is covered over its own band: the episode's band widened to where the scan read
-        # the text in that run (burned_text_cover.interval_bands; fleet 2026-11-14, an E13 line burned at
-        # y 0.88-0.93 under the E13 band 0.66-0.81 stayed readable and S7 stopped).  A scan without bands, or
-        # a run inside the band, is covered exactly as before.  The caption keeps the episode's band.
-        geometry = cover_geometries(_btc.load_covered(a.cover_intervals) if a.cover_intervals else [],
-                                    cover["intervals"], (cover["y"], cover["h"], cover["x0"], cover["x1"]), W, H)
-        cover["bands"] = [{"y": g[0], "h": g[1], "x0": g[2], "x1": g[3]} for g in geometry]
-        if style == "BLUR" and cover["intervals"]:
-            # Line owner 2026-11-01 (E13: 字幕黑底 / 两排字幕): hide the burned line by blurring the burn band during the
-            # burned-text runs instead of painting a dark bar; our caption is drawn over the same band, so one line
-            # of text shows and the plate stays see-through.
-            radius = int(_pol.get("blur_radius") or 22)
-            groups: dict[tuple[int, int, int, int], list[list[float]]] = {}
-            for geom, run in zip(geometry, cover["intervals"]):
-                groups.setdefault(geom, []).append(run)
-            for j, ((gy, gh, gx0, gx1), runs) in enumerate(groups.items()):
-                when = "+".join(f"between(t,{float(b_s):.3f},{float(b_e):.3f})" for b_s, b_e in runs)
-                src = "[0:v]" if j == 0 else f"[b{j}]"
-                chain.append(f"{src}split=2[base{j}][cut{j}];[cut{j}]crop={gx1 - gx0}:{gh}:{gx0}:{gy},"
-                             f"boxblur={radius}:3[blur{j}];[base{j}][blur{j}]overlay=x={gx0}:y={gy}:"
-                             f"enable='{when}'[b{j + 1}]")
-        else:
-            # the bar alone over every burned-text run (captions are drawn on the same bar on top of it)
-            bar_pngs: dict[tuple[int, int, int, int], Path] = {}
-            for j, ((gy, gh, gx0, gx1), (b_s, b_e)) in enumerate(zip(geometry, cover["intervals"])):
-                if (gy, gh, gx0, gx1) not in bar_pngs:
-                    bar = Image.new("RGBA", (W, gh), (0, 0, 0, 0))
-                    ImageDraw.Draw(bar).rectangle((gx0, 0, gx1, gh - 1), fill=rgba)
-                    bar_png = png_dir / ("cover_bar.png" if not bar_pngs else f"cover_bar_{len(bar_pngs) + 1}.png")
-                    bar.save(bar_png); bar_pngs[(gy, gh, gx0, gx1)] = bar_png
-                inputs += ["-i", str(bar_pngs[(gy, gh, gx0, gx1)])]
-                src = "[0:v]" if not chain else f"[b{j}]"
-                chain.append(f"{src}[{len(inputs) // 2}:v]overlay=x=0:y={gy}:enable='between(t,{float(b_s):.3f},{float(b_e):.3f})'[b{j + 1}]")
+        cover_cfg = _btc._cover_cfg(_pol)
+        gap_px = int(cover_cfg.get("caption_gap_px", 8))
+        covered = _btc.load_covered(a.cover_intervals) if a.cover_intervals else []
+        # Owner 2026-11-19 (published 《摄政王她又来找茬了》 episode): the band-wide cover blurred the bottom ~30 % of
+        # the frame with our caption drawn on it.  Only the box of the burned text the scan read is blurred, only
+        # during its run (burned_text_cover.interval_boxes); a box over the area cap or on a face is never drawn.
+        blurs = blur_boxes_px(covered, W, H)
+        cover = {"intervals": [[s0, e0] for s0, e0, _ in covered], "style": "TIGHT_GAUSSIAN_BLUR",
+                 "boxes": [{"start": s0, "end": e0, "x": r[0], "y": r[1], "w": r[2], "h": r[3]} for s0, e0, r in blurs],
+                 "flagged_for_review": [{"start": s0, "end": e0, **bx} for s0, e0, bs in covered for bx in bs
+                                        if bx.get("action") == "SKIP"]}
+        for j, (b_s, b_e, (bx, by, bw, bh)) in enumerate(blurs):
+            src = "[0:v]" if j == 0 else f"[b{j}]"
+            chain.append(f"{src}split=2[base{j}][cut{j}];[cut{j}]crop={bw}:{bh}:{bx}:{by},"
+                         f"gblur=sigma={blur_sigma(bh, cover_cfg)}:steps=2[blur{j}];[base{j}][blur{j}]overlay=x={bx}:y={by}:"
+                         f"enable='between(t,{b_s:.3f},{b_e:.3f})'[b{j + 1}]")
     first_src = f"[b{len(chain)}]" if chain else "[0:v]"
     for i, (s_t, e_t, ln) in enumerate(events):
         rows = wrap_text(ln["text"]).split("\\N")
@@ -554,9 +604,13 @@ def main() -> int:
                    stroke_width=3, stroke_fill=(0, 0, 0, 255))
         png = png_dir / f"cap_{i + 1:03d}.png"; img.save(png)
         inputs += ["-i", str(png)]
-        # with a cover policy the caption always sits in the burn band (one consistent line position), so during a
-        # burned-text run it lands on top of the hidden line instead of a second row below it
-        y = (cover["y"] + (cover["h"] - img.height) // 2) if cover else H - MARGIN_BOTTOM - img.height
+        # the caption keeps its normal place; it moves clear of a blurred burned-text box on screen with it and
+        # never sits on one (owner 2026-11-19); the report row records where it was drawn for the cover verify
+        widest_px = int(max(d.textlength(row, font=cap_font) for row in rows)) if rows else 0
+        y = caption_y(H - MARGIN_BOTTOM - img.height, img.height, ((W - widest_px) // 2, (W + widest_px) // 2),
+                      s_t, e_t, blurs, H, gap=gap_px)
+        if i < len(report):
+            report[i]["y0"], report[i]["y1"] = round((y + 8) / H, 4), round((y + img.height - 8) / H, 4)
         src = first_src if i == 0 else f"[v{i}]"
         chain.append(f"{src}[{len(inputs) // 2}:v]overlay=x=0:y={y}:enable='between(t,{s_t:.3f},{e_t:.3f})'[v{i + 1}]")
     last = f"[v{len(events)}]" if events else first_src
@@ -571,8 +625,8 @@ def main() -> int:
            "unit_recut": str(a.unit_recut) if a.unit_recut else None, "unit_recut_dropped_lines": recut_dropped,
            "unmapped_dialogue_lines": unmapped_lines,
            "font": font_name, "font_file": font_file, "font_source": font_source,
-           **({"cover_band": {k: cover[k] for k in ("y", "h", "x0", "x1")}, "cover_intervals": cover["intervals"],
-               "cover_style": cover.get("style"), "cover_bands": cover.get("bands") or [],
+           **({"cover_intervals": cover["intervals"], "cover_style": cover["style"], "cover_boxes": cover["boxes"],
+               "cover_flagged_for_review": cover["flagged_for_review"],
                "policy_id": "H3_BURNED_TEXT_COVER_V1"} if cover else {})}
     if english or a.language in ("ja", "ko"):
         out["language"] = a.language

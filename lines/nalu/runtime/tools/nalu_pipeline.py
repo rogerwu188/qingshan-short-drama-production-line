@@ -9517,7 +9517,9 @@ def s7_dialogue_tail_trim(ctx: Ctx, res: StageResult, contract: dict[str, Any]
                                          "apply": str(head_path) if head["trimmed_units"] else None}
     # source seconds (captions / V.O. / sound bridge / burst mute map them through the clip in-point)
     cut = _perf.windows(report, head, clip_seconds)
-    trimmed = _head.strip_words(_perf.cut_unit_asr(asr, cut, perf))
+    # the tail guard keeps a quarter second after the line even where unscripted speech starts right at its end
+    # (owner 2026-11-19): segments starting after the line end stay out of the caption / V.O. timing
+    trimmed = _head.strip_words(_trim.trim_unit_asr(_perf.cut_unit_asr(asr, cut, perf), report))
     return trimmed, (report_path if report["trimmed_units"] else None)
 
 
@@ -10106,13 +10108,21 @@ def stage_s7(ctx: Ctx) -> StageResult:
     if _btc.active(read_json(p.contract, {}) or {}, episode=ctx.episode):
         cover_json = p.assembly / f"{ctx.episode}_H3_BURNED_TEXT_INTERVALS.json"
         scan_step = ctx.run([VENV, ENGINE / "tools/burned_text_cover.py", "scan", captioned_source,
-                             "--episode", ctx.episode, "--out", cover_json], name="s7_burned_text_scan")
+                             "--episode", ctx.episode, "--contract", p.contract, "--out", cover_json],
+                            name="s7_burned_text_scan")
         steps.append(scan_step)
         if scan_step["exit_code"] != 0 or not cover_json.is_file():
             res.steps.extend(steps)
             res.blockers = ["H3_BURNED_TEXT_SCAN_FAILED"]
             return res
         cover_argv = ["--cover-band", "--cover-intervals", cover_json]
+        # owner 2026-11-19: boxes over the area cap / on a face are not blurred; recorded for review, never a stop
+        flagged = (read_json(cover_json, {}) or {}).get("flagged_for_review") or []
+        if flagged:
+            res.details["burned_text_cover_flagged_for_review"] = flagged
+            res.details.setdefault("warnings", []).append(
+                f"H3_BURNED_TEXT_FLAGGED_FOR_REVIEW:{len(flagged)} burned-text box(es) left unblurred "
+                "(over the area cap or on a face); see " + str(cover_json))
     sub_step = ctx.run([VENV, RT_TOOLS / "build_burnin_subtitles.py", "--episode", ctx.episode,
                         "--project", p.agentcut_project, "--asr", asr_json, "--contract", p.contract,
                         "--grouping", p.grouping_plan, "--source", captioned_source,
@@ -10131,7 +10141,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
         verify_step = ctx.run([VENV, ENGINE / "tools/burned_text_cover.py", "verify", subbed,
                                "--episode", ctx.episode,
                                "--captions", p.assembly / f"{ctx.episode}_BURNIN_SUBTITLES.json",
-                               "--out", cover_check], name="s7_burned_text_verify")
+                               "--intervals", cover_json, "--out", cover_check], name="s7_burned_text_verify")
         steps.append(verify_step)
         res.details["burned_text_cover"] = read_json(cover_check, {}) or {}
         if verify_step["exit_code"] != 0 and s7_burned_text_cover_acceptance(
