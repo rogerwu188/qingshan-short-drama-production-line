@@ -404,6 +404,19 @@ def _statement_credits(value: Any) -> int | float | None:
     return None
 
 
+#: tools/video_live_binding.STALE_ARCHIVE_PREFIX: a completed video take whose request is no longer the unit's
+#: is moved to ``<store>/<EP>/_stale_<stamp>/`` (JA-01 E01, 2026-11-19).  It was paid for, so every spend scan
+#: of a store directory below keeps reading it (``_store_json_files``); only the live-row scans drop it.
+STALE_BINDING_ARCHIVE_PREFIX = "_stale_"
+
+
+def _store_json_files(directory: Path) -> list[Path]:
+    """Top-level transactions of one store directory plus its ``_stale_*/`` archived (still charged) ones."""
+    if not directory.is_dir():
+        return []
+    return sorted(directory.glob("*.json")) + sorted(directory.glob(f"{STALE_BINDING_ARCHIVE_PREFIX}*/*.json"))
+
+
 def _is_parked(path: Path) -> bool:
     return any(part.startswith(PARKED_DIR_PREFIXES) for part in path.parts)
 
@@ -886,7 +899,7 @@ def scan_hopsapi_spend(episode: str, kinds: tuple[str, ...] = ("video", "image")
     for kind in kinds:
         dirname = VIDEO_TRANSACTION_DIRNAME if kind == "video" else IMAGE_TRANSACTION_DIRNAME
         directory = ENGINE_ROOT / "workflow" / "tasks" / dirname / episode
-        sources.extend((kind, path) for path in (sorted(directory.glob("*.json")) if directory.is_dir() else []))
+        sources.extend((kind, path) for path in _store_json_files(directory))
     for kind, path in sources:
         try:
             payload = load_json(path)
@@ -1023,7 +1036,7 @@ def _spend_evidence(episode: str, bgm_transactions_dir: Path | None = None) -> l
     rows: list[dict[str, Any]] = []
     for directory in directories:
         is_bgm = directory.parent.name == "giggle_bgm_transactions" or directory == bgm_transactions_dir
-        for path in sorted(directory.glob("*.json")):
+        for path in _store_json_files(directory):
             try:
                 payload = load_json(path)
             except (OSError, json.JSONDecodeError):
@@ -1228,7 +1241,7 @@ def scan_pending_exposure(episode: str) -> Decimal:
             continue
         is_video = "video" in dirname
         newest = latest_statement[is_video]
-        for path in directory.glob("*.json"):
+        for path in _store_json_files(directory):
             try:
                 payload = load_json(path)
             except (OSError, json.JSONDecodeError):
@@ -1269,7 +1282,7 @@ def scan_unevidenced_exposure(episode: str, non_video: dict[str, Any]) -> Decima
     tasks_root = ENGINE_ROOT / "workflow" / "tasks"
     directory = tasks_root / VIDEO_TRANSACTION_DIRNAME / episode
     estimate_rows: list[tuple[str, Decimal]] = []
-    for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
+    for path in _store_json_files(directory):
         try:
             payload = load_json(path)
         except (OSError, json.JSONDecodeError):
