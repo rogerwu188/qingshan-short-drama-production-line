@@ -64,8 +64,10 @@ chown -R root:root "$ENGINE"
 install -m 755 "$HERE/collector_cycle.sh" "$OPT/collector_cycle.sh"
 install -m 755 "$HERE/collector_daily.sh" "$OPT/collector_daily.sh"
 install -m 755 "$HERE/collector_review_bridge.sh" "$OPT/collector_review_bridge.sh"
+install -m 755 "$HERE/collector_fasttrack.sh" "$OPT/collector_fasttrack.sh"
 [ -f "$ETC/release_train.json" ] || install -m 644 "$HERE/release_train.example.json" "$ETC/release_train.json"
-for unit in nalu-collective-cycle.service nalu-collective-cycle.timer nalu-collective-daily.service nalu-collective-daily.timer; do
+for unit in nalu-collective-cycle.service nalu-collective-cycle.timer nalu-collective-daily.service nalu-collective-daily.timer \
+            nalu-collective-fasttrack.service nalu-collective-fasttrack.timer; do
   install -m 644 "$HERE/systemd/$unit" "/etc/systemd/system/$unit"
 done
 systemctl daemon-reload
@@ -73,7 +75,7 @@ systemctl daemon-reload
 if [ "$ENABLE" = 1 ]; then
   [ -s "$RUNTIME/runtime/collective/env" ] || { echo "phase 2 missing: $RUNTIME/runtime/collective/env" >&2; exit 3; }
   [ -s "$RUNTIME/runtime/collective/publisher.key.json" ] || { echo "phase 2 missing: publisher key (s3_sync.py bootstrap)" >&2; exit 3; }
-  systemctl enable --now nalu-collective-cycle.timer nalu-collective-daily.timer
+  systemctl enable --now nalu-collective-cycle.timer nalu-collective-daily.timer nalu-collective-fasttrack.timer
   echo "timers enabled"
 else
   echo "installed (timers NOT enabled).  Phase 2: see the header of $0"

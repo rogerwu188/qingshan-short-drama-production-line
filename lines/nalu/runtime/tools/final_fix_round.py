@@ -189,6 +189,16 @@ def _span(row: dict[str, Any]) -> tuple[float, float] | None:
     return None
 
 
+def _kb_scope(row: dict[str, Any]) -> dict[str, Any]:
+    """The reviewer's optional knowledge-base scope of a finding (``kb_scope`` global|language + reason): carried
+    to the knowledge event, never used by the fix round."""
+    scope = str(row.get("kb_scope") or "").strip().lower()
+    if scope not in ("global", "language"):
+        return {}
+    reason = str(row.get("kb_scope_reason") or "").strip()[:200]
+    return {"kb_scope": scope, **({"kb_scope_reason": reason} if reason else {})}
+
+
 def collect_findings(report: dict[str, Any] | None, checklist: dict[str, Any] | None) -> list[dict[str, Any]]:
     """Confirmed findings of one final review: reviewer DEFECTs of the must-check list, Gemini findings the reviewer
     CONFIRMED (not within GEMINI_MATCH_S of a reviewer finding of the same item), the score report's problems and an
@@ -214,14 +224,14 @@ def collect_findings(report: dict[str, Any] | None, checklist: dict[str, Any] | 
             continue
         out.append({"source": "GEMINI_CONFIRMED", "item": str(g.get("item") or "OTHER"),
                     "text": str(g.get("note") or ""), "severity": g.get("severity"),
-                    **({"window": [round(span[0], 3), round(span[1], 3)]} if span else {})})
+                    **({"window": [round(span[0], 3), round(span[1], 3)]} if span else {}), **_kb_scope(g)})
     for p in report.get("problems") or []:
         if not isinstance(p, dict):
             continue
         span = _span(p)
         out.append({"source": "REVIEW_PROBLEM", "item": None, "severity": p.get("severity"),
                     "text": f"{p.get('issue') or ''} | {p.get('fix') or ''}".strip(" |"),
-                    **({"window": [round(span[0], 3), round(span[1], 3)]} if span else {})})
+                    **({"window": [round(span[0], 3), round(span[1], 3)]} if span else {}), **_kb_scope(p)})
     if "identity_color_mismatch" in (report.get("hard_fail") or []):
         out.append({"source": "REVIEW_HARD_FAIL", "item": None, "text": "identity colour mismatch (hard fail)",
                     "kind_hint": "COSTUME_IDENTITY"})

@@ -1,0 +1,17 @@
+[Unit]
+Description=NALU collective learning: fast-track for GLOBAL final-review lessons (valves, publish, ft- review request)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=nalucollect
+Group=nalucollect
+SupplementaryGroups=nalufleet
+UMask=0007
+ExecStart=/opt/nalu-collector/collector_fasttrack.sh
+TimeoutStartSec=900
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/nalu-collector /var/lib/nalu-fleet/collective

@@ -380,9 +380,13 @@ def parse_block(block: Any, *, duration: float | None = None) -> dict[str, Any]:
             if not isinstance(row, dict) or not re.fullmatch(r"[GS]\d{1,3}", str(row.get("id") or "")):
                 continue
             decision = _clean(row.get("decision"), 12).upper()
+            scope = _clean(row.get("kb_scope"), 12).lower()
             out["gemini_verification"][str(row["id"])] = {
                 "decision": decision if decision in ("CONFIRMED", "DISMISSED") else "UNSURE",
-                "reason": _clean(row.get("reason"))}
+                "reason": _clean(row.get("reason")),
+                **({"kb_scope": scope} if scope in ("global", "language") else {}),
+                **({"kb_scope_reason": _clean(row.get("kb_scope_reason"))}
+                   if scope in ("global", "language") and row.get("kb_scope_reason") else {})}
     for key, row in (raw or {}).items():
         if key == "gemini_verification":
             continue
@@ -496,7 +500,8 @@ def gemini_block(gemini: dict[str, Any] | None, parsed: dict[str, Any],
             status = "CONFIRMED" if near else "UNVERIFIED"
         rows.append({"id": f.get("id"), "item": f.get("item"), "window": [f.get("start"), f.get("end")],
                      "severity": f.get("severity"), "status": status, "note": _clean(f.get("description"), 160),
-                     **({"reviewer_reason": decision.get("reason")} if decision.get("reason") else {})})
+                     **({"reviewer_reason": decision.get("reason")} if decision.get("reason") else {}),
+                     **{k: decision[k] for k in ("kb_scope", "kb_scope_reason") if decision.get(k)}})
     checks = [{"id": c.get("id"), "gemini": c.get("decision"),
                "reviewer": (verification.get(str(c.get("id"))) or {}).get("decision"),
                "suspect": c.get("suspect")} for c in gemini.get("suspect_checks") or []]

@@ -60,6 +60,10 @@ RELEASE_POLICY: dict[str, Any] = {
     # cross-case effect validation or this many independent sources
     "release_min_independent_sources": {"DIRECTING_HEURISTIC": 2},
     "release_scope_substitute": {"DIRECTING_HEURISTIC": "CROSS_CASE_EFFECT"},
+    # the release train's GLOBAL fast-track (line owner 2026-11-20): a CONFIRMED final-review finding that is the same
+    # in every language ships after the patrol's review from ONE source; only the publisher may claim the waiver, it
+    # is written to the candidate history, and the train auto-retires the rule if the finding keeps recurring
+    "waivers": {"FAST_TRACK_SINGLE_SOURCE": "release_min_independent_sources"},
 }
 
 # Which roles may move a candidate into which state.
@@ -612,11 +616,18 @@ class Service:
 
     @_audited
     def transition_candidate(self, principal: Principal, candidate_id: str, *, to: str, if_match: str | None,
-                             validation_scope: str | None = None, note: str = "") -> dict[str, Any]:
+                             validation_scope: str | None = None, note: str = "",
+                             waive: tuple[str, ...] | list[str] = ()) -> dict[str, Any]:
         roles = TRANSITION_ROLES.get(to)
         if roles is None:
             raise PayloadInvalid(f"unknown target state: {to}")
         self._require_role(principal, f"transition_to_{to}", roles)
+        waive = tuple(sorted(set(waive or ())))
+        unknown = [w for w in waive if w not in RELEASE_POLICY["waivers"]]
+        if unknown:
+            raise PayloadInvalid("unknown policy waiver", {"waivers": unknown})
+        if waive and principal.role not in ("publisher", "admin"):
+            raise Forbidden("only the publisher may claim a release-policy waiver")
         if not if_match:
             raise PreconditionRequired("If-Match required for a transition")
         with self._tx() as db:
@@ -637,7 +648,7 @@ class Service:
                     scopes.append(validation_scope)
             elif to not in c.RELEASE_TRANSITIONS.get(frm, set()):
                 raise Conflict(f"illegal transition {frm} -> {to}")
-            blockers = self._promotion_blockers(db, principal.tenant_id, rec, to, scopes)
+            blockers = self._promotion_blockers(db, principal.tenant_id, rec, to, scopes, waive=waive)
             if blockers:
                 raise Conflict("release policy refuses this promotion",
                                {"blockers": blockers, "policy_version": RELEASE_POLICY["policy_version"]})
@@ -647,7 +658,7 @@ class Service:
                        "WHERE tenant_id=? AND candidate_id=?",
                        (to, json.dumps(scopes), now, etag, principal.tenant_id, candidate_id))
             detail = {"validation_scope": validation_scope, "note": note,
-                      "policy_version": RELEASE_POLICY["policy_version"]}
+                      "policy_version": RELEASE_POLICY["policy_version"], **({"waivers": list(waive)} if waive else {})}
             db.execute("INSERT INTO candidate_history(tenant_id, candidate_id, revision, action, from_state, to_state, "
                        "payload, detail, actor, at) VALUES(?,?,?,?,?,?,?,?,?,?)",
                        (principal.tenant_id, candidate_id, rec["revision"], "TRANSITION", frm, to,
@@ -657,7 +668,7 @@ class Service:
             return self._public_candidate(self._candidate_row(db, principal.tenant_id, candidate_id))
 
     def _promotion_blockers(self, db: sqlite3.Connection, tenant_id: str, rec: dict[str, Any], to: str,
-                            scopes: list[str]) -> list[str]:
+                            scopes: list[str], waive: tuple[str, ...] = ()) -> list[str]:
         if to not in ("CANARY", "RELEASED"):
             return []
         blockers = []
@@ -669,6 +680,8 @@ class Service:
         if to == "RELEASED":
             minimum = RELEASE_POLICY["release_min_independent_sources"].get(rec["category"])
             substitute = RELEASE_POLICY["release_scope_substitute"].get(rec["category"])
+            if minimum and "FAST_TRACK_SINGLE_SOURCE" in waive:
+                minimum = 1  # the waiver lowers the bar to one real source, never to none
             if minimum and substitute not in scopes:
                 count = self._independent_sources(db, tenant_id, rec["payload"].get("event_ids") or [])
                 if count["independent_sources"] < minimum:

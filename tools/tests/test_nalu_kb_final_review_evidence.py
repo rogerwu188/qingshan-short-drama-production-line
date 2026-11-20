@@ -80,9 +80,10 @@ class ProducerTest(unittest.TestCase):
         keys = sorted(r["evidence"]["cluster_key"] for r in rows)
         # 3 reviewer problems + 1 checklist DEFECT + 1 confirmed Gemini finding; the dismissed one is left out
         self.assertEqual(len(rows), 5, keys)
-        self.assertIn("FINAL_REVIEW:BURNED_TEXT|ko", keys)
-        self.assertIn("FINAL_REVIEW:BGM_FADES|ko", keys)
-        self.assertNotIn("FINAL_REVIEW:FACE_DRIFT|ko", keys)
+        # 2026-11-20 global fast-track: picture / model / edit findings are language-independent (|global)
+        self.assertIn("FINAL_REVIEW:BURNED_TEXT|global", keys)
+        self.assertIn("FINAL_REVIEW:BGM_FADES|global", keys)
+        self.assertNotIn("FINAL_REVIEW:FACE_DRIFT|global", keys)
         by_route = {}
         for r in rows:
             ev = r["evidence"]

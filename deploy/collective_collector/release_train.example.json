@@ -22,5 +22,11 @@
  "exemplar_canary_hours": 24,
  "exemplar_min_interval_hours": 24,
  "exemplar_per_type": 2,
- "exemplar_max": 60
+ "exemplar_max": 60,
+ "fasttrack_enabled": true,
+ "fasttrack_min_episodes": 1,
+ "fasttrack_max_rules": 12,
+ "fasttrack_batch_max": 3,
+ "fasttrack_retire_recurrences": 3,
+ "fasttrack_retire_grace_hours": 6
 }
