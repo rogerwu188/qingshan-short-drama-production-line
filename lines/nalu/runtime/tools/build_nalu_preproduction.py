@@ -1793,6 +1793,40 @@ def q2_redo_prompt_findings(out_dir: Path, episode: str, contract: dict[str, Any
     return out
 
 
+def s6_burn_retry_indices(out_dir: Path, episode: str) -> dict[str, int]:
+    """unit -> ``h3_burn_retry`` index of units the engine retried after S6 detected model-burned text (line owner
+    2026-11-19; tools/h3_burn_retry.py).  Read from the S6 wave state ``s6_burn_retry`` record, which is never
+    removed, so a recompile after the retry keeps the prompt the retry was submitted with.  Every render style."""
+    path = out_dir / "reports" / f"{episode}_S6_WAVE_STATE.json"
+    try:
+        state = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for uid, row in (state.get("s6_burn_retry") or {}).items():
+        attempts = (row or {}).get("attempts") or []
+        if attempts:
+            out[str(uid)] = len(attempts)
+    return out
+
+
+def finalization_receipt_for(out_dir: Path, uid: str, prompt_sha256: str | None) -> Path | None:
+    """The reviewed incremental-finalization receipt binding exactly ``prompt_sha256``: the reviewer's
+    ``<unit>.json`` first, then the engine's burn-retry receipt ``<unit>.burn_retry.json`` (nalu_pipeline
+    s6_burn_retry_finalization_receipts: approved prompt + exactly the retry sentence)."""
+    for name in (f"{uid}.json", f"{uid}.burn_retry.json"):
+        receipt_path = out_dir / "prompt_batch_finalization" / name
+        if not receipt_path.is_file():
+            continue
+        try:
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        if receipt.get("status") == "PASS" and prompt_sha256 and receipt.get("final_prompt_sha256") == prompt_sha256:
+            return receipt_path
+    return None
+
+
 def _tail_start_frame(unit: dict[str, Any], tails_dir: Path | None) -> Path | None:
     """A hard-continuation unit's start frame: the previous unit's real final frame, when it exists on disk
     (the wave unit's previous_unit_final_frame, else <tails_dir>/<prev>.png from a "<prev>:REAL_FINAL_FRAME"
@@ -3208,15 +3242,10 @@ def render_h3_final_prompts(transaction: dict[str, Any], *, out_dir: Path, root:
         # sha; this render changed the sha, so re-attach by the SAME exact rule against the final one (and
         # drop a receipt that no longer binds).  Without this S6 asked for the same review forever (E02).
         task.pop("prompt_batch_finalization", None)
-        receipt_path = out_dir / "prompt_batch_finalization" / f"{uid}.json"
-        if receipt_path.is_file():
-            try:
-                receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-            except Exception:  # noqa: BLE001
-                receipt = {}
-            if receipt.get("status") == "PASS" and receipt.get("final_prompt_sha256") == task["prompt_sha256"]:
-                task["prompt_batch_finalization"] = {"path": portable(receipt_path, root),
-                                                     "sha256": sha256_file(receipt_path)}
+        receipt_path = finalization_receipt_for(out_dir, uid, task["prompt_sha256"])
+        if receipt_path is not None:
+            task["prompt_batch_finalization"] = {"path": portable(receipt_path, root),
+                                                 "sha256": sha256_file(receipt_path)}
         if uid in index_rows:
             index_rows[uid]["sha256"] = task["prompt_sha256"]
             index_rows[uid]["runes"] = len(text)
@@ -3309,6 +3338,7 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
     action_role_dir = (action_role_evidence_dir if action_role_evidence_dir is not None
                        else root / "reports" / "action_role_evidence")
     redo_findings = q2_redo_prompt_findings(out_dir, episode, contract)
+    burn_retries = s6_burn_retry_indices(out_dir, episode)
     # K075 is an episode-wide judgement (a face shown once keeps the plate everywhere), so it reads the
     # full editorial manifest, never the wave subset.
     editorial_path = out_dir / f"{prefix}EDITORIAL_SEEDANCE_MANIFEST_V1.json"
@@ -3324,15 +3354,10 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
         task["prompt_status"] = "COMPILED_STRICT_4_4"
         # re-attach a reviewed incremental-finalization receipt (prompt_batch_finalize.py) when
         # it binds exactly this final prompt; the manifest is rebuilt on every wave re-entry
-        receipt_path = out_dir / "prompt_batch_finalization" / f"{uid}.json"
-        if receipt_path.is_file():
-            try:
-                receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-            except Exception:  # noqa: BLE001
-                receipt = {}
-            if receipt.get("status") == "PASS" and receipt.get("final_prompt_sha256") == row["sha256"]:
-                task["prompt_batch_finalization"] = {"path": portable(receipt_path, root),
-                                                     "sha256": sha256_file(receipt_path)}
+        receipt_path = finalization_receipt_for(out_dir, uid, row["sha256"])
+        if receipt_path is not None:
+            task["prompt_batch_finalization"] = {"path": portable(receipt_path, root),
+                                                 "sha256": sha256_file(receipt_path)}
         # ---- the compiled unit IS the creative contract: spread it (engine: task = {**original, ...})
         space_map_bindings = copy.deepcopy(task.get("reference_bindings") or [])
         keyframe_overlays = copy.deepcopy(task.get("trajectory_overlays") or [])
@@ -3653,6 +3678,8 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             task["h3_camera_lock"] = cu["h3_camera_lock"]
         if redo_findings.get(uid):  # CAMERA_GRAMMAR_V1 engine redo: the prompt states the measured problem
             task["h3_redo_findings"] = list(redo_findings[uid])
+        if burn_retries.get(uid):  # S6 burned-text retry n (h3_burn_retry): retry sentence + perturbed @Image1
+            task["h3_burn_retry"] = int(burn_retries[uid])
         task["dialogue_lines"] = lines
         task["native_dialogue_required"] = bool(lines)
         task["dialogue_transport"] = "MODEL_NATIVE_TEXT_DIALOGUE" if lines else "SAME_TASK_NATIVE_AMBIENCE_FOLEY_ACTION_SOUND"

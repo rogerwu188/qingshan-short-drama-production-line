@@ -3,9 +3,9 @@
 
 H3 writes the line being spoken into the frame (centred, y 0.67-0.80) even with the TEXT-FREE FRAME rule
 first (K143).  Under this policy the episode's captions sit on a dark bar over that band, and the bar is
-also shown wherever OCR finds burned text, so the burned line is never readable.  Never retroactive: an
-episode is covered only when its contract declares h3_burned_text_cover_policy=H3_BURNED_TEXT_COVER_V1 or
-configs/H3_BURNED_TEXT_COVER_V1.json lists it.
+also shown wherever OCR finds burned text, so the burned line is never readable.  Off by default (line owner
+2026-11-19): an episode is covered only when its contract (or the runtime config) explicitly declares
+h3_burned_text_cover_policy=H3_BURNED_TEXT_COVER_V1; no episode-number list.
 
   scan   <video> --out intervals.json            OCR the band, write [[start, end], ...] of burned text and,
                                                  per run, the tight boxes to blur (or flagged for review)
@@ -51,12 +51,17 @@ def band_for(episode: str | None, cfg: dict[str, Any] | None = None) -> dict[str
     return dict((per.get(match.group(0)) if match else None) or cfg["band"])
 
 
-def active(contract: dict[str, Any] | None, *, episode: str | None = None) -> bool:
+def active(contract: dict[str, Any] | None, *, episode: str | None = None,
+           config: dict[str, Any] | None = None) -> bool:
+    """Explicit opt-in only (line owner 2026-11-19: the blur cover is ugly; burned text is now retried in S6).
+
+    Active when the episode's generation contract declares ``h3_burned_text_cover_policy`` =
+    H3_BURNED_TEXT_COVER_V1, or (contract silent) the runtime config does.  The former episode-number list
+    (E12-E14) is gone: it switched the cover on for every series' E12-E14.  ``episode`` is kept for callers."""
     declared = str((contract or {}).get(FIELD) or "").strip().upper()
     if declared:
         return declared == POLICY_ID
-    match = re.match(r"E\d+", str(episode or (contract or {}).get("episode") or "").strip().upper())
-    return bool(match) and match.group(0) in set(policy().get("enabled_episodes") or [])
+    return str((config or {}).get(FIELD) or "").strip().upper() == POLICY_ID
 
 
 def cjk_count(text: str) -> int:

@@ -288,9 +288,23 @@ def measure_lookalike(report: Any) -> dict[str, Any]:
     return out
 
 
+def measure_s6_burn_unresolved(state: Any) -> dict[str, Any]:
+    """Units whose S6 burned-text retries (h3_burn_retry, line owner 2026-11-19) did not clear the burn: the kept
+    take still carries model-burned text.  Read only from the S6 wave state ``s6_burn_retry``; {} when none."""
+    rows = []
+    for uid, rec in sorted(((state or {}).get("s6_burn_retry") or {}).items()):
+        if not isinstance(rec, dict) or not rec.get("burned_text_unresolved"):
+            continue
+        rows.append({"unit_id": uid, "reason": rec.get("unresolved_reason"),
+                     "retries": len(rec.get("attempts") or []),
+                     "kept_take_burned_frames": rec.get("kept_take_burned_frames"),
+                     "kept_take_sha256": rec.get("kept_take_sha256")})
+    return {"source": "S6 wave state s6_burn_retry (read only)", "units": rows} if rows else {}
+
+
 def measure(*, shots: list[dict[str, Any]], asr: Any = None, scan_path: Any = None, verify_path: Any = None,
             ass_path: Any = None, distinctness_path: Any = None, bgm_plan_path: Any = None,
-            audio_bed_path: Any = None) -> dict[str, Any]:
+            audio_bed_path: Any = None, s6_wave_state_path: Any = None) -> dict[str, Any]:
     """All free measurements, each best-effort ({} when its input is missing).  Never raises."""
     out: dict[str, Any] = {}
     steps = (
@@ -301,6 +315,7 @@ def measure(*, shots: list[dict[str, Any]], asr: Any = None, scan_path: Any = No
             Path(str(ass_path)).read_text(encoding="utf-8") if ass_path and Path(str(ass_path)).is_file() else None)),
         ("lookalike_cast", lambda: measure_lookalike(_read(distinctness_path))),
         ("bgm", lambda: measure_bgm(_read(bgm_plan_path), _read(audio_bed_path), shots)),
+        ("s6_burn_unresolved", lambda: measure_s6_burn_unresolved(_read(s6_wave_state_path))),
     )
     for key, fn in steps:
         try:
@@ -315,7 +330,8 @@ def measure(*, shots: list[dict[str, Any]], asr: Any = None, scan_path: Any = No
 #: measurement key -> item id
 MEASUREMENT_ITEM = {"burned_text": "QA-BURNED-TEXT", "masks": "QA-OVERSIZED-MASK",
                     "dialogue_tail": "QA-DIALOGUE-TAIL-CUT", "subtitle_wrap": "QA-SUBTITLE-WRAP",
-                    "lookalike_cast": "QA-LOOKALIKE-CAST", "bgm": "QA-BGM-DISCONTINUOUS"}
+                    "lookalike_cast": "QA-LOOKALIKE-CAST", "bgm": "QA-BGM-DISCONTINUOUS",
+                    "s6_burn_unresolved": "QA-BURNED-TEXT"}
 
 
 def reviewer_request(measurements: dict[str, Any]) -> dict[str, Any]:
@@ -422,6 +438,10 @@ def _measured_findings(measurements: dict[str, Any]) -> list[dict[str, Any]]:
     for row in (measurements.get("bgm") or {}).get("flagged") or []:
         out.append({"item_id": "QA-BGM-DISCONTINUOUS", "window": [row.get("start"), row.get("end")],
                     "source": "MEASURED", "detail": ",".join(row.get("reasons") or [])})
+    for row in (measurements.get("s6_burn_unresolved") or {}).get("units") or []:
+        out.append({"item_id": "QA-BURNED-TEXT", "source": "S6_BURN_UNRESOLVED", "unit_id": row.get("unit_id"),
+                    "detail": f"{row.get('unit_id')}: kept take has {row.get('kept_take_burned_frames')} burned "
+                              f"frame(s) after {row.get('retries')} retry(ies) ({row.get('reason')})"})
     # the local A/V evidence pack (av_evidence_pack.py, video-native final review 2026-11-19)
     pack = measurements.get("av_evidence_pack") or {}
     for row in pack.get("burned_text_runs") or []:
@@ -524,6 +544,8 @@ def build_record(parsed: dict[str, Any], measurements: dict[str, Any], *, episod
             "bindings": bindings or {}, "items": items, "defects": defects,
             "flagged_unreviewed": [iid for iid, row in items.items() if row["status"] == "MEASURED_FLAG_UNREVIEWED"],
             **({"video_review": video} if video else {}),
+            **({"s6_burn_unresolved": ((measurements or {}).get("s6_burn_unresolved") or {}).get("units")}
+               if ((measurements or {}).get("s6_burn_unresolved") or {}).get("units") else {}),
             **({"letterbox_measured": ((measurements or {}).get("av_evidence_pack") or {}).get("letterbox_shots")}
                if ((measurements or {}).get("av_evidence_pack") or {}).get("letterbox_shots") else {}),
             "auto_recut": {"status": "NO_HOOK", "note": (
@@ -581,11 +603,21 @@ def checkpoint_lines(record: dict[str, Any] | None) -> list[str]:
             window = g.get("window") or [None, None]
             lines.append(f"- `{g.get('id')}` {g.get('item')} {window[0]}-{window[1]}s {g.get('severity')} "
                          f"**{g.get('status')}**: {g.get('note')}")
+    lines += s6_burn_unresolved_lines(record.get("s6_burn_unresolved"))
     if record.get("letterbox_measured"):
         lines += ["", "Letterboxed / pillarboxed shots measured in the final cut: " + ", ".join(
             f"{(r.get('window') or [0, 0])[0]}-{(r.get('window') or [0, 0])[1]}s" for r in record["letterbox_measured"])]
     lines += ["", f"S7 auto re-cut: {record.get('auto_recut', {}).get('note', '')}", ""]
     return lines
+
+
+def s6_burn_unresolved_lines(units: Any) -> list[str]:
+    """Checkpoint lines for units whose S6 burned-text retries did not clear the burn (QA-BURNED-TEXT)."""
+    if not units:
+        return []
+    return ["", "`QA-BURNED-TEXT` S6 burned text unresolved after the automatic retries (best take kept, no cover): "
+            + ", ".join(f"{r.get('unit_id')} ({r.get('kept_take_burned_frames')} burned frame(s), "
+                        f"{r.get('retries')} retry(ies), {r.get('reason')})" for r in units)]
 
 
 def craft_mapping() -> dict[str, str]:

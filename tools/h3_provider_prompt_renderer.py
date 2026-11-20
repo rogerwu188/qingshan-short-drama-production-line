@@ -1381,6 +1381,30 @@ def _h3_visual_culture_block(unit: dict[str, Any]) -> str:
     return H3_NEUTRAL_PERIOD_LOCK
 
 
+def _with_burn_retry(unit: dict[str, Any], plan: dict[str, Any], text: str,
+                     receipt: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """S6 burned-text retry (tools/h3_burn_retry.py, line owner 2026-11-19): a unit carrying ``h3_burn_retry`` = n
+    gets the retry-indexed "picture stays clean" sentence as its last line (the boundary checks are re-run on the
+    result; a sentence that would break them or the rune limit is skipped and recorded).  Absent: unchanged."""
+    try:
+        from tools import h3_burn_retry as _br
+    except ModuleNotFoundError:  # pragma: no cover
+        import h3_burn_retry as _br  # type: ignore
+    index = _br.retry_index(unit)
+    if not index:
+        return text, receipt
+    uid = str(plan["unit_id"])
+    varied = _br.apply_retry_sentence(text, index)
+    failures = [*validate_provider_prompt_boundary(varied, source_id=uid, model_family="MINIMAX_H3")["failures"],
+                *validate_h3_provider_text_boundary(varied, source_id=uid)["failures"]]
+    if len(varied) > _PROVIDER_RUNE_LIMIT:
+        failures.append("PROVIDER_RUNE_LIMIT")
+    if failures:
+        return text, {**receipt, "h3_burn_retry": {"retry": index, "sentence": "SKIPPED", "failures": failures[:6]}}
+    return varied, {**receipt, "h3_burn_retry": {"retry": index, "sentence": _br.retry_sentence(index)},
+                    "prompt_budget": measure_prompt(varied, source_id=uid, model_family="MINIMAX_H3")}
+
+
 def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     uid = str(plan["unit_id"])
     language = str(unit.get("dialogue_language") or "zh")
@@ -1536,9 +1560,9 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             from tools.h3_director_prompt_v2 import render_director_v2
         except ModuleNotFoundError:  # pragma: no cover
             from h3_director_prompt_v2 import render_director_v2
-        return render_director_v2(
+        return _with_burn_retry(unit, plan, *render_director_v2(
             unit, plan, contract, crossmodal_rows=crossmodal_rows, language=language,
-            visible_total=visible_total, background_total=background_total, unbound_total=unbound_total)
+            visible_total=visible_total, background_total=background_total, unbound_total=unbound_total))
     if positive_single_subject:
         composition = positive_single_subject_composition_clause(tight_pov_single_subject)
         population_scope = (
@@ -1926,7 +1950,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             "partial_visibility_rules": [row for rows in visibility_scopes for row in rows],
             "camera_shots": camera_receipt,
         }}
-    return text, {
+    return _with_burn_retry(unit, plan, text, {
         "schema": SCHEMA,
         "status": "PASS",
         "unit_id": uid,
@@ -1944,4 +1968,4 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         **shot_scope_receipt,
         **({"h3_constraint_language": "zh"} if constraint_language == "zh" else {}),
         **({"h3_camera_lock": "strict"} if CAMERA_LOCK_FROZEN_CLAUSE in camera else {}),
-    }
+    })
