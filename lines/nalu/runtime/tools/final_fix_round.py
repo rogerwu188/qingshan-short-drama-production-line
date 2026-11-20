@@ -24,7 +24,8 @@ Each confirmed finding is mapped to one fix class:
     round, through every existing S6 gate (budget ledger and episode cap, D-11, the paid order, the durable store,
     the stale-binding guard).  The round's planned spend is capped by ``NALU_FINAL_FIX_BUDGET_CREDITS`` (default 45)
     and the episode headroom; when they do not cover every redo, burned text goes first, then costume / identity,
-    then face drift, then skin sheen, each by on-screen duration.
+    then face drift, then skin sheen, then hands (HAND_ARTIFACT, multi-pass Gemini QA-HAND-ARTIFACT), each by
+    on-screen duration.
 * ``RECORD_ONLY`` -- pacing, story, length shortfall, voice collision, ASR mismatch, look-alike cast, letterbox,
   oversized mask and anything else: recorded in ``final_fix_round.json`` and the S8 summary, never acted on.
 
@@ -54,7 +55,7 @@ PAID = "PAID_S6_REDO"
 RECORD = "RECORD_ONLY"
 
 FREE_KINDS = ("STATIC_SHOT_SPLIT", "AUDIO_SMOOTHING", "BGM_FADES", "SUBTITLE_WRAP", "DIALOGUE_TAIL_GUARD")
-PAID_KINDS = ("BURNED_TEXT", "COSTUME_IDENTITY", "FACE_DRIFT", "SKIN_SHEEN")
+PAID_KINDS = ("BURNED_TEXT", "COSTUME_IDENTITY", "FACE_DRIFT", "SKIN_SHEEN", "HAND_ARTIFACT")
 #: owner order when the round's budget does not cover every paid redo
 PAID_PRIORITY = {kind: rank for rank, kind in enumerate(PAID_KINDS)}
 
@@ -68,6 +69,33 @@ ITEM_KIND = {
     "QA-OVERSIZED-MASK": "MASK",
     "QA-LOOKALIKE-CAST": "LOOKALIKE",
     "LETTERBOX": "LETTERBOX",
+    # multi-pass Gemini review classes (gemini_review_passes.py, 2026-11-20).  Picture defects a re-render can fix
+    # -> paid redo; sound -> free S7 re-mix where a tool exists, else record; continuity / AI artefacts a redo
+    # cannot target reliably and every CRAFT-* (direction, pacing, story) -> record + knowledge base
+    "QA-FACE-ARTIFACT": "FACE_DRIFT",
+    "QA-IDENTITY-MISMATCH": "FACE_DRIFT",
+    "QA-HAND-ARTIFACT": "HAND_ARTIFACT",
+    "QA-BODY-MORPH": "AI_ARTIFACT",
+    "QA-OBJECT-POP": "AI_ARTIFACT",
+    "QA-FLICKER": "AI_ARTIFACT",
+    "QA-PHYSICS": "AI_ARTIFACT",
+    "QA-PROP-CONTINUITY": "CONTINUITY",
+    "QA-LIGHTING-CONTINUITY": "CONTINUITY",
+    "QA-POSITION-CONTINUITY": "CONTINUITY",
+    "QA-LIPSYNC": "ASR_MISMATCH",
+    "QA-VOICE-INCONSISTENT": "VOICE",
+    "QA-WRONG-SPEAKER": "VOICE",
+    "QA-LOUDNESS-JUMP": "AUDIO_SMOOTHING",
+    "QA-AUDIO-ARTIFACT": "AUDIO_SMOOTHING",
+    "QA-SFX": "SFX",
+    "CRAFT-PACING": "PACING",
+    "CRAFT-SHOT-GRAMMAR": "SHOT_GRAMMAR",
+    "CRAFT-BEAT-MISSED": "STORY",
+    "CRAFT-CLARITY": "STORY",
+    "CRAFT-OPENING-HOOK": "HOOK",
+    "CRAFT-ENDING-HOOK": "HOOK",
+    "CRAFT-EMOTION": "EMOTION",
+    "CRAFT-SUBTITLE-READABILITY": "SUBTITLE_READABILITY",
 }
 
 #: (kind, keywords) in priority order; the first match wins.  Lower-case English + Chinese.
@@ -127,6 +155,8 @@ SENTENCES = {
                    "last: the same face shape, eyes, nose, hairline and age, with no drift toward another face."),
     "COSTUME_IDENTITY": ("Each person wears exactly the costume colours and garments of their identity reference "
                          "image for the whole clip; no garment changes colour or style."),
+    "HAND_ARTIFACT": ("Every hand has a natural shape with five separate fingers from the first frame to the last; "
+                      "fingers never merge, bend wrongly or pass through objects."),
     "SKIN_SHEEN": ("Every face keeps natural matte skin and dry hair from the first frame to the last: no oily, glossy "
                    "or sweaty sheen, no wet-looking strands and no harsh over-sharpened skin texture."),
 }
@@ -232,7 +262,9 @@ def collect_findings(report: dict[str, Any] | None, checklist: dict[str, Any] | 
             continue
         out.append({"source": "GEMINI_CONFIRMED", "item": str(g.get("item") or "OTHER"),
                     "text": str(g.get("note") or ""), "severity": g.get("severity"),
-                    **({"window": [round(span[0], 3), round(span[1], 3)]} if span else {}), **_kb_scope(g)})
+                    **({"window": [round(span[0], 3), round(span[1], 3)]} if span else {}), **_kb_scope(g),
+                    **({"scope_hint": g["scope_hint"]} if g.get("scope_hint") in ("global", "language") else {}),
+                    **({"pass": g["pass"]} if g.get("pass") else {})})
     for p in report.get("problems") or []:
         if not isinstance(p, dict):
             continue

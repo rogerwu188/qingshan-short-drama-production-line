@@ -542,7 +542,8 @@ def gemini_block(gemini: dict[str, Any] | None, parsed: dict[str, Any],
         rows.append({"id": f.get("id"), "item": f.get("item"), "window": [f.get("start"), f.get("end")],
                      "severity": f.get("severity"), "status": status, "note": _clean(f.get("description"), 160),
                      **({"reviewer_reason": decision.get("reason")} if decision.get("reason") else {}),
-                     **{k: decision[k] for k in ("kb_scope", "kb_scope_reason") if decision.get(k)}})
+                     **{k: decision[k] for k in ("kb_scope", "kb_scope_reason") if decision.get(k)},
+                     **{k: f[k] for k in ("pass", "scope_hint") if f.get(k)}})
     checks = [{"id": c.get("id"), "gemini": c.get("decision"),
                "reviewer": (verification.get(str(c.get("id"))) or {}).get("decision"),
                "suspect": c.get("suspect")} for c in gemini.get("suspect_checks") or []]

@@ -21,6 +21,13 @@ records why and exits 0 -- it never blocks the review.  Codex stays the reviewer
 Gemini finding against the frames and records confirmed ones (problems + the qa_defect_checklist block) and a reason
 for each dismissal.
 
+Mode (``NALU_GEMINI_REVIEW_MODE``): ``multipass`` (default since 2026-11-20, gemini_review_passes.py) sends four
+specialist passes in parallel -- A picture / AI artefacts at 720p HIGH media resolution, B identity & continuity with
+the identity cards and the scene list, C sound, D director / craft with the storyboard and the craft standard --
+under ``NALU_GEMINI_REVIEW_MAX_CREDITS`` (default 8.0) and merges them into the same record (ids G1.. / S1.., plus
+``pass`` and ``scope_hint`` per finding and ``passes`` per pass).  ``single`` is the original one-call Pass B above
+(default cap 1.5).
+
 Key: the line's HopsAPI key, resolved like paid_stage.sh does -- ``HOPSAPI_API_KEY`` from the environment, else the
 engine ``.env``, else ``$NALU_RUNTIME_ROOT/credentials/llm_provider.json`` when that provider is HopsAPI.  The key is
 only ever put in the Authorization header; it is never printed, logged or written.
@@ -52,7 +59,11 @@ DEFAULT_MODEL = "gemini-3.8-flash"
 DEFAULT_BASE_URL = "https://hopsapi.com/v1"
 DEFAULT_FPS = 2.0
 FPS_STEPS = (2.0, 1.5, 1.0)
-MAX_CREDITS_DEFAULT = 1.5
+MAX_CREDITS_DEFAULT = 1.5          # single pass
+MULTIPASS_MAX_CREDITS_DEFAULT = 8.0
+MODE_ENV = "NALU_GEMINI_REVIEW_MODE"
+MODES = ("multipass", "single")
+DEFAULT_MODE = "multipass"
 #: credits per 1M tokens (input, output incl. thinking) -- HopsAPI list prices used by the benchmark
 PRICES = {"gemini-3.8-flash": (50.25, 251.25), "gemini-3.1-pro-preview": (134.0, 804.0)}
 #: measured on the benchmark (fps 2, default media resolution): video 66 tokens / frame, audio 25 tokens / s
@@ -334,16 +345,38 @@ def _pack_summary(request: dict[str, Any]) -> dict[str, Any]:
         return {}
 
 
+def review_mode(environ: dict[str, str] | None = None, mode: str | None = None) -> str:
+    raw = str(mode or (os.environ if environ is None else environ).get(MODE_ENV) or DEFAULT_MODE).strip().lower()
+    return raw if raw in MODES else DEFAULT_MODE
+
+
+def _leads(pack_summary: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "burned_text_ocr": [{"window": r.get("window"), "text": r.get("text"), **({"garbled": True}
+                            if r.get("garbled") else {})} for r in (pack_summary.get("burned_text_runs") or [])[:25]],
+        "subtitle_wrap": (pack_summary.get("wrap_suspects") or [])[:10],
+        "lookalike_faces": (pack_summary.get("lookalike") or {}).get("suspects", [])[:6],
+    }
+
+
 def run(*, request_path: Path, out: Path, model: str | None = None, fps: float | None = None,
         max_credits: float | None = None, post: Callable[..., tuple[int, bytes]] = http_post,
-        transcoder: Callable[[Path, Path], Path] = transcode, environ: dict[str, str] | None = None) -> dict[str, Any]:
-    """Write ``out`` and return the record.  Never raises; status OK | SKIPPED | ERROR."""
+        transcoder: Callable[..., Path] | None = None, environ: dict[str, str] | None = None,
+        mode: str | None = None, context: dict[str, Any] | None = None,
+        passes: tuple[str, ...] | None = None) -> dict[str, Any]:
+    """Write ``out`` and return the record.  Never raises; status OK | SKIPPED | ERROR.
+
+    ``mode`` multipass (default, ``NALU_GEMINI_REVIEW_MODE``) or single.  ``context`` (multipass): identity cards,
+    scenes and storyboard -- by default read from the episode's own files (gemini_review_passes.episode_context)."""
     env = os.environ if environ is None else environ
+    mode = review_mode(env, mode)
     model = model or env.get("NALU_GEMINI_REVIEW_MODEL") or DEFAULT_MODEL
+    default_cap = MULTIPASS_MAX_CREDITS_DEFAULT if mode == "multipass" else MAX_CREDITS_DEFAULT
     cap = max_credits if max_credits is not None else float(env.get("NALU_GEMINI_REVIEW_MAX_CREDITS")
-                                                             or MAX_CREDITS_DEFAULT)
+                                                             or default_cap)
     preferred = fps or float(env.get("NALU_GEMINI_REVIEW_FPS") or DEFAULT_FPS)
     record: dict[str, Any] = {"schema": SCHEMA, "tool": TOOL_ID, "recorded_at": _now(), "model": model,
+                              "mode": mode,
                               "authority": "ADVISORY_NOT_A_GATE: Codex verifies every finding; a failure never blocks",
                               "request": str(request_path), "request_sha256": _sha(request_path)}
 
@@ -373,6 +406,11 @@ def run(*, request_path: Path, out: Path, model: str | None = None, fps: float |
             return finish("SKIPPED", reason="NO_HOPSAPI_KEY")
         duration = float((request.get("objective_summary") or {}).get("duration_seconds") or 0) or media_duration(video)
         measurements = ((request.get("qa_defect_checklist_request") or {}).get("measurements") or {})
+        if mode == "multipass":
+            return _run_multipass(record, finish, request=request, video=video, duration=duration, model=model,
+                                  cap=cap, key=key, env=env, post=post, transcoder=transcoder,
+                                  measurements=measurements, context=context, passes=passes)
+        transcoder = transcoder or transcode
         prompt, suspects = build_prompt(duration=duration, pack_summary=_pack_summary(request),
                                         measurements=measurements, anime=request.get("render_style") == "anime")
         chosen = choose_fps(model, duration, len(prompt), cap, preferred)
@@ -409,6 +447,52 @@ def run(*, request_path: Path, out: Path, model: str | None = None, fps: float |
         return finish("ERROR", reason=f"{type(exc).__name__}:{str(exc)[:200]}")
 
 
+def _run_multipass(record: dict[str, Any], finish: Callable[..., dict[str, Any]], *, request: dict[str, Any],
+                   video: Path, duration: float, model: str, cap: float, key: str, env: Any,
+                   post: Callable[..., tuple[int, bytes]], transcoder: Callable[..., Path] | None,
+                   measurements: dict[str, Any], context: dict[str, Any] | None,
+                   passes: tuple[str, ...] | None) -> dict[str, Any]:
+    """The four specialist passes (gemini_review_passes.py), merged into the single-pass record shape."""
+    import gemini_review_passes as _mp  # noqa: PLC0415 -- same directory
+    pack = _pack_summary(request)
+    _, suspects = build_prompt(duration=duration, pack_summary=pack, measurements=measurements)
+    if context is None:
+        context = _mp.episode_context(str(request.get("episode") or ""))
+    sheen = _mp.skin_sheen_suspects(measurements.get("skin_sheen"), context,
+                                    sum(len(v) for v in suspects.values()))
+    if sheen:
+        suspects = {**suspects, "skin_sheen": sheen}
+    if not context.get("cuts"):
+        context = {**context, "cuts": [{"start": round(float(r["start_seconds"]), 1),
+                                        "end": round(float(r["end_seconds"]), 1)}
+                                       for r in request.get("shots") or [] if isinstance(r, dict)
+                                       and _num(r.get("start_seconds")) is not None
+                                       and _num(r.get("end_seconds")) is not None]}
+    engine = Path(env.get("NALU_ENGINE_ROOT") or Path(__file__).resolve().parents[4]).expanduser()
+    pacing = ((request.get("craft_standard_request") or {}).get("measured_pacing") or None)
+    result = _mp.run_passes(
+        video=video, duration=duration, model=model, prices=PRICES, cap=cap, key=key,
+        base_url=env.get("HOPSAPI_BASE_URL") or DEFAULT_BASE_URL, post=post, context=context, leads=_leads(pack),
+        suspects=suspects, anime=request.get("render_style") == "anime", craft=_mp.craft_items(engine),
+        measured_pacing=pacing if isinstance(pacing, dict) else None, transcoder=transcoder,
+        passes=tuple(passes or _mp.PASS_IDS), response_text=response_text, actual_credits=actual_credits,
+        redact=_redact)
+    merged = result["merged"]
+    record.update({"duration_s": round(duration, 2), "max_credits": cap, "multipass_schema": _mp.SCHEMA_PASSES,
+                   "estimated_credits": result["plan"]["estimated_credits"], "budget_plan": result["plan"]["passes"],
+                   "passes": result["passes"], "latency_s": result["wall_s"], "usage": result["usage"],
+                   "cost_credits": result["cost_credits"], "cards_sent": result["cards_sent"],
+                   "context_source": (context or {}).get("source"),
+                   "fps": (result["plan"]["passes"].get("A") or {}).get("fps")})
+    if not result["ok_passes"]:
+        reasons = sorted({str(v.get("reason")) for v in result["passes"].values()})
+        status = "SKIPPED" if all(v.get("status") == "SKIPPED" for v in result["passes"].values()) else "ERROR"
+        reason = ("ESTIMATE_OVER_BUDGET" if "ESTIMATE_OVER_BUDGET" in reasons else
+                  "ALL_PASSES_FAILED:" + ",".join(reasons)[:200])
+        return finish(status, reason=reason)
+    return finish("OK", **merged)
+
+
 def summary_lines(record: dict[str, Any]) -> list[str]:
     """Short human lines (the reviewer prompt / logs); no key, no dialogue beyond the model's own notes."""
     if record.get("status") != "OK":
@@ -416,7 +500,8 @@ def summary_lines(record: dict[str, Any]) -> list[str]:
     out = [f"Gemini 视频终审（{record.get('model')}，{record.get('cost_credits')} credits）："
            f"{len(record.get('findings') or [])} 条发现，{len(record.get('suspect_checks') or [])} 个本地可疑点复核"]
     for f in (record.get("findings") or [])[:40]:
-        out.append(f"- {f['id']} {f['item']} {f['start']}-{f['end']}s {f['severity']}: {f['description'][:80]}")
+        out.append(f"- {f['id']} {f['item']}{(' [' + f['pass'] + ']') if f.get('pass') else ''} {f['start']}-{f['end']}s "
+                   f"{f['severity']}: {f['description'][:80]}")
     for c in (record.get("suspect_checks") or [])[:30]:
         where = c["suspect"].get("at", c["suspect"].get("window"))
         out.append(f"- {c['id']} @ {where}: {c['decision']} {str(c.get('reason') or '')[:60]}")
@@ -430,8 +515,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--model", default=None)
     ap.add_argument("--fps", type=float, default=None)
     ap.add_argument("--max-credits", type=float, default=None)
+    ap.add_argument("--mode", choices=MODES, default=None)
     args = ap.parse_args(argv)
-    record = run(request_path=args.request, out=args.out, model=args.model, fps=args.fps, max_credits=args.max_credits)
+    record = run(request_path=args.request, out=args.out, model=args.model, fps=args.fps, max_credits=args.max_credits,
+                 mode=args.mode)
     print(json.dumps({k: record.get(k) for k in ("status", "reason", "model", "fps", "cost_credits", "latency_s")}
                      | {"findings": len(record.get("findings") or [])}, ensure_ascii=False))
     return 0

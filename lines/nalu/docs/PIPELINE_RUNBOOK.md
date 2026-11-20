@@ -1164,6 +1164,27 @@ MiniMax-H3 sometimes burns the spoken line into the clip as a caption (centred, 
   list leaked into every series); it is active only when the generation contract or the runtime config
   declares `h3_burned_text_cover_policy: H3_BURNED_TEXT_COVER_V1`.
 
+## Multi-pass Gemini video review (line owner 2026-11-20)
+Owner: 「既然 gemini 可以'看'视频，需要做的非常细致」.  Code: `lines/nalu/runtime/tools/gemini_review_passes.py`, called by
+`gemini_video_review.py` (mode `NALU_GEMINI_REVIEW_MODE=multipass`, the default; `single` = the 11-19 one-call pass).
+* **Four passes in parallel**, one `generateContent` each, own prompt + JSON answer, all ADVISORY (each fails open
+  on its own; 429 / 5xx retried with backoff): **A** picture / AI artefacts (720x1280, no audio, fps 2,
+  `mediaResolution` HIGH ≈264 tokens/frame: face, eyes, teeth, hands, skin sheen / wet hair, body morph, object pop,
+  flicker, physics, burned text, our subtitle wrap, masks, letterbox; OCR / wrap / S6 skin-sheen leads),
+  **B** identity & continuity (720p, the episode's identity plates as inline JPEGs labelled 角色A/B.., scene windows
+  from the grouping plan + release timeline; costume, hair, props, light, positions, look-alikes; thinking budget
+  3072), **C** sound (432x768 + audio: lip sync, voice consistency / fit, wrong speaker, tails, loudness jumps, BGM,
+  SFX, artefacts; the local tail / music suspects; a per-line log whose flags become P3 findings), **D** director /
+  craft (432x768 + audio: anonymised storyboard beats, craft standard v1 items pacing first, measured pacing).
+* **Budget** `NALU_GEMINI_REVIEW_MAX_CREDITS` (default 8.0 per episode): estimated before sending; D, C, B, A step
+  down (fps, resolution) lowest priority first, then D → C → B are skipped.  Benchmark 2026-11-20: 6-8 credits per
+  episode, 1.5-5 min wall time (mostly upstream 429 retries).
+* **Record**: same `final_reviewer/gemini_review.json` (G/S ids, `item`, times, severity) plus `pass`, `scope_hint`
+  (global|language → the KB scope after the reviewer's own `kb_scope`), `passes` (per-pass status, settings, cost,
+  shot / line logs), `craft_summary`.  Fix round: burned text, identity / costume (LOOK-DRIFT, QA-IDENTITY-MISMATCH),
+  face (QA-FACE-ARTIFACT), skin sheen, hands (QA-HAND-ARTIFACT → HAND_ARTIFACT) → paid S6 redo; loudness / audio
+  artefacts / tails / BGM → free S7; lip sync, voice, continuity, AI artefacts and every CRAFT-* → record + KB.
+
 ## Final fix round + S8 engine approval (line owner 2026-11-20)
 Owner: 「不要等我了，我自己看不过来」 — episodes never stop and wait for the line owner on quality.  Code:
 `lines/nalu/runtime/tools/final_fix_round.py` (pure) wired in `nalu_pipeline.py` (`s7_final_fix_round`,
@@ -1185,7 +1206,7 @@ Owner: 「不要等我了，我自己看不过来」 — episodes never stop and
     to every later S7 pass of the episode; an env name the operator set is never overridden.  Free-only rounds
     re-run S7 at once in the same process (`FINAL_FIX_ROUND_S7_RERUN`, one re-run).
   * PAID S6 redo (MiniMax-H3 only): burned text (QA-BURNED-TEXT), costume / identity colour mismatch, face drift /
-    wrong face on a located unit.  At most one redo per unit in the round.  The clip is parked to
+    wrong face, skin sheen, hand artefacts (HAND_ARTIFACT, multi-pass review) on a located unit.  At most one redo per unit in the round.  The clip is parked to
     `video/_superseded_<run>_final_fix/`, the redo sentence is recorded in `reports/<EP>_FINAL_FIX_REDO.json`
     (compile → task `h3_final_fix` → last prompt line; costume redo pins the identity card's English colours;
     @Image1 bytes perturbed like a burn retry), S6 is reopened (`REOPENED_FINAL_FIX`), and the redo goes through
