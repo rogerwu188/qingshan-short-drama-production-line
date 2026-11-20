@@ -656,11 +656,12 @@ def record_lookalike_cast(rt: Path, *, episode: str, report_path: str | None) ->
 #:   ENGINE              the engine's own S7 cut / mix / captions -- never a rule (lesson_class ENGINE_THRESHOLD)
 FINAL_REVIEW = "FINAL_REVIEW"
 FINAL_REVIEW_ROUTES = {
-    **{k: "DIRECTING_GUIDANCE" for k in ("PACING", "STORY", "LENGTH", "STATIC_SHOT_SPLIT", "OTHER")},
+    **{k: "DIRECTING_GUIDANCE" for k in ("PACING", "STORY", "LENGTH", "STATIC_SHOT_SPLIT", "OTHER", "SHOT_GRAMMAR",
+                                         "HOOK", "EMOTION")},
     **{k: "MODEL_CONSTRAINT" for k in ("BURNED_TEXT", "FACE_DRIFT", "SKIN_SHEEN", "COSTUME_IDENTITY", "LOOKALIKE",
-                                       "VOICE", "ASR_MISMATCH")},
+                                       "VOICE", "ASR_MISMATCH", "HAND_ARTIFACT", "AI_ARTIFACT", "CONTINUITY")},
     **{k: "ENGINE" for k in ("SUBTITLE_WRAP", "BGM_FADES", "AUDIO_SMOOTHING", "DIALOGUE_TAIL_GUARD", "LETTERBOX",
-                             "MASK")},
+                             "MASK", "SFX", "SUBTITLE_READABILITY")},
 }
 FINAL_REVIEW_ROUTE_STAGE = {"DIRECTING_GUIDANCE": "SCRIPT_AUTHORING", "MODEL_CONSTRAINT": "S6", "ENGINE": "S7"}
 FINAL_REVIEW_MAX_FINDINGS = 12
@@ -674,14 +675,16 @@ _LANG_RE = re.compile(r"[a-z]{2}")
 #: ``final_review_scope`` in this order: (1) structured signals -- the finding's kind and QA item; (2) the finding's
 #: own text when it points one way only (speech / subtitle / translation words vs picture / edit / story words);
 #: (3) the independent reviewer's ``kb_scope`` (global|language + one-line reason, written in the same review pass
-#: for each problem and each confirmed Gemini finding -- no extra provider call); (4) GLOBAL.
+#: for each problem and each confirmed Gemini finding -- no extra provider call); (3b) the multi-pass Gemini
+#: finding's own ``scope_hint``; (4) GLOBAL.
 SCOPE_GLOBAL = "global"
 SCOPE_LANGUAGE = "language"
 #: kinds whose cause lives in the dialogue language (voice casting / timbre, ASR and lip match, subtitle text)
-LANGUAGE_KINDS = frozenset({"VOICE", "ASR_MISMATCH", "SUBTITLE_WRAP"})
+LANGUAGE_KINDS = frozenset({"VOICE", "ASR_MISMATCH", "SUBTITLE_WRAP", "SUBTITLE_READABILITY"})
 #: kinds whose cause is the picture, the edit, the model or the mix -- the same in every language
 GLOBAL_KINDS = frozenset({"BURNED_TEXT", "FACE_DRIFT", "SKIN_SHEEN", "COSTUME_IDENTITY", "LOOKALIKE", "STATIC_SHOT_SPLIT",
-                          "LETTERBOX", "MASK", "BGM_FADES", "AUDIO_SMOOTHING", "DIALOGUE_TAIL_GUARD"})
+                          "LETTERBOX", "MASK", "BGM_FADES", "AUDIO_SMOOTHING", "DIALOGUE_TAIL_GUARD",
+                          "HAND_ARTIFACT", "AI_ARTIFACT", "CONTINUITY", "SFX", "SHOT_GRAMMAR", "HOOK", "EMOTION"})
 LANGUAGE_ITEMS = frozenset({"QA-SUBTITLE-WRAP"})
 GLOBAL_ITEMS = frozenset({"QA-BURNED-TEXT", "QA-SKIN-SHEEN-DRIFT", "QA-LOOKALIKE-CAST", "QA-OVERSIZED-MASK", "QA-BGM-DISCONTINUOUS",
                           "QA-DIALOGUE-TAIL-CUT", "LETTERBOX", "LOOK-DRIFT"})
@@ -716,7 +719,7 @@ def _signals(text: str, words: tuple[str, ...]) -> list[str]:
 
 
 def final_review_scope(finding: dict[str, Any], kind: str) -> dict[str, str]:
-    """``{"scope": "global"|"language", "basis": KIND|QA_ITEM|TEXT_SIGNAL|REVIEWER|DEFAULT, "reason": ...}`` for one
+    """``{"scope": "global"|"language", "basis": KIND|QA_ITEM|TEXT_SIGNAL|REVIEWER|GEMINI_HINT|DEFAULT, "reason": ...}`` for one
     confirmed final-review finding (see ``SCOPE_GLOBAL`` above).  Pure, never raises."""
     item = str(finding.get("item") or "").upper()
     if kind in LANGUAGE_KINDS:
@@ -741,6 +744,9 @@ def final_review_scope(finding: dict[str, Any], kind: str) -> dict[str, str]:
     if reviewer in (SCOPE_GLOBAL, SCOPE_LANGUAGE):
         why = re.sub(r"\s+", " ", str(finding.get("kb_scope_reason") or "")).strip()
         return {"scope": reviewer, "basis": "REVIEWER", "reason": ("reviewer: " + why) if why else "reviewer"}
+    hint = str(finding.get("scope_hint") or "").strip().lower()
+    if hint in (SCOPE_GLOBAL, SCOPE_LANGUAGE):   # the multi-pass Gemini review's own hint, after the reviewer's
+        return {"scope": hint, "basis": "GEMINI_HINT", "reason": f"video review scope_hint {hint}"}
     return {"scope": SCOPE_GLOBAL, "basis": "DEFAULT",
             "reason": ("mixed signals" if lang_hits else "no language-dependent signal") + "; default global"}
 

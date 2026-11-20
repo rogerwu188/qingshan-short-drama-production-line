@@ -184,15 +184,23 @@ def reviewer_prompt(episode: str, request: Path, answers: Path, process_id: str,
 
 
 def gemini_step(gemini: Path | None) -> str:
-    """Reviewer step 3b: verify the video-native pass (gemini_video_review.py) finding by finding."""
+    """Reviewer step 3b: verify the video-native passes (gemini_video_review.py) finding by finding."""
     if gemini is None:
         return ""
     return f"""3b. **视频原生初审（Gemini，只是线索，不是结论）**：`{gemini}`（`status` 不是 OK 就跳过这一步）。逐条核对 `findings`（G1…）
-   和 `suspect_checks`（S1…，本地测量的尾音/配乐/黑边可疑点及 Gemini 的判断）：到对应时间点用 ffmpeg 抽帧（必要时
-   0.25 s 一帧）看画面、量音频，自己判断。确认的：写进 problems（带严重度）和 `qa_defect_checklist` 对应 QA-* 条目的
-   DEFECT findings（黑边/横版镜头、造型前后不一致等不属于 QA-* 的只写 problems）。不成立的：说明理由。每一条 G/S 都要在
-   `qa_defect_checklist.gemini_verification` 里给结论：`[{{"id": "G1", "decision": "CONFIRMED|DISMISSED", "reason": "你看到/测到了什么"}}]`；
-   CONFIRMED 的同时给 `"kb_scope": "global|language"` 和一句 `"kb_scope_reason"`（判法同第 3 步 problems 的 kb_scope）。
+   和 `suspect_checks`（S1…，本地测量的尾音/配乐/黑边/皮肤油光可疑点及 Gemini 的判断）：到对应时间点用 ffmpeg 抽帧（必要时
+   0.25 s 一帧，皮肤/手/脸放大到原分辨率）看画面、量音频，自己判断。确认的：写进 problems（带严重度）和 `qa_defect_checklist`
+   对应 QA-* 条目的 DEFECT findings（不属于必查清单的类别只写 problems）。不成立的：说明理由。
+   `mode` 是 `multipass` 时，发现来自四个专审（每条的 `pass`）：A 画面/AI 瑕疵（QA-FACE-ARTIFACT 脸眼牙、QA-HAND-ARTIFACT 手指、
+   QA-SKIN-SHEEN-DRIFT 皮肤油光/头发变湿、QA-BODY-MORPH、QA-OBJECT-POP、QA-FLICKER、QA-PHYSICS、烧字、遮罩、黑边）、
+   B 身份与场内连贯（QA-IDENTITY-MISMATCH 对照身份卡、LOOK-DRIFT 服装发型配饰、QA-PROP/LIGHTING/POSITION-CONTINUITY、同脸）、
+   C 声音（QA-LIPSYNC、QA-VOICE-INCONSISTENT、QA-WRONG-SPEAKER、尾音、QA-LOUDNESS-JUMP、配乐、QA-SFX、QA-AUDIO-ARTIFACT）、
+   D 导演/剪辑（CRAFT-PACING、CRAFT-SHOT-GRAMMAR、CRAFT-BEAT-MISSED、CRAFT-CLARITY、CRAFT-OPENING-HOOK、CRAFT-ENDING-HOOK、
+   CRAFT-EMOTION、CRAFT-SUBTITLE-READABILITY）。全部都要核对；确认后引擎这样处理（你只管判断真假）：烧字、身份/服装、
+   脸与皮肤漂移、手 → 付费重做该单元；声音类 → 免费 S7 重混/重剪；导演/剪辑类 → 记录并进知识库。
+   每一条 G/S 都要在 `qa_defect_checklist.gemini_verification` 里给结论：`[{{"id": "G1", "decision": "CONFIRMED|DISMISSED", "reason": "你看到/测到了什么"}}]`；
+   CONFIRMED 的同时给 `"kb_scope": "global|language"` 和一句 `"kb_scope_reason"`（判法同第 3 步 problems 的 kb_scope；
+   Gemini 自己的 `scope_hint` 只作参考）。
    Gemini 漏掉的问题照常自己查；它的判语不能代替你的观看，也不能照抄。
 """
 
@@ -251,7 +259,7 @@ def review_status_code(episode: str) -> int:
 
 #: bump when reviewer_prompt changes in a way that can turn an EXHAUSTED review into a valid one; an updated
 #: engine then gets a fresh set of reviewer attempts for the same request (…1324 E04: the sound pass rule)
-REVIEWER_PROMPT_VERSION = "3"   # 3: video-native Gemini pass + local evidence pack (2026-11-19)
+REVIEWER_PROMPT_VERSION = "4"   # 3: video-native Gemini pass + local evidence pack (2026-11-19); 4: multi-pass (11-20)
 
 
 def launch_reviewer(episode: str) -> dict[str, Any]:

@@ -229,7 +229,7 @@ class GeminiReviewTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.env = {"HOPSAPI_API_KEY": "sk-test-SECRET", "NALU_ENGINE_ROOT": str(self.root),
-                    "NALU_RUNTIME_ROOT": str(self.root)}
+                    "NALU_RUNTIME_ROOT": str(self.root), "NALU_GEMINI_REVIEW_MODE": "single"}
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -405,7 +405,7 @@ class PrepareEvidenceTest(unittest.TestCase):
 class LauncherTest(unittest.TestCase):
     def test_prompt_version_and_gemini_step(self):
         import codex_production as cp
-        self.assertEqual(cp.REVIEWER_PROMPT_VERSION.split()[0], "3")
+        self.assertEqual(cp.REVIEWER_PROMPT_VERSION.split()[0], "4")
         plain = cp.reviewer_prompt("E05", Path("/r.json"), Path("/a.json"), "pid", "submit")
         self.assertNotIn("gemini_verification", plain)
         self.assertIn("av_evidence_pack", plain)
