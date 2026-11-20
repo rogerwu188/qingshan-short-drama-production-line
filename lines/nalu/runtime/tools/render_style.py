@@ -280,6 +280,23 @@ ART_STYLE_QUESTION_SPEC: dict[str, Any] = {
 }
 
 
+#: anime cast distinctness (line owner 2026-11-19): InsightFace cannot compare anime faces, so the identity review asks
+#: whether this character's design is distinguishable from the other characters' plates.  Descriptive: no enum value
+#: is a FAIL/UNCERTAIN answer, so it never rejects a plate; TOO_SIMILAR is recorded as an advisory
+#: (character_distinctness.anime_record, identity_qa_lock).
+CAST_DISTINCT_QUESTION = "anime_cast_design_distinct"
+CAST_DISTINCT_QUESTION_SPEC: dict[str, Any] = {
+    "enum": ["DISTINCT", "TOO_SIMILAR", "NOT_APPLICABLE"],
+    "maps_to": ["identity_qa_lock.character_distinctness (advisory)", "VLM_ANIME_CAST_DESIGN_DISTINCT_V1"],
+    "descriptive": True,
+    "question": ("CAST DISTINCTNESS (render_style=anime; descriptive, never a failure): compared with the OTHER "
+                 "characters' plates supplied as PEER_CHARACTER_PLATE media, is this character's design clearly "
+                 "distinguishable at a glance -- hair colour and style, eye colour and shape, silhouette, outfit "
+                 "palette?  TOO_SIMILAR when a viewer could mistake one for the other (name the other character in "
+                 "the observation); NOT_APPLICABLE when no peer plate is supplied."),
+}
+
+
 def style_questionnaire(kind: str, questionnaire: dict[str, dict[str, Any]], style: Any) -> dict[str, dict[str, Any]]:
     """The questionnaire of one review kind for the style: unchanged for live-action; for anime the photographic
     realism question becomes the art-style question and the anime character-consistency question is added."""
@@ -292,6 +309,8 @@ def style_questionnaire(kind: str, questionnaire: dict[str, dict[str, Any]], sty
             continue
         out[key] = row
     out[VLM_IDENTITY_QUESTION] = vlm_identity_question(kind)
+    if kind == "identity":
+        out[CAST_DISTINCT_QUESTION] = dict(CAST_DISTINCT_QUESTION_SPEC)
     return out
 
 
@@ -334,5 +353,6 @@ __all__ = [
     "SAME_IDENTITY_CLAUSE_ZH", "SHEET_REFERENCE_CLAUSE_ZH", "POSTER_OPENING_EN", "POSTER_COMPOSITION_EN",
     "CODEX_NOTE_ZH", "VLM_IDENTITY_METHOD", "VLM_IDENTITY_QUESTION", "ART_STYLE_QUESTION",
     "INSIGHTFACE_NOT_APPLICABLE_REASON", "vlm_identity_question", "ART_STYLE_QUESTION_SPEC", "style_questionnaire",
-    "vlm_identity_failures", "not_applicable_measurement", "ANTI_AI_QUESTION_ANIME",
+    "vlm_identity_failures", "not_applicable_measurement", "ANTI_AI_QUESTION_ANIME", "CAST_DISTINCT_QUESTION",
+    "CAST_DISTINCT_QUESTION_SPEC",
 ]

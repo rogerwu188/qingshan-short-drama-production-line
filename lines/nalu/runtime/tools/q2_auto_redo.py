@@ -5,7 +5,8 @@ Lab Holmes E04: the dispatch asked Codex for the §5 redo of units whose objecti
 Codex skipped it.  The pipeline now decides it itself, right after ``video_q2_builder prepare`` measured the
 clips and before the video_q2 review is requested:
 
-* candidates: units whose ``prepare.json`` records ``face_count`` (duplicates / extra people),
+* candidates: units whose ``prepare.json`` records ``face_count`` (duplicates / extra people), ``wrong_face``
+  (a declared character rendered with another character's face, line owner 2026-11-19),
   ``speaker_framing`` or ``push_in`` (locked camera, face width +50 %; line owner 2026-10-29, lab E08) FAIL —
   duplicates first, then speaker framing, then push-in, then the §5 viewer order (earlier units first);
 * a unit whose current clip the line owner already accepted (an active GATE_FAIL_ACCEPTANCE order bound to
@@ -28,9 +29,11 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-FAILURE_PRIORITY = ("face_count", "speaker_framing", "push_in")  # duplicates > speaker framing > push-in
-#: failures whose redo parks the start frame and generates the unit's own keyframe (nalu_pipeline.redo_switch_start_frames)
-NEW_START_FRAME_FAILURES = ("speaker_framing", "face_count")
+#: duplicates > wrong character face (2026-11-19, video_q2_builder.wrong_face_verdict) > speaker framing > push-in
+FAILURE_PRIORITY = ("face_count", "wrong_face", "speaker_framing", "push_in")
+#: failures whose redo parks the start frame and generates the unit's own keyframe (nalu_pipeline.redo_switch_start_frames);
+#: a wrong face is usually inherited from the start frame, so it gets its own keyframe too
+NEW_START_FRAME_FAILURES = ("speaker_framing", "face_count", "wrong_face")
 OWN_KEYFRAME_CREDITS = 11  # Giggle price; nalu_pipeline costs it per image provider (image_batch_credits)
 STATE_KEY = "q2_auto_redo"
 #: failure -> the task/unit field value the redo's H3 prompt carries (``h3_redo_findings``); the renderer states

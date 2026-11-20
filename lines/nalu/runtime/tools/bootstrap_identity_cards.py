@@ -76,6 +76,7 @@ from tools.visual_culture_contract import DEFAULT_CONTRACT as QINGSHAN_VISUAL_CU
 from tools.visual_culture_contract import ACTIVE_FROM_EPISODE as QINGSHAN_ACTIVE_FROM_EPISODE  # noqa: E402
 from tools.visual_culture_contract import authored_world_prompt_block, is_authored_world  # noqa: E402
 import render_style as _render_style  # noqa: E402  (runtime tools dir: per-series live_action | anime)
+import character_distinctness as _distinct  # noqa: E402  (cross-character face distinctness, 2026-11-19)
 
 #: 2026-10-16 (miniPC 《画皮》 E01 CODE_BLOCKER): every identity plate got the qingshan Northern-Song
 #: wuxia block, so a late-Ming/Qing story was asked for Song dress and lamellar armour.  The qingshan
@@ -859,6 +860,16 @@ def build_plan(
             })
             continue
         base_text = base_prompt.read_text(encoding="utf-8")
+        # Cross-character distinctness (line owner 2026-11-19): a card S3 measured as too similar to another
+        # character's card is regenerated ONCE with the differentiation block appended.  The derived prompt has its
+        # own file name, so the row fingerprint changes and the parked old plate is never handed back.  Never for
+        # an operator-photo card (the operator chose that face).
+        regen = None if sources else _distinct.regeneration_for(prompt_dir, subject_id)
+        regen_suffix = ""
+        if regen:
+            regen_suffix = str(regen.get("suffix") or "__DISTINCT_R1")
+            base_text = base_text.rstrip() + "\n\n" + str(regen["block"]).strip() + "\n"
+            base_prompt = ensure_prompt_file(prompt_dir / f"{episode}-{subject_id}{regen_suffix}.txt", base_text)
         views = list(subject.get("card_deliverables") or [BASE_VIEW])
         if BASE_VIEW not in views:
             views.insert(0, BASE_VIEW)
@@ -896,6 +907,8 @@ def build_plan(
                 "status": "READY_TO_SUBMIT",
                 "maximum_new_submissions": 1,
                 "identity_rule": "NEW_UNIQUE_FACE_NO_REUSE",
+                **({"distinctness_regeneration": {k: regen.get(k) for k in ("round", "against", "cosine_before")}}
+                   if regen else {}),
             })
 
         # --- the other views: image-to-image on the subject's own base plate ---
@@ -913,7 +926,7 @@ def build_plan(
             # {"dual_reference_subjects": ["CHAR-QINMING"]}.
             dual = bool(sources) and subject_id in dual_reference_subjects(prompt_dir)
             prompt = ensure_prompt_file(
-                prompt_dir / f"{episode}-{subject_id}__{view}{source_suffix}.txt",
+                prompt_dir / f"{episode}-{subject_id}__{view}{source_suffix}{regen_suffix}.txt",
                 view_prompt_text(base_text, view, reference_clause=(
                     source_clauses(sources, preserve_original=preserve)[1] if dual else same_identity_clause)))
             if base_plate is None:

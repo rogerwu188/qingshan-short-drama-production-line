@@ -846,6 +846,18 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
                                 [_media_row(p.plates / f"{row['asset_id']}-plate-v1.png", "IDENTITY_PLATE")]))
             if source is not None:
                 row["media"].append(_media_row(source, "OPERATOR_SOURCE_REFERENCE"))
+        if style == _render_style.ANIME:
+            # anime cast distinctness (line owner 2026-11-19): the descriptive question compares each character with
+            # the other characters' plates, so each character item also carries one plate per peer character
+            first_plate = {row["asset_id"]: next((m for m in row["media"] if m.get("role") == "IDENTITY_PLATE"
+                                                  and Path(str(m.get("path") or "")).is_file()), None)
+                           for row in rows if str(row.get("asset_id") or "").startswith("CHAR-")}
+            for row in rows:
+                if row["asset_id"] not in first_plate:
+                    continue
+                for peer, media in first_plate.items():
+                    if peer != row["asset_id"] and media:
+                        row["media"].append({**media, "role": "PEER_CHARACTER_PLATE", "peer_character_id": peer})
     elif kind == "keyframe":
         rows = exp.keyframe_items()
         for row in rows:

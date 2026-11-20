@@ -160,6 +160,12 @@ def reviewer_prompt(episode: str, request: Path, answers: Path, process_id: str,
    每条 CORE 条目 PASS/GAP/NA 加带数字的依据，最多 3 个 top gap（条目 id、时间或镜号、带数字的指标、修法、fix_owner
    writer|engine|S7），以及爽点时间、钩子时间、悬念时间。`measured_pacing` 里的数是在成片上量出来的，直接用，不要自己估。
    修法写成剪辑/写作方向，不引用台词、不写人名。这一块只记分不拦片，填错也不影响提交。
+   请求里有 `qa_defect_checklist_request` 时（线主 2026-11-19 必查清单），逐条专门检查并填 `qa_defect_checklist`
+   （格式见其 `answer_block`，每条 PASS/DEFECT/NA，DEFECT 必须带时间戳）：QA-BURNED-TEXT 画面里模型烧进的字（如字幕下多出的大字）、
+   QA-DIALOGUE-TAIL-CUT 台词尾音被切或句末无停顿、QA-OVERSIZED-MASK 遮挡/模糊框过大、QA-LOOKALIKE-CAST 两个角色长得一样、
+   QA-SUBTITLE-WRAP 字幕换行不当（如「！」单独一行）、QA-BGM-DISCONTINUOUS 配乐只响一两个镜头就停或在切点生硬起停。
+   `measurements` 里是免费量出来的线索（OCR、尾音距切点、遮挡面积、身份牌相似度、字幕分行、配乐段），逐个用眼睛/听感核实；
+   确认的缺陷同时按严重度写进 problems。这一块只记录不拦片。
 4. 按 `answer_contract` 写答案 JSON 到 `{answers}`，其中：
    `reviewer.agent_id` = `storyclaw-final-audience-reviewer`，`reviewer.role` = `independent_final_audience_reviewer`，
    `reviewer.model` = `{REVIEWER_MODEL_ID}`，`reviewer.process_id` = `{process_id}`，`reviewer.reviewed_at` = 当前 UTC ISO 时间；

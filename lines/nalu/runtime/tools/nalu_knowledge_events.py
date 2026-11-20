@@ -28,6 +28,12 @@ Event vocabulary (``evidence.failure_type``; the collector clusters on it):
                                          NALU_CRAFT_STANDARD_v1 (cluster ``CRAFT_STD_GAP|<item id>``, stage
                                          SCRIPT_AUTHORING for a writer fix, STORYBOARD_AUTHORING for engine / S7);
                                          item id, numbers and a scrubbed fix line only (``record_craft_gaps``)
+  QA_DEFECT:<item id>                    one per must-check defect of the final review (line owner 2026-11-19:
+                                         QA-BURNED-TEXT / -DIALOGUE-TAIL-CUT / -OVERSIZED-MASK / -LOOKALIKE-CAST /
+                                         -SUBTITLE-WRAP / -BGM-DISCONTINUOUS) the reviewer confirmed or the engine
+                                         measured (cluster ``QA_DEFECT|<item id>``; item id, routing, timestamps and
+                                         counts only -- ``record_qa_defects``); the S3 cross-character similarity
+                                         measurement records QA-LOOKALIKE-CAST too (``record_lookalike_cast``)
 
 Evidence quality (first daily review 2026-11-13 rejected all 46 clusters as too thin / bookkeeping):
 
@@ -577,6 +583,59 @@ def record_craft_gaps(rt: Path, *, episode: str, craft_path: str | None, media_s
                                symptom=spec["symptom"], evidence=evidence,
                                dedupe_key=f"{episode}:{spec['failure_type']}:{spec['item_id']}:{sha}"))
         return {"status": "OK", "gaps": len(parsed.get("top_gaps") or []), "events": events}
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}", "events": events}
+
+
+def record_qa_defects(rt: Path, *, episode: str, checklist_path: str | None,
+                      media_sha256: str | None = None) -> dict[str, Any]:
+    """The final review's must-check defects (``<EP>_QA_DEFECT_CHECKLIST.json`` written by final_audience_review
+    submit) as FAILURE_OBSERVATION events ``QA_DEFECT|<item id>``, deduped per item and final-cut sha.  The specs
+    carry item id, routing, timestamps and counts only (no OCR text, names or dialogue); ``emit`` scrubs again.
+    Best-effort, never raises."""
+    events: list[dict[str, Any]] = []
+    try:
+        record = _read(checklist_path)
+        if not record.get("items"):
+            return {"status": "NO_CHECKLIST", "events": events}
+        import nalu_qa_defect_checklist as _qa  # noqa: PLC0415 -- same directory
+        sha = str(media_sha256 or (record.get("bindings") or {}).get("final_video_sha256") or "NO_MEDIA")
+        for spec in _qa.event_specs(record):
+            evidence = {**spec["evidence"], "final_candidate_sha256": sha if sha != "NO_MEDIA" else None}
+            events.append(emit(rt, episode=episode, stage=spec["stage"], failure_type=spec["failure_type"],
+                               symptom=spec["symptom"], evidence=evidence,
+                               dedupe_key=f"{episode}:{spec['failure_type']}:{sha}"))
+        return {"status": "OK", "events": events}
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}", "events": events}
+
+
+def record_lookalike_cast(rt: Path, *, episode: str, report_path: str | None) -> dict[str, Any]:
+    """The S3 cross-character similarity (``<EP>_CHARACTER_DISTINCTNESS.json``): one ``QA_DEFECT|QA-LOOKALIKE-CAST``
+    event per too-similar pair (character ids and the cosine only), so the knowledge base and the next episode's
+    identity design see it.  Deduped per pair and cosine.  Best-effort, never raises."""
+    events: list[dict[str, Any]] = []
+    try:
+        report = _read(report_path)
+        rows = list(report.get("too_similar") or [])
+        rows += [{"a": r.get("subject_id"), "b": None, "cosine": None} for r in report.get("advisories") or []
+                 if r.get("subject_id")]
+        for row in rows:
+            regen = [r for r in report.get("regenerate") or [] if row.get("a") in (r.get("against") or [])
+                     or row.get("b") in (r.get("against") or [])]
+            evidence = {"cluster_key": "QA_DEFECT|QA-LOOKALIKE-CAST", "item": "QA-LOOKALIKE-CAST",
+                        "detail_category": "QA-LOOKALIKE-CAST", "failure_code": "QA_LOOKALIKE_CAST",
+                        "routing": "KNOWLEDGE_BASE_AND_NEXT_EPISODE_IDENTITY_DESIGN",
+                        "detail": {"pair": [row.get("a"), row.get("b")], "cosine": row.get("cosine"),
+                                   "threshold": report.get("threshold"), "method": report.get("method"),
+                                   "action": "REGENERATED_ONCE" if regen else "ACCEPTED_ADVISORY"}}
+            events.append(emit(rt, episode=episode, stage="S3", failure_type="QA_DEFECT:QA-LOOKALIKE-CAST",
+                               symptom="two different characters' identity cards look alike "
+                                       f"({row.get('a')} ~ {row.get('b')}, cosine {row.get('cosine')})",
+                               evidence=evidence, unit_ids=[x for x in (row.get("a"), row.get("b")) if x],
+                               dedupe_key=f"{episode}:QA_DEFECT:QA-LOOKALIKE-CAST:{row.get('a')}:{row.get('b')}:"
+                                          f"{row.get('cosine')}"))
+        return {"status": "OK" if rows else "NONE", "events": events}
     except Exception as exc:  # noqa: BLE001
         return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}", "events": events}
 

@@ -42,6 +42,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import nalu_craft_standard as _craft  # noqa: E402
+import nalu_qa_defect_checklist as _qa_defects  # noqa: E402  must-check defect list (line owner 2026-11-19)
 import render_style as _render_style  # noqa: E402  per-series live_action | anime
 import nalu_paths as _np  # noqa: E402
 from nalu_qa_common import (  # noqa: E402
@@ -409,6 +410,14 @@ def prepare(*, episode: str, video: Path, metrics_path: Path, contact_sheet: Pat
     except Exception:  # noqa: BLE001
         craft_request = {}
 
+    try:  # advisory: the must-check defect list + its free measurements; a failure only leaves the block out
+        defect_request = (_qa_defects.reviewer_request(qa_defect_measurements(
+            episode, shots=shots, asr=_asr, subtitle_report_path=subtitle_report_path))
+            if str(os.environ.get("NALU_QA_DEFECT_CHECKLIST") or "").strip().lower() not in ("off", "0", "false")
+            else {})
+    except Exception:  # noqa: BLE001
+        defect_request = {}
+
     # render_style=anime: the anti_ai dimension is REDEFINED (same key, same 3.5 floor) -- clean cel-shaded stylization
     # is intended; warping, off-model frames and mid-clip style drift are what it scores (render_style.py)
     style = _render_style.normalise(render_style) or _episode_render_style(episode)
@@ -445,6 +454,9 @@ def prepare(*, episode: str, video: Path, metrics_path: Path, contact_sheet: Pat
                 "once muted, and once sound-only. Do not infer viewing from decoder exit codes. "
                 "Write an independent observation for every measured shot and timestamp every "
                 "externally visible story event. Never copy a production-agent verdict."
+                + (" Check every item of qa_defect_checklist_request (burned text, cut-off line tails, oversized "
+                   "masks, look-alike cast, bad subtitle wraps, discontinuous music) specifically, with timestamps."
+                   if defect_request else "")
             ),
         },
         "media": refs["final_video"],
@@ -465,6 +477,7 @@ def prepare(*, episode: str, video: Path, metrics_path: Path, contact_sheet: Pat
         "dimension_questions": dimension_questions(style),
         "subjective_checks_required": list(SUBJECTIVE_CHECKS),
         **({"craft_standard_request": craft_request} if craft_request else {}),
+        **({"qa_defect_checklist_request": defect_request} if defect_request else {}),
         "answer_contract": {
             "schema": ANSWERS_SCHEMA,
             "request_sha256": "sha256 of this exact request file",
@@ -493,6 +506,8 @@ def prepare(*, episode: str, video: Path, metrics_path: Path, contact_sheet: Pat
                           "at_seconds": 0.0, "issue": "observed defect", "fix": "specific recut"}],
             **({"craft_standard": "OPTIONAL, see craft_standard_request.answer_block (advisory, never a gate)"}
                if craft_request else {}),
+            **({"qa_defect_checklist": "MUST-CHECK, see qa_defect_checklist_request.answer_block (timestamps; "
+                                       "advisory, never a gate)"} if defect_request else {}),
         },
         "producer_may_submit_answers": False,
         "timeout_autopass_allowed": False,
@@ -861,6 +876,47 @@ def _record_craft_standard(request: dict[str, Any], request_sha: str, answers: d
         return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:160]}"}
 
 
+def qa_defect_measurements(episode: str, *, shots: list[dict[str, Any]], asr: Any,
+                           subtitle_report_path: Path | None = None) -> dict[str, Any]:
+    """The free measurements behind the must-check list, read from S3 / S7 reports that already exist (read only:
+    the S7 subtitle, mask, trim and BGM code is owned elsewhere)."""
+    p = QaPaths(episode)
+    assembly = Path(p.assembly)
+    subtitle = read_json(subtitle_report_path, {}) if subtitle_report_path else {}
+    ass = (subtitle or {}).get("ass") if isinstance(subtitle, dict) else None
+    return _qa_defects.measure(
+        shots=shots, asr=asr,
+        scan_path=assembly / f"{episode}_H3_BURNED_TEXT_INTERVALS.json",
+        verify_path=assembly / f"{episode}_H3_BURNED_TEXT_COVER_CHECK.json",
+        ass_path=ass,
+        distinctness_path=Path(p.identity) / f"{episode}_CHARACTER_DISTINCTNESS.json",
+        bgm_plan_path=assembly / f"{episode}_BGM_PLAN.json",
+        audio_bed_path=assembly / f"{episode}_AUDIO_BED.json")
+
+
+def _record_qa_defects(request: dict[str, Any], request_sha: str, answers: dict[str, Any],
+                       report_path: Path) -> dict[str, Any]:
+    """Advisory: the must-check defect list (reviewer block, parsed leniently, + the measured flags) written to
+    ``<EP>_QA_DEFECT_CHECKLIST.json`` next to the score report.  Runs after the gates; never raises, never gates."""
+    block_request = request.get("qa_defect_checklist_request")
+    if not isinstance(block_request, dict):
+        return {"status": "NOT_REQUESTED"}
+    try:
+        duration = float((request.get("objective_summary") or {}).get("duration_seconds") or 0.0) or None
+        parsed = _qa_defects.parse_block(answers.get("qa_defect_checklist"), duration=duration)
+        record = _qa_defects.build_record(
+            parsed, block_request.get("measurements") or {}, episode=str(request.get("episode")),
+            bindings={"request_sha256": request_sha, "final_video_sha256": (request.get("media") or {}).get("sha256"),
+                      "reviewer_model": (answers.get("reviewer") or {}).get("model")})
+        path = report_path.parent / f"{request.get('episode')}_QA_DEFECT_CHECKLIST.json"
+        _atomic_json(path, record)
+        return {"status": parsed.get("status"), "path": str(path), "sha256": _sha(path),
+                "defects": record["defects"], "flagged_unreviewed": record["flagged_unreviewed"],
+                "authority": "ADVISORY_NOT_A_GATE"}
+    except Exception as exc:  # noqa: BLE001 -- never changes the review's exit code
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:160]}"}
+
+
 def submit(*, request_path: Path, answers_path: Path, report_path: Path,
            ledger_path: Path, audience_gate_path: Path,
            quality_gate_path: Path, plan_index_root: Path | None = None,
@@ -1009,6 +1065,12 @@ def submit(*, request_path: Path, answers_path: Path, report_path: Path,
     }
     if "craft_standard" in answers:  # optional craft-standard block: advisory, after the gates, never changes the code
         result["craft_standard"] = _record_craft_standard(request, request_sha, answers, report_path)
+    if "qa_defect_checklist_request" in request:  # must-check list: advisory, after the gates, never changes the code
+        # the record (measured flags at least) is always written for S7 / S8; the result names it only when the
+        # reviewer filled the block, so a legacy answer keeps its exact result shape
+        qa_defects = _record_qa_defects(request, request_sha, answers, report_path)
+        if "qa_defect_checklist" in answers:
+            result["qa_defect_checklist"] = qa_defects
     if director_evaluation is not None:
         # Advisory outputs written after the gates were evaluated, so they cannot
         # influence them; the exit code below is the gates' alone.
