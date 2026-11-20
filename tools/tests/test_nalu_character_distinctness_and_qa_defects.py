@@ -376,7 +376,8 @@ class FinalReviewChecklistTest(unittest.TestCase):
         self.assertEqual(record["items"]["QA-DIALOGUE-TAIL-CUT"]["status"], "MEASURED_FLAG_UNREVIEWED")
         self.assertEqual(record["items"]["QA-LOOKALIKE-CAST"]["routing"],
                          "KNOWLEDGE_BASE_AND_NEXT_EPISODE_IDENTITY_DESIGN")
-        self.assertTrue(record["items"]["QA-BURNED-TEXT"]["routing"].startswith("S7_FIXABLE"))
+        self.assertEqual(record["items"]["QA-BURNED-TEXT"]["routing"], "S6_UNIT_REDO_FINAL_FIX_ROUND")
+        self.assertTrue(record["items"]["QA-BGM-DISCONTINUOUS"]["routing"].startswith("S7_FIXABLE"))
         specs = {s["item_id"]: s for s in qa.event_specs(record)}
         self.assertEqual(specs["QA-BURNED-TEXT"]["evidence"]["cluster_key"], "QA_DEFECT|QA-BURNED-TEXT")
         self.assertEqual(specs["QA-BURNED-TEXT"]["evidence"]["detail"]["at_seconds"], [18.5])

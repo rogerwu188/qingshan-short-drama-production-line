@@ -1810,11 +1810,29 @@ def s6_burn_retry_indices(out_dir: Path, episode: str) -> dict[str, int]:
     return out
 
 
+def final_fix_redo_fields(out_dir: Path, episode: str) -> dict[str, dict[str, Any]]:
+    """unit -> ``h3_final_fix`` {round, kind, kinds, sentence} of units the final fix round (owner 2026-11-20,
+    final_fix_round.py) parked for one paid redo.  Read from ``reports/<EP>_FINAL_FIX_REDO.json``, which is never
+    removed, so a recompile after the redo keeps the prompt the redo was submitted with."""
+    path = out_dir / "reports" / f"{episode}_FINAL_FIX_REDO.json"
+    try:
+        state = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for uid, row in ((state or {}).get("units") or {}).items():
+        if isinstance(row, dict) and row.get("sentence"):
+            out[str(uid)] = {"round": int(row.get("round") or 1), "kind": row.get("kind"),
+                             "kinds": list(row.get("kinds") or [row.get("kind")]), "sentence": str(row["sentence"])}
+    return out
+
+
 def finalization_receipt_for(out_dir: Path, uid: str, prompt_sha256: str | None) -> Path | None:
     """The reviewed incremental-finalization receipt binding exactly ``prompt_sha256``: the reviewer's
     ``<unit>.json`` first, then the engine's burn-retry receipt ``<unit>.burn_retry.json`` (nalu_pipeline
-    s6_burn_retry_finalization_receipts: approved prompt + exactly the retry sentence)."""
-    for name in (f"{uid}.json", f"{uid}.burn_retry.json"):
+    s6_burn_retry_finalization_receipts: approved prompt + exactly the retry sentence), then the engine's final-fix
+    receipt ``<unit>.final_fix.json`` (approved prompt + exactly the final-fix redo sentence)."""
+    for name in (f"{uid}.json", f"{uid}.burn_retry.json", f"{uid}.final_fix.json"):
         receipt_path = out_dir / "prompt_batch_finalization" / name
         if not receipt_path.is_file():
             continue
@@ -3339,6 +3357,7 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
                        else root / "reports" / "action_role_evidence")
     redo_findings = q2_redo_prompt_findings(out_dir, episode, contract)
     burn_retries = s6_burn_retry_indices(out_dir, episode)
+    final_fixes = final_fix_redo_fields(out_dir, episode)
     # K075 is an episode-wide judgement (a face shown once keeps the plate everywhere), so it reads the
     # full editorial manifest, never the wave subset.
     editorial_path = out_dir / f"{prefix}EDITORIAL_SEEDANCE_MANIFEST_V1.json"
@@ -3680,6 +3699,8 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             task["h3_redo_findings"] = list(redo_findings[uid])
         if burn_retries.get(uid):  # S6 burned-text retry n (h3_burn_retry): retry sentence + perturbed @Image1
             task["h3_burn_retry"] = int(burn_retries[uid])
+        if final_fixes.get(uid):  # final fix round redo (final_fix_round.py): the redo sentence + perturbed @Image1
+            task["h3_final_fix"] = dict(final_fixes[uid])
         task["dialogue_lines"] = lines
         task["native_dialogue_required"] = bool(lines)
         task["dialogue_transport"] = "MODEL_NATIVE_TEXT_DIALOGUE" if lines else "SAME_TASK_NATIVE_AMBIENCE_FOLEY_ACTION_SOUND"

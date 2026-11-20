@@ -25,6 +25,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -277,6 +278,26 @@ def dialogue_language(runtime: Path) -> str | None:
         return None
 
 
+def final_fix_note(engine: Path, episode: str) -> tuple[dict | None, str]:
+    """The episode's final fix round (owner 2026-11-20; workflow/nalu/<EP>/assembly/final_qa/final_fix_round.json):
+    (concise summary, one-line note) or (None, "").  Never raises."""
+    if not episode:
+        return None, ""
+    try:
+        work = Path(os.environ.get("NALU_WORK_ROOT") or (engine / "workflow" / "nalu"))
+        path = work / episode / "assembly" / "final_qa" / "final_fix_round.json"
+        if not path.is_file():
+            return None, ""
+        record = json.loads(path.read_text(encoding="utf-8"))
+        tools = engine / "lines" / "nalu" / "runtime" / "tools"
+        if str(tools) not in sys.path:
+            sys.path.insert(0, str(tools))
+        import final_fix_round as ffr  # noqa: PLC0415
+        return ffr.summary(record), ffr.status_note(record)
+    except Exception:  # noqa: BLE001 -- the report never fails on this
+        return None, ""
+
+
 def build_status(cp: Any, tick_result: dict) -> tuple[dict, str, str]:
     engine, runtime = cp.roots()
     ep = cp.current_episode() or ""
@@ -301,6 +322,7 @@ def build_status(cp: Any, tick_result: dict) -> tuple[dict, str, str]:
     except Exception:  # noqa: BLE001
         pass
     state = str(ns.get("state") or run or "")
+    fix_summary, fix_note = final_fix_note(engine, ep)
     blocker_text = _newest_blocker(engine, ep) if ep and state == "BLOCKED" else ""
     try:
         lines = (runtime / "series" / "STATUS.md").read_text(encoding="utf-8").splitlines()
@@ -309,7 +331,8 @@ def build_status(cp: Any, tick_result: dict) -> tuple[dict, str, str]:
         tail = ""
     status = {
         "episode": ep, "stage": stage or str(ns.get("stage") or ""), "state": state, "run": run,
-        "note": str(ns.get("note") or "")[:500],
+        "note": " | ".join(x for x in (str(ns.get("note") or ""), fix_note) if x)[:500],
+        "final_fix_round": fix_summary,
         "blocker": (blocker_text.splitlines()[0] if blocker_text else
                     str(tick_result.get("reason") or "") if tick_result.get("action") == "AGENT" else ""),
         "tick_action": tick_result.get("action"), "tick_reason": tick_result.get("reason"),

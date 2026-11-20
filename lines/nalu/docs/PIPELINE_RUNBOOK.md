@@ -26,7 +26,7 @@ export PIPE=$RUNTIME_ROOT/runtime/tools/nalu_pipeline.py
 | **S5** | keyframes | `runtime/tools/build_keyframe_manifest.py --episode --preproduction-dir --contract --asset-library --out --report --prompt-dir --keyframe-dir --engine-root --python --image-resolution 2K --precheck-only` → `tools/keyframe_entry_state_gate.py <manifest> --output` → **`materialize_paid_authorization.py --order-seq 3 --manifest …`** → 💰 `tools/submit_giggle_image_manifest.py --manifest <…_PAID_AUTHORIZED.json> --out --concurrency 6` → `tools/harvest_giggle_image_batch.py …` → deterministic rename → **Q1 admission (see §5 D-4, D-5)** | a **LOCKED** asset library from S3, the preproduction dir | `workflow/nalu/<EP>/preproduction/keyframes/{shot_id}-keyframe-v1.png` (flat dir — `build_video_unit_anchor_plan.py` globs `{shot_id}-keyframe-v*.png` and takes the highest version), entry-state gate report, Q1 route status | 💰 **330 cr** (30 × 11) | Renaming is idempotent: a destination that already exists is left alone (`ALREADY_PRESENT`). Destination names come from each task's `output_contract.expected_output_path`, never from a guess. Submission reuse via the same durable store as S3. |
 | **S6** | video | re-run **S2 with `--keyframe-dir`** (completes 4.3 / 4.3c / 4.4 / preflight) → `tools/production_efficiency_contract.py --manifest --output` (rolling waves + in-batch duplicate-request detector) → **`materialize_paid_authorization.py --order-seq 3 --manifest …`** → 💰 `BACKLOT_PIPELINE_TOOLS_DIR=$ENGINE_ROOT/tools tools/submit_giggle_video_manifest_v2.py --manifest <…_PAID_AUTHORIZED.json> --out --concurrency 6 --project-root $ENGINE_ROOT` → `tools/poll_giggle_submit_report.py --submit-report --out-dir --status-report --download` → `tools/post_generation_qa_scope_gate.py --episode --out --check …` → **S6.qa post-gen QA (D-6)** → **S6.q2 Q2 `VIDEO_ASSEMBLY` admission (D-7)** | admitted keyframes + start-frame receipts + the 3 PASS `machine_gate_reports` | `<EP>_VIDEO_SUBMIT_V1.json`, `<EP>_VIDEO_REMOTE_STATUS_V1.json`, mp4s under `workflow/nalu/<EP>/video/`, QA scope report, `reports/qa/q2/<UNIT>/admission_result.json` + `ai_review.json` | 💰 **3500 cr** (175 s × 20 cr/s) | Durable store `workflow/tasks/giggle_video_submit_transactions/<EP>/`, per-task `flock`, intent-before-POST. A same-fingerprint task already `SUBMITTED_TASK_ID_BOUND` is recovered with **no POST**. A lost HTTP response becomes `RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION` — **never blindly resend**; reconcile the ledger first. Rerolls only via `tools/reroll_cost_guard.py` (gate `GIGGLE-REROLL-COST-GUARD`) **and** a fresh budget check. |
 | **S7** | assembly | **S7.q2 verify** (`runtime/tools/video_q2_builder.py status` — every unit must hold an `ADMITTED_FOR_ASSEMBLY` receipt whose asset SHA still matches) → `tools/build_agentcut_from_admitted_storyboard_sources.py --episode --receipt… --review-result… --out-project --out-admission --output-video --expected-slots 29 --generation-contract` → `tools/render_portable_timeline.py <project> --output <picture_native> --dry-run` then for real → `tools/level_native_release_audio.py --source <picture_native> --timeline --grouped --output <final> --qa --episode --version v1 --expected-sha256 <real sha of picture_native>` → `runtime/tools/final_qa_evidence_bundle.py run --episode --gate-subset applicable` | Q2 admission receipts + per-unit `ai_review.json` + the grouped manifest + the generation contract | `deliverables/<EP>/<EP>_final_9x16.mp4` + `<EP>_QA_REPORT.json` + `CHECKPOINT.md` | 💚 free | Each link runs only when its real input exists — **no media is ever stubbed**. A link whose input is missing prints its exact command, records `details.missing_input`, and BLOCKS. The renderer writes a temp file then `os.replace`, so a failed encode never damages an approved cut. `level_native_release_audio.py` **refuses to overwrite** an existing `--output`/`--qa` — bump `--version`. Release loudness band is −17.0…−15.0 LUFS. `tools/run_episode_qa.sh` is recorded in the state file but **not run**: it hardcodes `--phase final --phase release` and cannot express D-12. |
-| **S8** | checkpoint | this tool | everything above | `deliverables/<EP>/CHECKPOINT.md` | 💚 free | Always rewritten; then blocks on the approval flag. |
+| **S8** | checkpoint | this tool | everything above | `deliverables/<EP>/CHECKPOINT.md` + approval flag | 💚 free | Always rewritten; a released cut is approved by the engine under the default terms (`approved_by: engine_default_terms`, owner policy 2026-11-20); only `project.owner_review_required: true` makes it block on the owner's `approve`. |
 
 🔑 note: `harvest_giggle_image_batch.py`, `poll_giggle_submit_report.py` and
 `upload_giggle_asset.py` need `GIGGLE_API_KEY` but issue **no generation POST** and cost **no
@@ -252,12 +252,15 @@ $VENV $PIPE status --episode E01 --json              # the whole state file
 $VENV $PIPE loop --start E01 --end E10 --paid --poll-seconds 60
 ```
 The loop runs each episode's S1→S8 in order, then **always** writes
-`deliverables/<EP>/CHECKPOINT.md` and blocks, polling
-`runtime/pipeline_state/approvals/<EP>.APPROVED.json`. There is no `--yes`, no
-`--auto-approve`, and no timeout that self-approves. A **failed** episode also gets a
-checkpoint and also blocks — a human always looks before the next episode starts.
+`deliverables/<EP>/CHECKPOINT.md` and polls
+`runtime/pipeline_state/approvals/<EP>.APPROVED.json`. Since 2026-11-20 (line owner: 「不要等我了，
+我自己看不过来」) S8 writes that flag itself for a released cut (`approved_by: engine_default_terms`,
+`owner_policy: never_wait_quality`, with the unresolved findings), so the loop continues exactly as on
+FINAL_CUT_READY.  A **failed** episode (no deliverable) is never auto-approved and still blocks.  A line
+that wants the old wait sets `project.owner_review_required: true` in the runtime `qingshan.json`; then
+nothing self-approves.  See "Final fix round + S8 engine approval" at the end of this file.
 
-### Approve (unblocks the loop)
+### Approve (owner override; required only with `project.owner_review_required: true`)
 ```bash
 $VENV $PIPE approve --episode E01 --note "watched it, ship E02"
 ```
@@ -478,9 +481,10 @@ run --episode E01 --from S6  →  the stage picks the submitted review up and co
 
 ## 4d. What Roger sees at the checkpoint
 
-S8 always writes `deliverables/<EP>/CHECKPOINT.md` — for a failed episode too — and then blocks
-on `runtime/pipeline_state/approvals/<EP>.APPROVED.json`. There is no `--yes`, no
-`--auto-approve`, and no timeout that self-approves. The checkpoint contains, in this order:
+S8 always writes `deliverables/<EP>/CHECKPOINT.md` — for a failed episode too.  A released cut (S7 PASS +
+deliverable) is then approved by the engine under the default terms (owner policy 2026-11-20); only
+`project.owner_review_required: true` (or a failed episode) blocks on
+`runtime/pipeline_state/approvals/<EP>.APPROVED.json`. The checkpoint contains, in this order:
 
 1. **Stage status table** — every stage, its status, and its blockers.
 2. **What to watch** — when the cut exists: `deliverables/<EP>/<EP>_final_9x16.mp4` with its
@@ -500,7 +504,9 @@ on `runtime/pipeline_state/approvals/<EP>.APPROVED.json`. There is no `--yes`, n
    plan total, and the ledger path.
 6. **Known defects / open decisions blocking release**, then the ones resolved since the last
    checkpoint with their residuals.
-7. **Approval** — the one command that unblocks the loop.
+7. **Final fix round** — first / second verdict, free fixes, units redone, credits, unresolved findings.
+8. **Approval** — how S8 was approved (engine default terms), or, with `owner_review_required`, the one
+   command that unblocks the loop.
 
 ```bash
 $VENV $PIPE approve --episode E01 --note "watched it, ship E02"
@@ -1137,3 +1143,58 @@ MiniMax-H3 sometimes burns the spoken line into the clip as a caption (centred, 
 * **Blur cover off by default**: `H3_BURNED_TEXT_COVER_V1` no longer turns on by episode number (the E12-E14
   list leaked into every series); it is active only when the generation contract or the runtime config
   declares `h3_burned_text_cover_policy: H3_BURNED_TEXT_COVER_V1`.
+
+## Final fix round + S8 engine approval (line owner 2026-11-20)
+Owner: 「不要等我了，我自己看不过来」 — episodes never stop and wait for the line owner on quality.  Code:
+`lines/nalu/runtime/tools/final_fix_round.py` (pure) wired in `nalu_pipeline.py` (`s7_final_fix_round`,
+`stage_s7`, `s8_auto_approve`).
+* **Trigger**: the independent final review returns REJECT_RECUT, or PASS with a confirmed must-check DEFECT
+  (reviewer DEFECT in `<EP>_QA_DEFECT_CHECKLIST.json` or a Gemini finding the reviewer CONFIRMED).  A PASS that
+  merely lists problems, measured-but-unreviewed flags, and dismissed / unverified Gemini findings do not trigger.
+* **One round, never a loop** (`NALU_FINAL_FIX_ROUNDS`, default 1, 0 disables, >1 is clamped to 1).  After the
+  round S7 re-assembles and the reviewer watches the new candidate ONCE more; whatever that second verdict is,
+  the line proceeds (a second REJECT goes to the default-terms release order exactly as before, §7 of the
+  device contract).
+* **Fix classes** (each confirmed finding, located on the release timeline):
+  * FREE S7 (zero credits): over-long static shot → `UNIT_RECUT_PLAN` entry splitting it with a cutaway from a
+    neighbour's unused frames (the unit's own sound runs on), else a punch-in on its second half; audio-bed RMS
+    jump / loudness window too hot → `NALU_S7_CUT_CROSSFADE_SECONDS=0.16`; abrupt music start / stop →
+    `NALU_BGM_MIN_CUE_SECONDS=16`, `NALU_BGM_FADE_SCALE=1.6`; bad caption wrap → `NALU_S7_SPLIT_LONG_CAPTIONS=1`;
+    clipped line tail → `NALU_S7_TAIL_GUARD_SECONDS=0.4`, `NALU_S7_POST_LINE_BEAT_SECONDS=0.7`.  The settings
+    live in `assembly/<EP>_FINAL_FIX_S7_SETTINGS.json` (bound into the candidate's source bindings) and apply
+    to every later S7 pass of the episode; an env name the operator set is never overridden.  Free-only rounds
+    re-run S7 at once in the same process (`FINAL_FIX_ROUND_S7_RERUN`, one re-run).
+  * PAID S6 redo (MiniMax-H3 only): burned text (QA-BURNED-TEXT), costume / identity colour mismatch, face drift /
+    wrong face on a located unit.  At most one redo per unit in the round.  The clip is parked to
+    `video/_superseded_<run>_final_fix/`, the redo sentence is recorded in `reports/<EP>_FINAL_FIX_REDO.json`
+    (compile → task `h3_final_fix` → last prompt line; costume redo pins the identity card's English colours;
+    @Image1 bytes perturbed like a burn retry), S6 is reopened (`REOPENED_FINAL_FIX`), and the redo goes through
+    every existing gate (budget ledger + episode cap, D-11, paid order, durable store, stale-binding guard, Q2).
+    The prompt change gets an engine receipt `prompt_batch_finalization/<unit>.final_fix.json` only when it is
+    an approved prompt plus exactly that sentence.  A final-fix take is never burn-retried again.
+  * RECORD ONLY: pacing, story, length shortfall, voice collision, ASR / lip mismatch, look-alike cast,
+    letterbox, oversized mask, anything else.
+* **Budget**: planned paid spend ≤ `NALU_FINAL_FIX_BUDGET_CREDITS` (default 45) and ≤ the episode headroom
+  (unknown headroom = no paid redo).  When they do not cover every redo: burned text, then costume / identity,
+  then face drift, each by on-screen duration; a unit that does not fit is skipped (`BUDGET_CAP`).
+* **Paid redo pending**: S7 stops with `FINAL_FIX_ROUND_S6_REDO_PENDING:<units>`; run
+  `lines/nalu/runtime/tools/paid_stage.sh <EP> S6 S8` (a paid run that includes S6 loops back from S7 to S6 by
+  itself, once).  Waiting for the render is the usual `WAITING_REMOTE`.
+  A redo that cannot complete (provider keeps rejecting the unit, budget HARD_STOP): move
+  `video/_superseded_*_final_fix/<unit>.mp4` back to `video/<unit>.mp4` and re-run S7; the round ends with the
+  unchanged cut (`CANDIDATE_UNCHANGED_AFTER_FIX`) and the line proceeds.
+* **Record**: `workflow/nalu/<EP>/assembly/final_qa/final_fix_round.json` (`nalu.final_fix_round.v1`: findings
+  with class / unit, free actions, paid plan with skipped reasons, credits at start and spent, first / second
+  review, unresolved findings); the first review's report / ledger / gates / checklist are copied to
+  `final_qa/final_fix_round/first_review/` before the second review overwrites them.  The S8 details, the
+  checkpoint and the fleet status (`final_fix_round` + a note suffix) carry its summary.  Statuses:
+  `NOT_NEEDED`, `NO_ACTIONABLE_FIX`, `DISABLED`, `S7_RERUN`, `S6_REDO_PENDING`, `DONE`.
+* **S8 engine approval**: after the round (or when the first review passed), S8 writes
+  `runtime/pipeline_state/approvals/<EP>.APPROVED.json` itself — `approved_by: "engine_default_terms"`,
+  `owner_policy: "never_wait_quality"`, the round summary, `unresolved_findings`, and the paid order's
+  publication scope (`release_scope: DELIVERABLE_ONLY_NO_PLATFORM_PUBLICATION` unless the order says
+  `publication_allowed=true`; the pipeline itself still never uploads).  Only a released cut is approved (S7
+  PASS + deliverable); otherwise S8 stays `AWAITING_APPROVAL` with `S8_AUTO_APPROVE_NOT_ELIGIBLE`.
+  `project.owner_review_required: true` in the runtime `qingshan.json` restores the old wait for `approve`.
+* **Log lines**: `FINAL_FIX_ROUND_START`, `FINAL_FIX_FREE_RECUT kind=…`, `FINAL_FIX_UNIT_REDO unit=… kind=…`,
+  `FINAL_FIX_ROUND_DONE verdict=…`, `S8_AUTO_APPROVED episode=… by=engine_default_terms`.

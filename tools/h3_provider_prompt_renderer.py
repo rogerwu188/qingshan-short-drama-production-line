@@ -1392,7 +1392,7 @@ def _with_burn_retry(unit: dict[str, Any], plan: dict[str, Any], text: str,
         import h3_burn_retry as _br  # type: ignore
     index = _br.retry_index(unit)
     if not index:
-        return text, receipt
+        return _with_final_fix(unit, plan, text, receipt)
     uid = str(plan["unit_id"])
     varied = _br.apply_retry_sentence(text, index)
     failures = [*validate_provider_prompt_boundary(varied, source_id=uid, model_family="MINIMAX_H3")["failures"],
@@ -1400,8 +1400,34 @@ def _with_burn_retry(unit: dict[str, Any], plan: dict[str, Any], text: str,
     if len(varied) > _PROVIDER_RUNE_LIMIT:
         failures.append("PROVIDER_RUNE_LIMIT")
     if failures:
-        return text, {**receipt, "h3_burn_retry": {"retry": index, "sentence": "SKIPPED", "failures": failures[:6]}}
-    return varied, {**receipt, "h3_burn_retry": {"retry": index, "sentence": _br.retry_sentence(index)},
+        return _with_final_fix(unit, plan, text, {
+            **receipt, "h3_burn_retry": {"retry": index, "sentence": "SKIPPED", "failures": failures[:6]}})
+    return _with_final_fix(unit, plan, varied, {
+        **receipt, "h3_burn_retry": {"retry": index, "sentence": _br.retry_sentence(index)},
+        "prompt_budget": measure_prompt(varied, source_id=uid, model_family="MINIMAX_H3")})
+
+
+def _with_final_fix(unit: dict[str, Any], plan: dict[str, Any], text: str,
+                    receipt: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """Final fix round redo (lines/nalu/runtime/tools/final_fix_round.py, owner 2026-11-20): a unit carrying
+    ``h3_final_fix`` = {kind, sentence} gets that sentence (burned text / costume colours pinned from the identity
+    card / face lock) as its last line, after any burn-retry sentence; boundary checks re-run, a sentence that would
+    break them or the rune limit is skipped and recorded.  Absent: unchanged."""
+    fix = unit.get("h3_final_fix")
+    sentence = str(fix.get("sentence") or "") if isinstance(fix, dict) else ""
+    if not sentence:
+        return text, receipt
+    uid = str(plan["unit_id"])
+    core = text.rstrip("\n")
+    varied = text if sentence in text else core + "\n" + sentence + text[len(core):]
+    failures = [*validate_provider_prompt_boundary(varied, source_id=uid, model_family="MINIMAX_H3")["failures"],
+                *validate_h3_provider_text_boundary(varied, source_id=uid)["failures"]]
+    if len(varied) > _PROVIDER_RUNE_LIMIT:
+        failures.append("PROVIDER_RUNE_LIMIT")
+    note = {"kinds": list(fix.get("kinds") or [fix.get("kind")]), "round": fix.get("round")}
+    if failures:
+        return text, {**receipt, "h3_final_fix": {**note, "sentence": "SKIPPED", "failures": failures[:6]}}
+    return varied, {**receipt, "h3_final_fix": {**note, "sentence": sentence},
                     "prompt_budget": measure_prompt(varied, source_id=uid, model_family="MINIMAX_H3")}
 
 

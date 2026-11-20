@@ -624,6 +624,9 @@ def provider_prompt_unit(task: dict[str, Any]) -> dict[str, Any]:
     # S6 burned-text retry n (h3_burn_retry.py, owner 2026-11-19): absent on every other task
     if task.get("h3_burn_retry") or machine.get("h3_burn_retry"):
         prompt_unit["h3_burn_retry"] = int(task.get("h3_burn_retry") or machine.get("h3_burn_retry"))
+    # final fix round redo (final_fix_round.py, owner 2026-11-20): {kind(s), sentence}; absent on every other task
+    if isinstance(task.get("h3_final_fix") or machine.get("h3_final_fix"), dict):
+        prompt_unit["h3_final_fix"] = dict(task.get("h3_final_fix") or machine.get("h3_final_fix"))
     prompt_unit["duration_seconds"] = task.get("duration_seconds")
     prompt_unit["resolution"] = task.get("resolution")
     prompt_unit["aspect_ratio"] = task.get("aspect_ratio")
@@ -1580,6 +1583,12 @@ def _burn_retry_index(task: dict[str, Any]) -> int:
     return retry_index(task) or retry_index(task.get("machine_contract") or {})
 
 
+def _final_fix_round(task: dict[str, Any]) -> int:
+    """1 when the task is a final-fix-round redo (``h3_final_fix``), else 0."""
+    fix = task.get("h3_final_fix") or (task.get("machine_contract") or {}).get("h3_final_fix")
+    return 1 if isinstance(fix, dict) and fix.get("sentence") else 0
+
+
 def _burn_retry_perturb(data: bytes, index: int) -> tuple[bytes, dict[str, Any]]:
     try:
         from tools.h3_burn_retry import perturb_start_frame
@@ -1613,10 +1622,13 @@ def _hopsapi_reference_uploads(task: dict[str, Any]) -> tuple[list[dict[str, Any
             # means "the bytes H3 received".
             data, aspect = _portrait_start_frame(data)
             note = {**note, "start_frame_aspect": aspect}
-        if index == 1 and _burn_retry_index(task):
+        if index == 1 and (_burn_retry_index(task) or _final_fix_round(task)):
             # S6 burned-text retry (owner 2026-11-19): HopsAPI returns a byte-identical clip for identical request
-            # bytes, so @Image1 is re-encoded with an imperceptible retry-indexed change; recorded in the note
-            data, perturbation = _burn_retry_perturb(data, _burn_retry_index(task))
+            # bytes, so @Image1 is re-encoded with an imperceptible retry-indexed change; recorded in the note.
+            # A final-fix redo (owner 2026-11-20) takes the next index after the burn retries.
+            perturb_index = (max(_burn_retry_index(task), 2) + _final_fix_round(task) if _final_fix_round(task)
+                             else _burn_retry_index(task))
+            data, perturbation = _burn_retry_perturb(data, perturb_index)
             note = {**note, "burn_retry_perturbation": perturbation}
         mime = hopsapi.sniff_mime(data, str(value))
         notes.append(note)

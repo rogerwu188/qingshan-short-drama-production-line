@@ -103,7 +103,7 @@ $P $T/nalu_pipeline.py status --episode E01
 | S5 💰 | 关键帧 + Q1 admission | Q1：缩略总表看图填答；REJECT → 改镜头文字 → 停放旧图/旧提示词 → 重登记 → 重跑 | `e0N_fill_keyframe_answers.py`、`contact_sheet.py` |
 | S6 💰 | 视频波次 + 选择性 BGM 源生成（每个不同提示词约 8 积分）+ post-gen QA + Q2 | 动作角色审、剧情审、Q2（5 帧 + 身份仲裁 `identity_pose_exemptions`） | `e0N_fill_action_role_answers.py`、`e0N_fill_post_gen_plot.py`、`e0N_fill_video_q2.py`、`video_sheets.py`、`asr_units.py` |
 | S7 | 装配、字幕、片尾、BGM 时间线规划/事务核验/账单对账/QA/混音、响度；**零 provider POST** | — | 配乐对账见 K032（提供者音乐账单无 project_id → 按提交窗口隔离） |
-| S8 | 写 CHECKPOINT，等线主 `approve` | 线主看片 | `nalu_pipeline.py approve --episode E01` |
+| S8 | 写 CHECKPOINT，引擎按默认条款自动批准（2026-11-20） | 不等线主；`project.owner_review_required: true` 才等 | （仅该开关打开时）`nalu_pipeline.py approve --episode E01` |
 
 波次循环：`tools/review_fill/s6_loop.sh <EP>`（每 3 分钟 `run --from S6 --paid`，直到不再是
 VIDEO_NOT_ALL_COMPLETED；其他阻塞会停下等人）。心跳模式：定时检查状态/日志，REVIEW_REQUIRED 就看图填答，
@@ -169,6 +169,6 @@ lines/nalu/runtime/tools/run_unattended.sh <EP> --max-turns 200 --max-budget-usd
 - 权限只写命令名，**不是授权来源**：付费仍要订单（D-11 核对签发者/原文/回执/上限/权利）、
   `qingshan.json` 的 `paid_requests_enabled`、逐集积分上限、K041 整批提示词门与事务指纹去重全过。
   允许表放宽不了其中任何一条，`.claude/settings.json` 也禁止改 `workflow/**`（订单与回执）与 `.claude/**`（权限面本身）。
-- 仍需线主：订单未覆盖的付费类别、音色一致性失败、剧情台词改动、S8 看片与发布。见 `AGENTS.md` §12。
+- 仍需线主：订单未覆盖的付费类别、剧情台词改动、订单范围外的发布。S8 看片不再停线（终审修复一轮后引擎自动批准）。见 `AGENTS.md` §12。
 - 想完全不走 Claude Code 的运行时，也可以只用 `paid_stage.sh` + 自己的定时器驱动免费阶段；
   无人值守层省掉的是「填答与重跑之间的等待」，不是任何一道门。
