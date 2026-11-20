@@ -21,12 +21,15 @@ def hit(t, text, *, conf=0.9, y=(0.70, 0.74), x=(0.3, 0.7)):
 
 
 class PolicyTests(unittest.TestCase):
-    def test_e12_listed_and_contract_declaration_wins(self):
-        self.assertTrue(btc.active({}, episode="E12"))
-        # E14 enabled by the line owner 2026-11-04 (7 clips burned the spoken line; K144 cover)
-        self.assertTrue(btc.active({}, episode="E14"))
+    def test_explicit_opt_in_only_never_by_episode_number(self):
+        # line owner 2026-11-19: the cover is off by default; the E12-E14 list leaked across series
+        for ep in ("E12", "E13", "E14", "E01"):
+            self.assertFalse(btc.active({}, episode=ep))
+            self.assertFalse(btc.active({"episode": ep}))
+        self.assertNotIn("enabled_episodes", CFG)
         self.assertTrue(btc.active({btc.FIELD: btc.POLICY_ID}, episode="E14"))
-        self.assertFalse(btc.active({btc.FIELD: "NONE"}, episode="E12"))
+        self.assertTrue(btc.active({}, episode="E03", config={btc.FIELD: btc.POLICY_ID}))
+        self.assertFalse(btc.active({btc.FIELD: "NONE"}, episode="E12", config={btc.FIELD: btc.POLICY_ID}))
 
     def test_band_covers_every_measured_e12_burn(self):
         band = CFG["band"]

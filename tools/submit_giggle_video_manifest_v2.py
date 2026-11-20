@@ -621,6 +621,9 @@ def provider_prompt_unit(task: dict[str, Any]) -> dict[str, Any]:
     # CAMERA_GRAMMAR_V1 engine redo after an objective Q2 FAIL (q2_auto_redo): the measured problem, e.g. ["push_in"]
     if task.get("h3_redo_findings") or machine.get("h3_redo_findings"):
         prompt_unit["h3_redo_findings"] = list(task.get("h3_redo_findings") or machine.get("h3_redo_findings"))
+    # S6 burned-text retry n (h3_burn_retry.py, owner 2026-11-19): absent on every other task
+    if task.get("h3_burn_retry") or machine.get("h3_burn_retry"):
+        prompt_unit["h3_burn_retry"] = int(task.get("h3_burn_retry") or machine.get("h3_burn_retry"))
     prompt_unit["duration_seconds"] = task.get("duration_seconds")
     prompt_unit["resolution"] = task.get("resolution")
     prompt_unit["aspect_ratio"] = task.get("aspect_ratio")
@@ -1559,6 +1562,22 @@ def _portrait_start_frame(data: bytes) -> tuple[bytes, dict[str, Any]]:
     return portrait_9_16_bytes(data)
 
 
+def _burn_retry_index(task: dict[str, Any]) -> int:
+    try:
+        from tools.h3_burn_retry import retry_index
+    except ModuleNotFoundError:
+        from h3_burn_retry import retry_index
+    return retry_index(task) or retry_index(task.get("machine_contract") or {})
+
+
+def _burn_retry_perturb(data: bytes, index: int) -> tuple[bytes, dict[str, Any]]:
+    try:
+        from tools.h3_burn_retry import perturb_start_frame
+    except ModuleNotFoundError:
+        from h3_burn_retry import perturb_start_frame
+    return perturb_start_frame(data, index)
+
+
 def _hopsapi_reference_uploads(task: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     """Upload every reference image and audio for one task (free, before the intent record).
 
@@ -1584,6 +1603,11 @@ def _hopsapi_reference_uploads(task: dict[str, Any]) -> tuple[list[dict[str, Any
             # means "the bytes H3 received".
             data, aspect = _portrait_start_frame(data)
             note = {**note, "start_frame_aspect": aspect}
+        if index == 1 and _burn_retry_index(task):
+            # S6 burned-text retry (owner 2026-11-19): HopsAPI returns a byte-identical clip for identical request
+            # bytes, so @Image1 is re-encoded with an imperceptible retry-indexed change; recorded in the note
+            data, perturbation = _burn_retry_perturb(data, _burn_retry_index(task))
+            note = {**note, "burn_retry_perturbation": perturbation}
         mime = hopsapi.sniff_mime(data, str(value))
         notes.append(note)
         images.append(hopsapi.upload_bytes(data, file_name=f"{key}-image{index}.{hopsapi.EXT_BY_MIME[mime]}",

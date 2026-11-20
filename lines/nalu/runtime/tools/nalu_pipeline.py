@@ -5910,6 +5910,234 @@ def extract_real_final_frame(ctx: Ctx, unit_id: str) -> dict[str, Any]:
     return {"unit_id": unit_id, "status": "EXTRACT_FAILED", "source": str(src)}
 
 
+def _tail_is_current(ctx: Ctx, unit_id: str, clip_sha: str | None) -> bool:
+    """The unit's real final frame was already cut from exactly this clip (so a successor may have used it)."""
+    marker = ctx.p.preprod / "real_final_frames" / f"{unit_id}.source.sha256"
+    try:
+        return bool(clip_sha) and marker.is_file() and marker.read_text(encoding="utf-8").strip() == clip_sha
+    except OSError:
+        return False
+
+
+def s6_burn_retry_indices(state: dict[str, Any] | None) -> dict[str, int]:
+    """unit -> the burn-retry index its next / last submission carries (``s6_burn_retry`` attempts)."""
+    import h3_burn_retry as _br
+    return {str(uid): len(row.get("attempts") or [])
+            for uid, row in ((state or {}).get(_br.STATE_KEY) or {}).items() if row.get("attempts")}
+
+
+def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
+    """S6 burned-text check of every freshly landed H3 clip, BEFORE its tail frame is extracted (line owner
+    2026-11-19: automatic paid retry only on detected burned text, at most NALU_S6_BURN_RETRY_MAX (2) per unit,
+    no blur cover by default).
+
+    A clip is "freshly landed" when its tail was not yet cut from it, so a successor never anchored on it.  Local
+    OCR (tools/h3_burn_retry.detect, ~1 s per clip, zero credits).  On a burn with retries left and the episode
+    headroom covering one more video, the take is parked to ``video/_superseded_<run>_burn_retry<n>/`` and the
+    unit is redone by the normal wave machinery (D-11, budget, durable store): the recompile carries
+    ``h3_burn_retry`` = n, so the prompt gets the retry sentence and the submitter perturbs the @Image1 bytes
+    (HopsAPI returns a byte-identical clip for an identical request).  Still burned after the last retry, or a
+    retry the budget / an owner acceptance rules out: the take with the fewest burned frames is kept on the
+    assembly path and the unit is marked ``burned_text_unresolved`` (wave state; surfaced by the S8 QA-BURNED-TEXT
+    checklist).  Never blocks; the detector fails open.  Records live in ``<EP>_S6_WAVE_STATE.json``
+    ``s6_burn_retry``."""
+    if getattr(ctx, "dry", False) or not unit_ids:
+        return []
+    try:
+        if episode_video_model(ctx.episode) != "MiniMax-H3":
+            return []  # the retry perturbation (prompt sentence, @Image1 bytes) exists for H3 only
+    except Exception:  # noqa: BLE001 - unknown model: do not measure
+        return []
+    import h3_burn_retry as _br
+    retry_max = _br.max_retries()
+    state_path = _wave_state_path(ctx)
+    out: list[dict[str, Any]] = []
+    for uid in unit_ids:
+        clip = ctx.p.video_media / f"{uid}.mp4"
+        if not clip.is_file():
+            continue
+        clip_sha = sha256_file(clip)
+        if _tail_is_current(ctx, uid, clip_sha):
+            continue
+        state = read_json(state_path, {}) or {"schema": "nalu.s6_wave_state.v1", "waves": []}
+        rec = dict((state.get(_br.STATE_KEY) or {}).get(uid) or {})
+        if clip_sha in (rec.get("checks") or {}):
+            continue  # this exact take was already measured and decided
+        det = _br.detect(clip)
+        attempts = list(rec.get("attempts") or [])
+        check = {k: det.get(k) for k in ("status", "frames_sampled", "burned_frames", "longest_run", "elapsed_ms",
+                                         "error") if det.get(k) is not None}
+        check.update(at=now(), retry=len(attempts), hits=(det.get("hits") or [])[:6])
+        if det.get("status") != "BURNED" and not attempts:
+            continue  # clean first take: nothing to record
+        rec.setdefault("checks", {})[clip_sha] = check
+        takes = list(rec.get("takes") or [])
+        takes.append({"sha256": clip_sha, "retry": len(attempts), "burned_frames": int(det.get("burned_frames") or 0),
+                      "status": det.get("status"), "path": str(clip)})
+        decision: dict[str, Any]
+        if det.get("status") == "BURNED" and retry_max > 0 and len(attempts) < retry_max:
+            seconds = next((float(t.get("duration_seconds") or 0) for t in
+                            (read_json(ctx.p.video_transaction, {}) or {}).get("tasks") or []
+                            if str(t.get("unit_id") or t.get("task_key")) == uid), 0.0) or 6.0
+            cost = video_task_credits(episode_video_model(ctx.episode), seconds, 1, episode_video_resolution(ctx.episode))
+            headroom = None
+            try:
+                verdict = ctx.budget_check(0, label="s6_burn_retry_headroom").get("budget_verdict") or {}
+                headroom = verdict.get("headroom_credits")
+            except Exception as exc:  # noqa: BLE001 - unknown headroom: no retry
+                ctx.say(f"   S6 burn retry: budget headroom unavailable ({type(exc).__name__})")
+            try:
+                accepted = uid in _owner_accepted_clips(ctx, {uid: {}})
+            except Exception:  # noqa: BLE001 - no readable orders: nothing accepted
+                accepted = False
+            decision = _br.plan(rec, det, retry_max=retry_max,
+                                headroom=None if headroom is None else int(headroom), cost=cost,
+                                owner_accepted=accepted)
+        else:
+            decision = _br.plan(rec, det, retry_max=retry_max, headroom=0, cost=0)
+        frames = f"{det.get('burned_frames')}/{det.get('frames_sampled')}"
+        if det.get("status") == "BURNED":
+            ctx.say(f"S6_BURN_DETECTED unit={uid} frames={frames} retry={len(attempts)}/{retry_max} "
+                    f"elapsed={det.get('elapsed_ms')}ms -> {decision['action']} ({decision['reason']})")
+        row = {"unit_id": uid, "clip_sha256": clip_sha, "detection": check, **decision}
+        if decision["action"] == "RETRY":
+            n = int(decision["retry"])
+            park = ctx.p.video_media / f"_superseded_{ctx.run_id}_burn_retry{n}"
+            park.mkdir(parents=True, exist_ok=True)
+            os.replace(clip, park / clip.name)
+            takes[-1]["path"] = str(park / clip.name)
+            attempts.append({"retry": n, "failed_clip_sha256": clip_sha, "burned_frames": det.get("burned_frames"),
+                             "parked_clip": str(park / clip.name), "cost": decision.get("cost"),
+                             "run_id": ctx.run_id, "recorded_at": now(), "recorded_by": TOOL_ID})
+            rec.update(status="RETRY_PENDING", attempts=attempts)
+            row["parked_clip"] = str(park / clip.name)
+        elif decision["action"] == "KEEP":
+            rec.update(status="RESOLVED" if det.get("status") == "CLEAN" else "KEPT_DETECTOR_FAIL_OPEN",
+                       resolved_take_sha256=clip_sha, **{_br.UNRESOLVED_FLAG: False})
+            ctx.say(f"S6_BURN_RESOLVED unit={uid} retry={len(attempts)}/{retry_max} frames={frames}"
+                    + ("" if det.get("status") == "CLEAN" else f" (detector {det.get('status')})"))
+        else:
+            best = _br.best_take(takes) or takes[-1]
+            if best.get("sha256") != clip_sha and best.get("path") and Path(best["path"]).is_file():
+                park = ctx.p.video_media / f"_superseded_{ctx.run_id}_burn_retry_final"
+                park.mkdir(parents=True, exist_ok=True)
+                os.replace(clip, park / clip.name)
+                takes[-1]["path"] = str(park / clip.name)
+                os.replace(best["path"], clip)
+                row["restored_take"] = {"sha256": best["sha256"], "from": best["path"], "retry": best.get("retry")}
+                best = {**best, "path": str(clip)}
+                for take in takes:
+                    if take.get("sha256") == best["sha256"]:
+                        take["path"] = str(clip)
+            rec.update(status="UNRESOLVED", unresolved_reason=decision["reason"], kept_take_sha256=best["sha256"],
+                       kept_take_burned_frames=best.get("burned_frames"), kept_take_retry=best.get("retry"),
+                       **{_br.UNRESOLVED_FLAG: True})
+            rec.setdefault("checks", {})[best["sha256"]] = {**(rec["checks"].get(best["sha256"]) or {}),
+                                                            "kept_as_best": True}
+            ctx.say(f"S6_BURN_UNRESOLVED unit={uid} retry={len(attempts)}/{retry_max} reason={decision['reason']} "
+                    f"kept_take={str(best['sha256'])[:12]} burned_frames={best.get('burned_frames')}")
+            row["kept_take_sha256"] = best["sha256"]
+        rec["takes"] = takes
+        rec["updated_at"] = now()
+        state = read_json(state_path, {}) or {"schema": "nalu.s6_wave_state.v1", "waves": []}
+        state.setdefault(_br.STATE_KEY, {})[uid] = rec
+        write_json(state_path, state)
+        out.append(row)
+    return out
+
+
+def _s6_sync_burn_state(wave_state: dict[str, Any], path: Path) -> None:
+    """stage_s6 holds the wave state in memory and rewrites the whole file: carry the burn-retry records
+    (written to disk by s6_burn_check_landed / s6_burn_retry_note_posted) into that copy so they survive."""
+    import h3_burn_retry as _br
+    fresh = (read_json(path, {}) or {}).get(_br.STATE_KEY)
+    if fresh is not None:
+        wave_state[_br.STATE_KEY] = fresh
+
+
+def s6_burn_retry_note_posted(ctx: Ctx, posted: list[str]) -> list[str]:
+    """``S6_BURN_RETRY_SUBMITTED`` for every posted unit whose burn retry was pending; marks the attempt."""
+    import h3_burn_retry as _br
+    path = _wave_state_path(ctx)
+    state = read_json(path, {}) or {}
+    records = state.get(_br.STATE_KEY) or {}
+    noted = []
+    for uid in posted:
+        rec = records.get(uid) or {}
+        attempts = rec.get("attempts") or []
+        if rec.get("status") != "RETRY_PENDING" or not attempts or attempts[-1].get("submitted_at"):
+            continue
+        attempts[-1]["submitted_at"] = now()
+        rec["status"] = "RETRY_SUBMITTED"
+        noted.append(uid)
+        ctx.say(f"S6_BURN_RETRY_SUBMITTED unit={uid} retry={attempts[-1].get('retry')}/{_br.max_retries()}")
+    if noted:
+        write_json(path, state)
+    return noted
+
+
+def s6_burn_retry_finalization_receipts(ctx: Ctx, unbound: list[str], fin_report: dict[str, Any],
+                                        fin_digest: Path) -> dict[str, Any]:
+    """Engine receipts for burn-retry prompts whose ONLY change from an already-approved prompt is the engine's
+    retry sentence (h3_burn_retry.apply_retry_sentence; owner-approved automatic retry 2026-11-19).
+
+    For each changed unit with a burn-retry record: strip the retry sentence from the final prompt; when the rest
+    is byte-identical to the batch-PLANNED prompt or to the final prompt of the reviewer's PASS receipt
+    (``prompt_batch_finalization/<unit>.json``), write ``prompt_batch_finalization/<unit>.burn_retry.json`` (same
+    INCREMENTAL_EXACT_MATERIALIZATION_QA fields the batch gate checks, reviewer ``nalu_pipeline:S6_BURN_RETRY``)
+    and attach it to the task.  Anything else still goes to the reviewer."""
+    import h3_burn_retry as _br
+    indices = s6_burn_retry_indices(read_json(_wave_state_path(ctx), {}) or {})
+    rows = {str(r.get("unit_id")): r for r in fin_report.get("rows") or []}
+    fin_dir = ctx.p.preprod / "prompt_batch_finalization"
+    done: dict[str, Any] = {}
+    tx = read_json(ctx.p.video_transaction, {}) or {}
+    for uid in unbound:
+        row = rows.get(uid) or {}
+        if uid not in indices or row.get("status") != "CHANGED":
+            continue
+        task = next((t for t in tx.get("tasks") or [] if t.get("unit_id") == uid), None)
+        if task is None or not task.get("prompt_file"):
+            continue
+        final_path = Path(str(task["prompt_file"]))
+        final_path = final_path if final_path.is_absolute() else ENGINE / final_path
+        if not final_path.is_file() or sha256_file(final_path) != row.get("final_sha256"):
+            continue
+        base, index = _br.strip_retry_sentence(final_path.read_text(encoding="utf-8"))
+        if index != indices[uid]:
+            continue
+        base_sha = sha256_text(base)
+        reviewer = read_json(fin_dir / f"{uid}.json", {}) or {}
+        if base_sha == row.get("planned_sha256"):
+            authority = "PLANNED_PROMPT"
+        elif reviewer.get("status") == "PASS" and reviewer.get("final_prompt_sha256") == base_sha:
+            authority = "REVIEWER_RECEIPT"
+        else:
+            continue
+        fin_dir.mkdir(parents=True, exist_ok=True)
+        receipt_path = fin_dir / f"{uid}.burn_retry.json"
+        receipt = {"status": "PASS", "execution_id": f"{ctx.episode}-PROMPT-BATCH-V1", "unit_id": uid,
+                   "artifact_kind": "video_prompt", "planned_prompt_sha256": row["planned_sha256"],
+                   "final_prompt_sha256": row["final_sha256"], "scope": "INCREMENTAL_EXACT_MATERIALIZATION_QA",
+                   "reviewer": "nalu_pipeline:S6_BURN_RETRY", "review_method": "ENGINE_EXACT_SENTENCE_DELTA",
+                   "reviewed_at": now(), "changed_line_count": 1, "burn_retry": index,
+                   "base_prompt_sha256": base_sha, "base_authority": authority,
+                   "reviewer_observation": ("the final prompt is the approved prompt plus exactly the engine's "
+                                            f"burn-retry sentence {index} (line owner 2026-11-19 automatic retry)"),
+                   "digest_sha256": sha256_file(fin_digest)}
+        write_json(receipt_path, receipt)
+        try:
+            ref_path = str(receipt_path.resolve().relative_to(ENGINE.resolve()))
+        except ValueError:
+            ref_path = str(receipt_path.resolve())
+        task["prompt_batch_finalization"] = {"path": ref_path, "sha256": sha256_file(receipt_path)}
+        task["prompt_sha256"] = row["final_sha256"]
+        done[uid] = {"receipt": str(receipt_path), "burn_retry": index, "base_authority": authority}
+    if done:
+        write_json(ctx.p.video_transaction, tx)
+    return done
+
+
 PROVIDER_VOICE_REFERENCE_SECONDS = (2.0, 15.0)
 
 
@@ -6875,6 +7103,11 @@ def stage_s6(ctx: Ctx) -> StageResult:
         # only runs inside the wave loop below) would keep its tail-chained successor "not ready"
         # forever: no open wave, no ready unit -> ROLLING_WAVE_NO_READY_UNITS on every tick
         # (Twelve Gazes E01, 2026-10-22).  Extract missing tails of on-disk clips first (idempotent).
+        _no_tail = [uid for uid in sorted(done) if not (tails_dir / f"{uid}.png").is_file()]
+        for row in s6_burn_check_landed(ctx, _no_tail):  # burned-text check before the tail is cut
+            if row.get("action") == "RETRY":
+                done.discard(row["unit_id"])
+        _s6_sync_burn_state(wave_state, wave_state_path)
         for uid in sorted(done):
             if not (tails_dir / f"{uid}.png").is_file():
                 extract_real_final_frame(ctx, uid)
@@ -6969,6 +7202,8 @@ def stage_s6(ctx: Ctx) -> StageResult:
                     if r.details.get("posted_task_keys"):
                         r.details["s6_chain_step"] = inrun.note_post(
                             ctx, wave_no, [str(k) for k in r.details["posted_task_keys"]], _s6_clock() - _t_body)
+                        if s6_burn_retry_note_posted(ctx, [str(k) for k in r.details["posted_task_keys"]]):
+                            _s6_sync_burn_state(wave_state, wave_state_path)
                 r.details["rolling_wave"] = {"wave": wave_no, "ready_units": ready, "done_before": sorted(done)}
                 # Extract each unit's real final frame as soon as ITS OWN video lands, not when the
                 # whole wave passes poll (2026-10-13).  The extraction is what unblocks a tail-chained
@@ -6976,6 +7211,13 @@ def stage_s6(ctx: Ctx) -> StageResult:
                 # unrelated unit in its wave (E11 wave11 carried 6 units at concurrency 3; a chain
                 # successor in it waited on all 6).  extract_real_final_frame is idempotent
                 # (ALREADY_PRESENT), so re-running it per tick costs one stat per finished unit.
+                # S6 burned-text check (line owner 2026-11-19) BEFORE the tail is cut: a burned take that is
+                # retried is parked here, so no successor (nor the in-run poll) ever anchors on it
+                burn = s6_burn_check_landed(
+                    ctx, [uid for uid in ready if (ctx.p.video_media / f"{uid}.mp4").is_file()])
+                if burn:
+                    r.details["s6_burn_check"] = burn
+                    _s6_sync_burn_state(wave_state, wave_state_path)
                 on_disk = [uid for uid in ready if (ctx.p.video_media / f"{uid}.mp4").is_file()]
                 extracted = [extract_real_final_frame(ctx, uid) for uid in on_disk]
                 inrun.note_landed([str(row.get("unit_id")) for row in extracted if row.get("status") == "EXTRACTED"])
@@ -7876,6 +8118,14 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
                    for t in tx_now.get("tasks") or [])]
     res.details["prompt_finalization"] = {"digest": str(fin_digest), "summary": fin_report.get("summary"),
                                           "changed_without_receipt": unbound}
+    if unbound:
+        # S6 burn retry (owner 2026-11-19): a prompt changed ONLY by the engine's retry sentence gets an engine
+        # receipt bound to the approved base prompt; any other change still goes to the reviewer
+        burn_receipts = s6_burn_retry_finalization_receipts(ctx, unbound, fin_report, fin_digest)
+        if burn_receipts:
+            unbound = [uid for uid in unbound if uid not in burn_receipts]
+            res.details["prompt_finalization"]["changed_without_receipt"] = unbound
+            res.details["prompt_finalization"]["burn_retry_engine_receipts"] = burn_receipts
     if unbound:
         # Only units that will be (re)submitted need finalization receipts.  Introduced with
         # CAMERA_GRAMMAR_V1 (lab Holmes E06); applied to every episode since 2026-10-29: a legacy
@@ -10528,7 +10778,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
     # band, then the captions sit on a bar over it and the bar also covers every burned-text run.
     import burned_text_cover as _btc
     cover_argv: list[Any] = []
-    if _btc.active(read_json(p.contract, {}) or {}, episode=ctx.episode):
+    if _btc.active(read_json(p.contract, {}) or {}, episode=ctx.episode, config=getattr(ctx, "config", None)):
         cover_json = p.assembly / f"{ctx.episode}_H3_BURNED_TEXT_INTERVALS.json"
         scan_step = ctx.run([VENV, ENGINE / "tools/burned_text_cover.py", "scan", captioned_source,
                              "--episode", ctx.episode, "--contract", p.contract, "--out", cover_json],
@@ -11181,8 +11431,16 @@ def qa_defect_checkpoint_lines(ctx: Any) -> list[str]:
         import nalu_qa_defect_checklist as _qa
         import character_distinctness as _cd
         p = ctx.p
-        lines = _qa.checkpoint_lines(read_json(p.assembly / "final_qa" / f"{ctx.episode}_QA_DEFECT_CHECKLIST.json",
-                                               {}) or {})
+        record = read_json(p.assembly / "final_qa" / f"{ctx.episode}_QA_DEFECT_CHECKLIST.json", {}) or {}
+        lines = _qa.checkpoint_lines(record)
+        reports = getattr(p, "preprod_reports", None)
+        if reports is not None and not record.get("s6_burn_unresolved"):  # S6 burn retries that did not clear
+            state = read_json(Path(reports) / f"{ctx.episode}_S6_WAVE_STATE.json", {}) or {}
+            unresolved = (_qa.measure_s6_burn_unresolved(state) or {}).get("units")
+            if unresolved:
+                if not lines:
+                    lines = ["## Final-review must-check defects (line owner 2026-11-19)", ""]
+                lines += _qa.s6_burn_unresolved_lines(unresolved) + [""]
         distinct = read_json(p.identity / f"{ctx.episode}_{_cd.REPORT_SUFFIX}", {}) or {}
         pairs = _cd.lookalike_pairs(distinct)
         if pairs:

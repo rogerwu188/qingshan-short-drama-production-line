@@ -1111,3 +1111,29 @@ time around each chain step (~12 min before):
 * **Measure it.**  Every step line now ends `dur=<s>`; each POST logs
   `S6_CHAIN_STEP wave=N units=… prep=…s (from predecessor_landed|previous_post|run_start; body=…s) wait=…s`, and
   the stage details carry `s6_inrun_poll` (polls, waits, chain steps, stop reason).
+
+## S6 burned-text retry (line owner 2026-11-19)
+MiniMax-H3 sometimes burns the spoken line into the clip as a caption (centred, y ~0.74, 52-60 px glyphs at
+720 w).  HopsAPI returns a byte-identical clip for an identical request (changing the reference URL or
+`resolution` does not help; changing reference image bytes does), so a plain resubmit is useless.
+* **Detect** (`tools/h3_burn_retry.py detect`, local, ~1 s/clip, zero credits): every H3 clip that lands in the
+  S6 wave loop is checked BEFORE its tail frame is cut (so neither a tail-chained successor nor the in-run poll
+  ever anchors on a take that is about to be retried).  4 fps, RapidOCR on y 0.55-0.95 with the
+  `tail_frame_text_clean` filters (>= 2 CJK/Latin/kana/hangul chars, score >= 0.6, glyph >= 40 px at 720 w,
+  horizontal, centred); BURNED = hits in >= 2 consecutive samples.  Fails open.
+* **Retry** (owner: only on detected burned text, at most `NALU_S6_BURN_RETRY_MAX` = 2 per unit, 0 disables):
+  the take is parked to `video/_superseded_<run>_burn_retry<n>/`; the recompile sets `h3_burn_retry` = n, so the
+  prompt gets retry sentence n as its last line (`RETRY_SENTENCES`) and the HopsAPI submitter re-encodes @Image1
+  with an imperceptible retry-indexed change (1 px, JPEG q 92-n; `burn_retry_perturbation` in the upload note).
+  Everything else is the normal redo path: D-11, budget ledger, durable store, owner-acceptance check.  A
+  retry the episode headroom cannot cover is skipped and recorded (`BUDGET_HEADROOM_SHORT`).  The changed
+  prompt gets an engine finalization receipt `prompt_batch_finalization/<unit>.burn_retry.json` only when it
+  is the approved prompt plus exactly that sentence; any other change still goes to the reviewer.
+* **Unresolved**: still burned after the last retry (or no retry allowed): the take with the fewest burned
+  frames stays at `video/<unit>.mp4`, the unit is marked `burned_text_unresolved` in `<EP>_S6_WAVE_STATE.json`
+  `s6_burn_retry`, and the S8 checkpoint / QA defect checklist list it under `QA-BURNED-TEXT`.  Never blocks.
+* **Log lines**: `S6_BURN_DETECTED unit=… frames=b/n retry=k/2 -> RETRY|KEEP_BEST (reason)`,
+  `S6_BURN_RETRY_SUBMITTED unit=… retry=n/2`, `S6_BURN_RESOLVED unit=…`, `S6_BURN_UNRESOLVED unit=… reason=…`.
+* **Blur cover off by default**: `H3_BURNED_TEXT_COVER_V1` no longer turns on by episode number (the E12-E14
+  list leaked into every series); it is active only when the generation contract or the runtime config
+  declares `h3_burned_text_cover_policy: H3_BURNED_TEXT_COVER_V1`.

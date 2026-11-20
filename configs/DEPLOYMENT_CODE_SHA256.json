@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2512,
+  "file_count": 2514,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -277,7 +277,7 @@
     },
     {
       "path": "configs/H3_BURNED_TEXT_COVER_V1.json",
-      "sha256": "cf408074ac4d67c8eb3051b092932e4dcf3eacb323901cb227ac30dd0b2be458"
+      "sha256": "30a5384e6bd906d6207343d694ecc83d30428f3a62e6fc5e23b3b32a399baf67"
     },
     {
       "path": "configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json",
@@ -477,7 +477,7 @@
     },
     {
       "path": "lines/nalu/docs/PIPELINE_RUNBOOK.md",
-      "sha256": "f3c98bf8e121218a2361e047e20a00514ea63b7314ffd1327d5fb53978d445fe"
+      "sha256": "2bf31940c3074ba0cd56b69364438cacd55e7cc6ee3fd0d286b37b72d61f84c0"
     },
     {
       "path": "lines/nalu/docs/PORT_PARITY_REPORT.md",
@@ -681,7 +681,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "d1a376331e26648f25d36f0d6ec1284b8e10f63563e1dea5d46210723db6ee8b"
+      "sha256": "b8ddf6dcbcc6aa784db34b890b2b4bfdc899ee6e94fad4c55a56f8adb5130c72"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -713,7 +713,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/final_audience_review.py",
-      "sha256": "3514d9688337387e42cf21e0bb522de3b8d41828d48b9e5cdf091b936c4142b0"
+      "sha256": "14883b9c3e7374e574d3772fd1a9eff4c4b107bdc6c9b701df382970732f708c"
     },
     {
       "path": "lines/nalu/runtime/tools/final_cut_audio_bed.py",
@@ -805,7 +805,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "b630975017d494b19f84b862ffcba87f59bd04336239a17ac44b1b5462f1e1a2"
+      "sha256": "d398da8a1433c650bbd2fa86dff609f82603a0edd044d92f084fecb6f6d1bb83"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -821,7 +821,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_qa_defect_checklist.py",
-      "sha256": "4874dc94bfa2e109ddfa93e89e6d03ee5e0bad323e75d9b0236026a9ae120fa8"
+      "sha256": "1991fe4404505e648b7c209d1de1aef58222e6749c6b14db489cd96335d38567"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_selective_bgm.py",
@@ -3833,7 +3833,7 @@
     },
     {
       "path": "tools/burned_text_cover.py",
-      "sha256": "af942973bcab0649994bdfeef4166fa00c80453a8eb4a5a7a3ab0f0a1a5322c5"
+      "sha256": "806cf9deb160c442ba240e82c06b3c3f5e50a0403cd4200c79c492938afe9853"
     },
     {
       "path": "tools/camera_grammar_policy.py",
@@ -5240,6 +5240,10 @@
       "sha256": "0f4d6d443f2a12e9b6f80fc799f05eea7d162198e47bfc0f9daf2c1ebe66582e"
     },
     {
+      "path": "tools/h3_burn_retry.py",
+      "sha256": "5d966459fe6ce737292a47915a9b72de5af456f2ccafd3616266a68fcc6ab6b1"
+    },
+    {
       "path": "tools/h3_compile_anchor_freshness.py",
       "sha256": "8d4b3ea89f4c3d63392fd1c55c024006f99b12db2ea8beaedba2787c0f5013b8"
     },
@@ -5273,7 +5277,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "eae5d6dcd0bd6d25bb07a021f1e756532e2523f7b14bddee02c2559e5d11397e"
+      "sha256": "d7a6958da1a29cca418cceea813ca70f7aa735d08f85691b2e1770834aedf555"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",
@@ -6913,7 +6917,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "901170b21721cd8cb139751e3beefa6f7981d6e7ac6bf077a387b7c4b47d79f7"
+      "sha256": "bdd57652aa4599a523d9f2d5abc699e708688119a886e8e93df5d3f706f2a293"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -7405,7 +7409,7 @@
     },
     {
       "path": "tools/tests/test_burned_text_cover.py",
-      "sha256": "3f190168372e164251f572e98189a17d8a56ca972c92e2c931ed5c5ef37c1167"
+      "sha256": "fd3f80ed5c8f299f9d344651cb12a45495c3d618d9a6494e9bbae429242ffb1a"
     },
     {
       "path": "tools/tests/test_burned_text_cover_follows_text.py",
@@ -9074,6 +9078,10 @@
     {
       "path": "tools/tests/test_s3ctl.py",
       "sha256": "4f053769a723fadf837f1601c6480c514f84018371fe035ce6caa023c8ae9e1d"
+    },
+    {
+      "path": "tools/tests/test_s6_burned_text_retry.py",
+      "sha256": "b7fc8a45a9c66591e9a316d271f48763476f9882c6ffffc1b58d6c5919137654"
     },
     {
       "path": "tools/tests/test_s6_chain_step_latency.py",
