@@ -63,7 +63,7 @@ MAX_OUTPUT_TOKENS = 8192
 MAX_UPLOAD_BYTES = 14_500_000       # raw bytes: base64 inflates by 4/3 and the request limit is 20 MB
 HTTP_TIMEOUT_S = 600
 CLASSES = ("QA-BURNED-TEXT", "QA-DIALOGUE-TAIL-CUT", "QA-OVERSIZED-MASK", "QA-LOOKALIKE-CAST", "QA-SUBTITLE-WRAP",
-           "QA-BGM-DISCONTINUOUS", "LETTERBOX", "LOOK-DRIFT", "OTHER")
+           "QA-BGM-DISCONTINUOUS", "QA-SKIN-SHEEN-DRIFT", "LETTERBOX", "LOOK-DRIFT", "OTHER")
 SEVERITIES = ("P0", "P1", "P2", "P3")
 
 
@@ -165,6 +165,7 @@ ITEM_TEXT = {
     "QA-LOOKALIKE-CAST": "两个不同角色长着几乎同一张脸（脸型、五官一样，只靠衣服区分）。",
     "QA-SUBTITLE-WRAP": "我方字幕排版：标点（！？。）或一两个字单独占一行、超过两行、我方字幕和画面里其它文字重叠压字。",
     "QA-BGM-DISCONTINUOUS": "背景音乐突兀：音乐只响一两个镜头就停，或在切镜处生硬起停、没有淡入淡出。",
+    "QA-SKIN-SHEEN-DRIFT": "皮肤/头发质感突变：相邻镜头间人物脸突然油光、出汗、高光反光，头发变湿，或皮肤纹理突然过锐（场景没有雨水、汗水、眼泪的理由）。",
     "LETTERBOX": "画幅：竖屏 9:16 成片里混入横版镜头（上下黑边）或左右黑边。",
     "LOOK-DRIFT": "同一角色前后造型不一致（胡子、发型、服装、配饰在同一场里变了）。",
     "OTHER": "其它任何观众会注意到的问题（口型对不上、穿帮、重复台词、跳帧、节奏拖沓等）。",

@@ -515,7 +515,7 @@ class Train:
                 "DIRECTING_GUIDANCE rule (category DIRECTING_HEURISTIC, scope.stages [SCRIPT_AUTHORING], "
                 "scope.languages [<language>]) that turns the descriptions into one general writing / directing "
                 "instruction (never the story itself: no names, places or plot); REJECT when the descriptions do "
-                "not share one cause.  lesson_route MODEL_CONSTRAINT (BURNED_TEXT, FACE_DRIFT, COSTUME_IDENTITY, "
+                "not share one cause.  lesson_route MODEL_CONSTRAINT (BURNED_TEXT, FACE_DRIFT, SKIN_SHEEN, COSTUME_IDENTITY, "
                 "LOOKALIKE, VOICE, ASR_MISMATCH) may become a provider-prompt clause only when a clause can plausibly "
                 "prevent it.  Author-side clusters (CRAFT_STD_GAP, lesson_route DIRECTING_GUIDANCE) are offered "
                 "from directing_min_episodes episodes (one device is enough); the canary decides whether they help.  "

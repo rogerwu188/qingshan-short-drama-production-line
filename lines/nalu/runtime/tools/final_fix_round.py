@@ -18,11 +18,13 @@ Each confirmed finding is mapped to one fix class:
     DIALOGUE_TAIL_GUARD   a clipped line tail -> a wider tail guard and post-line beat (dialogue_tail_guard)
 * ``PAID_S6_REDO`` -- one re-render of a named unit, only for defects a re-render can plausibly fix:
     BURNED_TEXT (QA-BURNED-TEXT), COSTUME_IDENTITY (costume / identity colour mismatch; the identity card's colours
-    are pinned into the redo prompt) and FACE_DRIFT (face drift / wrong face).  At most one redo per unit in the
+    are pinned into the redo prompt), FACE_DRIFT (face drift / wrong face) and SKIN_SHEEN (QA-SKIN-SHEEN-DRIFT: oily /
+    sweaty / over-sharpened skin, wet hair; 2026-11-20 -- the redo opens on the normalised tail frame and carries the
+    matte-skin sentence).  At most one redo per unit in the
     round, through every existing S6 gate (budget ledger and episode cap, D-11, the paid order, the durable store,
     the stale-binding guard).  The round's planned spend is capped by ``NALU_FINAL_FIX_BUDGET_CREDITS`` (default 45)
     and the episode headroom; when they do not cover every redo, burned text goes first, then costume / identity,
-    then face drift, each by on-screen duration.
+    then face drift, then skin sheen, each by on-screen duration.
 * ``RECORD_ONLY`` -- pacing, story, length shortfall, voice collision, ASR mismatch, look-alike cast, letterbox,
   oversized mask and anything else: recorded in ``final_fix_round.json`` and the S8 summary, never acted on.
 
@@ -52,7 +54,7 @@ PAID = "PAID_S6_REDO"
 RECORD = "RECORD_ONLY"
 
 FREE_KINDS = ("STATIC_SHOT_SPLIT", "AUDIO_SMOOTHING", "BGM_FADES", "SUBTITLE_WRAP", "DIALOGUE_TAIL_GUARD")
-PAID_KINDS = ("BURNED_TEXT", "COSTUME_IDENTITY", "FACE_DRIFT")
+PAID_KINDS = ("BURNED_TEXT", "COSTUME_IDENTITY", "FACE_DRIFT", "SKIN_SHEEN")
 #: owner order when the round's budget does not cover every paid redo
 PAID_PRIORITY = {kind: rank for rank, kind in enumerate(PAID_KINDS)}
 
@@ -62,6 +64,7 @@ ITEM_KIND = {
     "QA-DIALOGUE-TAIL-CUT": "DIALOGUE_TAIL_GUARD",
     "QA-SUBTITLE-WRAP": "SUBTITLE_WRAP",
     "QA-BGM-DISCONTINUOUS": "BGM_FADES",
+    "QA-SKIN-SHEEN-DRIFT": "SKIN_SHEEN",
     "QA-OVERSIZED-MASK": "MASK",
     "QA-LOOKALIKE-CAST": "LOOKALIKE",
     "LETTERBOX": "LETTERBOX",
@@ -77,6 +80,9 @@ KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("COSTUME_IDENTITY", ("costume", "wardrobe", "outfit", "clothing", "clothes", "garment", "identity colo",
                           "colour mismatch", "color mismatch", "changes colo", "different colo", "服装", "衣服",
                           "换装", "服色", "衣色", "戏服", "颜色不一致", "颜色变")),
+    ("SKIN_SHEEN", ("oily", "greasy", "glossy skin", "shiny skin", "skin sheen", "sweaty", "wet hair",
+                    "wet-looking hair", "over-sharpen", "oversharpen", "crunchy texture", "油光", "油腻", "抹了油",
+                    "出油", "满脸汗", "冒汗", "头发湿", "湿发", "过锐", "锐化过度", "过度锐化")),
     ("FACE_DRIFT", ("face drift", "face changes", "face changed", "different face", "wrong face", "face swap",
                     "face does not match", "face doesn't match", "identity drift", "looks like a different",
                     "脸变", "换脸", "脸不一样", "长相变", "面部漂移", "不像同一个人", "五官变")),
@@ -121,6 +127,8 @@ SENTENCES = {
                    "last: the same face shape, eyes, nose, hairline and age, with no drift toward another face."),
     "COSTUME_IDENTITY": ("Each person wears exactly the costume colours and garments of their identity reference "
                          "image for the whole clip; no garment changes colour or style."),
+    "SKIN_SHEEN": ("Every face keeps natural matte skin and dry hair from the first frame to the last: no oily, glossy "
+                   "or sweaty sheen, no wet-looking strands and no harsh over-sharpened skin texture."),
 }
 _ASCII_TEXT = re.compile(r"^[A-Za-z][A-Za-z ,'\-]{0,60}$")
 

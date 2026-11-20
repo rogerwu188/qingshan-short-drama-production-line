@@ -345,7 +345,8 @@ class FinalReviewChecklistTest(unittest.TestCase):
             case.tearDown()
         self.assertEqual(qa.items_present(request), list(qa.ITEM_IDS))
         self.assertEqual(set(qa.ITEM_IDS), {"QA-BURNED-TEXT", "QA-DIALOGUE-TAIL-CUT", "QA-OVERSIZED-MASK",
-                                            "QA-LOOKALIKE-CAST", "QA-SUBTITLE-WRAP", "QA-BGM-DISCONTINUOUS"})
+                                            "QA-LOOKALIKE-CAST", "QA-SUBTITLE-WRAP", "QA-BGM-DISCONTINUOUS",
+                                            "QA-SKIN-SHEEN-DRIFT"})
         self.assertEqual(request["qa_defect_checklist_request"]["measurements"], measured)
         self.assertIn("qa_defect_checklist", request["answer_contract"])
         self.assertIn("qa_defect_checklist_request", request["reviewer_contract"]["instruction"])

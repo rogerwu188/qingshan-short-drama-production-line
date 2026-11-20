@@ -125,6 +125,8 @@ NEVER_V2 = "captions, subtitles, letters or logos on screen; a second copy of an
 #: CAMERA_GRAMMAR_V1 (stamped) units; unstamped units stay byte-identical
 NEVER_V2_STAMPED = ("captions, subtitles, speech bubbles or any written words, letters or numbers on screen; logos or "
                     "watermarks; a second copy of anyone")  # keeps the scope-gate marker "captions, subtitles"
+#: live-action skin / hair finish on stamped units (v1.SKIN_FINISH_NEGATIVE in "Never:" wording)
+SKIN_FINISH_NEVER = "oily, glossy or sweaty skin sheen, wet-looking hair or over-sharpened skin texture"
 #: said once after the dialogue literal(s): the words exist as sound only.  No all-caps label (H3 voices labels).
 SPOKEN_NOT_WRITTEN_ONE = ("The line is only heard: the picture stays clean, with no subtitle, caption or written "
                           "word of it.")
@@ -1047,6 +1049,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
             negatives.append(value[0].lower() + value[1:])
     if wuxia.get("status") == "SELECTED":
         negatives.extend(scrub(v) for v in wuxia.get("negative_constraints_en") or [] if scrub(v))
+    if stamped and v1.skin_finish_applies(unit, plan, anime=anime, has_people=bool(subjects)):
+        negatives.append(SKIN_FINISH_NEVER)  # live-action skin / hair finish (line owner 2026-11-20, KO E01)
     negatives.append("music")
     if anime:
         negatives.extend(_render_style.H3_NEGATIVES)

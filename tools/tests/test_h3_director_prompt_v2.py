@@ -56,8 +56,10 @@ INTERNAL = re.compile(r"\b(?:CHAR|SUBSPACE|LOC|SET|PROP|AXIS|ANGLE)-[A-Z0-9-]+|\
 V1_SHA = {
     # stamped V1 director: default strict camera lock (owner 2026-10-26); "standard" keeps the previous bytes
     # 2026-11-09: stamped units add the time-of-day hold line (field device …1324 E02 day/night flips)
-    True: "521d117d6ddc1c4822a628a5496f9eb0cebce33d4888056d513fdd314efd04eb",
-    "standard": "a460ad6915eb2c0384a60e59e6c673470931aaf9643ac3c0e34c355f91b323b2",
+    # 2026-11-20: stamped live-action units add the skin / hair finish negative (KO E01 "oily face" on …0080); the
+    # negative_constraints line is the only text change, confirmed by diffing the rendered text old vs new
+    True: "e62ed428d5d0ae4475203bd3d70782a6cc5fdd3a74b1a00565c73d7eade02d18",
+    "standard": "8207d8db933747dd2ca6e8ee9ad43704fa2c039c00b228e3c2c07f797451ffac",
     False: "838e3f8960139ef5810a783a67462bfac6cf944b0b6546c9966f6524a07d8323",
 }
 
@@ -151,7 +153,8 @@ class DirectorPromptV2Shape(unittest.TestCase):
                       "No background music.", text)
         self.assertIn("Never: captions, subtitles, speech bubbles or any written words, letters or numbers on screen; "
                       "logos or watermarks; a second copy of anyone; "
-                      "anyone else in frame; music; zooming in, pushing in, dollying in, moving closer to the "
+                      "anyone else in frame; oily, glossy or sweaty skin sheen, wet-looking hair or over-sharpened "
+                      "skin texture; music; zooming in, pushing in, dollying in, moving closer to the "
                       "face, tightening the frame.", text)  # default strict camera lock (locked, single take)
         self.assertIn("Key prop: gray long table.", text)
         self.assertIn("Time: dusk; clear weather.", text)

@@ -2155,6 +2155,42 @@ def _tail_text_clean(partial: Path, final: Path) -> dict:
         return {"status": "FAIL_OPEN", "tail_text_cleaned": False, "boxes": [], "error": str(exc)}
 
 
+def _tail_normalize(partial: Path, final: Path, anchor: Path | None) -> dict:
+    """tools/tail_frame_normalize.py over a freshly extracted tail frame (after the text clean); fail-open."""
+    try:
+        from tools import tail_frame_normalize as tfn
+
+        raw, sidecar = tfn.companion_paths(final)
+        return tfn.normalize_tail_frame(partial, anchor=anchor, raw_copy=raw, sidecar=sidecar)
+    except Exception as exc:  # noqa: BLE001 - never block binding on the normaliser
+        print(f"[supervisor] WARNING: tail-frame normalisation unavailable ({exc}); frame kept", file=sys.stderr)
+        return {"status": "FAIL_OPEN", "tail_normalized": False, "error": str(exc)}
+
+
+_NON_TEMPORAL_REFERENCE_MARKERS = (
+    "IDENTITY",
+    "CHARACTER_REFERENCE",
+    "STYLE_REFERENCE",
+    "SCENE_REFERENCE",
+    "REFERENCE_ONLY",
+)
+
+
+def _planned_start_keyframe(task: dict, destination_ref: str) -> Path | None:
+    """The clean start keyframe the task was planned with (the first temporal reference the tail replaces), used as
+    the tail normaliser's texture anchor; None when it is missing or is itself an extracted tail."""
+    for row in task.get("reference_image_sequence") or []:
+        role = str(row.get("role") or "").upper()
+        if any(marker in role for marker in _NON_TEMPORAL_REFERENCE_MARKERS):
+            continue
+        path = row.get("path")
+        if not path or path == destination_ref or "TAIL" in role:
+            return None
+        candidate = abs_path(path)
+        return candidate if candidate.is_file() else None
+    return None
+
+
 def bind_predecessor_tail_frame(task: dict, dependency: dict) -> bool:
     """Bind an accepted predecessor tail as the sole first temporal anchor."""
     contract = task.get("action_sequence_contract") or {}
@@ -2180,6 +2216,12 @@ def bind_predecessor_tail_frame(task: dict, dependency: dict) -> bool:
                 # H3 burns the spoken line into the picture and it often lasts to the last
                 # frame; clean it here so it never propagates down the tail chain.
                 task["predecessor_tail_text_clean"] = _tail_text_clean(partial, destination)
+                # H3 compounds contrast / sharpening / skin sheen down a tail chain: pull the tail back toward
+                # the clean keyframe it replaces before it becomes @Image1 (line owner 2026-11-20).
+                normalized = _tail_normalize(partial, destination,
+                                             _planned_start_keyframe(task, str(destination_value)))
+                task["predecessor_tail_normalize"] = {
+                    k: normalized.get(k) for k in ("status", "tail_normalized", "anchor", "error") if k in normalized}
                 os.replace(partial, destination)
                 break
         partial.unlink(missing_ok=True)
@@ -2188,13 +2230,7 @@ def bind_predecessor_tail_frame(task: dict, dependency: dict) -> bool:
     destination_ref = str(destination_value)
     tail_sha = sha256_file(destination)
     sequence = list(task.get("reference_image_sequence") or [])
-    non_temporal_markers = (
-        "IDENTITY",
-        "CHARACTER_REFERENCE",
-        "STYLE_REFERENCE",
-        "SCENE_REFERENCE",
-        "REFERENCE_ONLY",
-    )
+    non_temporal_markers = _NON_TEMPORAL_REFERENCE_MARKERS
     replacement = {
         "asset_label": "@图片1",
         "role": "EXACT_PREDECESSOR_ACCEPTED_TAIL_AND_START_FRAME",

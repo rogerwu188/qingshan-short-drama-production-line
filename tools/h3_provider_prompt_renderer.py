@@ -8,6 +8,7 @@ unit's ``dialogue_language`` is ``en``).
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -170,6 +171,36 @@ ONE_TAKE = "One continuous take from the first frame to the last, no cuts or spl
 FIXED_CAMERA_POSITION = "Fixed camera position: no push in, no pull out, no pan, no tilt, no tracking."
 NO_DUPLICATE_PEOPLE = ("Never show two people with identical appearance, clothing or accessories; no clones, no twins, "
                        "no duplicate of any person \u2014 each person appears exactly once in the frame.")
+#: Live-action skin / hair finish (line owner 2026-11-20, KO E01 on device …0080: from one unit to the next the lead's
+#: face turned glossy and sweaty with wet-looking hair and crunchy over-sharpened texture -- H3 re-sharpens the
+#: compressed tail frame it starts from).  CAMERA_GRAMMAR_V1 (stamped) live-action units with people only, like the
+#: time-of-day line (unstamped prompts stay byte-identical); skipped for anime and whenever the unit's own text makes
+#: skin or hair wet (rain, sweat, water, tears ...).
+SKIN_FINISH_NEGATIVE = ("No oily, glossy or sweaty skin sheen and no wet-looking hair: natural matte skin texture "
+                        "and dry hair, no over-sharpened skin")
+_WET_CUES = re.compile(
+    r"\b(?:rain\w*|drizzl\w*|downpour|storm\w*|wet\w*|soak\w*|drench\w*|sweat\w*|perspir\w*|water\w*|swim\w*|"
+    r"bath\w*|shower\w*|pool|river|lake|sea|ocean|splash\w*|tears|teary|cry|crying|cries|weep\w*|sob\w*|"
+    r"oily|greas\w*|glisten\w*|steam\w*|sauna|exhaust\w*|panting|drip\w*|snow\w*|dew)\b"
+    r"|雨|汗|湿|淋|泪|哭|浴|泳|落水|泼水|水中|入水|빗물|비가|비를|소나기|땀|젖은|젖어|눈물|울음|우는|濡|涙|泣",
+    re.IGNORECASE,
+)
+
+
+def skin_finish_applies(unit: dict[str, Any], plan: dict[str, Any], *, anime: bool, has_people: bool) -> bool:
+    """True when the live-action skin / hair finish clause belongs in this unit's negative constraints."""
+    if anime or not has_people:
+        return False
+    contract = unit.get("h3_provider_english_contract") or {}
+    texts = [contract.get("space_weather_fact"), contract.get("identity_prop_fact"),
+             contract.get("persistent_state_lock"), *(contract.get("shot_state_locks") or []),
+             json.dumps(contract.get("beats") or [], ensure_ascii=False),
+             json.dumps(plan.get("beats") or [], ensure_ascii=False),
+             json.dumps((plan.get("action_ir") or {}).get("causal_chains") or [], ensure_ascii=False),
+             json.dumps(unit.get("ordered_prompt_specs") or [], ensure_ascii=False)]
+    return not _WET_CUES.search(" ".join(str(t or "") for t in texts))
+
+
 _WARDROBE_FIELDS = ("silhouette", "outer_layer", "inner_layer", "primary_color", "material", "footwear", "accessory")
 
 
@@ -1885,6 +1916,10 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             crowd = bool(background_total or unbound_total or scope.get("anonymous_role_descriptors"))
             roster_variants = [_director_roster(people, beings, crowd=crowd, compact=compact)
                                for compact in (False, True)] + [""]
+
+    if director_active(unit, plan) and skin_finish_applies(unit, plan, anime=anime,
+                                                           has_people=not insert_without_people):
+        negatives.append(SKIN_FINISH_NEGATIVE)
 
     # CAMERA_GRAMMAR_V1 audio hygiene (lab Holmes E01 ASR: reference-sample words echoed into other units,
     # babble after a short line in a long slot, H3-baked music between shots).  Dropped before the roster.
