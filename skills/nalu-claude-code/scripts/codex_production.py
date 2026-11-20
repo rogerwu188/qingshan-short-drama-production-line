@@ -1334,7 +1334,9 @@ def tick(system: bool = False) -> dict[str, Any]:
             return res
         if step["status"] == "RESUME_PRODUCER":
             out = resume(ep, "独立终审已由引擎启动的审核者提交（runtime/reviews/<EP>/final_audience_answers.json，"
-                             "你没有写、也不要改）。按合同继续 S7：通过就放行；判拒按 §7 记 FINAL-RELEASE-DEFAULT-ACCEPTANCE 订单后放行。")
+                             "你没有写、也不要改）。按合同继续 S7：通过就放行；第一次判拒或有确认缺陷时引擎自动做一轮修复"
+                             "（final_fix_round，按 S7 输出继续，S6 重做用 paid_stage.sh <EP> S6 S8）；第二次终审后仍判拒才按 §7 "
+                             "记 FINAL-RELEASE-DEFAULT-ACCEPTANCE 订单后放行。S8 由引擎按默认条款自动批准，不问线主。")
             did.append(f"resume_after_final_review:{out.get('status')}")
             return res
         reason = f"FINAL_REVIEW_REQUIRED:{step['status']}"  # reviewer exhausted / blocked: the agent takes over

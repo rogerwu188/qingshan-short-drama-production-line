@@ -146,7 +146,7 @@ python3 $S/codex_production.py report                                # 给线主
 恢复时上一线程每步输入已超过 `NALU_CODEX_FRESH_THREAD_TOKENS`（默认 300000）就换新线程，用引擎状态写的交接说明接上；以前用 Claude Code 起的、已停下的集改用 Codex 接着跑；`series/PAUSED` 存在时什么都不做。
 `AGENT` 时的处理（`state` 即 `nalu_status.state`）：
 - 在跑时（`status` 为 `RUNNING`）：不打扰。
-- `IDLE` + `OWNER_DECISION_REQUIRED`：只剩少数情况会出现（Giggle key 缺失/失效、追加一次后预算仍不够、新的付费类别）。
+- `IDLE` + `OWNER_DECISION_REQUIRED`：只剩少数情况会出现（Giggle key 缺失/失效、追加一次后预算仍不够、新的付费类别）。质量问题（终审判拒、必查缺陷、S8 批准）**永远不是**线主决定（线主 2026-11-20「不要等我了」）：引擎做一轮终审修复后自动放行、S8 由引擎按默认条款批准；Codex 若为此报 `OWNER_DECISION_REQUIRED`，直接 `resume --message "质量问题按默认条款：引擎终审修复一轮后放行，S8 自动批准，不问线主，继续"`。
   把 `question` 原样转给线主，**本项目暂停**等回复；线主回复后用 `resume --message "线主原话：<逐字>"`。不得替线主回答。
 - `IDLE` + `WAITING_REMOTE`：系统 tick 自己跟进（见上），不用你恢复；只有 `RESUME_FAILED:<原因>` 交给你时才处理该原因。
 - fleet 指令（`resume` / `update` / `pause` / `unpause` / `query` / `diagnose`）全部由脚本执行，你不用处理；只有 `agent_task`（维护者给代理的环境 / 凭据修复指令）会在心跳以 `AGENT` / `FLEET_AGENT_TASK` 交给你一次，原文在 `fleet_agent_task` 字段，照做即可。其余：`update` = `self_update.sh` 不带 --restart → 读**更新后**磁盘 AGENTS.md 的 pin 跑 `setup_host.sh` → 引擎 HEAD 变了且本集是 BLOCKED / FINAL_REVIEW_REQUIRED 就 resume（`fleet_sync.scripted_update`）。旧版本交回的 `FLEET_UPDATE` 按同样顺序处理一次。

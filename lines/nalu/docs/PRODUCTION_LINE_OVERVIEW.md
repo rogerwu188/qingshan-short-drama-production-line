@@ -17,7 +17,7 @@ E01 已按现规则交付并记录 approve；本文件确认后作为 E02 起的
 | **S5 关键帧** | 每镜一张起始帧（2K，9:16） | `build_keyframe_manifest.py` → Giggle gpt-image-2-fast（注册表 active profile） | `preproduction/keyframes/` | **付费** 11 分/张 | Q1 准入：身份量测（姿态可测才量）+ 审片问卷 + 首帧语义证据 |
 | **S6 视频** | 分波次滚动提交 SD2；每单元生成后 QA；Q2 组装准入；不合格单元受预算守卫的重生成 | `submit_giggle_video_manifest_v2` → seedance-2.0-pro | `video/E0X-VU-*.mp4` | **付费** 20 分/秒（约 180 s ≈ 3600 分首过） | 生成后 QA（技术 + 对白 ASR + 剧情问卷）→ Q2（身份/姿态/道具/连贯/缺陷分级） |
 | **S7 组装** | Q2 复核 → 时间线 → 渲染 → **字幕烧录** → **片尾拼接（3 s）** → 响度整平 → 最终 QA | 引擎链 + `build_burnin_subtitles.py` | `deliverables/E0X/E0X_final_9x16.mp4` | 免费 | 响度 −17…−15 LUFS；画面位精确 |
-| **S8 检查点** | 写 CHECKPOINT.md，停下等 Roger | `nalu_pipeline.py approve` | `CHECKPOINT.md` | 免费 | Roger 确认后自动开下一集 |
+| **S8 检查点** | 写 CHECKPOINT.md；终审修复一轮后引擎按默认条款自动批准（2026-11-20） | 引擎（`project.owner_review_required: true` 时才等 `approve`） | `CHECKPOINT.md` + 批准记录 | 免费 | 自动开下一集 |
 
 E01 实绩：27 单元 / 184 s / 32 镜；花费 5753 分（身份 352、关键帧 484、视频 4840 含 3 次重生成、语音 12 AgentCut）；成片 188.6 s（含片尾）。
 
@@ -84,7 +84,7 @@ E01 实绩：27 单元 / 184 s / 32 镜；花费 5753 分（身份 352、关键�
 2. S1 门禁 + S2 编译（空间图扩展、资产需求、分组 manifest、预检）。
 3. 生成后先给 Roger 看一次**唐宋风格试样**（秦铭新身份牌 1 张 + 火泉场景 1 张，约 22 分）再批量。← 建议加这一步，避免整集风格跑偏
 4. S3/S4/S5 付费（守卫 PASS 后），Q1 准入。
-5. S6 分波次视频 + QA + Q2，S7 组装（字幕 + 片尾），S8 停等 Roger。
+5. S6 分波次视频 + QA + Q2，S7 组装（字幕 + 片尾）+ 终审 + 一轮自动修复，S8 引擎自动批准（不停等）。
 
 ---
 

@@ -320,7 +320,8 @@ $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下
 `NALU_STATUS: {"episode":"<EP>","state":"<STATE>","stage":"<S?>","question":"<给线主的中文问题，没有则空>","credits_ledger":<账本数>,"final_mp4":"<路径或空>","note":"<一句话>"}`
 STATE 取值：`OWNER_DECISION_REQUIRED`（需要线主原话）· `WAITING_REMOTE`（等云端渲染/排队；系统心跳免费重跑同一付费阶段，需要判断时带原因恢复你，见 §0.1）·
 `BLOCKED`（需要人修复的环境/代码问题，note 写清）· `FINAL_REVIEW_REQUIRED`（S7 停在独立终审，见 §7）·
-`FINAL_CUT_READY`（成片已在 deliverables，S7 PASS，S8 或发行待做）· `ERROR`。
+`FINAL_CUT_READY`（成片已在 deliverables，S7 PASS；S8 由引擎按默认条款自动批准，发行待做）· `ERROR`。
+**质量问题永远不是 `OWNER_DECISION_REQUIRED`**（线主 2026-11-20：「不要等我了，我自己看不过来」）：终审判拒、必查缺陷、S8 批准都不问线主。
 被恢复时如果收到「继续」，就从 `runtime/pipeline_state/<EP>.json` 的当前阶段接着做。
 
 ## 7. 已知停点
@@ -328,7 +329,16 @@ S7 最后的「独立终审」要求独立进程、StoryClaw 白名单模型的�
 候选片在 `workflow/nalu/<EP>/assembly/<EP>_final_candidate_9x16.mp4`，请求在 `runtime/reviews/<EP>/final_audience_request.json`；
 终审通过前成片**不会**进 deliverables（Roger 2026-10-29）。你不得冒充审核者、不得写答案或绕过该门：报 `FINAL_REVIEW_REQUIRED`，
 note 写请求路径；编排代理安排审核者（SKILL.md §5），提交后用「继续」恢复你，你接着做终包 QA、放入 deliverables，报 `FINAL_CUT_READY`。
-终审判拒（`REJECT_RECUT`）或终包门有 FAIL 时不停线（线主 2026-11-07）：S7 报 `FINAL_RELEASE_DEFAULT_ACCEPTANCE_ORDER_REQUIRED:<清单>`，
+**终审后的一轮自动修复（线主 2026-11-20，`final_fix_round.py`）**：终审判拒（`REJECT_RECUT`），或判过但有确认的必查缺陷时，
+引擎自己做**一轮**修复再终审一次，第二次结论无论如何都继续（`NALU_FINAL_FIX_ROUNDS` 默认 1，0 关闭；绝不循环）：
+免费的 S7 修复（静止长镜用相邻单元未用画面切开/推近、音频床跳变→加长切点交叉淡化、配乐生硬起停→加长淡入淡出、字幕换行→拆成连续字幕、尾音被剪→加宽尾音保护）
+由引擎立即重跑 S7；需要付费重做的单元（烧进画面的字、服装/身份颜色不一致、脸漂移，仅 MiniMax-H3，每单元最多一次，本轮上限
+`NALU_FINAL_FIX_BUDGET_CREDITS` 默认 45 积分）由引擎停好旧片、写好重做句，S7 报 `FINAL_FIX_ROUND_S6_REDO_PENDING:<单元>`：
+你直接跑 `lines/nalu/runtime/tools/paid_stage.sh <EP> S6 S8`（照常 `WAITING_REMOTE`、照常回答新出的 Q2 审核），不要问线主、不要自己再移片或重做。
+重做确实做不成（提供方反复拒绝该单元、预算 HARD_STOP）时，把 `video/_superseded_*_final_fix/<单元>.mp4` 移回 `video/<单元>.mp4` 再跑 S7：本轮以原片结束（`CANDIDATE_UNCHANGED_AFTER_FIX`），照常放行，note 写原因。
+新候选片会再次停在 `FINAL_REVIEW_REQUIRED`（第二次终审），之后照下面继续。记录在 `workflow/nalu/<EP>/assembly/final_qa/final_fix_round.json`，
+`note` 写一句结果（如「终审修复一轮：重做 VU-007，二审 PASS」）。节奏、剧情、时长不足、声线撞、ASR 不符只记录不修。
+（第二次）终审判拒或终包门有 FAIL 时不停线（线主 2026-11-07）：S7 报 `FINAL_RELEASE_DEFAULT_ACCEPTANCE_ORDER_REQUIRED:<清单>`，
 你按 §5 默认条款记**一张**订单——`record_supervisor_order.py --gate-id FINAL-RELEASE-DEFAULT-ACCEPTANCE`，清单里每项一个
 `--detector final:<项>`，`--media final=<候选片>`，`--order` 写「默认条款自动接受：质量问题不阻塞连续生产（短剧工作流）」——再继续；
 审核者的判词、评分报告和所有 FAIL 原样保留，`note` 写判词要点。本线从不产出的 5 项终包证据（`final_package_manifest`、`ci_report`、`render_plan`、`audio_provenance_manifest`、`watch_report`）缺失引起的门 FAIL 由引擎列进同一张清单，照常记单，不要去补造这些文件；其余证据缺失（引擎报 `FINAL_EVIDENCE_MISSING:<门>`）不是质量 FAIL，不能这样放行，报 `BLOCKED`。**判断由引擎做，不由你做**：引擎报 `FINAL_RELEASE_DEFAULT_ACCEPTANCE_ORDER_REQUIRED` 时，清单里的每一项（包括 `gate_execution_failed`、上面 5 项证据缺失）都已判定可以记单，照清单逐项记，不要自己再剔除或以「证据缺失」为由停下；只有 `FINAL_EVIDENCE_MISSING` 才停（实地设备 …1324 E02，2026-11-07：清单 20 项，Codex 自行判为证据缺失而停了 1 小时以上）。
@@ -351,6 +361,7 @@ HopsAPI 图片任务成批以 `status 3 / code 424 "Provider error (request id: 
   音色要与已有角色区分（同场 F0 差 ≥ 25%）。
 - 构建器写成 `build_<ep小写>_layers.py`，可以复制上一集的构建器改数据块，但每集的镜头、台词必须来自本集叙事正典。
 - 预算按 §3 每集单独记订单；默认接受按 §5。本集完成后报 `FINAL_CUT_READY`，编排代理负责发行和启动下一集。
+- **S8 不等线主**（线主 2026-11-20）：S7 放行后 S8 由引擎写批准记录（`approved_by: engine_default_terms`，`owner_policy: never_wait_quality`，附未解决问题清单）；`nalu_pipeline.py approve` 只在运行时 `qingshan.json` 设了 `project.owner_review_required: true` 时才需要线主本人执行。看到 `AWAITING_LINE_OWNER_APPROVAL` 以外的 S8 状态都不是问题；不要把 S8 当成给线主的问题，不要报 `OWNER_DECISION_REQUIRED`。
 - 发行（编排代理做，Codex 不做）：旧 X2C open-api 或设备矩阵 API（配了 `NALU_DEVICE_SN` 时，见 SKILL.md §6）。矩阵模式按简报
   `episode_display_number` 发号、`series_key`（缺省剧名 slug-语言）归系列，所以这两项在整部剧里必须稳定、逐集连续。
 

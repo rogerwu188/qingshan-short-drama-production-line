@@ -20,10 +20,10 @@ owned elsewhere); a missing file just leaves its measurement out.
 Authority: ADVISORY.  Nothing here changes the review's validity, verdict or exit code -- the answer block
 ``qa_defect_checklist`` is optional and parsed leniently, like ``craft_standard``.  Findings are recorded with
 timestamps (``<EP>_QA_DEFECT_CHECKLIST.json``), as ``QA_DEFECT|<item id>`` knowledge events, and listed in the S8
-owner-approval checkpoint.  Routing: S7-fixable items (tail cut, mask, wrap, BGM, burned text when maskable) have no
-cheap automatic re-cut hook in S7 today (``s7_unit_recut`` renders an AUTHORED plan only), so they are recorded and
-surfaced to the owner before approval; QA-LOOKALIKE-CAST feeds the knowledge base and the next episode's identity
-design (character_distinctness).
+checkpoint.  Routing (owner 2026-11-20): confirmed defects go through the S7 final fix round (final_fix_round.py):
+tail cut, wrap and BGM are re-cut for free, a unit with burned text is redone once (paid S6), the oversized mask is
+recorded; QA-LOOKALIKE-CAST feeds the knowledge base and the next episode's identity design
+(character_distinctness).
 """
 from __future__ import annotations
 
@@ -507,12 +507,17 @@ def gemini_block(gemini: dict[str, Any] | None, parsed: dict[str, Any],
 
 
 def routing(item_id: str, *, maskable: bool = True) -> str:
-    row = ITEMS[item_id]
+    """Where a confirmed DEFECT of this item goes: the S7 final fix round (owner 2026-11-20, final_fix_round.py)
+    re-cuts the S7-fixable items for free and redoes a unit with burned text once (paid, S6); the look-alike cast
+    feeds the knowledge base; an oversized mask is recorded (the cover is opt-in only since 2026-11-19)."""
+    del maskable  # kept for callers: burned text is now fixed by an S6 redo, not by a cover
     if item_id == "QA-LOOKALIKE-CAST":
         return "KNOWLEDGE_BASE_AND_NEXT_EPISODE_IDENTITY_DESIGN"
-    fixable = row["s7_fixable"] is True or (row["s7_fixable"] == "WHEN_MASKABLE" and maskable)
-    # S7 has no cheap automatic re-cut hook (s7_unit_recut renders an authored plan only): record + owner summary
-    return "S7_FIXABLE_RECORDED_FOR_OWNER_NO_AUTO_RECUT_HOOK" if fixable else "RECORDED"
+    if item_id == "QA-BURNED-TEXT":
+        return "S6_UNIT_REDO_FINAL_FIX_ROUND"
+    if item_id == "QA-OVERSIZED-MASK":
+        return "RECORDED"
+    return "S7_FIXABLE_FINAL_FIX_ROUND" if ITEMS[item_id]["s7_fixable"] is True else "RECORDED"
 
 
 def build_record(parsed: dict[str, Any], measurements: dict[str, Any], *, episode: str,
@@ -548,9 +553,10 @@ def build_record(parsed: dict[str, Any], measurements: dict[str, Any], *, episod
                if ((measurements or {}).get("s6_burn_unresolved") or {}).get("units") else {}),
             **({"letterbox_measured": ((measurements or {}).get("av_evidence_pack") or {}).get("letterbox_shots")}
                if ((measurements or {}).get("av_evidence_pack") or {}).get("letterbox_shots") else {}),
-            "auto_recut": {"status": "NO_HOOK", "note": (
-                "S7 re-cut renders only an authored UNIT_RECUT_PLAN; no free automatic re-cut exists for these "
-                "items, so they are listed in the S8 owner-approval checkpoint instead")}}
+            "auto_recut": {"status": "FINAL_FIX_ROUND", "note": (
+                "confirmed defects go through ONE automatic final fix round (free S7 re-cut: tail guard, BGM fades, "
+                "caption split; paid S6 redo of a unit with burned text), then one more review; the line never "
+                "waits for the owner (final_fix_round.json)")}}
 
 
 def event_specs(record: dict[str, Any]) -> list[dict[str, Any]]:

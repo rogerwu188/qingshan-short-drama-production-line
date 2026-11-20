@@ -84,7 +84,7 @@ python3 lines/nalu/runtime/tools/bootstrap_runtime_root.py --runtime-root "$RUNT
 | S5 | 关键帧清单 | `preproduction/keyframes/<shot>-keyframe-v1.png` | entry_state 门、预算守卫、Q1（RapidOCR + 身份余弦 + 人工）、起始帧证据 | **MANUAL_REQUIRED Q1**：缩略总表看图填答；REJECT → 改镜头文字 → 重建 → 停放旧提示词/旧图 → S5 干跑 → 规划编译 → 重登记 → S5 付费 | HopsAPI 计划 1.2/张（Giggle 回滚 11/张） | 同镜第 2 次创意重做失败 |
 | S6 | 关键帧 + 上一单元真实尾帧（波次）；H3 视频走 HopsAPI（需 `HOPSAPI_API_KEY`） | 单元 mp4 | 波次循环脚本、reroll 守卫、post-gen QA（技术 12 项 + ASR + 剧情 5 项）、Q2（5 帧 OCR/身份 + 人工）、缺陷容忍门 | **MANUAL_REQUIRED**：post-gen 剧情审、Q2 审 | SD2 20/s；H3 经 HopsAPI ≈1.56/s（按任务实际 `cost` 记账） | 重做超守卫上限、集级缺陷预算超限 |
 | S7 | 全部单元 ADMITTED_FOR_ASSEMBLY | `deliverables/<EP>/<EP>_final_9x16.mp4`（烧录字幕、3 s 片尾、-16 LUFS；选择性配乐：plan → generate → reconcile → qa → mix，solo stem 归档） | `final_qa_evidence_bundle`（两键无生产者 → N/A）；配乐账单按提交窗隔离（K032） | 无 | 配乐 8/段 | 配乐已属默认条款（2026-10-22，计入本集预算）；配乐窗口标签是否被发布门接受（线主决定） |
-| S8 | 成片 | `CHECKPOINT.md` + 审批标志 | — | **线主看片** | 0 | 总是停 |
+| S8 | 成片 | `CHECKPOINT.md` + 审批标志（引擎按默认条款写，`approved_by: engine_default_terms`） | — | 不等线主（2026-11-20；`project.owner_review_required: true` 才等 `approve`） | 0 | 不停（发行范围按订单） |
 | S7-SYNC | S8 通过 | 仓库：代码泛化回灌、K 号经验、README/AGENTS 改到与生产一致、新 tag | `knowledge_registry --validate`、`run_portable_ci.py`、`deployment_code_integrity.py` | 改动清单给线主确认后 push | 0 | push/合并前 |
 
 ## 4. 必须停下来问人的点（不问就是越权）
@@ -274,6 +274,10 @@ lines/nalu/runtime/tools/run_unattended.sh E11 --max-turns 200 --max-budget-usd 
 ### 12.4 仍然必须交线主（自动化不改变这些）
 
 订单未覆盖的付费类别（换装 i2i、超出返工守卫的重拍、单集缺陷预算超支；BGM 自 2026-10-22 起属默认条款，不在此列）、
-剧情与台词文本改动、S8 看片与发布。
+剧情与台词文本改动、超出付费订单范围的发布（NO_PLATFORM_PUBLICATION 订单仍只交付不发布）。
 第一类与第三类由 §4 定义；代理撞上就写待决说明停下，不自行批准。
+S8 看片**不再**停线（线主 2026-11-20：「不要等我了，我自己看不过来」）：终审判拒 / 确认缺陷先由引擎做一轮自动修复
+（`final_fix_round.py`，免费 S7 重剪 + 每单元最多一次付费 S6 重做，本轮上限 `NALU_FINAL_FIX_BUDGET_CREDITS`=45），
+再终审一次，无论结论都继续；S8 由引擎按默认条款写批准记录（`approved_by: engine_default_terms`，附未解决问题）。
+要恢复旧的等待，在运行时 `qingshan.json` 设 `project.owner_review_required: true`。
 （音色一致性失败自 2026-10-22 起按 §4.9 重做后默认接受并记录，不再停线。）

@@ -51,6 +51,19 @@ END_TYPES = ("FADE_OUT", "CROSSFADE", "HIT_STOP")
 ENTRY_TYPES = ("FADE_IN", "PRELAP", "HIT_ENTRY", "CROSSFADE_IN")
 
 
+FADE_SCALE_ENV = "NALU_BGM_FADE_SCALE"
+
+
+def fade_scale(environ: dict[str, str] | None = None) -> float:
+    """Multiplier on the fade-in / fade-out lengths (``NALU_BGM_FADE_SCALE``, 1.0..3.0; default 1.0 = unchanged).
+    The final fix round (owner 2026-11-20) sets it after a confirmed abrupt music start / stop."""
+    env = os.environ if environ is None else environ
+    try:
+        return min(3.0, max(1.0, float(env.get(FADE_SCALE_ENV) or 1.0)))
+    except ValueError:
+        return 1.0
+
+
 def min_cue_seconds(environ: dict[str, str] | None = None) -> float:
     env = os.environ if environ is None else environ
     try:
@@ -105,6 +118,9 @@ def shape(cues: list[dict[str, Any]], shots_tl: list[dict[str, Any]], content: f
     fade_curve ("qsin" on crossfades).  ``source_seconds``: source_key -> longest generated source (0 = unknown,
     then nothing is extended past the declared window)."""
     min_cue = min_cue_seconds() if min_cue is None else float(min_cue)
+    scale = fade_scale()
+    fade_in, fade_out, long_fade_out = (round(FADE_IN_SECONDS * scale, 3), round(FADE_OUT_SECONDS * scale, 3),
+                                        round(LONG_FADE_OUT_SECONDS * scale, 3))
     content = float(content)
     b = boundaries(shots_tl, content)
     allowed, hits = b["allowed"], b["hits"]
@@ -166,17 +182,17 @@ def shape(cues: list[dict[str, Any]], shots_tl: list[dict[str, Any]], content: f
         if _near(t0, hits, HIT_TOLERANCE_SECONDS) is not None:
             row.update(entry_type="HIT_ENTRY", fade_in_s=HIT_FADE_IN_SECONDS)
         elif t0 > 0 and _near(t0, allowed, 1e-3) is not None:
-            row.update(entry_type="PRELAP", fade_in_s=FADE_IN_SECONDS,
+            row.update(entry_type="PRELAP", fade_in_s=fade_in,
                        t0=round(max(0.0, t0 - PRELAP_SECONDS), 3), prelap_s=PRELAP_SECONDS)
         else:
-            row.update(entry_type="FADE_IN", fade_in_s=FADE_IN_SECONDS)
+            row.update(entry_type="FADE_IN", fade_in_s=fade_in)
         # 4. end
         if sting or _near(t1, hits, HIT_TOLERANCE_SECONDS) is not None:
             tail_end = min(content, t1 + HIT_DECAY_SECONDS)
             row.update(end_type="HIT_STOP", t1=round(tail_end, 3), fade_out_s=round(max(0.05, tail_end - t1), 3),
                        hit_at=round(t1, 3))
         else:
-            row.update(end_type="FADE_OUT", fade_out_s=FADE_OUT_SECONDS if end_on_boundary else LONG_FADE_OUT_SECONDS)
+            row.update(end_type="FADE_OUT", fade_out_s=fade_out if end_on_boundary else long_fade_out)
         shaped.append(row)
     # 5. cues closer than the flicker gap crossfade (energy continues; the mood shift is the boundary)
     for a, b2 in zip(shaped, shaped[1:]):
@@ -205,8 +221,9 @@ def shape(cues: list[dict[str, Any]], shots_tl: list[dict[str, Any]], content: f
         row["fade_out_s"] = round(min(row["fade_out_s"], max(0.05, (row["t1"] - row["t0"]) / 3)), 3)
     return {"cues": shaped, "dropped": dropped, "merged": merged_ids, "boundaries": b,
             "rule": {"min_cue_seconds": min_cue, "snap_seconds": SNAP_SECONDS, "flicker_gap_seconds": FLICKER_GAP_SECONDS,
-                     "crossfade_seconds": CROSSFADE_SECONDS, "fade_in_seconds": FADE_IN_SECONDS,
-                     "fade_out_seconds": FADE_OUT_SECONDS, "long_fade_out_seconds": LONG_FADE_OUT_SECONDS,
+                     "crossfade_seconds": CROSSFADE_SECONDS, "fade_in_seconds": fade_in,
+                     "fade_out_seconds": fade_out, "long_fade_out_seconds": long_fade_out,
+                     **({"fade_scale": scale} if scale != 1.0 else {}),
                      "hit_decay_seconds": HIT_DECAY_SECONDS, "prelap_seconds": PRELAP_SECONDS, "duck_db": DUCK_DB}}
 
 

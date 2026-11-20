@@ -37,6 +37,18 @@ FLOOR_DB = -45.0
 HOP = 0.02
 BEAT_ENV = "NALU_S7_POST_LINE_BEAT_SECONDS"
 BEAT_FIELD = "s7_post_line_beat_seconds"
+#: the final fix round (owner 2026-11-20, final_fix_round.py) widens the guard after a confirmed clipped tail
+GUARD_ENV = "NALU_S7_TAIL_GUARD_SECONDS"
+MAX_TAIL_GUARD_SECONDS = 0.8
+
+
+def tail_guard_seconds(environ: dict[str, str] | None = None) -> float:
+    """TAIL_GUARD_SECONDS, or ``NALU_S7_TAIL_GUARD_SECONDS`` (never below the default, at most 0.8 s)."""
+    raw = str((os.environ if environ is None else environ).get(GUARD_ENV) or "").strip()
+    try:
+        return min(MAX_TAIL_GUARD_SECONDS, max(TAIL_GUARD_SECONDS, float(raw))) if raw else TAIL_GUARD_SECONDS
+    except ValueError:
+        return TAIL_GUARD_SECONDS
 
 
 def speech_end(frames: list[float] | None, word_end: float, *, line_start: float | None = None,
@@ -67,7 +79,7 @@ def guard(word_end: float, frames: list[float] | None = None, *, line_start: flo
           hop: float = HOP) -> dict[str, Any]:
     """{guard, speech_end}: the earliest cut that never clips the line's last syllable."""
     end = speech_end(frames, word_end, line_start=line_start, hop=hop)
-    g = word_end + TAIL_GUARD_SECONDS
+    g = word_end + tail_guard_seconds()
     if end is not None:
         g = max(g, end + SPEECH_END_PAD_SECONDS)
     return {"guard": round(g, 3), "speech_end": end, "word_end": round(float(word_end), 3)}

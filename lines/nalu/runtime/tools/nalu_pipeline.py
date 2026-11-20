@@ -32,7 +32,7 @@ Subcommands
 -----------
   run     --episode E01 [--dry-run] [--paid] [--from S3] [--until S6] [--force]
   status  --episode E01 [--json]
-  approve --episode E01 --by <configured-line-owner-id> [--note "..."]
+  approve --episode E01 --by <configured-line-owner-id> [--note "..."]   (only with project.owner_review_required)
   loop    --start E01 --end E10 [--paid] [--poll-seconds 60]
 """
 
@@ -5952,9 +5952,11 @@ def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
     retry_max = _br.max_retries()
     state_path = _wave_state_path(ctx)
     out: list[dict[str, Any]] = []
+    # a final-fix redo take is that unit's one redo of the round (owner 2026-11-20): never burn-retried again
+    final_fix_units = set(((read_json(final_fix_redo_path(ctx), {}) or {}).get("units") or {}))
     for uid in unit_ids:
         clip = ctx.p.video_media / f"{uid}.mp4"
-        if not clip.is_file():
+        if not clip.is_file() or uid in final_fix_units:
             continue
         clip_sha = sha256_file(clip)
         if _tail_is_current(ctx, uid, clip_sha):
@@ -6045,6 +6047,74 @@ def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
         out.append(row)
     return out
 
+
+def s6_final_fix_finalization_receipts(ctx: Ctx, unbound: list[str], fin_report: dict[str, Any],
+                                       fin_digest: Path) -> dict[str, Any]:
+    """Engine receipts for final-fix redo prompts (final_fix_round.py, owner 2026-11-20) whose ONLY change from an
+    already-approved prompt is the round's redo sentence: the final prompt minus exactly that sentence equals the
+    batch-PLANNED prompt, the reviewer's PASS receipt, or the engine's burn-retry receipt (also: one of those plus
+    exactly a burn-retry sentence).  Writes ``prompt_batch_finalization/<unit>.final_fix.json`` and attaches it;
+    anything else still goes to the reviewer."""
+    import final_fix_round as _ffr
+    import h3_burn_retry as _br
+    redo = (read_json(final_fix_redo_path(ctx), {}) or {}).get("units") or {}
+    rows = {str(r.get("unit_id")): r for r in fin_report.get("rows") or []}
+    fin_dir = ctx.p.preprod / "prompt_batch_finalization"
+    tx = read_json(ctx.p.video_transaction, {}) or {}
+    done: dict[str, Any] = {}
+
+    def approved(sha: str, uid: str) -> str | None:
+        if sha == (rows.get(uid) or {}).get("planned_sha256"):
+            return "PLANNED_PROMPT"
+        for name, label in ((f"{uid}.json", "REVIEWER_RECEIPT"), (f"{uid}.burn_retry.json", "BURN_RETRY_RECEIPT")):
+            receipt = read_json(fin_dir / name, {}) or {}
+            if receipt.get("status") == "PASS" and receipt.get("final_prompt_sha256") == sha:
+                return label
+        return None
+
+    for uid in unbound:
+        rec, row = redo.get(uid) or {}, rows.get(uid) or {}
+        if not rec.get("sentence") or row.get("status") != "CHANGED":
+            continue
+        task = next((t for t in tx.get("tasks") or [] if t.get("unit_id") == uid), None)
+        if task is None or not task.get("prompt_file"):
+            continue
+        final_path = Path(str(task["prompt_file"]))
+        final_path = final_path if final_path.is_absolute() else ENGINE / final_path
+        if not final_path.is_file() or sha256_file(final_path) != row.get("final_sha256"):
+            continue
+        base, found = _ffr.strip_sentence(final_path.read_text(encoding="utf-8"), rec["sentence"])
+        if not found:
+            continue
+        authority = approved(sha256_text(base), uid)
+        if authority is None:
+            plain, index = _br.strip_retry_sentence(base)
+            authority = (approved(sha256_text(plain), uid) + "+BURN_RETRY_SENTENCE"
+                         if index and approved(sha256_text(plain), uid) else None)
+        if authority is None:
+            continue
+        fin_dir.mkdir(parents=True, exist_ok=True)
+        receipt_path = fin_dir / f"{uid}.final_fix.json"
+        write_json(receipt_path, {
+            "status": "PASS", "execution_id": f"{ctx.episode}-PROMPT-BATCH-V1", "unit_id": uid,
+            "artifact_kind": "video_prompt", "planned_prompt_sha256": row["planned_sha256"],
+            "final_prompt_sha256": row["final_sha256"], "scope": "INCREMENTAL_EXACT_MATERIALIZATION_QA",
+            "reviewer": "nalu_pipeline:FINAL_FIX_ROUND", "review_method": "ENGINE_EXACT_SENTENCE_DELTA",
+            "reviewed_at": now(), "changed_line_count": 1, "final_fix_kinds": rec.get("kinds"),
+            "base_prompt_sha256": sha256_text(base), "base_authority": authority,
+            "reviewer_observation": ("the final prompt is the approved prompt plus exactly the final fix round's redo "
+                                     "sentence (line owner 2026-11-20: never wait on quality)"),
+            "digest_sha256": sha256_file(fin_digest)})
+        try:
+            ref_path = str(receipt_path.resolve().relative_to(ENGINE.resolve()))
+        except ValueError:
+            ref_path = str(receipt_path.resolve())
+        task["prompt_batch_finalization"] = {"path": ref_path, "sha256": sha256_file(receipt_path)}
+        task["prompt_sha256"] = row["final_sha256"]
+        done[uid] = {"receipt": str(receipt_path), "base_authority": authority}
+    if done:
+        write_json(ctx.p.video_transaction, tx)
+    return done
 
 def _s6_sync_burn_state(wave_state: dict[str, Any], path: Path) -> None:
     """stage_s6 holds the wave state in memory and rewrites the whole file: carry the burn-retry records
@@ -8184,6 +8254,13 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
             res.details["prompt_finalization"]["changed_without_receipt"] = unbound
             res.details["prompt_finalization"]["burn_retry_engine_receipts"] = burn_receipts
     if unbound:
+        # final fix round redo (owner 2026-11-20): approved prompt + exactly the round's redo sentence
+        fix_receipts = s6_final_fix_finalization_receipts(ctx, unbound, fin_report, fin_digest)
+        if fix_receipts:
+            unbound = [uid for uid in unbound if uid not in fix_receipts]
+            res.details["prompt_finalization"]["changed_without_receipt"] = unbound
+            res.details["prompt_finalization"]["final_fix_engine_receipts"] = fix_receipts
+    if unbound:
         # Only units that will be (re)submitted need finalization receipts.  Introduced with
         # CAMERA_GRAMMAR_V1 (lab Holmes E06); applied to every episode since 2026-10-29: a legacy
         # episode's final pass recompiles a rerolled unit with its predecessor tail re-attached
@@ -9223,6 +9300,16 @@ def s7_final_audience_review(ctx: Ctx, res: StageResult) -> dict[str, Any]:
     }
 
 
+def s7_cut_crossfade_seconds(default: float) -> float:
+    """The equal-power cut crossfade (s7_audio_smoothing.CUT_CROSSFADE_S), or ``NALU_S7_CUT_CROSSFADE_SECONDS``
+    (0.04..0.30 s) -- the final fix round's AUDIO_SMOOTHING (owner 2026-11-20)."""
+    raw = str(os.environ.get("NALU_S7_CUT_CROSSFADE_SECONDS") or "").strip()
+    try:
+        return round(min(0.30, max(0.04, float(raw))), 3) if raw else default
+    except ValueError:
+        return default
+
+
 def s7_asr_model() -> str:
     """faster-whisper model for S7's own transcriptions (pitch-unify line windows, subtitle read-back).
     Default ``small``: on the 8 GB production machine large-v3 over a 226 s mix ran 2 h under memory thrash
@@ -9556,6 +9643,9 @@ def s7_candidate_source_bindings(ctx: Any) -> dict[str, Any]:
         files[suffix] = p.assembly / f"{ctx.episode}_{suffix}"
     out: dict[str, Any] = {key: sha256_file(Path(str(path))) if Path(str(path)).is_file() else None
                            for key, path in files.items()}
+    settings = p.assembly / f"{ctx.episode}_FINAL_FIX_S7_SETTINGS.json"
+    if settings.is_file():  # only when the final fix round wrote it: earlier manifests keep their exact bindings
+        out["FINAL_FIX_S7_SETTINGS.json"] = sha256_file(settings)
     out["unit_clips"] = {mp4.name: sha256_file(mp4)
                          for mp4 in sorted(Path(str(p.video_media)).glob(f"{ctx.episode}-VU-*.mp4"))}
     out["music_mode"] = str(os.environ.get("NALU_S7_BED_MUSIC_MODE") or "wall_to_wall")
@@ -9847,6 +9937,356 @@ def s7_default_release_acceptance(ctx: Ctx, final_qa: dict[str, Any], review_rej
     write_json(path, record)
     ctx.say(f"   !! final release on line-owner default order seq={order.get('seq')}: {', '.join(failing)} kept FAIL")
     return {"status": PASS, "record_path": str(path), "order_seq": order.get("seq"), "failing": failing}
+
+
+# --------------------------------------------------------------------------- #
+# S7 final fix round (line owner 2026-11-20: 「不要等我了，我自己看不过来」)
+# --------------------------------------------------------------------------- #
+FINAL_FIX_IN_PROGRESS = ("S7_RERUN", "S6_REDO_PENDING")
+FINAL_FIX_REVIEW_FILES = ("AUDIENCE_SCORE_REPORT.json", "FINAL_CUT_EVENT_LEDGER.json",
+                          "AUDIENCE_SCORE_GATE_RESULT.json", "FINAL_CUT_QUALITY_GATE_RESULT.json",
+                          "QA_DEFECT_CHECKLIST.json", "DIRECTOR_EVALUATION.json", "CRAFT_STANDARD.json")
+
+
+def final_fix_record_path(ctx: Any) -> Path:
+    import final_fix_round as _ffr
+    return ctx.p.assembly / "final_qa" / _ffr.RECORD_NAME
+
+
+def final_fix_redo_path(ctx: Any) -> Path:
+    return ctx.p.preprod_reports / f"{ctx.episode}_FINAL_FIX_REDO.json"
+
+
+def final_fix_settings_path(ctx: Any) -> Path:
+    return ctx.p.assembly / f"{ctx.episode}_FINAL_FIX_S7_SETTINGS.json"
+
+
+def final_fix_redo_pending(ctx: Any) -> list[str]:
+    """Units the final fix round parked for a paid S6 redo whose new take is not on disk yet."""
+    redo = read_json(final_fix_redo_path(ctx), {}) or {}
+    return sorted(uid for uid, row in (redo.get("units") or {}).items()
+                  if isinstance(row, dict) and not (ctx.p.video_media / f"{uid}.mp4").is_file())
+
+
+class _final_fix_env:
+    """Apply the round's FREE S7 settings (``<EP>_FINAL_FIX_S7_SETTINGS.json``) to os.environ for one S7 pass.
+
+    Once written the settings stay for every later S7 entry of the episode, so a re-entry renders the same cut the
+    second review was asked to watch.  A name the operator already set is never overridden."""
+
+    def __init__(self, ctx: Any) -> None:
+        self.ctx = ctx
+        self.applied: dict[str, str] = {}
+
+    def __enter__(self) -> dict[str, str]:
+        settings = read_json(final_fix_settings_path(self.ctx), {}) or {}
+        for name, value in (settings.get("env") or {}).items():
+            if not str(os.environ.get(name) or "").strip():
+                os.environ[name] = str(value)
+                self.applied[name] = str(value)
+        return self.applied
+
+    def __exit__(self, *_exc: Any) -> None:
+        for name in self.applied:
+            os.environ.pop(name, None)
+
+
+def _final_fix_cut_windows(ctx: Any) -> dict[str, dict[str, float]]:
+    """unit -> {in, duration, start} of the current AgentCut picture track (source seconds)."""
+    project = read_json(ctx.p.agentcut_project, {}) or {}
+    out: dict[str, dict[str, float]] = {}
+    for track in ((project.get("timeline") or {}).get("videoTracks") or []):
+        for clip in track.get("clips") or []:
+            uid = str((clip.get("metadata") or {}).get("source_id") or "")
+            if uid and uid not in out:
+                out[uid] = {"in": float(clip.get("in") or 0.0), "duration": float(clip.get("duration") or 0.0),
+                            "start": float(clip.get("start") or 0.0)}
+    return out
+
+
+def final_fix_static_recut(ctx: Any, units: list[str], timeline_order: list[str]) -> list[dict[str, Any]]:
+    """Add one unit_recut entry per over-long static unit to ``<EP>_UNIT_RECUT_PLAN.json`` (free; FREE_S7
+    STATIC_SHOT_SPLIT).  Units the authored plan already re-cuts are left alone.  The authored plan, when there is
+    one, is kept beside it as ``<EP>_UNIT_RECUT_PLAN.pre_final_fix.json``."""
+    import final_fix_round as _ffr
+    import unit_recut as _ur
+    plan_path = ctx.p.assembly / f"{ctx.episode}_UNIT_RECUT_PLAN.json"
+    plan = read_json(plan_path, {}) or {}
+    if plan and plan.get("schema") != _ur.PLAN_SCHEMA:
+        return [{"kind": "STATIC_SHOT_SPLIT", "status": "SKIPPED_FOREIGN_PLAN_SCHEMA", "units": units}]
+    windows = _final_fix_cut_windows(ctx)
+    seconds: dict[str, float | None] = {}
+
+    def clip_seconds(uid: str) -> float | None:
+        if uid not in seconds:
+            clip = ctx.p.video_media / f"{uid}.mp4"
+            seconds[uid] = _probe_seconds(clip) if clip.is_file() else None
+        return seconds[uid]
+
+    actions, added = [], {}
+    for uid in units:
+        if uid in (plan.get("units") or {}):
+            actions.append({"kind": "STATIC_SHOT_SPLIT", "unit_id": uid, "status": "SKIPPED_AUTHORED_RECUT"})
+            continue
+        win = windows.get(uid)
+        if not win or win["duration"] <= 0:
+            actions.append({"kind": "STATIC_SHOT_SPLIT", "unit_id": uid, "status": "SKIPPED_NOT_IN_CUT"})
+            continue
+        pos = timeline_order.index(uid) if uid in timeline_order else -1
+        neighbours = []
+        for nb in ([timeline_order[pos + 1]] if 0 <= pos < len(timeline_order) - 1 else []) + \
+                  ([timeline_order[pos - 1]] if pos > 0 else []):
+            nwin, total = windows.get(nb), clip_seconds(nb)
+            if not nwin or not total or nb in (plan.get("units") or {}):
+                continue
+            unused = [(0.0, nwin["in"])] + [(nwin["in"] + nwin["duration"], float(total) - 0.05)]
+            neighbours.append({"unit_id": nb, "unused": [(a, b) for a, b in unused if b - a > 0]})
+        got = _ffr.static_shot_segments(uid, (win["in"], win["in"] + win["duration"]), neighbours=neighbours)
+        if got.get("status") != "PLANNED":
+            actions.append({"kind": "STATIC_SHOT_SPLIT", "unit_id": uid, "status": got.get("status")})
+            continue
+        added[uid] = {"segments": got["segments"], "reason": f"FINAL_FIX_ROUND static shot split ({got['method']})",
+                      "final_fix_round": True}
+        actions.append({"kind": "STATIC_SHOT_SPLIT", "unit_id": uid, "status": "PLANNED", "method": got["method"],
+                        **({"borrowed_from": got["borrowed_from"]} if got.get("borrowed_from") else {})})
+    if added:
+        if plan_path.is_file():
+            backup = plan_path.with_name(f"{ctx.episode}_UNIT_RECUT_PLAN.pre_final_fix.json")
+            if not backup.exists():
+                shutil.copy2(str(plan_path), str(backup))
+        merged = {"schema": _ur.PLAN_SCHEMA, "episode": ctx.episode, **{k: v for k, v in plan.items()
+                                                                         if k not in ("schema", "episode", "units")},
+                  "units": {**(plan.get("units") or {}), **added}}
+        write_json(plan_path, merged)
+    return actions
+
+
+def _final_fix_wardrobe(ctx: Any, uid: str) -> tuple[list[dict[str, Any]], list[str]]:
+    """The identity-card wardrobe rows of the characters a unit shows (editorial wardrobe contracts)."""
+    grouping = read_json(ctx.p.grouping_plan, {}) or {}
+    shot_ids = next((set(map(str, u.get("editorial_shot_ids") or [])) for u in grouping.get("units") or []
+                     if str(u.get("unit_id")) == uid), set())
+    editorial = read_json(ctx.p.editorial, {}) or {}
+    rows: dict[str, dict[str, Any]] = {}
+    for shot in editorial.get("shots") or []:
+        if str(shot.get("shot_id")) not in shot_ids:
+            continue
+        for row in (shot.get("wardrobe_contract") or {}).get("characters") or []:
+            key = str(row.get("character_id") or row.get("character") or "")
+            if key:
+                rows.setdefault(key, row)
+    return list(rows.values()), list(rows)
+
+
+def final_fix_park_units(ctx: Any, selected: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Park each selected unit's clip for ONE paid redo and record its redo sentence in
+    ``reports/<EP>_FINAL_FIX_REDO.json`` (the compile carries it as ``h3_final_fix``; S6 redoes the unit through
+    every existing gate).  S6 is reopened so the next run that includes it re-enters the wave loop."""
+    import final_fix_round as _ffr
+    path = final_fix_redo_path(ctx)
+    state = read_json(path, {}) or {"schema": _ffr.REDO_SCHEMA, "episode": ctx.episode, "units": {}}
+    park = ctx.p.video_media / f"_superseded_{ctx.run_id}_final_fix"
+    done = []
+    for row in selected:
+        uid = row["unit_id"]
+        clip = ctx.p.video_media / f"{uid}.mp4"
+        if not clip.is_file():
+            continue
+        rows, chars = _final_fix_wardrobe(ctx, uid) if "COSTUME_IDENTITY" in row["kinds"] else ([], [])
+        sentence = _ffr.redo_sentence(row["kinds"], wardrobe_rows=rows, character_ids=chars)
+        park.mkdir(parents=True, exist_ok=True)
+        clip_sha = sha256_file(clip)
+        os.replace(clip, park / clip.name)
+        rec = {"round": 1, "kind": row["kind"], "kinds": row["kinds"], "sentence": sentence,
+               "planned_credits": row.get("cost"), "parked_clip": str(park / clip.name),
+               "parked_clip_sha256": clip_sha, "on_screen_seconds": row.get("on_screen_seconds"),
+               "run_id": ctx.run_id, "recorded_at": now(), "recorded_by": TOOL_ID, "status": "PARKED"}
+        state.setdefault("units", {})[uid] = rec
+        ctx.say(f"FINAL_FIX_UNIT_REDO unit={uid} kind={row['kind']} kinds={','.join(row['kinds'])} "
+                f"planned_credits={row.get('cost')}")
+        done.append({"unit_id": uid, **{k: rec[k] for k in ("kind", "kinds", "planned_credits", "parked_clip")}})
+    if done:
+        write_json(path, state)
+        s6 = ctx.stage_state("S6")
+        s6["status"] = "REOPENED_FINAL_FIX"
+        s6["reopened"] = {"by": "final_fix_round", "units": [d["unit_id"] for d in done], "at": now()}
+        ctx.save_state()
+    return done
+
+
+def final_fix_archive_first_review(ctx: Any, report_path: str | None) -> dict[str, str]:
+    """Copy the first review's report, ledger, gate results and must-check list aside before the second review
+    overwrites them (``final_qa/final_fix_round/first_review/``)."""
+    out: dict[str, str] = {}
+    if not report_path:
+        return out
+    base = Path(str(report_path)).parent
+    dest = ctx.p.assembly / "final_qa" / "final_fix_round" / "first_review"
+    for suffix in FINAL_FIX_REVIEW_FILES:
+        src = base / f"{ctx.episode}_{suffix}"
+        if src.is_file():
+            dest.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(src), str(dest / src.name))
+            out[suffix] = str(dest / src.name)
+    request = REVIEWS_ROOT / ctx.episode / "final_audience_request.json"
+    if request.is_file():
+        dest.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(request), str(dest / request.name))
+        out["request"] = str(dest / request.name)
+    return out
+
+
+def _final_fix_credits(ctx: Any) -> float | None:
+    try:
+        return float(credits_summary(ctx).get("recorded_total_credits") or 0)
+    except Exception:  # noqa: BLE001 - bookkeeping only
+        return None
+
+
+def s7_final_fix_round(ctx: Any, res: Any, final_audience: dict[str, Any], review_rejected: bool) -> dict[str, Any]:
+    """The S7 hook after the independent final review (PASS or REJECT_RECUT).  Returns {action, record} where action
+    is PROCEED (continue to final QA / release exactly as before), S7_RERUN (free fixes applied: re-run S7 now) or
+    S6_REDO_PENDING (units parked for a paid redo: S6 must run before S7).  At most one round per episode; whatever
+    the second review says, the line proceeds."""
+    import final_fix_round as _ffr
+    p = ctx.p
+    path = final_fix_record_path(ctx)
+    record = read_json(path, {}) or {}
+    cand_sha = str(final_audience.get("final_video_sha256") or sha256_file(p.final_candidate) or "")
+    verdict = "REJECT_RECUT" if review_rejected else "PASS"
+    report_path = str(final_audience.get("report") or "")
+
+    def done(rec: dict[str, Any], note: str | None = None) -> dict[str, Any]:
+        spent_now = _final_fix_credits(ctx)
+        start = rec.get("credits_at_start")
+        rec.update(status="DONE", finished_at=now(),
+                   second_review={"verdict": verdict, "final_video_sha256": cand_sha, "report": report_path or None,
+                                  **({"note": note} if note else {})},
+                   credits_spent=(round(spent_now - float(start), 3)
+                                  if spent_now is not None and start is not None else None))
+        rec["unresolved"] = _ffr.unresolved(rec)
+        _ffr.write_record(path, rec)
+        ctx.say(f"FINAL_FIX_ROUND_DONE verdict={verdict} episode={ctx.episode} "
+                f"units_redone={','.join(_ffr.summary(rec)['units_redone']) or '-'} "
+                f"unresolved={len(rec['unresolved'])}" + (f" ({note})" if note else ""))
+        return {"action": "PROCEED", "record": str(path), **_ffr.summary(rec)}
+
+    if record.get("status") in FINAL_FIX_IN_PROGRESS:
+        first_sha = (record.get("first_review") or {}).get("final_video_sha256")
+        if cand_sha and cand_sha != first_sha:
+            return done(record)
+        pending = final_fix_redo_pending(ctx)
+        if pending:
+            return {"action": "S6_REDO_PENDING", "record": str(path), "units": pending, **_ffr.summary(record)}
+        return done(record, "CANDIDATE_UNCHANGED_AFTER_FIX")
+    if record.get("status") == "DONE":
+        return {"action": "PROCEED", "record": str(path), **_ffr.summary(record)}
+    if record.get("status") and (record.get("first_review") or {}).get("final_video_sha256") == cand_sha:
+        return {"action": "PROCEED", "record": str(path), **_ffr.summary(record)}
+
+    base = {"episode": ctx.episode, "recorded_by": TOOL_ID, "started_at": now(),
+            "owner_policy": "never_wait_quality", "rounds_allowed": _ffr.rounds(),
+            "first_review": {"verdict": verdict, "final_video_sha256": cand_sha, "report": report_path or None}}
+    if _ffr.rounds() == 0:
+        _ffr.write_record(path, {**base, "status": "DISABLED"})
+        return {"action": "PROCEED", "record": str(path), "status": "DISABLED"}
+    report = read_json(Path(report_path), {}) if report_path else {}
+    checklist_path = Path(report_path).parent / f"{ctx.episode}_QA_DEFECT_CHECKLIST.json" if report_path else None
+    checklist = read_json(checklist_path, {}) if checklist_path and checklist_path.is_file() else {}
+    if isinstance(checklist, dict) and (checklist.get("bindings") or {}).get("final_video_sha256") not in (None, cand_sha):
+        checklist = {}  # a must-check list of another cut is not a finding of this one
+    segments = (read_json(p.assembly / f"{ctx.episode}_release_timeline.json", {}) or {}).get("segments") or []
+    mapped = _ffr.map_findings(_ffr.collect_findings(report, checklist), segments)
+    base["findings"] = mapped
+    if not _ffr.triggered(review_rejected, mapped):
+        rec = {**base, "status": "NOT_NEEDED", "note": "first review PASS without a confirmed must-check defect"}
+        rec["unresolved"] = _ffr.unresolved(rec)
+        _ffr.write_record(path, rec)
+        return {"action": "PROCEED", "record": str(path), **_ffr.summary(rec)}
+    if not _ffr.actionable(mapped):
+        rec = {**base, "status": "NO_ACTIONABLE_FIX",
+               "note": "every confirmed finding is record-only (or has no unit); second review skipped"}
+        rec["unresolved"] = _ffr.unresolved(rec)
+        _ffr.write_record(path, rec)
+        ctx.say(f"FINAL_FIX_ROUND_DONE verdict={verdict} episode={ctx.episode} (no actionable fix; "
+                f"{len(rec['unresolved'])} finding(s) recorded)")
+        return {"action": "PROCEED", "record": str(path), **_ffr.summary(rec)}
+    if getattr(ctx, "dry", False):
+        return {"action": "PROCEED", "status": DRY, "findings": len(mapped)}
+
+    free_kinds = sorted({f["kind"] for f in mapped if f["class"] == _ffr.FREE})
+    ctx.say(f"FINAL_FIX_ROUND_START episode={ctx.episode} first_verdict={verdict} findings={len(mapped)} "
+            f"free={','.join(free_kinds) or '-'} paid_candidates="
+            f"{','.join(sorted({f['unit_id'] for f in mapped if f['class'] == _ffr.PAID and f.get('unit_id')})) or '-'}")
+    base["credits_at_start"] = _final_fix_credits(ctx)
+    base["first_review"]["archived"] = final_fix_archive_first_review(ctx, report_path)
+
+    # paid plan: one redo per unit, round cap + episode headroom, burned > costume > face by on-screen time
+    model = episode_video_model(ctx.episode)
+    seconds = {str(t.get("unit_id") or t.get("task_key")): float(t.get("duration_seconds") or 0)
+               for t in (read_json(p.video_transaction, {}) or {}).get("tasks") or []}
+    already = set(((read_json(final_fix_redo_path(ctx), {}) or {}).get("units") or {}))
+    headroom: int | None = None
+    if any(f["class"] == _ffr.PAID for f in mapped):
+        try:
+            verdict_row = ctx.budget_check(0, label="final_fix_round_headroom").get("budget_verdict") or {}
+            if verdict_row.get("headroom_credits") is not None:
+                headroom = int(verdict_row["headroom_credits"])
+        except Exception as exc:  # noqa: BLE001 - unknown headroom: no paid redo
+            ctx.say(f"   final fix round: budget headroom unavailable ({type(exc).__name__})")
+
+    def eligible(uid: str) -> str | None:
+        if model != "MiniMax-H3":
+            return f"MODEL_NOT_H3:{model}"
+        if uid in already:
+            return "ALREADY_REDONE_IN_FINAL_FIX"
+        if not (p.video_media / f"{uid}.mp4").is_file():
+            return "CLIP_NOT_ON_DISK"
+        return None
+
+    paid = _ffr.plan_paid(mapped, budget=_ffr.budget_credits(), headroom=0 if headroom is None else headroom,
+                          unit_cost=lambda uid: video_task_credits(model, seconds.get(uid, 6.0), 1,
+                                                                   episode_video_resolution(ctx.episode)),
+                          eligible=eligible, unit_order=[str(s.get("unit_id")) for s in segments])
+    if headroom is None:
+        paid["headroom_note"] = "BUDGET_HEADROOM_UNKNOWN: no paid redo"
+
+    # free fixes: S7 settings + static-shot re-cut entries
+    free_actions: list[dict[str, Any]] = []
+    settings = _ffr.free_settings(free_kinds)
+    if settings["env"] or settings["kept_operator_env"]:
+        write_json(final_fix_settings_path(ctx), {"schema": _ffr.SETTINGS_SCHEMA, "episode": ctx.episode,
+                                                  "kinds": free_kinds, **settings, "recorded_at": now()})
+        for kind in free_kinds:
+            if kind in _ffr.FREE_SETTINGS:
+                free_actions.append({"kind": kind, "status": "APPLIED_ON_S7_RERUN",
+                                     "env": {k: v for k, v in settings["env"].items()
+                                             if k in _ffr.FREE_SETTINGS[kind]}})
+                ctx.say(f"FINAL_FIX_FREE_RECUT kind={kind} settings="
+                        + ",".join(f"{k}={v}" for k, v in settings["env"].items() if k in _ffr.FREE_SETTINGS[kind]))
+    static_units = sorted({f["unit_id"] for f in mapped if f["kind"] == "STATIC_SHOT_SPLIT" and f.get("unit_id")})
+    if static_units:
+        for action in final_fix_static_recut(ctx, static_units, [str(s.get("unit_id")) for s in segments]):
+            free_actions.append(action)
+            if action.get("status") == "PLANNED":
+                ctx.say(f"FINAL_FIX_FREE_RECUT kind=STATIC_SHOT_SPLIT unit={action['unit_id']} "
+                        f"method={action.get('method')}")
+    parked = final_fix_park_units(ctx, paid["selected"])
+    paid["selected"] = [row for row in paid["selected"] if row["unit_id"] in {d["unit_id"] for d in parked}]
+    paid["planned_credits"] = sum(int(row.get("cost") or 0) for row in paid["selected"])
+    applied_free = [a for a in free_actions if a.get("status") in ("PLANNED", "APPLIED_ON_S7_RERUN")]
+    if not parked and not applied_free:
+        rec = {**base, "status": "NO_ACTIONABLE_FIX", "paid": paid, "free_actions": free_actions,
+               "note": "nothing could be applied (budget / eligibility / cut); second review skipped"}
+        rec["unresolved"] = _ffr.unresolved(rec)
+        _ffr.write_record(path, rec)
+        ctx.say(f"FINAL_FIX_ROUND_DONE verdict={verdict} episode={ctx.episode} (nothing applicable)")
+        return {"action": "PROCEED", "record": str(path), **_ffr.summary(rec)}
+    status = "S6_REDO_PENDING" if parked else "S7_RERUN"
+    rec = {**base, "status": status, "paid": paid, "free_actions": free_actions}
+    _ffr.write_record(path, rec)
+    return {"action": status, "record": str(path), "units": [d["unit_id"] for d in parked], **_ffr.summary(rec),
+            **({"next": f"{RT_TOOLS / 'paid_stage.sh'} {ctx.episode} S6 S8"} if parked else {})}
 
 
 def promote_final_candidate(p: Any) -> dict[str, Any]:
@@ -10539,6 +10979,40 @@ def s7_sound_bridge_mix(ctx: Ctx, res: StageResult, picture: Path) -> tuple[Path
 
 
 def stage_s7(ctx: Ctx) -> StageResult:
+    """S7 with the final fix round (line owner 2026-11-20): the round's FREE settings are applied to every S7 pass of
+    the episode; free fixes re-run S7 once in this process; units parked for a paid redo stop S7 until S6 landed
+    them (``paid_stage.sh <EP> S6 S8``).  See :func:`s7_final_fix_round`."""
+    import final_fix_round as _ffr
+    pending = final_fix_redo_pending(ctx)
+    if pending:
+        res = StageResult(BLOCKED)
+        res.blockers = [f"FINAL_FIX_ROUND_S6_REDO_PENDING:{','.join(pending)}"]
+        res.details = {"final_fix_round": {"action": "S6_REDO_PENDING", "units": pending,
+                                           **_ffr.summary(read_json(final_fix_record_path(ctx), {}) or {}),
+                                           "next": f"{RT_TOOLS / 'paid_stage.sh'} {ctx.episode} S6 S8"}}
+        ctx.say(f"   S7 waits for the final-fix S6 redo of {', '.join(pending)}: run "
+                f"{RT_TOOLS / 'paid_stage.sh'} {ctx.episode} S6 S8")
+        return res
+    with _final_fix_env(ctx) as applied:
+        res = _stage_s7_pass(ctx)
+    if applied:
+        res.details["final_fix_s7_settings"] = applied
+    fix = (res.details or {}).get("final_fix_round") or {}
+    if fix.get("action") == "S7_RERUN" and not getattr(ctx, "_final_fix_rerun", False):
+        ctx._final_fix_rerun = True
+        ctx.say("-- S7: re-running assembly once with the final fix round's free fixes")
+        first = res
+        with _final_fix_env(ctx) as applied:
+            res = _stage_s7_pass(ctx)
+        res.steps = list(first.steps) + list(res.steps)
+        res.details["final_fix_round_first_pass"] = {"status": first.status, "blockers": first.blockers,
+                                                     "final_fix_round": fix}
+        if applied:
+            res.details["final_fix_s7_settings"] = applied
+    return res
+
+
+def _stage_s7_pass(ctx: Ctx) -> StageResult:
     """Q2 admission -> AgentCut project -> render -> release loudness -> final QA.
 
     Nothing in this stage stubs media.  Each link runs only when its real input
@@ -10767,7 +11241,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
     import camera_grammar_policy as _cgp_xf
     if _cgp_xf.active(read_json(p.contract, {}) or {}, episode=ctx.episode):
         import s7_audio_smoothing as _smooth_xf
-        build_argv += ["--audio-cut-crossfade-seconds", f"{_smooth_xf.CUT_CROSSFADE_S:g}"]
+        build_argv += ["--audio-cut-crossfade-seconds", f"{s7_cut_crossfade_seconds(_smooth_xf.CUT_CROSSFADE_S):g}"]
     res.details["commands"]["build_agentcut"] = q(build_argv)
     res.details["commands"]["level_native_release_audio"] = q(level_argv)
 
@@ -10835,8 +11309,11 @@ def stage_s7(ctx: Ctx) -> StageResult:
                           if captioned_source != native_source and vo_placement.is_file() else [])
     # CAMERA_GRAMMAR_V1 (lab E02 VU-001): a line too long for 2 normal-size rows becomes sequential cues
     import camera_grammar_policy as _cgp
+    # final fix round (owner 2026-11-20): a confirmed bad caption wrap turns the splitter on for any episode
     split_argv: list[Any] = (["--split-long-captions"]
-                             if _cgp.active(read_json(p.contract, {}) or {}, episode=ctx.episode) else [])
+                             if _cgp.active(read_json(p.contract, {}) or {}, episode=ctx.episode)
+                             or str(os.environ.get("NALU_S7_SPLIT_LONG_CAPTIONS") or "").strip().lower()
+                             in ("1", "true", "on") else [])
     # H3_BURNED_TEXT_COVER_V1 (line owner 2026-10-31, E12): H3 burns the spoken line into the picture; OCR the
     # band, then the captions sit on a bar over it and the bar also covers every burned-text run.
     import burned_text_cover as _btc
@@ -11261,6 +11738,16 @@ def stage_s7(ctx: Ctx) -> StageResult:
                       if final_audience["status"] == REVIEW_REQUIRED else BLOCKED)
         res.blockers = list(final_audience.get("blockers") or [])
         return res
+    # ------------------------------------------- 7b. final fix round (line owner 2026-11-20: never wait on quality)
+    # One automatic round after a REJECT_RECUT / confirmed DEFECT review: free S7 re-cuts and at most one paid S6 redo
+    # per unit, then ONE more review; whatever that says, the line proceeds (final_fix_round.py).
+    final_fix = s7_final_fix_round(ctx, res, final_audience, review_rejected)
+    res.details["final_fix_round"] = final_fix
+    if final_fix.get("action") in ("S7_RERUN", "S6_REDO_PENDING"):
+        res.status = BLOCKED
+        res.blockers = (["FINAL_FIX_ROUND_S7_RERUN"] if final_fix["action"] == "S7_RERUN"
+                        else [f"FINAL_FIX_ROUND_S6_REDO_PENDING:{','.join(final_fix.get('units') or [])}"])
+        return res
 
     # ------------------------------------------- 8. final-package QA (D-9/D-12)
     final_qa = s7_qa(ctx, res)
@@ -11445,7 +11932,67 @@ def knowledge_sync_summary(ctx: Ctx) -> dict[str, Any]:
     return payload
 
 
+def owner_review_required(ctx: Any) -> bool:
+    """``project.owner_review_required: true`` in the runtime qingshan.json restores the old S8 wait for the line
+    owner's ``approve``.  Default false (line owner 2026-11-20: never wait on quality)."""
+    config = getattr(ctx, "config", None) or {}
+    project = config.get("project") if isinstance(config.get("project"), dict) else {}
+    return project.get("owner_review_required") is True
+
+
+ENGINE_APPROVER = "engine_default_terms"
+
+
+def s8_auto_approve(ctx: Any) -> dict[str, Any]:
+    """S8 approval under the default terms, written by the engine (line owner 2026-11-20: 「不要等我了」).
+
+    Only for a released cut: S7 PASS (or reused PASS) and the deliverable on disk -- the same FINAL_CUT_READY state
+    the heartbeat publishes and continues from.  The record names the engine, the policy and every finding the final
+    fix round left unresolved.  The paid order's publication scope is carried, never widened: an order with
+    NO_PLATFORM_PUBLICATION stays deliverable-only (this pipeline has no publish path either way)."""
+    import final_fix_round as _ffr
+    p = ctx.p
+    s7 = ctx.stage_state("S7").get("status")
+    if s7 not in TERMINAL_OK or not p.final_mp4.is_file():
+        return {"status": "NOT_ELIGIBLE", "reason": f"S7={s7} deliverable={'yes' if p.final_mp4.is_file() else 'no'}"}
+    record = read_json(final_fix_record_path(ctx), {}) or {}
+    order = getattr(ctx, "paid_order", None) or {}
+    conditions = list(order.get("condition_ids") or [c.get("id") for c in order.get("conditions") or []
+                                                      if isinstance(c, dict)])
+    publication = order.get("publication_allowed") is True
+    payload = {
+        "schema": "nalu.pipeline_approval.v1",
+        "episode": ctx.episode,
+        "approved_at": now(),
+        "approved_by": ENGINE_APPROVER,
+        "owner_policy": "never_wait_quality",
+        "policy_source": "line owner 2026-11-20: 不要等我了，我自己看不过来 (quality never waits for the owner)",
+        "note": "S8 auto-approved under the default terms; the owner may still review the checkpoint afterwards",
+        "checkpoint": str(p.checkpoint),
+        "checkpoint_sha256": sha256_file(p.checkpoint),
+        "final_video": str(p.final_mp4),
+        "final_video_sha256": sha256_file(p.final_mp4),
+        "final_fix_round": _ffr.summary(record) if record else {"status": "NONE"},
+        "unresolved_findings": record.get("unresolved") or _ffr.unresolved(record),
+        "publication_allowed": publication,
+        "release_scope": ("DELIVERABLE_AND_PUBLICATION_PER_ORDER" if publication
+                          else "DELIVERABLE_ONLY_NO_PLATFORM_PUBLICATION"),
+        "paid_order": {"seq": order.get("seq"), "id": order.get("id"), "conditions": conditions},
+        "recorded_by": TOOL_ID,
+    }
+    write_json(p.approval, payload)
+    ctx.state["approval"] = {"status": "APPROVED", "approved_at": payload["approved_at"], "by": ENGINE_APPROVER,
+                             "note": payload["note"], "flag_file": str(p.approval),
+                             "owner_policy": "never_wait_quality"}
+    ctx.say(f"S8_AUTO_APPROVED episode={ctx.episode} by={ENGINE_APPROVER} "
+            f"final_fix={payload['final_fix_round'].get('status')} "
+            f"unresolved={len(payload['unresolved_findings'])} release_scope={payload['release_scope']}")
+    return {"status": "APPROVED", "flag_file": str(p.approval), "approved_by": ENGINE_APPROVER,
+            "release_scope": payload["release_scope"], "unresolved_findings": len(payload["unresolved_findings"])}
+
+
 def stage_s8(ctx: Ctx) -> StageResult:
+    import final_fix_round as _ffr
     p = ctx.p
     p.deliver.mkdir(parents=True, exist_ok=True)
     knowledge = knowledge_sync_summary(ctx)
@@ -11453,11 +12000,21 @@ def stage_s8(ctx: Ctx) -> StageResult:
     _record_line_upgrade(ctx, "line_upgrade_close", "close")  # advisory: was it read?
     write_checkpoint(ctx)
     approved = p.approval.is_file()
+    auto: dict[str, Any] | None = None
+    wait_for_owner = owner_review_required(ctx)
+    if not approved and not wait_for_owner:
+        auto = s8_auto_approve(ctx)
+        approved = auto.get("status") == "APPROVED"
+        if approved:
+            write_checkpoint(ctx)  # the checkpoint names the engine approval
     res = StageResult(PASS if approved else "AWAITING_APPROVAL")
     res.details = {
         "checkpoint": str(p.checkpoint),
         "approval_flag": str(p.approval),
         "approved": approved,
+        "approval_mode": ("OWNER_REVIEW_REQUIRED" if wait_for_owner else "ENGINE_DEFAULT_TERMS"),
+        "auto_approval": auto,
+        "final_fix_round": _ffr.summary(read_json(final_fix_record_path(ctx), {}) or {}),
         "knowledge_sync": knowledge,
         "unblock_with": (f"{VENV} {RT_TOOLS / 'nalu_pipeline.py'} approve --episode {ctx.episode} "
                          f"--by {shlex.quote(str(ctx.authority.get('line_owner_id') or '<LINE_OWNER_ID>'))}"),
@@ -11465,7 +12022,8 @@ def stage_s8(ctx: Ctx) -> StageResult:
     }
     res.receipts = [str(p.checkpoint)]
     if not approved:
-        res.blockers = ["AWAITING_LINE_OWNER_APPROVAL"]
+        res.blockers = (["AWAITING_LINE_OWNER_APPROVAL"] if wait_for_owner
+                        else [f"S8_AUTO_APPROVE_NOT_ELIGIBLE:{(auto or {}).get('reason')}"])
     return res
 
 
@@ -11655,6 +12213,19 @@ def write_checkpoint(ctx: Ctx) -> Path:
     add("")
     for line in qa_defect_checkpoint_lines(ctx):  # final-review must-check defects + S3 look-alike cast (2026-11-19)
         add(line)
+    try:  # the final fix round (owner 2026-11-20) and how S8 was approved
+        import final_fix_round as _ffr
+        for line in _ffr.checkpoint_lines(read_json(final_fix_record_path(ctx), {}) or {}):
+            add(line)
+    except Exception as exc:  # noqa: BLE001 -- the checkpoint must always be written
+        add(f"* final fix round summary unavailable: {type(exc).__name__}")
+        add("")
+    approval_row = state.get("approval") or {}
+    if approval_row.get("by") == ENGINE_APPROVER:
+        add(f"* S8 approved by the engine under the default terms at {approval_row.get('approved_at')} "
+            "(owner policy never_wait_quality); unresolved findings are listed in the approval record "
+            f"`{approval_row.get('flag_file')}`")
+        add("")
     add("## Rights basis on record")
     add("")
     rights = state.get("rights_basis") or {}
@@ -11704,15 +12275,23 @@ def write_checkpoint(ctx: Ctx) -> Path:
     add("")
     add("## Approval")
     add("")
-    add("This episode does NOT advance and the next episode does NOT start until:")
-    add("")
-    add("```")
-    add(f"{VENV} {RT_TOOLS / 'nalu_pipeline.py'} approve --episode {ctx.episode} "
-        f"--by {shlex.quote(str(ctx.authority.get('line_owner_id') or '<LINE_OWNER_ID>'))}")
-    add("```")
-    add("")
-    add(f"That writes `{p.approval}`, which `loop` polls.  No platform upload is ever")
-    add("performed by this pipeline.")
+    if owner_review_required(ctx):
+        add("`project.owner_review_required: true`: this episode does NOT advance and the next episode does NOT "
+            "start until the line owner runs:")
+        add("")
+        add("```")
+        add(f"{VENV} {RT_TOOLS / 'nalu_pipeline.py'} approve --episode {ctx.episode} "
+            f"--by {shlex.quote(str(ctx.authority.get('line_owner_id') or '<LINE_OWNER_ID>'))}")
+        add("```")
+        add("")
+        add(f"That writes `{p.approval}`, which `loop` polls.  No platform upload is ever")
+        add("performed by this pipeline.")
+    else:
+        add("Quality never waits for the line owner (owner policy 2026-11-20, `never_wait_quality`): once S7 has")
+        add(f"released the cut, S8 writes `{p.approval}` itself as `{ENGINE_APPROVER}` with every unresolved")
+        add("finding, and the line continues exactly as on FINAL_CUT_READY.  Nobody needs to run `approve` and no")
+        add("agent should ask the owner about it.  No platform upload is ever performed by this pipeline; the paid")
+        add("order's publication scope is unchanged.")
     add("")
     p.checkpoint.parent.mkdir(parents=True, exist_ok=True)
     p.checkpoint.write_text("\n".join(lines), encoding="utf-8")
@@ -12039,7 +12618,11 @@ def run_episode(ctx: Ctx) -> int:
         ctx.save_state()
 
     exit_code = 0
-    for sid in selected:
+    looped_back = False
+    position = 0
+    while position < len(selected):
+        sid = selected[position]
+        position += 1
         row = ctx.stage_state(sid)
         fingerprint = FINGERPRINTS.get(sid, lambda _c: None)(ctx)
         if (not ctx.force and row.get("status") in TERMINAL_OK
@@ -12099,6 +12682,14 @@ def run_episode(ctx: Ctx) -> int:
                 + (f"   blockers: {', '.join(result.blockers)}" if result.blockers else "")
                 + f"   [{ledger_event['wall_seconds']:g}s, cum {ledger_event['episode_cumulative_seconds']:g}s]")
 
+        # final fix round (owner 2026-11-20): units parked for a paid redo -> back to S6 once, when this paid run
+        # includes S6 (paid_stage.sh <EP> S6 S8); otherwise S7 names that command and stops.
+        if (sid == "S7" and not looped_back and "S6" in selected and getattr(ctx, "paid_enabled", False)
+                and ((result.details or {}).get("final_fix_round") or {}).get("action") == "S6_REDO_PENDING"):
+            looped_back = True
+            position = selected.index("S6")
+            ctx.say("-- final fix round: back to S6 for the parked unit redo(s), then S7 again")
+            continue
         if result.status == HARD_STOP:
             ctx.say("!! budget HARD_STOP — stopping the run.  Nothing was submitted.")
             exit_code = 3
@@ -12376,10 +12967,10 @@ def cmd_loop(args: argparse.Namespace) -> int:
         ctx = Ctx(episode, sub)
         code = run_episode(ctx)
 
-        # THE CHECKPOINT IS NOT SKIPPABLE.  Even a failed episode gets one, and
-        # the loop still blocks: a human has to look before the next episode
-        # starts.  There is no --yes, no --auto-approve, no timeout that
-        # self-approves.
+        # THE CHECKPOINT IS NOT SKIPPABLE.  Even a failed episode gets one.  A released cut was approved by
+        # S8 itself under the default terms (owner policy 2026-11-20, never_wait_quality), so the wait below
+        # ends at once; a failed episode, or a line with project.owner_review_required: true, still blocks
+        # until the approval flag exists.  There is no --yes and no timeout that self-approves.
         checkpoint = write_checkpoint(ctx)
         print(f"\n>>> CHECKPOINT {episode}: {checkpoint}", flush=True)
         print(f">>> run exit code {code}; overall {ctx.state.get('overall_status')}", flush=True)
