@@ -458,7 +458,9 @@ class AnimeIdentityGates(unittest.TestCase):
         import nalu_pipeline as npl
         from types import SimpleNamespace
         from unittest import mock
-        ctx = SimpleNamespace(render_style="anime", episode="E02")
+        empty = Path(tempfile.mkdtemp())  # no clip carries a letterbox FAIL (the only anime-eligible redo, 2026-11-19)
+        ctx = SimpleNamespace(render_style="anime", episode="E02",
+                              p=SimpleNamespace(preprod=empty, q2_dir=empty, video_media=empty))
         self.assertEqual(npl.ctx_render_style(ctx), "anime")
         self.assertEqual(npl.ctx_render_style(SimpleNamespace()), "live_action")
         with mock.patch.object(npl, "_camera_grammar_on", return_value=True):

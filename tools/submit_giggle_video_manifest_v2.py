@@ -1551,6 +1551,14 @@ def hopsapi_request_window_failures(task: dict[str, Any]) -> list[str]:
     return failures
 
 
+def _portrait_start_frame(data: bytes) -> tuple[bytes, dict[str, Any]]:
+    try:
+        from tools.hopsapi_image_client import portrait_9_16_bytes
+    except ModuleNotFoundError:
+        from hopsapi_image_client import portrait_9_16_bytes
+    return portrait_9_16_bytes(data)
+
+
 def _hopsapi_reference_uploads(task: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     """Upload every reference image and audio for one task (free, before the intent record).
 
@@ -1565,8 +1573,17 @@ def _hopsapi_reference_uploads(task: dict[str, Any]) -> tuple[list[dict[str, Any
     key = re.sub(r"[^A-Za-z0-9._-]+", "-", str(task["task_key"]))
     images: list[dict[str, Any]] = []
     notes: list[dict[str, Any]] = []
+    semantic = (task.get("machine_contract") or {}).get("start_frame_semantic_contract") \
+        or task.get("start_frame_semantic_contract") or {}
     for index, value in enumerate(task.get("reference_images") or [], 1):
         data, note = _compressed_reference_bytes(resolve(value))
+        if index == 1 and isinstance(semantic, dict) and semantic.get("reference_path") == value:
+            # @Image1 is the bound START FRAME: H3 renders 9:16, and a 2:3 / wider opening frame made it re-compose
+            # (owner 2026-11-19: 16:9 letterboxed shots).  Normalised at send time like the landing crop of
+            # hopsapi_image_client.normalise_portrait_9_16; recorded in the note, so sent_reference_sha256 still
+            # means "the bytes H3 received".
+            data, aspect = _portrait_start_frame(data)
+            note = {**note, "start_frame_aspect": aspect}
         mime = hopsapi.sniff_mime(data, str(value))
         notes.append(note)
         images.append(hopsapi.upload_bytes(data, file_name=f"{key}-image{index}.{hopsapi.EXT_BY_MIME[mime]}",

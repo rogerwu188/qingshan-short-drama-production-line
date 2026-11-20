@@ -5,7 +5,8 @@ Lab Holmes E04: the dispatch asked Codex for the §5 redo of units whose objecti
 Codex skipped it.  The pipeline now decides it itself, right after ``video_q2_builder prepare`` measured the
 clips and before the video_q2 review is requested:
 
-* candidates: units whose ``prepare.json`` records ``face_count`` (duplicates / extra people), ``wrong_face``
+* candidates: units whose ``prepare.json`` records ``letterbox`` (the decoded clip is not ~9:16 or carries
+  letterbox / pillarbox bands -- a technical defect, every render style, line owner 2026-11-19), ``face_count`` (duplicates / extra people), ``wrong_face``
   (a declared character rendered with another character's face, line owner 2026-11-19),
   ``speaker_framing`` or ``push_in`` (locked camera, face width +50 %; line owner 2026-10-29, lab E08) FAIL —
   duplicates first, then speaker framing, then push-in, then the §5 viewer order (earlier units first);
@@ -29,8 +30,12 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-#: duplicates > wrong character face (2026-11-19, video_q2_builder.wrong_face_verdict) > speaker framing > push-in
-FAILURE_PRIORITY = ("face_count", "wrong_face", "speaker_framing", "push_in")
+#: letterbox / non-9:16 clip (technical, 2026-11-19, av_evidence_pack.clip_letterbox) > duplicates > wrong character
+#: face (2026-11-19, video_q2_builder.wrong_face_verdict) > speaker framing > push-in
+FAILURE_PRIORITY = ("letterbox", "face_count", "wrong_face", "speaker_framing", "push_in")
+#: technical failures measured on the decoded clip itself: redo-eligible in every render style and also when
+#: CAMERA_GRAMMAR_V1 is off (the InsightFace failures are not)
+TECHNICAL_FAILURES = ("letterbox",)
 #: failures whose redo parks the start frame and generates the unit's own keyframe (nalu_pipeline.redo_switch_start_frames);
 #: a wrong face is usually inherited from the start frame, so it gets its own keyframe too
 NEW_START_FRAME_FAILURES = ("speaker_framing", "face_count", "wrong_face")
@@ -53,16 +58,19 @@ def redo_findings(state: dict[str, Any] | None, unit_id: str) -> list[str]:
     return [PROMPT_NOTES[f] for f in row.get("failures") or [] if f in PROMPT_NOTES]
 
 
-def objective_failures(prepare_row: dict[str, Any]) -> list[str]:
-    # render_style=anime: these are InsightFace measurements, NOT_APPLICABLE to anime faces -- never a paid redo
-    if str((prepare_row or {}).get("render_style") or "").lower() == "anime":
-        return []
-    return [key for key in FAILURE_PRIORITY if ((prepare_row or {}).get(key) or {}).get("status") == "FAIL"]
+def objective_failures(prepare_row: dict[str, Any], *, technical_only: bool = False) -> list[str]:
+    # render_style=anime: the InsightFace measurements are NOT_APPLICABLE to anime faces -- never a paid redo; the
+    # technical letterbox check applies to every style
+    if technical_only or str((prepare_row or {}).get("render_style") or "").lower() == "anime":
+        keys: tuple[str, ...] = TECHNICAL_FAILURES
+    else:
+        keys = FAILURE_PRIORITY
+    return [key for key in keys if ((prepare_row or {}).get(key) or {}).get("status") == "FAIL"]
 
 
 def plan(prepare_rows: dict[str, dict[str, Any]], attempted: dict[str, Any], *, headroom: int | None,
          unit_cost: Callable[[str], int], unit_order: list[str] | None = None,
-         owner_accepted: dict[str, Any] | None = None) -> dict[str, Any]:
+         owner_accepted: dict[str, Any] | None = None, technical_only: bool = False) -> dict[str, Any]:
     """Which units the engine redoes now.  Pure: no I/O.
 
     ``prepare_rows`` unit -> prepare.json row; ``attempted`` the wave-state ``q2_auto_redo`` map;
@@ -71,7 +79,7 @@ def plan(prepare_rows: dict[str, dict[str, Any]], attempted: dict[str, Any], *, 
     order = {uid: index for index, uid in enumerate(unit_order or sorted(prepare_rows))}
     candidates = []
     for uid, row in prepare_rows.items():
-        failed = objective_failures(row)
+        failed = objective_failures(row, technical_only=technical_only)
         if failed:
             candidates.append((FAILURE_PRIORITY.index(failed[0]), order.get(uid, len(order)), uid, failed))
     candidates.sort()

@@ -1386,6 +1386,18 @@ def apply_push_in(push_in: dict[str, Any] | None, checks: list[dict[str, Any]], 
     return True
 
 
+def clip_letterbox_check(media: Path) -> dict[str, Any] | None:
+    """av_evidence_pack.clip_letterbox on one unit clip (decoded aspect ~9:16, no dark bands); None when switched
+    off (NALU_LETTERBOX_CHECK=off).  Never raises."""
+    if str(os.environ.get("NALU_LETTERBOX_CHECK") or "").strip().lower() in ("off", "0", "false"):
+        return None
+    try:
+        import av_evidence_pack as _avp  # noqa: PLC0415
+        return _avp.clip_letterbox(media)
+    except Exception as exc:  # noqa: BLE001 -- advisory measurement
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:160]}"}
+
+
 def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
             units: list[str] | None = None) -> dict[str, Any]:
     """Extract frames, run OCR over every one, and measure identity per unit.
@@ -1484,6 +1496,11 @@ def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
             # wrong-face check (2026-11-19): read by q2_auto_redo as a redo-eligible objective failure
             **({"wrong_face": identity["wrong_face"]} if isinstance(identity.get("wrong_face"), dict) else {}),
         }
+        # letterbox / non-9:16 clip (line owner 2026-11-19: two 16:9 letterboxed shots inside a 9:16 episode):
+        # a free decode check on every clip, any render style; FAIL = technical defect, one redo (q2_auto_redo)
+        letterbox = clip_letterbox_check(media)
+        if letterbox:
+            row["letterbox"] = letterbox
         if anime:
             row["render_style"] = _render_style.ANIME
             if face_count_on:

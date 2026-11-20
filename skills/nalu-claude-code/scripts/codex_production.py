@@ -139,7 +139,8 @@ MAX_REVIEWER_ATTEMPTS = 2
 REVIEW_REQUIRED_CODE = 10   # final_audience_review.py status: request prepared, no submitted review yet
 
 
-def reviewer_prompt(episode: str, request: Path, answers: Path, process_id: str, submit_cmd: str) -> str:
+def reviewer_prompt(episode: str, request: Path, answers: Path, process_id: str, submit_cmd: str,
+                    gemini: Path | None = None) -> str:
     return f"""你是 NALU 短剧 {episode} 的**独立终审审核者**（观众视角），不是生产者。你只看成片和审核请求，不看、不信任何生产记录里的结论。
 
 1. 读审核请求：`{request}`。里面的 `reviewer_contract`、`viewing_passes_required`、`shots`、`dimension_questions`、
@@ -166,7 +167,9 @@ def reviewer_prompt(episode: str, request: Path, answers: Path, process_id: str,
    QA-SUBTITLE-WRAP 字幕换行不当（如「！」单独一行）、QA-BGM-DISCONTINUOUS 配乐只响一两个镜头就停或在切点生硬起停。
    `measurements` 里是免费量出来的线索（OCR、尾音距切点、遮挡面积、身份牌相似度、字幕分行、配乐段），逐个用眼睛/听感核实；
    确认的缺陷同时按严重度写进 problems。这一块只记录不拦片。
-4. 按 `answer_contract` 写答案 JSON 到 `{answers}`，其中：
+   请求 `evidence.av_evidence_pack` 是本地免费测的证据包（跨帧 OCR 烧字、每个切点的尾音缺口/能量、配乐段、角色对照表
+   `evidence.cast_lineup_sheet` 与相似度矩阵、字幕折行、逐镜黑边），摘要也在 `measurements.av_evidence_pack`；当线索用。
+{gemini_step(gemini)}4. 按 `answer_contract` 写答案 JSON 到 `{answers}`，其中：
    `reviewer.agent_id` = `storyclaw-final-audience-reviewer`，`reviewer.role` = `independent_final_audience_reviewer`，
    `reviewer.model` = `{REVIEWER_MODEL_ID}`，`reviewer.process_id` = `{process_id}`，`reviewer.reviewed_at` = 当前 UTC ISO 时间；
    `request_sha256` 用 `sha256sum` 算请求文件。
@@ -174,6 +177,49 @@ def reviewer_prompt(episode: str, request: Path, answers: Path, process_id: str,
 6. 只允许写 `{answers}` 和你在 `$TMPDIR` 下的临时目录；不改引擎、剧本、订单、成片或任何其它文件；不读任何密钥文件。
 最后一行输出：`REVIEW_SUBMITTED: {{"exit_code": <submit 退出码>, "verdict": "<PASS|REJECT_RECUT|...>"}}`
 """
+
+
+def gemini_step(gemini: Path | None) -> str:
+    """Reviewer step 3b: verify the video-native pass (gemini_video_review.py) finding by finding."""
+    if gemini is None:
+        return ""
+    return f"""3b. **视频原生初审（Gemini，只是线索，不是结论）**：`{gemini}`（`status` 不是 OK 就跳过这一步）。逐条核对 `findings`（G1…）
+   和 `suspect_checks`（S1…，本地测量的尾音/配乐/黑边可疑点及 Gemini 的判断）：到对应时间点用 ffmpeg 抽帧（必要时
+   0.25 s 一帧）看画面、量音频，自己判断。确认的：写进 problems（带严重度）和 `qa_defect_checklist` 对应 QA-* 条目的
+   DEFECT findings（黑边/横版镜头、造型前后不一致等不属于 QA-* 的只写 problems）。不成立的：说明理由。每一条 G/S 都要在
+   `qa_defect_checklist.gemini_verification` 里给结论：`[{{"id": "G1", "decision": "CONFIRMED|DISMISSED", "reason": "你看到/测到了什么"}}]`。
+   Gemini 漏掉的问题照常自己查；它的判语不能代替你的观看，也不能照抄。
+"""
+
+
+def run_gemini_review(episode: str, request: Path, d: Path, env: dict[str, str]) -> dict[str, Any]:
+    """The video-native pass before Codex starts: once per request (a recorded OK / over-budget / disabled result is
+    reused; an error is retried once on the next attempt).  Never blocks: any failure returns a status."""
+    out = d / "gemini_review.json"
+    request_sha = _file_sha(request)
+    prior = read_json(out)
+    if prior.get("request_sha256") == request_sha and (prior.get("status") in ("OK", "SKIPPED")
+                                                       or int(prior.get("_attempts") or 1) >= 2):
+        return {"status": prior.get("status"), "path": str(out), "reused": True}
+    engine, _ = roots()
+    venv = engine / ".qingshan-venv" / "bin" / "python"
+    tool = engine / "lines" / "nalu" / "runtime" / "tools" / "gemini_video_review.py"
+    child = dict(env)
+    child.pop(KEY_ENV, None)   # Codex's provider key name; the tool resolves the line's HopsAPI key itself
+    p = provider() or {}
+    if not child.get("HOPSAPI_API_KEY") and "hopsapi" in str(p.get("base_url") or "").lower() and p.get("api_key"):
+        child["HOPSAPI_API_KEY"] = p["api_key"]
+    try:
+        subprocess.run([str(venv if venv.is_file() else sys.executable), str(tool), "--request", str(request),
+                        "--out", str(out)], cwd=engine, env=child, capture_output=True, timeout=900, check=False)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"status": "ERROR", "reason": f"{type(exc).__name__}"}
+    record = read_json(out)
+    if record.get("request_sha256") == request_sha and record.get("status") == "ERROR":
+        attempts = int(prior.get("_attempts") or 0) + 1 if prior.get("request_sha256") == request_sha else 1
+        write_json(out, {**record, "_attempts": attempts})
+    return {"status": record.get("status") or "ERROR", "reason": record.get("reason"), "path": str(out),
+            "cost_credits": record.get("cost_credits")}
 
 
 def _review_paths(episode: str) -> tuple[Path, Path]:
@@ -200,7 +246,7 @@ def review_status_code(episode: str) -> int:
 
 #: bump when reviewer_prompt changes in a way that can turn an EXHAUSTED review into a valid one; an updated
 #: engine then gets a fresh set of reviewer attempts for the same request (…1324 E04: the sound pass rule)
-REVIEWER_PROMPT_VERSION = "2"
+REVIEWER_PROMPT_VERSION = "3"   # 3: video-native Gemini pass + local evidence pack (2026-11-19)
 
 
 def launch_reviewer(episode: str) -> dict[str, Any]:
@@ -232,7 +278,14 @@ def launch_reviewer(episode: str) -> dict[str, Any]:
     submit_cmd = (f"{venv} {engine}/lines/nalu/runtime/tools/final_audience_review.py submit --episode {episode} "
                   f"--request {request} --answers {answers}")
     pfile, log, last = d / f"review_{ts}.prompt.md", d / f"review_{ts}.jsonl", d / f"review_{ts}.last.txt"
-    pfile.write_text(reviewer_prompt(episode, request, answers, process_id, submit_cmd), encoding="utf-8")
+    # video-native pass first (line owner 2026-11-19): advisory, never blocks the Codex reviewer
+    gemini = run_gemini_review(episode, request, d, env)
+    state["gemini_review"] = gemini
+    if gemini.get("status") == "OK":
+        note(f"{episode} 独立终审：Gemini 视频初审完成（{gemini.get('cost_credits')} credits），交 Codex 逐条核实")
+    pfile.write_text(reviewer_prompt(episode, request, answers, process_id, submit_cmd,
+                                     gemini=Path(gemini["path"]) if gemini.get("status") == "OK" else None),
+                     encoding="utf-8")
     argv = [exe, "exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check",
             "-m", REVIEWER_MODEL, "-o", str(last), "-"]
     with open(log, "w", encoding="utf-8") as out, open(pfile, encoding="utf-8") as stdin:

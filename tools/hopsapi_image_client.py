@@ -550,6 +550,48 @@ def normalise_portrait_9_16(path: Path | str) -> dict[str, Any]:
         return {"status": "SKIPPED_ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}"}
 
 
+def portrait_9_16_bytes(data: bytes) -> tuple[bytes, dict[str, Any]]:
+    """Send-time twin of :func:`normalise_portrait_9_16` for an H3 START FRAME (@Image1) held in memory (owner
+    2026-11-19: two 16:9 letterboxed shots in a 9:16 episode; start frames harvested before the landing crop, through
+    the Giggle route or from an approved original photo still reach H3 at 2:3 or wider).  Same rule: a near-portrait
+    frame is centre-cropped to 9:16 (sides only; a taller frame loses bottom rows), a frame needing more than
+    MAX_SIDE_CROP_FRACTION is left as is and reported.  Returns (bytes to send, note).  Never raises."""
+    try:
+        import io  # noqa: PLC0415
+        from PIL import Image  # noqa: PLC0415
+    except ImportError:
+        return data, {"status": "SKIPPED_PILLOW_UNAVAILABLE"}
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            image.load()
+            width, height = image.size
+            note: dict[str, Any] = {"original_size": [width, height], "target_aspect": "9:16"}
+            ratio = width / float(height)
+            if abs(ratio - PORTRAIT_9_16) <= ASPECT_TOLERANCE:
+                return data, {**note, "status": "UNCHANGED"}
+            if ratio > PORTRAIT_9_16:
+                target_w = int(round(height * PORTRAIT_9_16))
+                target_w -= target_w % 2
+                removed = (width - target_w) / float(width)
+                if removed > MAX_SIDE_CROP_FRACTION:
+                    return data, {**note, "status": "NOT_PORTRAIT_SENT_AS_IS",
+                                  "side_crop_fraction_needed": round(removed, 4)}
+                left = (width - target_w) // 2
+                box, method = (left, 0, left + target_w, height), "CENTRE_CROP_SIDES"
+            else:
+                target_h = int(round(width / PORTRAIT_9_16))
+                target_h -= target_h % 2
+                box, method = (0, 0, width, target_h), "TOP_ANCHORED_CROP_BOTTOM"
+            out = io.BytesIO()
+            cropped = image.crop(box)
+            cropped = cropped.convert("RGB") if cropped.mode not in ("RGB", "L") else cropped
+            cropped.save(out, format="JPEG", quality=92)
+        return out.getvalue(), {**note, "status": "CROPPED", "method": method, "crop_box": list(box),
+                                "size": [box[2] - box[0], box[3] - box[1]], "format": "JPEG"}
+    except Exception as exc:  # noqa: BLE001 -- never lose the reference
+        return data, {"status": "SKIPPED_ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}"}
+
+
 def terminal_failed_binding(transaction: dict[str, Any]) -> bool:
     """A bound HopsAPI image task that settled as failed/cancelled (not charged, no image)."""
     return (str(transaction.get("provider") or "").lower() == PROVIDER_HOPSAPI

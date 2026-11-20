@@ -7919,17 +7919,21 @@ def s6_q2_auto_redo(ctx: Ctx) -> dict[str, Any]:
     """CAMERA_GRAMMAR_V1: the engine's own one controlled redo after an objective Q2 FAIL (q2_auto_redo.py;
     CLAUDE_CODE_PRODUCTION §5).  Runs after ``prepare`` and before the video_q2 review: units it selects get
     their clip parked and the S6 wave loop redoes them (own keyframe for face count / speaker framing, the same
-    start frame + the measured problem in the prompt for a push-in; single-unit wave).  Never blocks."""
-    if not _camera_grammar_on(ctx):
-        return {"status": "NOT_APPLICABLE"}
-    if ctx_render_style(ctx) == "anime":  # InsightFace failures do not exist for anime: no engine redo (render_style.py)
-        return {"status": "NOT_APPLICABLE", "reason": "RENDER_STYLE_ANIME"}
+    start frame + the measured problem in the prompt for a push-in; single-unit wave).  A letterboxed / non-9:16
+    clip (av_evidence_pack.clip_letterbox, 2026-11-19) is a technical failure, redo-eligible once in every render
+    style and without CAMERA_GRAMMAR_V1 (same start frame).  Never blocks."""
     import q2_auto_redo as _redo
+    # InsightFace failures need CAMERA_GRAMMAR_V1 and live action; the technical letterbox check (2026-11-19) does not
+    technical_only = not _camera_grammar_on(ctx) or ctx_render_style(ctx) == "anime"
     grouping = read_json(ctx.p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json", {}) or {}
     order = [str(u.get("unit_id") or "") for u in grouping.get("units") or [] if u.get("unit_id")]
     rows = {uid: read_json(ctx.p.q2_dir / uid / "prepare.json", {}) or {} for uid in order
             if (ctx.p.video_media / f"{uid}.mp4").is_file()}
-    if not any(_redo.objective_failures(row) for row in rows.values()):
+    if not any(_redo.objective_failures(row, technical_only=technical_only) for row in rows.values()):
+        if not _camera_grammar_on(ctx):
+            return {"status": "NOT_APPLICABLE"}
+        if ctx_render_style(ctx) == "anime":  # no InsightFace failure for anime (render_style.py)
+            return {"status": "NOT_APPLICABLE", "reason": "RENDER_STYLE_ANIME"}
         return {"status": "NONE"}
     state_path = _wave_state_path(ctx)
     state = read_json(state_path, {}) or {"schema": "nalu.s6_wave_state.v1", "waves": []}
@@ -7948,8 +7952,8 @@ def s6_q2_auto_redo(ctx: Ctx) -> dict[str, Any]:
     def unit_cost(uid: str) -> int:
         # video at the planning price (HopsAPI per-second estimate on the router) + an own keyframe only when the
         # failure needs a new start frame (a push-in redo keeps its start frame; owner 2026-10-29)
-        keyframe = (image_batch_credits(ctx, 1) if _redo.needs_own_keyframe(_redo.objective_failures(rows.get(uid) or {}))
-                    else 0)
+        keyframe = (image_batch_credits(ctx, 1) if _redo.needs_own_keyframe(
+            _redo.objective_failures(rows.get(uid) or {}, technical_only=technical_only)) else 0)
         return video_task_credits(model, seconds.get(uid, 6.0), 1, resolution) + keyframe
 
     headroom = None
@@ -7957,7 +7961,8 @@ def s6_q2_auto_redo(ctx: Ctx) -> dict[str, Any]:
         verdict = ctx.budget_check(0, label="s6_q2_auto_redo_headroom").get("budget_verdict") or {}
         headroom = verdict.get("headroom_credits")
     decision = _redo.plan(rows, attempted, headroom=None if headroom is None else int(headroom),
-                          unit_cost=unit_cost, unit_order=order, owner_accepted=_owner_accepted_clips(ctx, rows))
+                          unit_cost=unit_cost, unit_order=order, owner_accepted=_owner_accepted_clips(ctx, rows),
+                          technical_only=technical_only)
     if ctx.dry:
         decision["status"] = DRY
         decision["note"] = "dry run: would redo the failing units when the paid run has headroom"
