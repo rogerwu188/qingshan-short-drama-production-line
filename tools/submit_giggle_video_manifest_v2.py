@@ -75,7 +75,7 @@ try:
     )
     from action_video_prompt_compiler import validate_action_contract
     from shot_media_admission_gate import compute_input_template_id, precheck_submission_inputs
-    from video_live_binding import (attributed_task_ids, live_bindings, release_zero_cost_terminal,
+    from video_live_binding import (attributed_task_ids, live_bindings, release_zero_cost_terminal, retire_stale_bindings,
                                     zero_cost_retryable)
     from h3_provider_english_contract import is_director_v2_text
     import hopsapi_video_client as hopsapi
@@ -110,7 +110,7 @@ except ModuleNotFoundError:
     )
     from tools.action_video_prompt_compiler import validate_action_contract
     from tools.shot_media_admission_gate import compute_input_template_id, precheck_submission_inputs
-    from tools.video_live_binding import (attributed_task_ids, live_bindings, release_zero_cost_terminal,
+    from tools.video_live_binding import (attributed_task_ids, live_bindings, release_zero_cost_terminal, retire_stale_bindings,
                                           zero_cost_retryable)
     from tools.h3_provider_english_contract import is_director_v2_text
     from tools import hopsapi_video_client as hopsapi
@@ -1336,6 +1336,16 @@ def live_bound_elsewhere(task: dict[str, Any], transaction_dir: Path) -> dict[st
     it.  Only an explicit ``supersedes_submission_fingerprints`` entry re-opens a POST."""
     declared = {str(v) for v in (task.get("supersedes_submission_fingerprints") or [])}
     episode = str(task.get("episode") or Path(transaction_dir).name)
+    # Stale-binding guard (JA-01 E01 2026-11-19): a COMPLETED take of a different request (prompt / source
+    # reference shas) is archived to _stale_<stamp>/ and this task goes on to a fresh attempt; a differing
+    # take still rendering stays live below (never a second charge).  NALU_S6_STALE_BINDING_GUARD=0 opts out.
+    try:
+        retire_stale_bindings(transaction_dir, task, root=ROOT, episode=episode,
+                              exclude_fingerprints={task_fingerprint(task), *declared},
+                              log=lambda line: print(line, file=sys.stderr, flush=True))
+    except Exception as exc:  # noqa: BLE001 - the guard never blocks: fall back to reusing the live take
+        print(f"S6_STALE_BINDING_GUARD_ERROR unit={task.get('task_key')}: {type(exc).__name__}: {exc}",
+              file=sys.stderr, flush=True)
     live = live_bindings(transaction_dir, str(task["task_key"]), root=ROOT, episode=episode,
                          exclude_fingerprints={task_fingerprint(task), *declared})
     if not live:

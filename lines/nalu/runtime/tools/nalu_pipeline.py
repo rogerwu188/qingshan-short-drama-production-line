@@ -7463,15 +7463,18 @@ def s6_unbound_task_keys(ctx: Ctx) -> list[str]:
     return [str(t.get("task_key")) for t in tasks if str(t.get("task_key")) not in bound_keys]
 
 
-def s6_live_bindings(ctx: Ctx, task_key: str, *, exclude_fingerprints=()) -> list[dict[str, Any]]:
+def s6_live_bindings(ctx: Ctx, task_key: str, *, exclude_fingerprints=(),
+                     current_task: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Live provider bindings of one task key, whatever its recompiled fingerprint
     (tools/video_live_binding.py): bound, not terminally failed, and newer than the unit's last
-    park.  Such a task is polled and harvested, never POSTed again."""
+    park.  Such a task is polled and harvested, never POSTed again.  With ``current_task`` a
+    COMPLETED take of a different request (prompt / source reference shas) is not live: the
+    stale-binding guard (JA-01 E01 2026-11-19, s6_retire_stale_bindings) archives it instead."""
     if str(ENGINE) not in sys.path:
         sys.path.insert(0, str(ENGINE))
     from tools.video_live_binding import live_bindings  # engine, read-only
     return live_bindings(video_store_dir(ctx.episode), str(task_key), root=ENGINE, episode=ctx.episode,
-                         exclude_fingerprints=exclude_fingerprints,
+                         exclude_fingerprints=exclude_fingerprints, current_task=current_task,
                          video_dirs=[ctx.p.video_media] + ([ctx.p.work / AB_VIDEO_DIRNAME]
                                                            if getattr(ctx.p, "work", None) else []))
 
@@ -7498,9 +7501,59 @@ def s6_bound_task_keys(ctx: Ctx, tasks: list[dict[str, Any]], task_fingerprint) 
             keys.add(key)
             continue
         declared = [str(v) for v in (t.get("supersedes_submission_fingerprints") or [])]
-        if s6_live_bindings(ctx, key, exclude_fingerprints=declared):
+        if s6_live_bindings(ctx, key, exclude_fingerprints=declared, current_task=t):
             keys.add(key)
     return keys
+
+
+def s6_retire_stale_bindings(ctx: Ctx, tasks: list[dict[str, Any]]) -> dict[str, Any]:
+    """Stale-binding guard (fleet device JA-01, E01, 2026-11-19), before any S6 planning / authorisation / POST.
+
+    The line owner ordered E01 redone in anime style; the device archived workflow/nalu/E01/ but not the durable
+    video store, and 28 units reused their completed OLD live-action takes because "a bound transaction is never
+    resubmitted" never compared the request.  For every task of the current compile WITHOUT a clip on disk, a
+    COMPLETED live binding whose recorded prompt / source reference shas differ from the task is moved (never
+    deleted) to ``giggle_video_submit_transactions/<EP>/_stale_<stamp>/``, together with an alternate take and the
+    unit's tail frame; the unit then goes through every normal gate as a fresh attempt.  A differing take still
+    rendering is only warned about and kept (polled, never re-POSTed).  An identical request (crash re-entry,
+    lab E05 fingerprint drift) is reused exactly as before.  Dry runs archive nothing (the planner already
+    leaves such a take out, so the plan shows the POST).  NALU_S6_STALE_BINDING_GUARD=0 opts out."""
+    if str(ENGINE) not in sys.path:
+        sys.path.insert(0, str(ENGINE))
+    from tools.video_live_binding import retire_stale_bindings, stale_binding_guard_enabled  # engine
+    out: dict[str, Any] = {"archived": [], "in_flight": []}
+    if getattr(ctx, "dry", False) or not stale_binding_guard_enabled():
+        out["status"] = "SKIPPED_DRY" if getattr(ctx, "dry", False) else "DISABLED"
+        return out
+    video_dirs = [ctx.p.video_media] + ([ctx.p.work / AB_VIDEO_DIRNAME] if getattr(ctx.p, "work", None) else [])
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    for t in tasks:
+        key = str(t.get("task_key") or "")
+        if not key or (ctx.p.video_media / f"{key}.mp4").is_file():
+            continue
+        declared = [str(v) for v in (t.get("supersedes_submission_fingerprints") or [])]
+        try:
+            got = retire_stale_bindings(video_store_dir(ctx.episode), t, root=ENGINE, episode=ctx.episode,
+                                        exclude_fingerprints=declared, video_dirs=video_dirs, stamp=stamp,
+                                        log=ctx.say)
+        except Exception as exc:  # noqa: BLE001 - the guard never blocks: the live take is reused as before
+            ctx.say(f"S6_STALE_BINDING_GUARD_ERROR unit={key}: {type(exc).__name__}: {str(exc)[:200]}")
+            continue
+        if got["archived"]:
+            tail = ctx.p.preprod / "real_final_frames" / f"{key}.png"
+            moved = []
+            for path in (tail, tail.with_suffix(".source.sha256")):
+                if path.is_file():
+                    park = tail.parent / f"_superseded_{ctx.run_id}_stale_binding"
+                    park.mkdir(parents=True, exist_ok=True)
+                    os.replace(path, park / path.name)
+                    moved.append(str(path))
+            for record in got["archived"]:
+                record["tail_moved"] = moved
+        out["archived"].extend(got["archived"])
+        out["in_flight"].extend(got["in_flight"])
+    out["status"] = "ARCHIVED" if out["archived"] else "NONE"
+    return out
 
 
 def s6_redo_identical_to_parked_take(ctx: Ctx, tasks: list[dict[str, Any]], task_fingerprint) -> list[str]:
@@ -7539,7 +7592,7 @@ def s6_redo_identical_to_parked_take(ctx: Ctx, tasks: list[dict[str, Any]], task
         if not stamps or any(stamp is None or stamp > parked for stamp in stamps):
             continue
         declared = [str(v) for v in (t.get("supersedes_submission_fingerprints") or [])]
-        if s6_live_bindings(ctx, key, exclude_fingerprints=declared):
+        if s6_live_bindings(ctx, key, exclude_fingerprints=declared, current_task=t):
             continue
         stale.append(key)
     return stale
@@ -7560,7 +7613,11 @@ def _s6_live_bound_wave(ctx: Ctx, units: list[str]) -> dict[str, Any] | None:
     manifest = (read_json(manifest_path, {}) or {}) if manifest_path else {}
     declared = {str(t.get("task_key")): [str(v) for v in (t.get("supersedes_submission_fingerprints") or [])]
                 for t in manifest.get("tasks") or []}
-    live = {uid: s6_live_bindings(ctx, uid, exclude_fingerprints=declared.get(uid) or ()) for uid in missing}
+    # the last compile of the unit is its current request: a completed take of a DIFFERENT request is not live
+    # (stale-binding guard), so such a wave is compiled and goes through s6_retire_stale_bindings + the gates
+    current = {str(t.get("task_key")): t for t in manifest.get("tasks") or []}
+    live = {uid: s6_live_bindings(ctx, uid, exclude_fingerprints=declared.get(uid) or (),
+                                  current_task=current.get(uid)) for uid in missing}
     if not all(live.values()):
         return None
     return {"missing": missing, "live": live}
@@ -8217,6 +8274,12 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
             res.details["voice_reference_duration_failures"] = voice_bad
             return res
         concurrency = min(ctx.max_parallel, 6)
+        # Stale-binding guard (JA-01 E01 2026-11-19): before anything reads the durable store as "already
+        # bound", a completed take of a request that is no longer the unit's is archived, so the unit is
+        # planned, budgeted, authorised and reviewed as a fresh attempt.
+        stale = s6_retire_stale_bindings(ctx, (read_json(p.video_transaction, {}) or {}).get("tasks") or [])
+        if stale.get("archived") or stale.get("in_flight"):
+            res.details["stale_bindings"] = stale
         planned = s6_planned_credits_for_unbound(ctx)
         # D-46: only tasks WITHOUT a clip on disk may be authorised for a POST; a unit whose mp4
         # exists is complete whatever its recompiled fingerprint says (see PIPELINE_RUNBOOK D-46).
