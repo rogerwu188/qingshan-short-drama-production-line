@@ -81,7 +81,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -390,9 +390,14 @@ def measure_unit_identity(episode: str, unit_id: str, frames: list[dict[str, Any
         result["failures"].append("NO_CANONICAL_EMBEDDING_FOR_ANY_DECLARED_CHARACTER")
         return result
 
+    # Wrong-face check (line owner 2026-11-19): the faces are also scored against every OTHER locked character of
+    # the series, so a declared character rendered with another character's face is caught (wrong_face_verdict).
+    other_canonical = _other_character_embeddings(backend, characters, set(canonical))
+
     import cv2  # provided by the insightface install
 
     crop_dir = out_dir / "face_crops"
+    wrong_face_samples: dict[str, list[dict[str, Any]]] = {}
     crop_dir.mkdir(parents=True, exist_ok=True)
     crops: dict[str, list[tuple[str, Path, float]]] = {}
     for row in frames:
@@ -417,8 +422,10 @@ def measure_unit_identity(episode: str, unit_id: str, frames: list[dict[str, Any
         if not faces:
             continue
         pairs = []
+        face_embeddings: dict[int, list[float]] = {}
         for f_index, face in enumerate(faces):
             embedding = [float(value) for value in face.normed_embedding]
+            face_embeddings[f_index] = embedding
             for char_id in canonical:
                 score = max(float(gate._cosine(embedding, ref))  # noqa: SLF001
                             for ref in canonical[char_id])
@@ -431,6 +438,13 @@ def measure_unit_identity(episode: str, unit_id: str, frames: list[dict[str, Any
                 continue
             used_faces.add(f_index)
             used_chars.add(char_id)
+            try:
+                wrong_face_samples.setdefault(char_id, []).append(wrong_face_sample(
+                    frame_path.name, char_id, float(score), face_embeddings[f_index],
+                    {**{c: e for c, e in canonical.items() if c != char_id}, **other_canonical},
+                    gate._cosine))  # noqa: SLF001
+            except Exception:  # noqa: BLE001 -- advisory measurement only
+                pass
             # the engine re-runs its own detector on the crop; a tight bbox crop returned
             # FACE_COUNT_ZERO on every unit (2026-09-13) -> 70 % margin each side, clamped
             bx1, by1, bx2, by2 = face.bbox.tolist()
@@ -573,6 +587,9 @@ def measure_unit_identity(episode: str, unit_id: str, frames: list[dict[str, Any
             "samples": [{"frame": frame, "crop": str(path), "cosine": round(score, 6)}
                         for frame, path, score in rows],
         })
+    result["wrong_face"] = wrong_face_verdict(
+        wrong_face_samples, pass_threshold=threshold, samples_min=samples_min,
+        declared=set(declared_ids), compared_with=sorted(set(canonical) | set(other_canonical)))
     result.update({
         "manifest": str(manifest_path),
         "engine_report": str(report_path),
@@ -593,6 +610,128 @@ def measure_unit_identity(episode: str, unit_id: str, frames: list[dict[str, Any
     })
     return result
 
+
+
+# --------------------------------------------------------------------------- wrong face (2026-11-19)
+WRONG_FACE_METHOD = "INSIGHTFACE_CLOSER_TO_OTHER_CHARACTER_V1"
+#: a face is "the other character's" when it scores this much higher against the other character's plates than
+#: against the intended one's (median over the unit's samples)
+WRONG_FACE_MARGIN = 0.05
+_OTHER_CANONICAL_CACHE: dict[tuple[str, tuple[str, ...]], list[list[float]]] = {}
+
+
+def _other_character_embeddings(backend: Any, characters: dict[str, Any], exclude: set[str]) -> dict[str, list[list[float]]]:
+    """Canonical embeddings of every registry character not declared in this unit (cached per process)."""
+    out: dict[str, list[list[float]]] = {}
+    try:
+        from tools.original_identity_authority import measurement_paths
+    except Exception:  # noqa: BLE001
+        return out
+    for char_id, row in sorted((characters or {}).items()):
+        if char_id in exclude or not isinstance(row, dict):
+            continue
+        try:
+            paths = tuple(value for value in measurement_paths(row) if Path(value).is_file())
+        except Exception:  # noqa: BLE001
+            continue
+        if not paths:
+            continue
+        key = (char_id, paths)
+        if key not in _OTHER_CANONICAL_CACHE:
+            embeddings: list[list[float]] = []
+            for value in paths:
+                try:
+                    with _INSIGHT_LOCK:
+                        embeddings.extend(_canonical_embeddings(backend, value))
+                except Exception:  # noqa: BLE001
+                    continue
+            _OTHER_CANONICAL_CACHE[key] = embeddings
+        if _OTHER_CANONICAL_CACHE[key]:
+            out[char_id] = _OTHER_CANONICAL_CACHE[key]
+    return out
+
+
+def wrong_face_sample(frame: str, char_id: str, own: float, embedding: list[float],
+                      others: dict[str, list[list[float]]], cosine: Callable[..., float]) -> dict[str, Any]:
+    """One sampled face assigned to ``char_id``: its own score and the closest OTHER character."""
+    best_id, best = None, -1.0
+    for other_id, refs in others.items():
+        if other_id == char_id or not refs:
+            continue
+        score = max(float(cosine(embedding, ref)) for ref in refs)
+        if score > best:
+            best_id, best = other_id, score
+    return {"frame": frame, "own": round(float(own), 6), "closest_other": best_id,
+            "other": round(best, 6) if best_id else None}
+
+
+def wrong_face_verdict(samples: dict[str, list[dict[str, Any]]], *, pass_threshold: float = 0.45,
+                       samples_min: int = 3, declared: set[str] | None = None,
+                       compared_with: list[str] | None = None) -> dict[str, Any]:
+    """Is a declared character's face closer to a DIFFERENT character than to the intended one?
+
+    Per declared character, over its sampled faces (>= ``samples_min``): the median of (closest other - own) and the
+    most frequent closest other.  FAIL (redo-eligible under the one-redo-per-unit rule, q2_auto_redo) only when the
+    face is confidently the other person: median margin >= WRONG_FACE_MARGIN, the other at or above the PASS
+    threshold (same person) and the intended one below it.  Closer to another character without that confidence is
+    an ADVISORY (two cards that look alike are an S3 distinctness matter; a redo would not fix it).  Never raises."""
+    rows, failures, advisories = [], [], []
+    for char_id, items in sorted((samples or {}).items()):
+        scored = [r for r in items if r.get("other") is not None]
+        if len(scored) < max(1, samples_min):
+            continue
+        margins = sorted(float(r["other"]) - float(r["own"]) for r in scored)
+        own = sorted(float(r["own"]) for r in scored)
+        other = sorted(float(r["other"]) for r in scored)
+        mid = len(scored) // 2
+        counts: dict[str, int] = {}
+        for r in scored:
+            if float(r["other"]) > float(r["own"]):
+                counts[str(r["closest_other"])] = counts.get(str(r["closest_other"]), 0) + 1
+        closest = max(counts, key=counts.get) if counts else None
+        row = {"character_id": char_id, "samples": len(scored), "median_own": round(own[mid], 6),
+               "median_closest_other": round(other[mid], 6), "median_margin": round(margins[mid], 6),
+               "closest_other_character": closest,
+               "closest_other_declared": bool(closest and declared and closest in declared),
+               "frames_closer_to_other": sum(counts.values())}
+        if closest and row["median_margin"] >= WRONG_FACE_MARGIN and other[mid] >= pass_threshold \
+                and own[mid] < pass_threshold:
+            row["decision"] = "WRONG_FACE"
+            failures.append(f"WRONG_CHARACTER_FACE:{char_id}:looks_like:{closest}:{row['median_margin']:.3f}")
+        elif closest and row["median_margin"] > 0:
+            row["decision"] = "CLOSER_TO_OTHER_ADVISORY"
+            advisories.append(f"FACE_CLOSER_TO_OTHER_CHARACTER:{char_id}:{closest}:{row['median_margin']:.3f}")
+        else:
+            row["decision"] = "INTENDED"
+        rows.append(row)
+    status = "FAIL" if failures else "ADVISORY" if advisories else ("PASS" if rows else "NOT_MEASURED")
+    return {"method": WRONG_FACE_METHOD, "status": status, "margin": WRONG_FACE_MARGIN,
+            "pass_threshold": pass_threshold, "compared_with": list(compared_with or []), "per_character": rows,
+            "failure": failures[0] if failures else None, "failures": failures, "advisories": advisories,
+            "authority": "redo-eligible under the existing one-redo-per-unit rule (q2_auto_redo); never a new gate"}
+
+
+def apply_wrong_face(wrong_face: dict[str, Any] | None, checks: list[dict[str, Any]], failures: list[Any]) -> bool:
+    """A WRONG_FACE verdict fails ``each_visible_character_identity_recognisable`` (the reviewer's answer is kept as
+    ``reviewer_answer``), exactly like the face-count override.  True when applied."""
+    if not wrong_face or wrong_face.get("status") != "FAIL":
+        return False
+    question = "each_visible_character_identity_recognisable"
+    row = next((r for r in checks if r.get("question_id") == question), None)
+    if row is None:
+        row = {"question_id": question, "reviewer_answer": None, "contract_derived": True}
+        checks.append(row)
+    if "reviewer_answer" not in row:
+        row["reviewer_answer"] = row.get("answer")
+    overrides = row.get("objective_overrides") or ([row["objective_override"]] if row.get("objective_override") else [])
+    row.update({"answer": "FAIL", "objective_overrides": overrides + [
+        {"method": WRONG_FACE_METHOD, "failure": wrong_face.get("failure")}]})
+    checks.append({"question_id": "objective_wrong_face", "method": WRONG_FACE_METHOD, "answer": "FAIL",
+                   "per_character": wrong_face.get("per_character"), "contract_derived": True})
+    if question not in failures:
+        failures.append(question)
+    failures.append(str(wrong_face.get("failure")))
+    return True
 
 
 #: D-16 (SUPERVISOR_ORDERS seq=6) extended to video units (2026-09-13): a character whose face
@@ -1342,6 +1481,8 @@ def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
             "ocr_reports": [ocr["report_path"] for ocr in ocr_rows],
             "identity": identity,
             "closed_set_size": len(forbidden),
+            # wrong-face check (2026-11-19): read by q2_auto_redo as a redo-eligible objective failure
+            **({"wrong_face": identity["wrong_face"]} if isinstance(identity.get("wrong_face"), dict) else {}),
         }
         if anime:
             row["render_style"] = _render_style.ANIME
@@ -2047,6 +2188,16 @@ def materialise(episode: str, submitted: dict[str, Any],
             identity_v["failures"] = identity_f
             identity_v["decision"] = "FAIL"
             identity_v["speaker_framing"] = speaker_framing
+        # wrong-face check (line owner 2026-11-19): a declared character rendered with ANOTHER character's face
+        # (InsightFace, live-action only) fails the identity question; redo-eligible under the one-redo rule.
+        wrong_face = None if anime else (prepared.get("wrong_face") or identity_measurement.get("wrong_face"))
+        if isinstance(wrong_face, dict) and wrong_face.get("status") in ("FAIL", "ADVISORY"):
+            identity_v["objective_wrong_face"] = wrong_face
+        wrong_face_failures = list(identity_f)
+        if apply_wrong_face(wrong_face, identity_v.setdefault("checks", []), wrong_face_failures):
+            identity_f = wrong_face_failures
+            identity_v["failures"] = identity_f
+            identity_v["decision"] = "FAIL"
         # CAMERA_GRAMMAR_V1 objective push-in (absent otherwise): a locked camera whose face grew > 50 % fails the
         # camera-axis question in both gates that ask it (the scene gate below), whatever the reviewer answered.
         push_in = None if anime else prepared.get("push_in")

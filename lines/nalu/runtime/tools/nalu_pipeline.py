@@ -2770,7 +2770,7 @@ def s3_bootstrap_argv(ctx: Ctx, *, accept_qa: bool, rights_basis: str | None,
     return argv
 
 
-S3_MAX_ROUNDS = 4
+S3_MAX_ROUNDS = 6  # 2 rounds base + views, +2 for one distinctness regeneration, +2 slack
 S3_IMAGE_MODEL, S3_IMAGE_RESOLUTION = ACTIVE_IMAGE_MODEL, ACTIVE_IMAGE_RESOLUTION   # registry policy; submit_giggle_character_asset_plan.py reads the same
 
 
@@ -2856,6 +2856,110 @@ def s3_register_reference_sheets(ctx: Ctx) -> list[dict[str, Any]]:
         return _sheet.register(library_path, plates, ctx.episode, measure=_sheet.insightface_measure())
     except Exception as exc:  # noqa: BLE001 - advisory step
         return [{"status": "REGISTRATION_ERROR", "error": f"{type(exc).__name__}: {exc}"}]
+
+
+def s3_distinctness_embedder() -> tuple[Callable[[Path], list[list[float]]], Callable[..., float]] | None:
+    """(embed(path) -> [embedding], cosine) from the engine's own InsightFace backend, or None when unavailable."""
+    try:
+        from nalu_qa_common import engine_module as _engine_module, gate_parameters as _gate_parameters
+        gate = _engine_module("character_identity_admission_gate")
+        backend = gate.InsightFaceBackend(str(_gate_parameters("CHARACTER-IDENTITY-ADMISSION").get(
+            "embedding_model", "buffalo_l")))
+    except Exception:  # noqa: BLE001
+        return None
+    return (lambda path: [list(backend.embed(Path(path)))]), gate._cosine  # noqa: SLF001 -- engine's own metric
+
+
+def s3_character_distinctness(ctx: Ctx, res: StageResult, plan_rows: list[dict[str, Any]], *,
+                              library: dict[str, Any] | None = None,
+                              embedder: Any = "default") -> dict[str, Any]:
+    """Cross-character distinctness of the harvested BASE cards (line owner 2026-11-19, character_distinctness.py).
+
+    Live-action only (anime: InsightFace NOT_APPLICABLE; the identity review's descriptive question records it).
+    Every pair of DIFFERENT characters -- this episode's harvested base plates plus characters LOCKED in earlier
+    episodes -- is scored with InsightFace; a pair >= 0.38 regenerates the LATER episode-new text-to-image card once
+    (policy file + parked plates; the next round's bootstrap plans the new prompt).  A pair already regenerated, or
+    with no regenerable card, is accepted and recorded as an advisory.  Never blocks: any error is recorded and S3
+    goes on.  Returns the report; ``report["regenerate"]`` non-empty means another round is needed."""
+    import character_distinctness as _cd
+    p = ctx.p
+    out_path = p.identity / f"{ctx.episode}_{_cd.REPORT_SUFFIX}"
+    try:
+        if ctx_render_style(ctx) == "anime":
+            return {"status": "NOT_APPLICABLE", "reason": "render_style=anime: identity review question "
+                                                          f"{_cd.ANIME_QUESTION} records it"}
+        base_rows = [row for row in plan_rows if isinstance(row, dict) and row.get("kind") == "CHARACTER"
+                     and row.get("view") == "FULL_BODY_STANDING" and str(row.get("id") or "").startswith("CHAR-")]
+        requirements = read_json(p.asset_requirements, {}) or {}
+        cast: dict[str, dict[str, Any]] = {}
+        order: list[str] = []
+        for row in ((requirements.get("assets") or {}).get("characters") or []):
+            if isinstance(row, dict) and str(row.get("asset_id") or "").startswith("CHAR-"):
+                cast[row["asset_id"]] = _cd.cast_row(row.get("specification") or {}, row["asset_id"])
+                order.append(row["asset_id"])
+        plates: dict[str, Path] = {}
+        regenerable: set[str] = set()
+        bootstrap = __import__("bootstrap_identity_cards")
+        for row in base_rows:
+            plate = bootstrap.base_plate_for(str(row["id"]), p.identity_harvest_dir, ctx.episode)
+            if plate is not None:
+                plates[str(row["id"])] = plate
+                if not row.get("reference_images"):          # text-to-image card: S3 chose the face
+                    regenerable.add(str(row["id"]))
+        locked = (library if library is not None else load_cross_episode_library(ctx.p.scope))
+        for cid, asset in (((locked.get("assets") or {}).get("characters") or {}).items()):
+            if cid in plates or not isinstance(asset, dict) or asset.get("status") != "LOCKED":
+                continue
+            ref = next((a for a in asset.get("artifacts") or [] if isinstance(a, dict)
+                        and a.get("canonical_identity_reference") and Path(str(a.get("path") or "")).is_file()), None)
+            if ref and cid in cast:
+                plates[cid] = Path(str(ref["path"]))
+        for cid in plates:
+            if cid not in order:
+                order.append(cid)
+        if len(plates) < 2:
+            return {"status": "NOT_ENOUGH_CHARACTERS", "characters": sorted(plates)}
+        pair = s3_distinctness_embedder() if embedder == "default" else embedder
+        if pair is None:
+            report = {"schema": _cd.SCHEMA, "status": "INSIGHTFACE_UNAVAILABLE", "authority": _cd.AUTHORITY}
+            write_json(out_path, report)
+            return report
+        embed, cosine = pair
+        embeddings: dict[str, list[list[float]]] = {}
+        unmeasured: dict[str, str] = {}
+        for cid, plate in plates.items():
+            try:
+                embeddings[cid] = embed(plate)
+            except Exception as exc:  # noqa: BLE001 -- a card without one face is identity QA's business
+                unmeasured[cid] = f"{type(exc).__name__}:{str(exc)[:80]}"
+        policy = _cd.load_policy(p.prompt_dir)
+        report = _cd.evaluate(embeddings, order=[c for c in order if c in plates], cast=cast, policy=policy,
+                              regenerable=regenerable, cosine=cosine, unmeasured=unmeasured)
+        report["plates"] = {cid: str(path) for cid, path in plates.items()}
+        if report["regenerate"] and not getattr(ctx, "paid_enabled", False):
+            # no paid image route this run (dry / paid disabled): never park a plate that cannot be replaced
+            report["regenerate_not_applied"] = report["regenerate"]
+            report["regenerate"] = []
+            report["status"] = "ADVISORY_REGENERATION_NEEDS_PAID_RUN"
+        if report["regenerate"]:
+            report["applied"] = _cd.apply_regenerations(report, prompt_dir=p.prompt_dir,
+                                                        plates_dir=p.identity_harvest_dir, episode=ctx.episode,
+                                                        policy=policy)
+            ctx.say("   S3 distinctness: regenerating " + ", ".join(
+                f"{r['subject_id']} (vs {','.join(r['against'])}, cosine {r['cosine_before']:.2f})"
+                for r in report["regenerate"]) + " once with a face-differentiation prompt")
+        history = (read_json(out_path, {}) or {}).get("history") or []
+        report["history"] = (history + [{k: report.get(k) for k in ("evaluated_at", "status", "too_similar",
+                                                                   "regenerate", "advisories")}])[-8:]
+        write_json(out_path, report)
+        report["report_path"] = str(out_path)
+        res.receipts.append(str(out_path))
+        if report.get("too_similar") or report.get("advisories"):  # knowledge base + next episode's identity design
+            report["knowledge_events"] = kb_events("record_lookalike_cast", episode=ctx.episode,
+                                                   report_path=str(out_path))
+        return report
+    except Exception as exc:  # noqa: BLE001 -- advisory step, never blocks S3
+        return {"status": "ERROR", "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
 
 
 def stage_s3(ctx: Ctx) -> StageResult:
@@ -3007,6 +3111,13 @@ def stage_s3(ctx: Ctx) -> StageResult:
             ctx.say(f"   S3: all-reuse episode ({len(reused)} verified reused assets, 0 new generation)")
 
         if not new_rows and not unharvested:
+            if not deferred:
+                # every plate is on disk: last chance for the cross-character distinctness check
+                distinct = s3_character_distinctness(ctx, res, rows)
+                round_rec["character_distinctness"] = {k: distinct.get(k) for k in ("status", "regenerate",
+                                                                                   "advisories", "report_path")}
+                if distinct.get("regenerate"):
+                    continue
             if deferred:
                 # every base plate should exist by now; a deferred view here means
                 # a base plate never landed — stop, do not loop forever
@@ -3132,6 +3243,14 @@ def stage_s3(ctx: Ctx) -> StageResult:
             res.status = BLOCKED
             res.blockers.append("IDENTITY_HARVEST_FAILED")
             return res
+        # Cross-character distinctness (line owner 2026-11-19): measured on the base plates as soon as they land
+        # (round 1 normally, before the views are generated from them); a too-similar later card is regenerated
+        # once, which needs another round.  Advisory otherwise, never a block.
+        distinct = s3_character_distinctness(ctx, res, rows)
+        round_rec["character_distinctness"] = {k: distinct.get(k) for k in ("status", "regenerate", "advisories",
+                                                                           "report_path")}
+        if distinct.get("regenerate"):
+            continue
         if not deferred:
             complete = True
             break
@@ -3152,6 +3271,10 @@ def stage_s3(ctx: Ctx) -> StageResult:
     # S3.qa — machine identity QA + LOCK + the D-1 character asset registry.
     admission = s3_qa(ctx, res, harvested_dir=p.identity_harvest_dir)
     res.details["identity_qa"] = admission
+    if ctx_render_style(ctx) == "anime":  # anime cast distinctness = the identity review's descriptive answers
+        res.details["knowledge_events_lookalike_cast"] = kb_events(
+            "record_lookalike_cast", episode=ctx.episode,
+            report_path=str(p.identity / f"{ctx.episode}_CHARACTER_DISTINCTNESS.json"))
     if admission["status"] == PASS:
         res.details["reference_sheets"] = s3_register_reference_sheets(ctx)
     if admission["status"] == REVIEW_REQUIRED:
@@ -8451,7 +8574,8 @@ def s7_final_audience_review(ctx: Ctx, res: StageResult) -> dict[str, Any]:
                 res.receipts.append(str(detail[key]))
         if detail.get("report"):  # advisory DIRECTOR_SCORE_V1 outputs, only when the reviewer wrote them
             for suffix in ("DIRECTOR_EVALUATION.json", "DIRECTOR_EVALUATION.md", "NEXT_EPISODE_PLAN.json",
-                           "CRAFT_STANDARD.json"):  # + the advisory craft-standard block (never a gate)
+                           "CRAFT_STANDARD.json",  # + the advisory craft-standard block (never a gate)
+                           "QA_DEFECT_CHECKLIST.json"):  # + the must-check defect list (never a gate)
                 extra = Path(str(detail["report"])).parent / f"{ctx.episode}_{suffix}"
                 if extra.is_file():
                     res.receipts.append(str(extra))
@@ -10519,6 +10643,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
     if final_audience["status"] == PASS or review_rejected:
         res.details["knowledge_events_exemplars"] = kb_success_exemplars(ctx, final_audience)
         res.details["knowledge_events_craft_standard"] = kb_craft_standard_gaps(ctx, final_audience)
+        res.details["knowledge_events_qa_defects"] = kb_qa_defects(ctx, final_audience)
     if final_audience["status"] != PASS and not review_rejected:
         res.status = (REVIEW_REQUIRED
                       if final_audience["status"] == REVIEW_REQUIRED else BLOCKED)
@@ -10749,6 +10874,44 @@ def credits_summary(ctx: Ctx) -> dict[str, Any]:
     }
 
 
+def qa_defect_checkpoint_lines(ctx: Any) -> list[str]:
+    """S8 owner-approval section: the final review's must-check defects (nalu_qa_defect_checklist record, with
+    timestamps and routing) and the S3 cross-character similarity, so the owner sees them before approving.
+    Advisory, never raises."""
+    try:
+        import nalu_qa_defect_checklist as _qa
+        import character_distinctness as _cd
+        p = ctx.p
+        lines = _qa.checkpoint_lines(read_json(p.assembly / "final_qa" / f"{ctx.episode}_QA_DEFECT_CHECKLIST.json",
+                                               {}) or {})
+        distinct = read_json(p.identity / f"{ctx.episode}_{_cd.REPORT_SUFFIX}", {}) or {}
+        pairs = _cd.lookalike_pairs(distinct)
+        if pairs:
+            if not lines:
+                lines = ["## Final-review must-check defects (line owner 2026-11-19)", ""]
+            lines += ["S3 look-alike cast (InsightFace between different characters' cards, threshold "
+                      f"{distinct.get('threshold')}; advisory, one regeneration per pair):", ""]
+            lines += [f"* `{r.get('a')}` ~ `{r.get('b')}` cosine {r.get('cosine')} — {r.get('state')}" for r in pairs]
+            lines.append("")
+        return lines
+    except Exception as exc:  # noqa: BLE001 -- the checkpoint must always be written
+        return [f"* must-check defect summary unavailable: {type(exc).__name__}", ""]
+
+
+def kb_qa_defects(ctx: Ctx, final_audience: dict[str, Any]) -> dict[str, Any]:
+    """The final review's must-check defects (``<EP>_QA_DEFECT_CHECKLIST.json`` beside the score report) as
+    ``QA_DEFECT|<item id>`` knowledge events (nalu_knowledge_events.record_qa_defects).  Best-effort."""
+    try:
+        report = str(final_audience.get("report") or "")
+        path = Path(report).parent / f"{ctx.episode}_QA_DEFECT_CHECKLIST.json" if report else None
+        if path is None or not path.is_file():
+            return {"status": "NO_QA_DEFECT_CHECKLIST"}
+        return kb_events("record_qa_defects", episode=ctx.episode, checklist_path=str(path),
+                         media_sha256=final_audience.get("final_video_sha256"))
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:160]}"}
+
+
 def write_checkpoint(ctx: Ctx) -> Path:
     p = ctx.p
     state = ctx.state
@@ -10870,6 +11033,8 @@ def write_checkpoint(ctx: Ctx) -> Path:
         f"at close: **{lu_close.get('status') or 'NOT_RUN'}** "
         f"(briefing {(lu_close.get('knowledge_read') or {}).get('status') or '?'})")
     add("")
+    for line in qa_defect_checkpoint_lines(ctx):  # final-review must-check defects + S3 look-alike cast (2026-11-19)
+        add(line)
     add("## Rights basis on record")
     add("")
     rights = state.get("rights_basis") or {}

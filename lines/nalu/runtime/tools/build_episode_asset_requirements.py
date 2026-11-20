@@ -85,6 +85,7 @@ import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_paths lives in tools/
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
 import render_style as _render_style  # per-series live_action | anime
+import character_distinctness as _distinct  # face-structure contrast between characters (2026-11-19)
 import argparse
 import hashlib
 import json
@@ -329,7 +330,10 @@ def style_block(vcc: dict[str, Any], render_style: str | None = None) -> str:
     ])
 
 
-def character_prompt(row: dict[str, Any], wardrobe_desc: str, style: str) -> tuple[str, str]:
+def character_prompt(row: dict[str, Any], wardrobe_desc: str, style: str,
+                     contrast: str = "") -> tuple[str, str]:
+    """``contrast``: the face-structure contrast paragraph (character_distinctness.contrast_block, line owner
+    2026-11-19: two characters of one episode came out with the same face); '' keeps the earlier body."""
     spec = row["specification"]
     cid = row["asset_id"]
     source_action = (
@@ -349,6 +353,7 @@ def character_prompt(row: dict[str, Any], wardrobe_desc: str, style: str) -> tup
         "均匀柔和的正面照明，仅为记录五官与形体，不做戏剧化打光。"
         "全身直立，双手自然垂放，面部无遮挡，发际线与耳廓可见。",
         "身份锁定要素必须清晰可辨：脸型骨骼、发型、眼型、肤色、体型。",
+        *([contrast] if contrast else []),
         "",
         style,
     ])
@@ -969,6 +974,15 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
     prompts: dict[str, str] = {}
     prompt_rows: list[dict[str, Any]] = []
     reused_ids = {row["asset_id"] for row in reuse_decisions if row["decision"] == "REUSED"}
+    # every character of the episode (new and reused) is a peer the new cards must not resemble
+    cast_rows = []
+    for row in characters:
+        spec = dict(row.get("specification") or {})
+        card_appearance = overlay_get(overlay, "characters", row["asset_id"], "identity_card_appearance")
+        if card_appearance:
+            spec["appearance_ch1"] = card_appearance
+        if not str(row["asset_id"]).startswith("GROUP-"):
+            cast_rows.append(_distinct.cast_row(spec, row["asset_id"]))
     for row in characters:
         cid = row["asset_id"]
         if cid in reused_ids:
@@ -980,7 +994,9 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
         card_row = dict(row, specification=dict(row["specification"]))
         if card_appearance:
             card_row["specification"]["appearance_ch1"] = card_appearance
-        body, action = character_prompt(card_row, card_wardrobe or wardrobe_desc_by_char[cid], style)
+        contrast = ("" if cid.startswith("GROUP-") else
+                    _distinct.contrast_block(_distinct.cast_row(card_row["specification"], cid), cast_rows))
+        body, action = character_prompt(card_row, card_wardrobe or wardrobe_desc_by_char[cid], style, contrast)
         name = prompt_filename(episode, cid)
         prompts[name] = body
         prompt_rows.append({"asset_id": cid, "kind": "CHARACTER", "file": name,

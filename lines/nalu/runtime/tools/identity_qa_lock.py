@@ -76,6 +76,7 @@ from nalu_qa_common import (  # noqa: E402
 )
 
 import render_style as _render_style  # noqa: E402  per-series live_action | anime
+import character_distinctness as _distinct  # noqa: E402  cross-character face distinctness (advisory)
 
 TOOL_ID = "identity_qa_lock.v1"
 GATE_ID = "CHARACTER-IDENTITY-ADMISSION"
@@ -567,9 +568,31 @@ def materialise(episode: str, submitted: dict[str, Any],
             "--library", str(p.identity_library), "--episode", episode,
             "--report", str(p.identity / f"{episode}_asset_library_gate.json")]),
     }
+    record["character_distinctness"] = distinctness_summary(episode, submitted, anime=anime, paths=p)
     write_json(p.identity_qa, record)
     record["_written_to"] = str(p.identity_qa)
     return record
+
+
+def distinctness_summary(episode: str, submitted: dict[str, Any], *, anime: bool, paths: Any) -> dict[str, Any]:
+    """Cross-character distinctness in the S3 identity lock (line owner 2026-11-19).  Live-action: the S3 InsightFace
+    measurement (``<EP>_CHARACTER_DISTINCTNESS.json``, written by the S3 rounds).  Anime: the identity review's
+    descriptive ``anime_cast_design_distinct`` answers, written to the same file.  Advisory: never changes qa.status."""
+    try:
+        path = Path(paths.identity) / f"{episode}_{_distinct.REPORT_SUFFIX}"
+        if anime:
+            report = _distinct.anime_record(submitted.get("items") or [])
+            write_json(path, report)
+        else:
+            report = read_json(path, {}) or {}
+            if not report:
+                return {"status": "NOT_MEASURED", "authority": _distinct.AUTHORITY}
+        return {"status": report.get("status"), "method": report.get("method"), "report": str(path),
+                "threshold": report.get("threshold"), "too_similar": report.get("too_similar") or [],
+                "regenerated": report.get("regenerate") or [], "advisories": report.get("advisories") or [],
+                "lookalike_pairs": _distinct.lookalike_pairs(report), "authority": _distinct.AUTHORITY}
+    except Exception as exc:  # noqa: BLE001 -- advisory
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:160]}"}
 
 
 # --------------------------------------------------------------------------- #
