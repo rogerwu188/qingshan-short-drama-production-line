@@ -266,8 +266,10 @@ def vlm_identity_question(kind: str) -> dict[str, Any]:
         "question": (f"ANIME CHARACTER CONSISTENCY (render_style=anime; replaces the face-embedding measurement): in "
                      f"{scope}, is each visible character exactly on-model with {against} -- same hair colour and "
                      "hairstyle, same eye colour, same outfit and accessories, same face design -- with no off-model "
-                     "frame and no character swapped for another?  NOT_APPLICABLE only when no character is "
-                     "declared visible."),
+                     "frame and no character swapped for another"
+                     + (" (nor a person who turns into a different character partway through the clip)"
+                        if kind == "video_q2" else "")
+                     + "?  NOT_APPLICABLE only when no character is declared visible."),
     }
 
 

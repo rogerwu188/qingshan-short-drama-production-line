@@ -918,7 +918,7 @@ def qa_defect_measurements(episode: str, *, shots: list[dict[str, Any]], asr: An
         bgm_plan_path=assembly / f"{episode}_BGM_PLAN.json",
         audio_bed_path=assembly / f"{episode}_AUDIO_BED.json",
         s6_wave_state_path=Path(p.preprod_reports) / f"{episode}_S6_WAVE_STATE.json",
-        skin_sheen_dir=Path(p.preprod) / "real_final_frames")
+        skin_sheen_dir=Path(p.preprod) / "real_final_frames", keyframes_dir=Path(p.preprod) / "keyframes")
 
 
 def build_av_evidence_pack(episode: str, *, video: Path, video_sha: str, shots: list[dict[str, Any]], asr: Any,

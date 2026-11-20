@@ -6535,12 +6535,94 @@ def exempt_harvested_bound_takes(ctx: Ctx, unbound: list[str], fin_report: dict[
     return [uid for uid in unbound if uid not in harvested], harvested
 
 
-def check_tail_start_frame(ctx: Ctx, unit_id: str, tail: Path) -> dict[str, Any]:
+#: start-frame cast check (metadata, free): the declared cast of the predecessor's last shot vs this unit's first shot
+TAIL_CAST_METHOD = "DECLARED_CAST_TAIL_VS_FIRST_SHOT"
+
+
+def _shot_in_frame_cast(row: dict[str, Any]) -> list[str]:
+    """Character ids a storyboard shot declares in frame (every cast member except an OFFSCREEN_VOICE_ONLY voice)."""
+    out: list[str] = []
+    for member in ((row or {}).get("prompt_spec") or {}).get("cast") or []:
+        cid = str(member.get("character_id") or member.get("character") or "").strip()
+        if cid and str(member.get("face_visibility") or "").upper() != "OFFSCREEN_VOICE_ONLY" and cid not in out:
+            out.append(cid)
+    return out
+
+
+def _shot_on_screen_speaker(row: dict[str, Any]) -> str:
+    """Character id of the shot's dialogue speaker when the storyboard shows that speaker in frame, else ""."""
+    spec = (row or {}).get("prompt_spec") or {}
+    raw = str(spec.get("dialogue") or "").strip()
+    if not raw:
+        return ""
+    name = raw.partition("：")[0] if "：" in raw else raw.partition(":")[0]
+    name = name.strip()
+    speaker_id = str((spec.get("role_semantic_disambiguation") or {}).get("dialogue_speaker_id") or "").strip()
+    for member in spec.get("cast") or []:
+        cid = str(member.get("character_id") or member.get("character") or "").strip()
+        if cid and (str(member.get("character") or "").strip() == name or cid == speaker_id):
+            return "" if str(member.get("face_visibility") or "").upper() == "OFFSCREEN_VOICE_ONLY" else cid
+    return ""
+
+
+def tail_cast_mismatch(editorial: dict[str, Any], plan: dict[str, Any], unit_id: str,
+                       previous_unit_id: str | None) -> dict[str, Any]:
+    """Free metadata check of a predecessor tail as ``unit_id``'s start frame (line owner 2026-11-20, JA-01 anime E01:
+    "the scene and angle stay the same but the character transforms in place into the one who is speaking").
+
+    A tail-started unit opens on the predecessor's REAL final frame, which shows the predecessor's last shot.  When the
+    storyboard's first shot of this unit shows an on-screen speaker who is not in that shot (or a wholly different
+    cast), H3 is told the speaker is "already in @Image1" and morphs the visible person into the speaker.  The
+    InsightFace start-frame check catches that for live action; for anime it is NOT_APPLICABLE, so nothing did.
+
+    Returns ``{"verdict": "REJECT" | "ACCEPT" | "NOT_MEASURED", "reasons": [...], ...}`` (no image is read)."""
+    units = {str(u.get("unit_id") or ""): u for u in plan.get("units") or []}
+    shots = {str(r.get("shot_id") or ""): r for r in editorial.get("shots") or []}
+    cur_ids = list((units.get(str(unit_id)) or {}).get("editorial_shot_ids") or [])
+    prev_ids = list((units.get(str(previous_unit_id or "")) or {}).get("editorial_shot_ids") or [])
+    base = {"method": TAIL_CAST_METHOD, "previous_unit_id": previous_unit_id}
+    if not cur_ids or not prev_ids or cur_ids[0] not in shots or prev_ids[-1] not in shots:
+        return {**base, "verdict": "NOT_MEASURED", "status": "NOT_MEASURED", "reason": "SHOT_ROWS_MISSING",
+                "reasons": []}
+    tail_cast = _shot_in_frame_cast(shots[prev_ids[-1]])
+    first_cast = _shot_in_frame_cast(shots[cur_ids[0]])
+    speaker = _shot_on_screen_speaker(shots[cur_ids[0]])
+    unit_cast: set[str] = set()
+    for sid in cur_ids:
+        unit_cast.update(_shot_in_frame_cast(shots.get(sid) or {}))
+    reasons = [f"TAIL_SHOWS_OFF_UNIT_CHARACTER:{cid}" for cid in tail_cast if cid not in unit_cast]
+    if speaker and speaker not in tail_cast:
+        reasons.append(f"ON_SCREEN_SPEAKER_NOT_IN_TAIL:{speaker}")
+    if tail_cast and first_cast and not set(tail_cast) & set(first_cast):
+        reasons.append("TAIL_SHOWS_A_DIFFERENT_CAST")
+    return {**base, "verdict": "REJECT" if reasons else "ACCEPT", "status": "MEASURED", "reasons": reasons,
+            "tail_shot_id": prev_ids[-1], "first_shot_id": cur_ids[0], "tail_cast": tail_cast,
+            "first_shot_cast": first_cast, "speaker_ids": [speaker] if speaker else []}
+
+
+def ctx_tail_cast_mismatch(ctx: Ctx, unit_id: str, previous_unit_id: str | None) -> dict[str, Any]:
+    try:
+        editorial = read_json(ctx.p.editorial, {}) or {}
+        plan = read_json(ctx.p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json", {}) or {}
+        return tail_cast_mismatch(editorial, plan, unit_id, previous_unit_id)
+    except Exception as exc:  # noqa: BLE001 - a check that did not run never rejects
+        return {"method": TAIL_CAST_METHOD, "verdict": "NOT_MEASURED", "status": "NOT_MEASURED",
+                "reason": f"{type(exc).__name__}: {str(exc)[:160]}", "reasons": []}
+
+
+def check_tail_start_frame(ctx: Ctx, unit_id: str, tail: Path, previous_unit_id: str | None = None) -> dict[str, Any]:
     """Objective speaker framing + face count of a candidate tail start frame (video_q2_builder
     start-frame-check, free).  A check that did not run never rejects (the tail stays, as before).
-    render_style=anime: the check is InsightFace, NOT_APPLICABLE -> ACCEPT without running."""
+    The free declared-cast check (``tail_cast_mismatch``) runs first for every style and rejects a tail that shows
+    another character; render_style=anime: the face check is InsightFace, NOT_APPLICABLE -> ACCEPT otherwise."""
+    # the declared cast decides first (free, every style): a tail showing another character is never this unit's
+    # start frame (JA-01 E01 2026-11-20, shot / reverse-shot dialogue morphed the speaker into the other character)
+    cast = ctx_tail_cast_mismatch(ctx, unit_id, previous_unit_id) if previous_unit_id else {}
+    if cast.get("verdict") == "REJECT":
+        return {**cast, "render_style": ctx_render_style(ctx)}
     if ctx_render_style(ctx) == "anime":
-        return {"verdict": "ACCEPT", "status": "NOT_APPLICABLE", "reason": "RENDER_STYLE_ANIME", "render_style": "anime"}
+        return {"verdict": "ACCEPT", "status": "NOT_APPLICABLE", "reason": "RENDER_STYLE_ANIME", "render_style": "anime",
+                **({"cast_check": cast} if cast else {})}
     step = qa_run(ctx, [VIDEO_Q2, "start-frame-check", "--episode", ctx.episode, "--unit", unit_id,
                         "--image", tail], name=f"s6_tail_start_frame_check_{unit_id}")
     verdict = qa_json(step) or {}
@@ -6580,7 +6662,7 @@ def materialise_derived_keyframes(ctx: Ctx) -> list[dict[str, Any]]:
                     prior.get("reason") != "TAIL_REJECTED" or prior.get("tail_sha256") == tail_sha):
                 rows.append({"unit_id": uid, "status": "OWN_KEYFRAME_REQUIRED", "start_frame_source": START_FRAME_OWN,
                              "reason": prior.get("reason"), "path": str(dst)}); continue
-            check = check_tail_start_frame(ctx, uid, src)
+            check = check_tail_start_frame(ctx, uid, src, prev)
             measured = {k: check.get(k) for k in ("method", "status", "verdict", "reasons", "reason", "faces",
                                                   "declared_face_budget", "speaker_ids", "speaker_identity",
                                                   "measurement", "thresholds") if k in check}
@@ -6606,6 +6688,15 @@ def materialise_derived_keyframes(ctx: Ctx) -> list[dict[str, Any]]:
             side["start_frame_source"] = START_FRAME_TAIL
             side["start_frame_check"] = {k: check.get(k) for k in ("verdict", "status", "reasons", "reason")
                                          if k in check}
+        if hard:
+            # a hard continuation always opens on the tail (same take); a declared cast change at its first shot is
+            # an in-shot identity-swap risk (JA-01 E01 2026-11-20) -- recorded as an advisory lead, never a gate
+            cast = ctx_tail_cast_mismatch(ctx, uid, prev)
+            if cast.get("verdict") == "REJECT":
+                side["identity_swap_risk"] = {k: cast.get(k) for k in ("method", "reasons", "tail_cast",
+                                                                       "first_shot_cast", "speaker_ids") if k in cast}
+                ctx.say(f"   S6 identity-swap risk {uid}: {','.join(cast.get('reasons') or [])} "
+                        "(hard continuation opens on a tail without the declared on-screen speaker; advisory)")
         write_json(dst.with_suffix(".derived.json"), side)
         rows.append({"unit_id": uid, "status": "MATERIALISED", "path": str(dst), "sha256": side["sha256"]})
     return rows

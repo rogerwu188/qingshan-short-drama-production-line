@@ -139,7 +139,7 @@ class DirectorPromptV2Shape(unittest.TestCase):
         self.assertIn("@Audio1 is Alpha's voice. It gives timbre only — never speak or echo its words.", text)
         self.assertEqual(receipt["status"], "PASS")
         self.assertEqual(receipt["h3_prompt_style"], "DIRECTOR_PROMPT_V2")
-        self.assertTrue(1000 < len(text) < 3500, len(text))
+        self.assertTrue(1000 < len(text) < 3600, len(text))  # +identity lock sentence (2026-11-20)
 
     def test_dialogue_listener_sound_and_never(self):
         text, _ = render()

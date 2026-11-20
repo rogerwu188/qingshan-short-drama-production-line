@@ -187,10 +187,27 @@ _WET_CUES = re.compile(
 )
 
 
+#: Anime counterpart (line owner 2026-11-20, JA-01 anime E01: "the picture turning oily still happens" in anime):
+#: H3 drifts cel-shaded skin and hair toward glossy 3D-style highlights down a tail chain.  Anime units with people
+#: only, skipped on the same wet cues as the live-action clause.
+ANIME_FINISH_NEGATIVE = ("No glossy, oily or wet-looking shine on skin or hair and no 3D-rendered skin shading: flat "
+                         "matte cel shading with clean two-tone shadows")
+
+
+def anime_finish_applies(unit: dict[str, Any], plan: dict[str, Any], *, anime: bool, has_people: bool) -> bool:
+    """True when the anime skin / hair finish clause belongs in this unit's negative constraints."""
+    return bool(anime and has_people and not _wet_beat(unit, plan))
+
+
 def skin_finish_applies(unit: dict[str, Any], plan: dict[str, Any], *, anime: bool, has_people: bool) -> bool:
     """True when the live-action skin / hair finish clause belongs in this unit's negative constraints."""
     if anime or not has_people:
         return False
+    return not _wet_beat(unit, plan)
+
+
+def _wet_beat(unit: dict[str, Any], plan: dict[str, Any]) -> bool:
+    """True when the unit's own text makes skin or hair wet (rain, sweat, water, tears ...)."""
     contract = unit.get("h3_provider_english_contract") or {}
     texts = [contract.get("space_weather_fact"), contract.get("identity_prop_fact"),
              contract.get("persistent_state_lock"), *(contract.get("shot_state_locks") or []),
@@ -198,7 +215,7 @@ def skin_finish_applies(unit: dict[str, Any], plan: dict[str, Any], *, anime: bo
              json.dumps(plan.get("beats") or [], ensure_ascii=False),
              json.dumps((plan.get("action_ir") or {}).get("causal_chains") or [], ensure_ascii=False),
              json.dumps(unit.get("ordered_prompt_specs") or [], ensure_ascii=False)]
-    return not _WET_CUES.search(" ".join(str(t or "") for t in texts))
+    return bool(_WET_CUES.search(" ".join(str(t or "") for t in texts)))
 
 
 _WARDROBE_FIELDS = ("silhouette", "outer_layer", "inner_layer", "primary_color", "material", "footwear", "accessory")
@@ -1920,6 +1937,9 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     if director_active(unit, plan) and skin_finish_applies(unit, plan, anime=anime,
                                                            has_people=not insert_without_people):
         negatives.append(SKIN_FINISH_NEGATIVE)
+    if director_active(unit, plan) and anime_finish_applies(unit, plan, anime=anime,
+                                                            has_people=not insert_without_people):
+        negatives.append(ANIME_FINISH_NEGATIVE)
 
     # CAMERA_GRAMMAR_V1 audio hygiene (lab Holmes E01 ASR: reference-sample words echoed into other units,
     # babble after a short line in a long slot, H3-baked music between shots).  Dropped before the roster.

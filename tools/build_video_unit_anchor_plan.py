@@ -28,6 +28,27 @@ except ModuleNotFoundError:
 #: S6 start_frame_source of a continuity unit whose predecessor tail was rejected as its start frame.
 TAIL_REJECTED_START_FRAME_SOURCE = "OWN_KEYFRAME_TAIL_REJECTED"
 TAIL_REJECTED_TRANSPORT = "NOT_TRANSPORTED_TAIL_REJECTED"
+#: reason recorded when a motivated cut's predecessor tail shows a person who is not on screen in this unit
+TAIL_CAST_DIFFERS = "PREVIOUS_TAIL_SHOWS_OFF_UNIT_CHARACTER"
+
+
+def tail_cast_conflict(previous_rows: list[dict[str, Any]], rows: list[dict[str, Any]]) -> list[str]:
+    """Characters the predecessor's real tail shows (its last shot's declared in-frame cast) who are not on screen
+    anywhere in this unit, plus "*" when the tail and this unit's first shot share nobody.
+
+    Line owner 2026-11-20 (JA-01 anime E01, device 1485): in a shot / reverse-shot dialogue every motivated cut was
+    sent "own keyframe of Y + the previous unit's real tail of X" in near-identical framing; H3 morphed Y into X
+    (or opened as X and became Y) -- ~20 of 32 units.  Such a tail is never a provider reference; [] = keep it."""
+    if not previous_rows or not rows:
+        return []
+    tail = _visible_characters(previous_rows[-1])
+    own: set[str] = set()
+    for row in rows:
+        own |= _visible_characters(row)
+    out = sorted(tail - own)
+    if tail and _visible_characters(rows[0]) and not tail & _visible_characters(rows[0]):
+        out.append("*")
+    return out
 
 
 def _visible_characters(row: dict[str, Any]) -> set[str]:
@@ -142,6 +163,13 @@ def build(grouping: dict[str, Any], editorial: dict[str, Any], keyframe_dir: Pat
         # unit by build_nalu_preproduction).  Only a motivated-cut opener can drop the tail state reference.
         tail_rejected = (boundary_class == "MOTIVATED_CUT"
                          and unit.get("start_frame_source") == TAIL_REJECTED_START_FRAME_SOURCE)
+        # a motivated cut never carries a predecessor tail that shows someone not on screen in this unit
+        # (JA-01 E01 2026-11-20: shot / reverse-shot tails morphed the speaker into the other character)
+        previous_rows = [shots[sid] for sid in (previous_unit or {}).get("editorial_shot_ids") or [] if sid in shots]
+        cast_conflict = (tail_cast_conflict(previous_rows, rows)
+                         if boundary_class == "MOTIVATED_CUT" and not tail_rejected else [])
+        if cast_conflict:
+            tail_rejected = True
         has_dialogue = any(str((row.get("prompt_spec") or {}).get("dialogue") or "").strip() for row in rows)
         has_props = any((row.get("prompt_spec") or {}).get("props") for row in rows)
         action_class = (
@@ -262,7 +290,9 @@ def build(grouping: dict[str, Any], editorial: dict[str, Any], keyframe_dir: Pat
                 **({"start_frame_source": TAIL_REJECTED_START_FRAME_SOURCE,
                     "previous_state_reference_transport": TAIL_REJECTED_TRANSPORT,
                     "rejected_tail_path": str(previous_final.get("path") or "") or None,
-                    "rejected_tail_sha256": previous_final.get("sha256")} if tail_rejected else {}),
+                    "rejected_tail_sha256": previous_final.get("sha256"),
+                    **({"tail_rejected_reason": TAIL_CAST_DIFFERS, "tail_off_unit_characters": cast_conflict}
+                       if cast_conflict else {})} if tail_rejected else {}),
             },
             "anchor_count_decision": {
                 "planned_reference_image_count": count,

@@ -64,7 +64,11 @@ ITEMS: dict[str, dict[str, Any]] = {
         "title_zh": "两个不同角色长得几乎一样",
         "question": "Do two DIFFERENT characters look alike (same face: jaw, nose, eyes, smile) so a viewer could "
                     "confuse them?  Name the shots (timestamps) where each appears.  measurements.lookalike_cast is "
-                    "the S3 face-embedding similarity of the identity cards (>= 0.38 = not separable).",
+                    "the S3 face-embedding similarity of the identity cards (>= 0.38 = not separable).  Also: does a "
+                    "person on screen transform into a different character inside one shot (same framing; face, hair "
+                    "or outfit morph into another character, often the one speaking)?  Report it with its timestamp "
+                    "as an identity swap.  measurements.identity_swap_risk lists units that open on a frame without "
+                    "their declared on-screen speaker (S6, free).",
         "s7_fixable": False, "fix_owner": "engine", "craft_item": "C-12"},
     "QA-SUBTITLE-WRAP": {
         "title_zh": "我们的字幕换行不当（如「！」单独成行）",
@@ -338,10 +342,26 @@ def measure_skin_sheen(tails_dir: Any) -> dict[str, Any]:
                 "thresholds") if rows else None} if rows else {}
 
 
+def measure_identity_swap_risk(keyframes_dir: Any) -> dict[str, Any]:
+    """Tail-started units whose start frame (the predecessor's real tail) does not show the storyboard's on-screen
+    speaker / cast (``identity_swap_risk`` on ``keyframes/<shot>-keyframe-v1.derived.json``, written by S6
+    materialise_derived_keyframes from the declared cast; JA-01 anime E01 2026-11-20).  {} when none."""
+    if not keyframes_dir or not Path(str(keyframes_dir)).is_dir():
+        return {}
+    rows = []
+    for path in sorted(Path(str(keyframes_dir)).glob("*.derived.json")):
+        row = _read(path)
+        risk = row.get("identity_swap_risk") if isinstance(row, dict) else None
+        if isinstance(risk, dict) and risk.get("reasons"):
+            rows.append({"unit_id": row.get("unit_id"), "shot_id": row.get("shot_id"), "reasons": risk["reasons"],
+                         "tail_cast": risk.get("tail_cast"), "first_shot_cast": risk.get("first_shot_cast")})
+    return {"source": "S6 declared-cast start-frame check (read only)", "units": rows[:40]} if rows else {}
+
+
 def measure(*, shots: list[dict[str, Any]], asr: Any = None, scan_path: Any = None, verify_path: Any = None,
             ass_path: Any = None, distinctness_path: Any = None, bgm_plan_path: Any = None,
             audio_bed_path: Any = None, s6_wave_state_path: Any = None,
-            skin_sheen_dir: Any = None) -> dict[str, Any]:
+            skin_sheen_dir: Any = None, keyframes_dir: Any = None) -> dict[str, Any]:
     """All free measurements, each best-effort ({} when its input is missing).  Never raises."""
     out: dict[str, Any] = {}
     steps = (
@@ -354,6 +374,7 @@ def measure(*, shots: list[dict[str, Any]], asr: Any = None, scan_path: Any = No
         ("bgm", lambda: measure_bgm(_read(bgm_plan_path), _read(audio_bed_path), shots)),
         ("s6_burn_unresolved", lambda: measure_s6_burn_unresolved(_read(s6_wave_state_path))),
         ("skin_sheen", lambda: measure_skin_sheen(skin_sheen_dir)),
+        ("identity_swap_risk", lambda: measure_identity_swap_risk(keyframes_dir)),
     )
     for key, fn in steps:
         try:
@@ -369,7 +390,8 @@ def measure(*, shots: list[dict[str, Any]], asr: Any = None, scan_path: Any = No
 MEASUREMENT_ITEM = {"burned_text": "QA-BURNED-TEXT", "masks": "QA-OVERSIZED-MASK",
                     "dialogue_tail": "QA-DIALOGUE-TAIL-CUT", "subtitle_wrap": "QA-SUBTITLE-WRAP",
                     "lookalike_cast": "QA-LOOKALIKE-CAST", "bgm": "QA-BGM-DISCONTINUOUS",
-                    "s6_burn_unresolved": "QA-BURNED-TEXT", "skin_sheen": "QA-SKIN-SHEEN-DRIFT"}
+                    "s6_burn_unresolved": "QA-BURNED-TEXT", "skin_sheen": "QA-SKIN-SHEEN-DRIFT",
+                    "identity_swap_risk": "QA-LOOKALIKE-CAST"}
 
 
 def reviewer_request(measurements: dict[str, Any]) -> dict[str, Any]:

@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2523,
+  "file_count": 2525,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -713,7 +713,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/final_audience_review.py",
-      "sha256": "afa39797938693cd449607fa0caebf965d22068c694d61565be1fe3c76c1a864"
+      "sha256": "03e5d4e8aed97cf6fd82bc1f916a9490b86861c317a12b9d4b37775a56bbc392"
     },
     {
       "path": "lines/nalu/runtime/tools/final_cut_audio_bed.py",
@@ -733,7 +733,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/final_fix_round.py",
-      "sha256": "642767ad8b30aa5ce6df15be940db68c8acf6e65f2d5a8b5fea6f35c5e940a6c"
+      "sha256": "6b876aec67d49b537e5e7bf769760c6a5ddd60acc180eca6b383fd4473bc7fa0"
     },
     {
       "path": "lines/nalu/runtime/tools/final_qa_evidence_bundle.py",
@@ -741,7 +741,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/gemini_review_passes.py",
-      "sha256": "4d92c789ecb7890082ff2a1affef7df05188341986a9383575659c42cfeff3cc"
+      "sha256": "6f73c5c94ce89944acff00479c9c337578a6318d7453c9cc5d9714bb4af3222d"
     },
     {
       "path": "lines/nalu/runtime/tools/gemini_video_review.py",
@@ -813,7 +813,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "c0accd388717bb94d6c7fcc52c1b77feeaa029ff80d55c37a8ea05a6fc9c2ab6"
+      "sha256": "460bccd9db93a6b63b87df1ead78f522dbd1e9eed61cd38acd789d147f831197"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -829,7 +829,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_qa_defect_checklist.py",
-      "sha256": "c57d8a65c29fe08eeadd5e500a34e446ec0193a8c686b07494092e1383195f5b"
+      "sha256": "697796c06d6fb61a2d5103af5537fe4aed6b7e08653e79d66cd790d9e1140329"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_selective_bgm.py",
@@ -897,7 +897,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/render_style.py",
-      "sha256": "ba6d69e18c778e0c5a3d309a594b17a09db8917d2271cdb11c4fc2f387554379"
+      "sha256": "c97ce274681628e4582062fa601a57006e07aad863aa56ece84268eb8a1de12c"
     },
     {
       "path": "lines/nalu/runtime/tools/review_dispatch.py",
@@ -3813,7 +3813,7 @@
     },
     {
       "path": "tools/build_video_unit_anchor_plan.py",
-      "sha256": "d775a951350749dd4a3fcbe3c7c3cf3798bcb51d9ea2696bde2455ce3db9e456"
+      "sha256": "6d971803feba7d64c712ba6b64b85968d35dea22e4895c84660f1587f81ca929"
     },
     {
       "path": "tools/build_video_unit_grouping_spec.py",
@@ -5265,7 +5265,7 @@
     },
     {
       "path": "tools/h3_director_prompt_v2.py",
-      "sha256": "5f1b0f569eac0d6a16d737c9d9d9bfa5efe4e5c5035e4c0ecb70cc4077513886"
+      "sha256": "031d81b08fb5afba194d72d2d69b7bfac30a56c9f1165c6683131ab1c8f90c7d"
     },
     {
       "path": "tools/h3_english_contract_io.py",
@@ -5285,7 +5285,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "9dfe318cfdb1cb417b5c7447108469726d4055430ac87deca5fad8996c06b66d"
+      "sha256": "06e99c0cd447d8d1fdf89e2126e7fc9ae964fdf0b779d60cbb2b8a07a5c6ef11"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",
@@ -8157,7 +8157,7 @@
     },
     {
       "path": "tools/tests/test_h3_director_prompt_v2.py",
-      "sha256": "04f65b1960833a6af2c720878eb93fb984013036183c992a84fc272bb76b3154"
+      "sha256": "88e374c42893cedff951ee9d0e29fd1bec464c8da5683f3423a21769966b29e3"
     },
     {
       "path": "tools/tests/test_h3_director_v2_delivery.py",
@@ -8174,6 +8174,10 @@
     {
       "path": "tools/tests/test_h3_fleet_queue.py",
       "sha256": "be065d85542c42ca7a0b7ba22fe4a2f8dec8763d512d67ac4aa4fe0d98a690a4"
+    },
+    {
+      "path": "tools/tests/test_h3_in_shot_identity_swap.py",
+      "sha256": "083d44a018f156fbfbb882d678ad808be9bcde9e1cd345561ebffe928369fa74"
     },
     {
       "path": "tools/tests/test_h3_native_audio_whitelist_gate.py",
@@ -8534,6 +8538,10 @@
     {
       "path": "tools/tests/test_nalu_final_fix_round.py",
       "sha256": "f11fd4ab007e8247106ee5684c687ef3d966b3a3fef197e67c98b05f0024605e"
+    },
+    {
+      "path": "tools/tests/test_nalu_gemini_multipass.py",
+      "sha256": "b4709429e989c14894b8c196de56f778378833a505b4d94f6a36d5ffa920d697"
     },
     {
       "path": "tools/tests/test_nalu_h3_resolution.py",
