@@ -43,6 +43,24 @@ Flow (all thresholds in ``DEFAULTS``, overridable with ``--config``):
                 independent review); the open review request lists the pending library changes and the patrol may
                 veto entries (``exemplar_veto``: ids) -- a veto revokes the canary pack and the ids never return.
 
+7. fast-track   GLOBAL final-review lessons (line owner 2026-11-20: "通用的问题不分语言 ... 应该是 global 的 lesson
+                立即生效").  A cluster ``FINAL_REVIEW:<kind>|global`` (the producer's scope classifier found the
+                CONFIRMED finding language-independent; route DIRECTING_GUIDANCE or MODEL_CONSTRAINT) is eligible from
+                ``fasttrack_min_episodes`` (1) episode.  ``fasttrack`` (hourly, collector_fasttrack.sh) exports only
+                those clusters as a separate review request (``ft-...``, its own slot next to the daily ``rv-...``);
+                the patrol reviews it within the hour; ``import-review`` of an ``ft-`` result moves every approved
+                rule without ``scope.languages`` straight to RELEASED (VALIDATED -> CANARY -> RELEASED with the
+                service's FAST_TRACK_SINGLE_SOURCE waiver) and ships a RELEASED-labelled pack to every device at
+                once (an in-flight canary pack is re-signed with the rule added).  An approval the patrol scoped to
+                a language goes to the normal backlog / canary.  Safety valves: ``fasttrack_max_rules`` active
+                fast-track rules (and the global ``max_active_rules``); auto-retire when the target cluster recurs
+                in >= ``fasttrack_retire_recurrences`` distinct episodes after ``fasttrack_retire_grace_hours``, or
+                when the fleet got clearly worse after the rule shipped (same margins as the canary, before vs after
+                windows, plus final-review rejects per episode); a kill switch (``fasttrack_enabled: false`` in the
+                config or the file ``<state>/FASTTRACK_KILL``) stops export and publish (retirement keeps running);
+                ``fasttrack-kill --rule ID|--all --reason R`` (or ``fasttrack_kill: [ids]`` in any review result)
+                retires rules by hand.  Every step is logged in the state history.
+
 Status: ``status.json`` (and ``--status-out``) -- the dashboard line
 "新增候选 N · 灰度中 M · 上一批次 已全量/已回滚 · 退役 K".
 """
@@ -115,7 +133,40 @@ DEFAULTS: dict[str, Any] = {
     "exemplar_min_interval_hours": 24,
     "exemplar_per_type": 2,
     "exemplar_max": 60,
+    #: 7. fast-track for GLOBAL confirmed final-review lessons (see the module docstring)
+    "fasttrack_enabled": True,
+    "fasttrack_min_episodes": 1,
+    "fasttrack_routes": ["DIRECTING_GUIDANCE", "MODEL_CONSTRAINT"],
+    "fasttrack_max_rules": 12,
+    "fasttrack_batch_max": 3,
+    "fasttrack_request_max_clusters": 10,
+    "fasttrack_retire_recurrences": 3,
+    "fasttrack_retire_grace_hours": 6,
+    "fasttrack_regression_window_hours": 72,
+    "fasttrack_regression_min_episodes": 3,
 }
+FASTTRACK_PREFIX = "FINAL_REVIEW:"
+FASTTRACK_SCOPE = "global"
+FASTTRACK_KILL_FILE = "FASTTRACK_KILL"
+FASTTRACK_WAIVER = "FAST_TRACK_SINGLE_SOURCE"
+FASTTRACK_INSTRUCTIONS = (
+    "FAST-TRACK review (owner 2026-11-20): every cluster here is keyed FINAL_REVIEW:<kind>|global -- a CONFIRMED "
+    "finding of the independent final review (reviewer problem, must-check DEFECT, or a Gemini finding the reviewer "
+    "confirmed) that the engine classified as language-independent (each sample's scope_decision gives the basis "
+    "and reason).  It is offered from ONE episode because an obvious, language-independent problem should be "
+    "fixed for every line now.  An APPROVE ships to RELEASED on every device within minutes -- there is no canary; "
+    "the train retires the rule automatically if the same kind recurs in 3 later episodes or the fleet gets worse.  "
+    "Default APPROVE when the samples show one clear, general cause: lesson_route DIRECTING_GUIDANCE -> category "
+    "DIRECTING_HEURISTIC, application {carrier: DIRECTING_GUIDANCE, prompt_clause: {zh, en}}, scope {models, stages "
+    "[SCRIPT_AUTHORING, STORYBOARD_AUTHORING]} with NO scope.languages, one short general clause (no names, places "
+    "or plot), exceptions required; lesson_route MODEL_CONSTRAINT -> category MODEL_CONSTRAINT with a provider-prompt "
+    "clause (carrier NEGATIVE_CONSTRAINT or BEAT_DIRECTION, scope.stages [VIDEO_COMPILE], no scope.languages) only "
+    "when a clause can plausibly prevent it.  Override the scope by adding scope.languages [<lang>] when the clause "
+    "clearly only makes sense for one language -- that rule then takes the normal canary path.  REJECT when the "
+    "finding is story-specific, a one-off taste call, contradicts NALU_CRAFT_STANDARD_v1 (e.g. it asks for an "
+    "establishing shot, which C-01 drops), is an engine problem, or the samples do not share one cause.  At most "
+    "batch_max approvals are used; never put money, gates, authority or secrets into a clause.  Result format is the "
+    "daily one; to retire a live fast-track rule add \"fasttrack_kill\": [rule_id, ...] + \"fasttrack_kill_reason\".")
 ROUND_TYPES = ("Q1_ROUND", "Q2_ROUND", "POSTGEN_ROUND")
 NOT_LESSON_PREFIXES = ("PROVIDER_OUTAGE",)
 #: producer lesson_class values that a prompt rule cannot fix (engine thresholds, the reviewer's own evidence)
@@ -197,7 +248,8 @@ def evidence_sample(event: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {"device": event.get("device_id"), "episode": event.get("episode_id"),
                            "stage": event.get("stage"), "symptom": str(event.get("symptom") or "")[:300]}
     for key in ("failure_code", "detail_category", "item", "asset_kind", "units_failed", "units_in_round",
-                "default_accepted", "accepted_order_seq", "language", "lesson_route", "review_round"):
+                "default_accepted", "accepted_order_seq", "language", "lesson_route", "review_round", "kb_scope",
+                "scope_decision", "confirmed_by"):
         if ev.get(key) not in (None, ""):
             out[key] = ev[key]
     samples = ev.get("samples")
@@ -224,6 +276,18 @@ def lesson_route(events: list[dict[str, Any]], prefixes: Any = ()) -> str | None
 
 def cluster_id(ftype: str) -> str:
     return "cl-" + hashlib.sha256(ftype.encode("utf-8")).hexdigest()[:12]
+
+
+def is_fasttrack_key(key: str) -> bool:
+    return str(key).startswith(FASTTRACK_PREFIX) and str(key).endswith("|" + FASTTRACK_SCOPE)
+
+
+def fasttrack_candidate(key: str, events: list[dict[str, Any]], route: str | None, routes: Any) -> bool:
+    """A GLOBAL final-review cluster whose newest event is a confirmed finding on a fast-track route."""
+    if not is_fasttrack_key(key) or not events or route not in set(routes or ()):
+        return False
+    ev = _evidence(events[-1])
+    return ev.get("confirmed") is True and ev.get("kb_scope") == FASTTRACK_SCOPE
 
 
 class Train:
@@ -332,6 +396,7 @@ class Train:
             min_devices = int(self.cfg["directing_min_devices" if directing else "min_devices"])
             min_episodes = int(self.cfg["directing_min_episodes" if directing else "min_episodes"])
             languages = sorted({str(_evidence(e).get("language")) for e in events if _evidence(e).get("language")})
+            fast = fasttrack_candidate(key, events, route, self.cfg.get("fasttrack_routes"))
             out.append({
                 "cluster_id": cluster_id(key), "failure_type": ftype, "cluster_key": key,
                 "detail_category": key[len(ftype) + 1:] if key != ftype else None,
@@ -348,6 +413,8 @@ class Train:
                 "thresholds": {"min_devices": min_devices, "min_episodes": min_episodes},
                 "event_ids": ids[-50:],
                 "eligible": (sources["independent_sources"] >= min_devices or len(episodes) >= min_episodes),
+                **({"kb_scope": FASTTRACK_SCOPE, "fast_track": True,
+                    "fast_track_eligible": len(episodes) >= int(self.cfg["fasttrack_min_episodes"])} if fast else {}),
             })
         return out
 
@@ -397,8 +464,11 @@ class Train:
         for row in state["clusters"].values():
             if row.get("status") in ("VALIDATED", "CANARY", "RELEASED"):
                 targeted.add(row.get("cluster_key") or row.get("failure_type"))
+        fast_live = self.fasttrack_active()
+        pending_ft = self._open_cluster_ids(state.get("open_fasttrack_review"))
         clusters = [cl for cl in self.clusters() if cl["eligible"] and cl["cluster_id"] not in handled
-                    and cl["cluster_key"] not in targeted and cl["failure_type"] not in targeted]
+                    and cl["cluster_key"] not in targeted and cl["failure_type"] not in targeted
+                    and cl["cluster_id"] not in pending_ft and not (fast_live and cl.get("fast_track"))]
         exemplar_changes = self._exemplar_review_section(state)
         if not clusters and not exemplar_changes:
             state["open_review"] = None
@@ -435,8 +505,12 @@ class Train:
                 "with the numbers the samples show; REJECT it only when the samples contradict each other.  "
                 "A cluster keyed FINAL_REVIEW:<kind>|<language> (e.g. FINAL_REVIEW:PACING|ko) is a recurring "
                 "CONFIRMED finding of the independent final review (reviewer problem, must-check DEFECT or a Gemini "
-                "A/V finding the reviewer confirmed) on that dialogue language; its samples carry the source, "
-                "severity, time window and an anonymised description.  lesson_route DIRECTING_GUIDANCE (kinds "
+                "A/V finding the reviewer confirmed) that the engine classified as depending on that dialogue "
+                "language (each sample's scope_decision gives the basis and reason); its samples carry the source, "
+                "severity, time window and an anonymised description.  FINAL_REVIEW:<kind>|global clusters "
+                "(language-independent) normally go through the separate fast-track review (ft-...); they appear "
+                "here only while the fast-track is switched off -- then approve them WITHOUT scope.languages.  "
+                "lesson_route DIRECTING_GUIDANCE (kinds "
                 "PACING, STORY, LENGTH, STATIC_SHOT_SPLIT, OTHER) means an AUTHOR-side lesson: APPROVE it as a "
                 "DIRECTING_GUIDANCE rule (category DIRECTING_HEURISTIC, scope.stages [SCRIPT_AUTHORING], "
                 "scope.languages [<language>]) that turns the descriptions into one general writing / directing "
@@ -473,9 +547,18 @@ class Train:
         state = self.state()
         request_id = str(result.get("request_id") or "")
         req_path = self.dir / "review_requests" / f"{request_id}.json"
-        if not request_id or request_id != state.get("open_review") or not req_path.is_file():
-            raise TrainError("REVIEW_REQUEST_NOT_OPEN", {"open": state.get("open_review"), "got": request_id})
+        fast = bool(request_id) and request_id == state.get("open_fasttrack_review")
+        if not request_id or request_id not in (state.get("open_review"), state.get("open_fasttrack_review")) \
+                or not req_path.is_file():
+            raise TrainError("REVIEW_REQUEST_NOT_OPEN", {"open": state.get("open_review"),
+                                                         "open_fasttrack": state.get("open_fasttrack_review"),
+                                                         "got": request_id})
         request = json.loads(req_path.read_text(encoding="utf-8"))
+        ft = state.setdefault("fasttrack", {})
+        ft_slots = max(0, min(int(self.cfg["fasttrack_max_rules"]) - self._fasttrack_active_count(state),
+                              int(self.cfg["max_active_rules"]) - self._active_count(state)
+                              - len(ft.get("queue") or [])))
+        ft_taken = 0
         by_id = {cl["cluster_id"]: cl for cl in request.get("clusters") or []}
         reviewer = _ident(result.get("reviewer") or "patrol")
         rev = svc_mod.Principal(reviewer, self.tenant, "reviewer")
@@ -510,25 +593,50 @@ class Train:
                                  "details": getattr(exc, "details", None)})
                 continue
             state["clusters"][cid] = {**base, "status": "VALIDATED", "rule_id": rule_id}
+            rule_scope = (decision.get("rule") or {}).get("scope") or {}
+            if fast and not rule_scope.get("languages") and ft_taken < min(ft_slots, int(self.cfg["fasttrack_batch_max"])):
+                ft_taken += 1
+                ft.setdefault("queue", []).append(rule_id)
+                state["clusters"][cid]["fast_track"] = True
+                outcomes.append({"cluster_id": cid, "status": "VALIDATED", "rule_id": rule_id, "fast_track": True})
+                continue
+            if fast:  # scoped to a language by the patrol, or over the fast-track cap: the normal canary path
+                state["clusters"][cid]["fast_track_declined"] = ("SCOPED_TO_LANGUAGE" if rule_scope.get("languages")
+                                                                 else "FASTTRACK_CAP")
             state.setdefault("backlog", []).append(rule_id)
             outcomes.append({"cluster_id": cid, "status": "VALIDATED", "rule_id": rule_id})
         veto = [str(x) for x in result.get("exemplar_veto") or [] if str(x).strip()]
         if veto:
             outcomes.append({"exemplar_veto": self._exemplar_veto(
                 state, veto, str(result.get("exemplar_veto_reason") or "patrol veto"), reviewer)})
-        state["open_review"] = None
+        kill = [str(x) for x in result.get("fasttrack_kill") or [] if str(x).strip()]
+        if fast:
+            state["open_fasttrack_review"] = None
+        else:
+            state["open_review"] = None
         results_dir = self.dir / "review_results"
         results_dir.mkdir(parents=True, exist_ok=True)
         (results_dir / f"{request_id}.json").write_text(json.dumps(result, ensure_ascii=False, indent=1) + "\n",
                                                          encoding="utf-8")
-        self._log(state, "import_review", request_id=request_id,
+        self._log(state, "import_review", request_id=request_id, fast_track=fast,
                   outcomes={k: sum(1 for o in outcomes if o.get("status") == k)
                             for k in {o["status"] for o in outcomes if "status" in o}})
         self.save(state)
-        return {"status": "IMPORTED", "request_id": request_id, "outcomes": [o for o in outcomes if "status" in o],
-                **({"exemplar_veto": next(o["exemplar_veto"] for o in outcomes if "exemplar_veto" in o)}
-                   if veto else {}),
-                "backlog": len(state["backlog"])}
+        out = {"status": "IMPORTED", "request_id": request_id, "outcomes": [o for o in outcomes if "status" in o],
+               **({"exemplar_veto": next(o["exemplar_veto"] for o in outcomes if "exemplar_veto" in o)}
+                  if veto else {}),
+               "backlog": len(state.get("backlog") or [])}
+        if kill:
+            out["fasttrack_kill"] = self.fasttrack_kill(kill, str(result.get("fasttrack_kill_reason") or "patrol"),
+                                                        by=reviewer)
+        if fast and (self.state().get("fasttrack") or {}).get("queue"):
+            # immediate effect: publish the approved global rules now (the hourly run retries a failed publish)
+            try:
+                out["fasttrack_publish"] = self.fasttrack_publish()
+            except (TrainError, svc_mod.ServiceError, b.BundleError, c.ContractError, OSError) as exc:
+                out["fasttrack_publish"] = {"status": "ERROR", "code": getattr(exc, "code", type(exc).__name__),
+                                            "error": str(exc)[:300]}
+        return out
 
     def _create_candidate(self, rev: svc_mod.Principal, cl: dict[str, Any], rule: dict[str, Any], reason: str,
                           request_id: str) -> str:
@@ -820,8 +928,14 @@ class Train:
     def _rollback(self, state: dict[str, Any], pack: dict[str, Any], decision: dict[str, Any],
                   worse: list[str]) -> dict[str, Any]:
         reason = "canary clearly worse: " + "; ".join(worse)
-        self.service.revoke_bundle(self.pub, bundle_id=self.cfg["bundle_id"], version=str(pack["version"]),
-                                   reason=reason[:300])
+        for version in [pack["version"], *(pack.get("superseded_versions") or [])]:
+            self.service.revoke_bundle(self.pub, bundle_id=self.cfg["bundle_id"], version=str(version),
+                                       reason=reason[:300])
+        released = next((p for p in reversed(state["packs"]) if p.get("status") == "RELEASED"), None)
+        if pack.get("superseded_versions") and released:
+            # the canary pack was re-signed by a fast-track publish: canary devices fall back to the full RELEASED set
+            self.service.release(self.pub, bundle_id=self.cfg["bundle_id"], version=str(released["version"]),
+                                 channel="CANARY", note=f"rollback of canary pack {pack['version']}")
         for rule_id in pack.get("new_rules") or []:
             try:
                 self._transition(rule_id, "DEPRECATED", f"ROLLED_BACK: {reason}")
@@ -932,12 +1046,306 @@ class Train:
             "cohort": {"canary_devices": sum(1 for v in self.cohort.values() if v == "CANARY"),
                        "devices": len(self.cohort)},
             "exemplars": exemplar_status,
+            "open_fasttrack_review_request": state.get("open_fasttrack_review"),
+            "fast_track": self._fasttrack_status(state),
             "summary_zh": f"新增候选 {pending} · 灰度中 {m} · 上一批次 {last_text} · 退役 {len(state.get('retired') or [])}"
-                          + (f" · 样例 {exemplar_status['count']}" if exemplar_status["count"] else ""),
+                          + (f" · 样例 {exemplar_status['count']}" if exemplar_status["count"] else "")
+                          + (f" · 快速通道 {self._fasttrack_active_count(state)}"
+                             if self._fasttrack_active_count(state) else "")
+                          + (" · 快速通道已关闭" if not self.fasttrack_active() else ""),
         }
         (self.dir / "status.json").write_text(json.dumps(status, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
         return status
 
+
+    # ------------------------------------------------------------------ 7. fast-track (GLOBAL lessons)
+    def fasttrack_active(self) -> bool:
+        """False when the kill switch is on: ``fasttrack_enabled: false`` or the file ``<state>/FASTTRACK_KILL``."""
+        return bool(self.cfg.get("fasttrack_enabled", True)) and not (self.dir / FASTTRACK_KILL_FILE).exists()
+
+    def _fasttrack_live_rules(self, state: dict[str, Any]) -> list[str]:
+        rules = (state.get("fasttrack") or {}).get("rules") or {}
+        pending = set(state.get("retire_pending") or [])
+        return [r for r, row in rules.items() if row.get("status") == "RELEASED" and r not in pending]
+
+    def _fasttrack_active_count(self, state: dict[str, Any]) -> int:
+        return len(self._fasttrack_live_rules(state))
+
+    def _open_cluster_ids(self, request_id: Any) -> set[str]:
+        if not request_id:
+            return set()
+        try:
+            data = json.loads((self.dir / "review_requests" / f"{request_id}.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return set()
+        return {str(cl.get("cluster_id")) for cl in data.get("clusters") or []}
+
+    def fasttrack_export(self) -> dict[str, Any]:
+        """Export the fast-track-eligible GLOBAL clusters as their own review request (``ft-...``)."""
+        state = self.state()
+        if not self.fasttrack_active():
+            return {"status": "KILLED"}
+        open_id = state.get("open_fasttrack_review")
+        if open_id and (self.dir / "review_requests" / f"{open_id}.json").is_file():
+            return {"status": "OPEN_REVIEW_PENDING", "request_id": open_id}
+        handled = {cid for cid, row in state["clusters"].items() if row.get("status") in
+                   ("VALIDATED", "REJECTED", "CANARY", "RELEASED", "BLOCKED_POLICY", "DEPRECATED")}
+        targeted = {row.get("cluster_key") or row.get("failure_type") for row in state["clusters"].values()
+                    if row.get("status") in ("VALIDATED", "CANARY", "RELEASED")}
+        in_daily = self._open_cluster_ids(state.get("open_review"))
+        clusters = [cl for cl in self.clusters() if cl.get("fast_track_eligible") and cl["cluster_id"] not in handled
+                    and cl["cluster_key"] not in targeted and cl["cluster_id"] not in in_daily]
+        if not clusters:
+            state["open_fasttrack_review"] = None
+            self.save(state)
+            return {"status": "NOTHING_TO_REVIEW", "clusters": 0}
+        clusters.sort(key=lambda cl: (-cl["episodes"], -cl["devices"], cl["cluster_key"]))
+        clusters = clusters[: int(self.cfg["fasttrack_request_max_clusters"])]
+        now = self.now()
+        digest = hashlib.sha256(json.dumps([cl["cluster_id"] for cl in clusters]).encode()).hexdigest()[:6]
+        request_id = f"ft-{_iso(now).replace(':', '').replace('-', '')}-{digest}"
+        slots = max(0, min(int(self.cfg["fasttrack_max_rules"]) - self._fasttrack_active_count(state),
+                           int(self.cfg["max_active_rules"]) - self._active_count(state)))
+        request = {
+            "schema": REQUEST_SCHEMA, "request_id": request_id, "tenant": self.tenant, "created_at": _iso(now),
+            "fast_track": True, "batch_max": min(int(self.cfg["fasttrack_batch_max"]), slots),
+            "active_rules": self._active_count(state), "rule_cap": int(self.cfg["max_active_rules"]),
+            "fast_track_rules": self._fasttrack_active_count(state),
+            "fast_track_rule_cap": int(self.cfg["fasttrack_max_rules"]), "free_rule_slots": slots,
+            "thresholds": {k: self.cfg[k] for k in ("fasttrack_min_episodes", "fasttrack_retire_recurrences",
+                                                    "fasttrack_retire_grace_hours", "lookback_days")},
+            "instructions": FASTTRACK_INSTRUCTIONS, "clusters": clusters,
+        }
+        out_dir = self.dir / "review_requests"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        path = out_dir / f"{request_id}.json"
+        path.write_text(json.dumps(request, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        state["open_fasttrack_review"] = request_id
+        self._log(state, "fasttrack_export", request_id=request_id, clusters=len(clusters))
+        self.save(state)
+        return {"status": "EXPORTED", "request_id": request_id, "path": str(path), "clusters": len(clusters)}
+
+    def _fasttrack_ship(self, state: dict[str, Any], note: str) -> dict[str, Any]:
+        """Sign the live RELEASED set as a RELEASED pack for every device; an in-flight canary pack is re-signed
+        with the same set plus its own new rules, so canary devices see the change too."""
+        pending = set(state.get("retire_pending") or [])
+        live = [r for r in dict.fromkeys(state.get("released_rules") or []) if r not in pending
+                and (self.candidate(r) or {}).get("state") == "RELEASED"]
+        canary = self._canary_pack(state)
+        version = self._next_version(state)
+        shipped = self._ship(version, "RELEASED", live, ["RELEASED"] if canary else ["RELEASED", "CANARY"], note)
+        out: dict[str, Any] = {"released_version": version, "rules": live}
+        if canary:
+            new = [r for r in canary.get("new_rules") or [] if (self.candidate(r) or {}).get("state") == "CANARY"]
+            cversion = self._next_version(state)  # the RELEASED version above is already in the service
+            cshipped = self._ship(cversion, "CANARY", live + new, ["CANARY"], f"{note} (canary pack {canary['version']} re-signed)")
+            canary.setdefault("superseded_versions", []).append(canary["version"])
+            canary.update({"version": cversion, "kept_rules": live, "digest": cshipped["digest"],
+                           "rules": cshipped["rules"]})
+            out["canary_version"] = cversion
+        state["packs"].append({**shipped, "created_at": _iso(self.now()), "status": "RELEASED", "fast_track": True})
+        state["released_rules"] = live
+        state["retire_pending"] = [r for r in state.get("retire_pending") or [] if r in live]
+        return out
+
+    def fasttrack_publish(self) -> dict[str, Any]:
+        """Approved fast-track rules -> RELEASED on every device now (VALIDATED -> CANARY -> RELEASED, waiver
+        FAST_TRACK_SINGLE_SOURCE), then one RELEASED pack."""
+        state = self.state()
+        ft = state.setdefault("fasttrack", {})
+        queue = list(ft.get("queue") or [])
+        if not queue:
+            return {"status": "NOTHING_TO_SHIP"}
+        if not self.fasttrack_active():
+            return {"status": "KILLED", "queued": queue}
+        if self.publisher_key is None:
+            raise TrainError("PUBLISHER_KEY_UNAVAILABLE")
+        promoted, blocked = [], []
+        for rule_id in queue:
+            rec = self.candidate(rule_id)
+            if rec is None or rec["state"] not in ("VALIDATED", "CANARY"):
+                ft["queue"].remove(rule_id)
+                continue
+            try:
+                if rec["state"] == "VALIDATED":
+                    self._transition(rule_id, "CANARY", "fast-track: global confirmed final-review lesson")
+                rec = self.service.get_candidate(self.pub, rule_id)
+                self.service.transition_candidate(self.pub, rule_id, to="RELEASED", if_match=rec["etag"],
+                                                  note="fast-track: RELEASED directly (no canary)",
+                                                  waive=(FASTTRACK_WAIVER,))
+                promoted.append(rule_id)
+            except svc_mod.ServiceError as exc:
+                blocked.append({"rule_id": rule_id, "code": exc.code, "details": exc.details})
+                try:
+                    if (self.candidate(rule_id) or {}).get("state") == "CANARY":
+                        self._transition(rule_id, "DEPRECATED", f"fast-track refused: {exc.details}")
+                except svc_mod.ServiceError:
+                    pass
+                self._mark_cluster(state, rule_id, "BLOCKED_POLICY", reason=json.dumps(exc.details)[:300])
+            ft["queue"].remove(rule_id)
+        if not promoted:
+            self._log(state, "fasttrack_publish", outcome="NOTHING_PROMOTED", blocked=blocked)
+            self.save(state)
+            return {"status": "NOTHING_TO_SHIP", "blocked": blocked}
+        state["released_rules"] = list(dict.fromkeys(list(state.get("released_rules") or []) + promoted))
+        shipped = self._fasttrack_ship(state, f"fast-track: +{len(promoted)} global")
+        now = _iso(self.now())
+        for rule_id in promoted:
+            self._mark_cluster(state, rule_id, "RELEASED", fast_track=True)
+            cl = next((row for row in state["clusters"].values() if row.get("rule_id") == rule_id), {})
+            ft.setdefault("rules", {})[rule_id] = {
+                "status": "RELEASED", "released_at": now, "version": shipped["released_version"],
+                "cluster_key": cl.get("cluster_key"), "batch": shipped["released_version"]}
+        self._log(state, "fasttrack_publish", version=shipped["released_version"], promoted=promoted,
+                  blocked=blocked, canary_version=shipped.get("canary_version"))
+        self.save(state)
+        return {"status": "PUBLISHED_TO_RELEASED", "version": shipped["released_version"], "promoted": promoted,
+                "blocked": blocked, **({"canary_version": shipped["canary_version"]}
+                                       if shipped.get("canary_version") else {})}
+
+    def _merged_rates(self, since: float, until: float) -> dict[str, Any]:
+        """Fleet-wide (canary + control) production rates over a window, plus final-review rejects per episode."""
+        m = self.metrics(since, until)
+        a, b_ = m["canary"], m["control"]
+        eps = a["episodes"] + b_["episodes"]
+
+        def wavg(key: str, units: str) -> float | None:
+            n = a[units] + b_[units]
+            if not n:
+                return None
+            return round(((a[key] or 0) * a[units] + (b_[key] or 0) * b_[units]) / n, 4)
+
+        def per_ep(key: str) -> float | None:
+            if not eps:
+                return None
+            return round(((a[key] or 0) * a["episodes"] + (b_[key] or 0) * b_["episodes"]) / eps, 3)
+        rejects = {(e.get("device_id"), e.get("episode_id")) for e in self.events(since=since, until=until)
+                   if failure_type(e) == "S7_FINAL_REVIEW_REJECT" and e.get("event_kind") == "FAILURE_OBSERVATION"}
+        return {"episodes": eps, "q1_admission_rate": wavg("q1_admission_rate", "q1_units"),
+                "q1_units": a["q1_units"] + b_["q1_units"], "q2_pass_rate": wavg("q2_pass_rate", "q2_units"),
+                "q2_units": a["q2_units"] + b_["q2_units"],
+                "redo_rounds_per_episode": per_ep("redo_rounds_per_episode"),
+                "content_rejections_per_episode": per_ep("content_rejections_per_episode"),
+                "final_rejects_per_episode": round(len(rejects) / eps, 3) if eps else None}
+
+    def fasttrack_retire(self) -> dict[str, Any]:
+        """Safety valves for live fast-track rules: the target recurs in >= ``fasttrack_retire_recurrences``
+        distinct episodes after the grace period (the rule is not helping), or the fleet got clearly worse after
+        the batch shipped (canary margins, before vs after windows) -> DEPRECATED and a new RELEASED pack."""
+        state = self.state()
+        rules = (state.get("fasttrack") or {}).get("rules") or {}
+        live = self._fasttrack_live_rules(state)
+        if not live:
+            return {"status": "OK", "checked": 0, "retired": []}
+        now = self.now()
+        grace = float(self.cfg["fasttrack_retire_grace_hours"]) * 3600
+        need = int(self.cfg["fasttrack_retire_recurrences"])
+        events = self.events(since=min(_epoch(rules[r].get("released_at")) or now for r in live))
+        retire: list[dict[str, Any]] = []
+        for rule_id in live:
+            row = rules[rule_id]
+            start = (_epoch(row.get("released_at")) or now) + grace
+            target = row.get("cluster_key")
+            eps = sorted({f"{e.get('device_id')}/{e.get('episode_id')}" for e in events
+                          if e["_at"] >= start and e.get("event_kind") == "FAILURE_OBSERVATION"
+                          and cluster_key(e) == target})
+            row["recurrences"] = len(eps)
+            if len(eps) >= need:
+                retire.append({"rule_id": rule_id, "reason": f"FAST_TRACK_TARGET_RECURRED:{len(eps)}_episodes",
+                               "episodes": eps[:10]})
+        window = float(self.cfg["fasttrack_regression_window_hours"]) * 3600
+        min_eps = int(self.cfg["fasttrack_regression_min_episodes"])
+        batches: dict[Any, list[str]] = {}
+        for rule_id in live:
+            if not rules[rule_id].get("regression_checked"):
+                batches.setdefault(rules[rule_id].get("batch"), []).append(rule_id)
+        checks = []
+        for batch, ids in batches.items():
+            at = _epoch(rules[ids[0]].get("released_at")) or now
+            before, after = self._merged_rates(at - window, at), self._merged_rates(at, min(now, at + window))
+            if before["episodes"] < min_eps or after["episodes"] < min_eps:
+                if now - at >= window:
+                    for r in ids:
+                        rules[r]["regression_checked"] = "INSUFFICIENT_DATA"
+                continue
+            worse = self._worse(after, before)
+            fb, fa = before["final_rejects_per_episode"], after["final_rejects_per_episode"]
+            if fb is not None and fa is not None and fa - fb >= float(self.cfg["per_episode_abs_margin"]) \
+                    and fa > fb * (1 + float(self.cfg["per_episode_ratio_margin"])):
+                worse.append(f"final_rejects_per_episode:after={fa}:before={fb}")
+            checks.append({"batch": batch, "before": before, "after": after, "worse": worse})
+            for r in ids:
+                rules[r]["regression_checked"] = "WORSE" if worse else "NOT_WORSE"
+            if worse:
+                retire += [{"rule_id": r, "reason": "FAST_TRACK_REGRESSION:" + "; ".join(worse)} for r in ids
+                           if r not in {x["rule_id"] for x in retire}]
+        out = self._retire_fasttrack(state, retire, by="release-train")
+        if not retire:
+            self.save(state)
+        return {"status": "OK", "checked": len(live), "retired": [r["rule_id"] for r in retire],
+                "regression_checks": checks, **({"shipped": out} if out else {})}
+
+    def _retire_fasttrack(self, state: dict[str, Any], rows: list[dict[str, Any]], *, by: str) -> dict[str, Any]:
+        if not rows:
+            return {}
+        rules = state.setdefault("fasttrack", {}).setdefault("rules", {})
+        at = _iso(self.now())
+        for row in rows:
+            try:
+                self._transition(row["rule_id"], "DEPRECATED", f"RETIRED: {row['reason']}"[:300])
+            except svc_mod.ServiceError:
+                pass
+            state.setdefault("retire_pending", []).append(row["rule_id"])
+            state.setdefault("retired", []).append({"rule_id": row["rule_id"], "reason": row["reason"][:300],
+                                                    "at": at, "fast_track": True, "by": by})
+            rules.setdefault(row["rule_id"], {}).update({"status": "RETIRED", "retired_at": at,
+                                                         "retire_reason": row["reason"][:300]})
+            self._mark_cluster(state, row["rule_id"], "DEPRECATED", reason=row["reason"][:300])
+        shipped: dict[str, Any] = {}
+        if self.publisher_key is not None:
+            try:
+                shipped = self._fasttrack_ship(state, f"fast-track retire: -{len(rows)}")
+            except (TrainError, svc_mod.ServiceError, b.BundleError, c.ContractError) as exc:
+                shipped = {"status": "ERROR", "code": getattr(exc, "code", type(exc).__name__)}
+        self._log(state, "fasttrack_retire", rules=[r["rule_id"] for r in rows],
+                  reasons=[r["reason"][:120] for r in rows], by=by, shipped=shipped.get("released_version"))
+        self.save(state)
+        return shipped
+
+    def fasttrack_kill(self, rule_ids: list[str] | None, reason: str, *, by: str = "operator",
+                       all_rules: bool = False) -> dict[str, Any]:
+        """Manual kill: retire the named live fast-track rules (or all of them) and republish at once."""
+        state = self.state()
+        live = self._fasttrack_live_rules(state)
+        ids = live if all_rules else [r for r in rule_ids or [] if r in live]
+        unknown = [] if all_rules else [r for r in rule_ids or [] if r not in live]
+        shipped = self._retire_fasttrack(state, [{"rule_id": r, "reason": f"MANUAL_KILL: {reason}"} for r in ids],
+                                         by=by)
+        return {"status": "OK", "retired": ids, "not_live": unknown, **({"shipped": shipped} if shipped else {})}
+
+    def fasttrack(self) -> dict[str, Any]:
+        """The hourly fast-track step: safety valves first (always), then -- unless killed -- publish any approved
+        rule still queued and export newly eligible GLOBAL clusters for the patrol."""
+        out: dict[str, Any] = {"at": _iso(self.now()), "active": self.fasttrack_active()}
+        steps = [("retire", self.fasttrack_retire)]
+        if out["active"]:
+            steps += [("publish", self.fasttrack_publish), ("review", self.fasttrack_export)]
+        for name, fn in steps:
+            try:
+                out[name] = fn()
+            except (TrainError, svc_mod.ServiceError, b.BundleError, c.ContractError, OSError) as exc:
+                out[name] = {"status": "ERROR", "code": getattr(exc, "code", type(exc).__name__),
+                             "error": str(exc)[:300]}
+        out["summary"] = self.status()
+        return out
+
+    def _fasttrack_status(self, state: dict[str, Any]) -> dict[str, Any]:
+        ft = state.get("fasttrack") or {}
+        rules = ft.get("rules") or {}
+        return {"enabled": self.fasttrack_active(), "open_request": state.get("open_fasttrack_review"),
+                "live_rules": self._fasttrack_live_rules(state), "rule_cap": int(self.cfg["fasttrack_max_rules"]),
+                "queued": list(ft.get("queue") or []),
+                "retired": sorted(r for r, row in rules.items() if row.get("status") == "RETIRED")}
 
     # ------------------------------------------------------------------ 6. 成功样例库
     def exemplar_rows(self) -> list[dict[str, Any]]:
@@ -1122,7 +1530,8 @@ def main(argv: list[str] | None = None, *, out=None) -> int:
     parser = argparse.ArgumentParser(prog="release_train", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("cmd", choices=["clusters", "export-review", "import-review", "build-pack", "evaluate",
-                                        "retire", "register-cohort", "exemplars", "daily", "status"])
+                                        "retire", "register-cohort", "exemplars", "daily", "status", "fasttrack",
+                                        "fasttrack-kill"])
     parser.add_argument("--runtime-root", required=True)
     parser.add_argument("--tenant", required=True)
     parser.add_argument("--config", help="JSON overriding DEFAULTS (thresholds, bundle id, models)")
@@ -1130,6 +1539,9 @@ def main(argv: list[str] | None = None, *, out=None) -> int:
     parser.add_argument("--status-out", help="also write the status JSON here (the fleet dashboard reads it)")
     parser.add_argument("--result", help="import-review: the review-result JSON")
     parser.add_argument("--replace", action="store_true", help="export-review: replace an open request")
+    parser.add_argument("--rule", action="append", default=[], help="fasttrack-kill: a live fast-track rule id")
+    parser.add_argument("--all", action="store_true", help="fasttrack-kill: every live fast-track rule")
+    parser.add_argument("--reason", default="", help="fasttrack-kill: why (logged)")
     args = parser.parse_args(argv)
     try:
         train = open_train(args)
@@ -1154,6 +1566,12 @@ def main(argv: list[str] | None = None, *, out=None) -> int:
             result = {"status": "OK", **train.register_cohort()}
         elif args.cmd == "daily":
             result = {"status": "OK", **train.daily()}
+        elif args.cmd == "fasttrack":
+            result = {"status": "OK", **train.fasttrack()}
+        elif args.cmd == "fasttrack-kill":
+            if not args.reason.strip() or not (args.rule or args.all):
+                raise TrainError("KILL_NEEDS_RULE_AND_REASON")
+            result = train.fasttrack_kill(args.rule, args.reason.strip(), by="operator", all_rules=args.all)
         else:
             result = {"status": "OK", **train.status()}
         _write_status_out(train, args.status_out)

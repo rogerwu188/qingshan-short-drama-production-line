@@ -156,6 +156,9 @@ def reviewer_prompt(episode: str, request: Path, answers: Path, process_id: str,
      这一集卡死（…1324 E04 2026-11-10 两次提交都因此 INVALID）。拿不准的听感问题写进 problems，并据此打分。
 3. 逐镜（`shots` 里每一个 shot_index）写你自己看到的内容；八项打 1–5 分并写依据；整体分单独给（不是平均）；
    每个 `subjective_checks_required` 给布尔值和依据；把观众看得见的剧情事件按时间写进 events；问题按 P0–P3 写进 problems。
+   每条 problem 再给 `kb_scope`（知识库用，不影响判定）：换成任何对白语言都会一样出现的问题（画面、运镜、分镜、剪辑、节奏、
+   剧情、连贯、身份/服装、模型烧字等）写 `global`；只和这一种对白语言有关的（台词用词、发音/ASR/口型、配音音色、字幕文字/
+   断行/标点、翻译腔/敬语/语体、该语种市场的文化习惯）写 `language`；并写一句 `kb_scope_reason`。拿不准写 `global`。
    如实判断：有穿帮就判低分，判拒（REJECT_RECUT）也是正常结论，不要为了通过而改判。
    请求里有 `craft_standard_request` 时，同一遍里再填答案的可选块 `craft_standard`（格式见其 `answer_block`）：两层各 1–5 分，
    每条 CORE 条目 PASS/GAP/NA 加带数字的依据，最多 3 个 top gap（条目 id、时间或镜号、带数字的指标、修法、fix_owner
@@ -187,7 +190,8 @@ def gemini_step(gemini: Path | None) -> str:
    和 `suspect_checks`（S1…，本地测量的尾音/配乐/黑边可疑点及 Gemini 的判断）：到对应时间点用 ffmpeg 抽帧（必要时
    0.25 s 一帧）看画面、量音频，自己判断。确认的：写进 problems（带严重度）和 `qa_defect_checklist` 对应 QA-* 条目的
    DEFECT findings（黑边/横版镜头、造型前后不一致等不属于 QA-* 的只写 problems）。不成立的：说明理由。每一条 G/S 都要在
-   `qa_defect_checklist.gemini_verification` 里给结论：`[{{"id": "G1", "decision": "CONFIRMED|DISMISSED", "reason": "你看到/测到了什么"}}]`。
+   `qa_defect_checklist.gemini_verification` 里给结论：`[{{"id": "G1", "decision": "CONFIRMED|DISMISSED", "reason": "你看到/测到了什么"}}]`；
+   CONFIRMED 的同时给 `"kb_scope": "global|language"` 和一句 `"kb_scope_reason"`（判法同第 3 步 problems 的 kb_scope）。
    Gemini 漏掉的问题照常自己查；它的判语不能代替你的观看，也不能照抄。
 """
 

@@ -92,6 +92,24 @@ SUBJECTIVE_CHECKS = (
 )
 MIN_NOTE_CHARS = 20
 MIN_REASON_CHARS = 12
+#: OPTIONAL per problem (owner 2026-11-20, knowledge base): would the same problem recur in ANY dialogue language
+#: (picture, edit, story, pacing, continuity, identity, model artefacts -> global) or does it depend on THIS
+#: language (dialogue wording, pronunciation / ASR, voice casting, subtitle text, translation / register /
+#: honorifics, culture of that market -> language)?  Advisory: a missing or malformed value is ignored.
+KB_SCOPE_HINT = ("OPTIONAL global|language: global unless the problem depends on this dialogue language "
+                 "(wording, pronunciation/ASR, voice casting, subtitle text, translation/register/honorifics, "
+                 "culture of that market)")
+
+
+def kb_scope_fields(row: Any) -> dict[str, str]:
+    """``kb_scope`` / ``kb_scope_reason`` of a reviewer row when well formed, else {} (never a validity failure)."""
+    if not isinstance(row, dict):
+        return {}
+    scope = str(row.get("kb_scope") or "").strip().lower()
+    if scope not in ("global", "language"):
+        return {}
+    reason = re.sub(r"\s+", " ", str(row.get("kb_scope_reason") or "")).strip()[:200]
+    return {"kb_scope": scope, **({"kb_scope_reason": reason} if reason else {})}
 TEMPLATE_RE = re.compile(
     r"^(画面正常|无异常|正常|通过|同上|无问题|pass|ok|n/?a|待填写|template)[。.!！ ]*$",
     re.IGNORECASE,
@@ -508,7 +526,8 @@ def prepare(*, episode: str, video: Path, metrics_path: Path, contact_sheet: Pat
             "events": [{"shot_index": 0, "t": 0.0,
                         "what": "externally visible event at this exact time"}],
             "problems": [{"severity": "P0|P1|P2|P3", "shot_index": 0,
-                          "at_seconds": 0.0, "issue": "observed defect", "fix": "specific recut"}],
+                          "at_seconds": 0.0, "issue": "observed defect", "fix": "specific recut",
+                          "kb_scope": KB_SCOPE_HINT, "kb_scope_reason": "one line: why"}],
             **({"craft_standard": "OPTIONAL, see craft_standard_request.answer_block (advisory, never a gate)"}
                if craft_request else {}),
             **({"qa_defect_checklist": "MUST-CHECK, see qa_defect_checklist_request.answer_block (timestamps; "
@@ -726,6 +745,7 @@ def _validate_answers(request: dict[str, Any], request_sha: str,
                            label=f"problem.{pos}.issue", failures=failures),
             "fix": _text(problem.get("fix"), minimum=MIN_REASON_CHARS,
                          label=f"problem.{pos}.fix", failures=failures),
+            **kb_scope_fields(problem),
         })
 
     hard_fail: list[str] = []

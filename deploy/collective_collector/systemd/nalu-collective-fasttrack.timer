@@ -1,0 +1,9 @@
+[Unit]
+Description=NALU collective learning fast-track, hourly at :10 UTC (the hourly patrol at :23 reviews the ft- request 13 min later)
+
+[Timer]
+OnCalendar=*-*-* *:10:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -36,9 +36,11 @@ Event vocabulary (``evidence.failure_type``; the collector clusters on it):
                                          measurement records QA-LOOKALIKE-CAST too (``record_lookalike_cast``)
   FINAL_REVIEW:<kind>                    one per CONFIRMED finding of the independent final review (reviewer
                                          problems, must-check DEFECTs, Gemini findings the reviewer confirmed;
-                                         cluster ``FINAL_REVIEW:<kind>|<language>``, kind = final_fix_round.classify,
-                                         lesson_route DIRECTING_GUIDANCE / MODEL_CONSTRAINT / ENGINE; anonymised
-                                         description only -- ``record_final_review_findings``)
+                                         cluster ``FINAL_REVIEW:<kind>|global`` -- the default -- or
+                                         ``FINAL_REVIEW:<kind>|<language>`` when ``final_review_scope`` finds the
+                                         finding language-dependent; kind = final_fix_round.classify, lesson_route
+                                         DIRECTING_GUIDANCE / MODEL_CONSTRAINT / ENGINE; anonymised description and
+                                         the scope decision only -- ``record_final_review_findings``)
 
 Evidence quality (first daily review 2026-11-13 rejected all 46 clusters as too thin / bookkeeping):
 
@@ -665,6 +667,83 @@ FINAL_REVIEW_MAX_FINDINGS = 12
 FINAL_REVIEW_TEXT_MAX = 120
 _LANG_RE = re.compile(r"[a-z]{2}")
 
+#: Global vs language scope of a confirmed final-review finding (line owner 2026-11-20: "通用的问题不分语言，应该是
+#: global 的 lesson 立即生效").  Every finding is GLOBAL unless it is genuinely language-dependent: spoken dialogue
+#: wording, pronunciation / ASR / lip match, voice casting and timbre, subtitle text / line breaks / punctuation,
+#: translation / register / honorifics, or a culture-specific norm of that language market.  Decided by
+#: ``final_review_scope`` in this order: (1) structured signals -- the finding's kind and QA item; (2) the finding's
+#: own text when it points one way only (speech / subtitle / translation words vs picture / edit / story words);
+#: (3) the independent reviewer's ``kb_scope`` (global|language + one-line reason, written in the same review pass
+#: for each problem and each confirmed Gemini finding -- no extra provider call); (4) GLOBAL.
+SCOPE_GLOBAL = "global"
+SCOPE_LANGUAGE = "language"
+#: kinds whose cause lives in the dialogue language (voice casting / timbre, ASR and lip match, subtitle text)
+LANGUAGE_KINDS = frozenset({"VOICE", "ASR_MISMATCH", "SUBTITLE_WRAP"})
+#: kinds whose cause is the picture, the edit, the model or the mix -- the same in every language
+GLOBAL_KINDS = frozenset({"BURNED_TEXT", "FACE_DRIFT", "COSTUME_IDENTITY", "LOOKALIKE", "STATIC_SHOT_SPLIT",
+                          "LETTERBOX", "MASK", "BGM_FADES", "AUDIO_SMOOTHING", "DIALOGUE_TAIL_GUARD"})
+LANGUAGE_ITEMS = frozenset({"QA-SUBTITLE-WRAP"})
+GLOBAL_ITEMS = frozenset({"QA-BURNED-TEXT", "QA-LOOKALIKE-CAST", "QA-OVERSIZED-MASK", "QA-BGM-DISCONTINUOUS",
+                          "QA-DIALOGUE-TAIL-CUT", "LETTERBOX", "LOOK-DRIFT"})
+#: text signals (lower-case substrings).  Language: what is SAID or WRITTEN in that language.
+LANGUAGE_SIGNALS = (
+    "wording", "word choice", "phrasing", "phrase", "pronunc", "mispronoun", "accent", "intonation", "asr",
+    "transcript", "lip sync", "lip-sync", "lipsync", "subtitle", "caption text", "typo", "spelling", "punctuation",
+    "line break", "translat", "register", "honorific", "politeness", "polite form", "formal speech", "speech level",
+    "slang", "idiom", "grammar", "grammatical", "unnatural line", "unnatural dialogue", "dialogue sounds",
+    "voice cast", "timbre", "dubbing", "native speaker", "cultural", "culture",
+    "用词", "措辞", "发音", "读音", "口音", "语调", "字幕", "标点", "错别字", "错字", "翻译", "译文", "语气", "敬语",
+    "称谓", "称呼", "口语化", "俚语", "成语", "语法", "病句", "台词不自然", "台词生硬", "音色", "声线", "配音", "文化",
+    "习俗", "母语", "존댓말", "반말", "敬語",
+)
+#: Global: what is SEEN or how it is cut / told.
+GLOBAL_SIGNALS = (
+    "shot", "camera", "framing", "frame", "composition", "close-up", "closeup", "wide", "angle", "cut", "edit",
+    "transition", "static", "frozen", "hold", "continuity", "costume", "face", "lighting", "prop", "blocking",
+    "eyeline", "axis", "180", "establishing", "headroom", "crop", "hook", "opening", "ending", "cliffhanger",
+    "story", "plot", "logic", "motivation", "reaction", "staging", "action", "movement", "background", "pacing",
+    "rhythm", "beat", "reveal", "conflict", "scene", "visual", "on screen", "on-screen",
+    "镜头", "运镜", "分镜", "景别", "构图", "特写", "近景", "远景", "全景", "剪辑", "转场", "节奏", "静止", "定格",
+    "穿帮", "连贯", "服装", "脸", "光线", "道具", "走位", "视线", "轴线", "建立镜", "开场", "开头", "结尾", "钩子",
+    "悬念", "剧情", "逻辑", "动机", "反应", "动作", "背景", "画面", "爽点", "冲突", "场景",
+)
+SCOPE_REASON_MAX = 120
+
+
+def _signals(text: str, words: tuple[str, ...]) -> list[str]:
+    low = str(text or "").lower()
+    return [w for w in words if w in low]
+
+
+def final_review_scope(finding: dict[str, Any], kind: str) -> dict[str, str]:
+    """``{"scope": "global"|"language", "basis": KIND|QA_ITEM|TEXT_SIGNAL|REVIEWER|DEFAULT, "reason": ...}`` for one
+    confirmed final-review finding (see ``SCOPE_GLOBAL`` above).  Pure, never raises."""
+    item = str(finding.get("item") or "").upper()
+    if kind in LANGUAGE_KINDS:
+        return {"scope": SCOPE_LANGUAGE, "basis": "KIND",
+                "reason": f"kind {kind}: voice / speech / subtitle text depends on the dialogue language"}
+    if item in LANGUAGE_ITEMS:
+        return {"scope": SCOPE_LANGUAGE, "basis": "QA_ITEM", "reason": f"{item}: subtitle text of this language"}
+    if kind in GLOBAL_KINDS:
+        return {"scope": SCOPE_GLOBAL, "basis": "KIND",
+                "reason": f"kind {kind}: picture / model / edit / mix, the same in every language"}
+    if item in GLOBAL_ITEMS:
+        return {"scope": SCOPE_GLOBAL, "basis": "QA_ITEM", "reason": f"{item}: picture / edit, language-independent"}
+    text = str(finding.get("text") or "")
+    lang_hits, glob_hits = _signals(text, LANGUAGE_SIGNALS), _signals(text, GLOBAL_SIGNALS)
+    if lang_hits and not glob_hits:
+        return {"scope": SCOPE_LANGUAGE, "basis": "TEXT_SIGNAL",
+                "reason": "finding is about dialogue / subtitle / translation (" + ", ".join(lang_hits[:3]) + ")"}
+    if glob_hits and not lang_hits:
+        return {"scope": SCOPE_GLOBAL, "basis": "TEXT_SIGNAL",
+                "reason": "finding is about picture / edit / story (" + ", ".join(glob_hits[:3]) + ")"}
+    reviewer = str(finding.get("kb_scope") or "").strip().lower()
+    if reviewer in (SCOPE_GLOBAL, SCOPE_LANGUAGE):
+        why = re.sub(r"\s+", " ", str(finding.get("kb_scope_reason") or "")).strip()
+        return {"scope": reviewer, "basis": "REVIEWER", "reason": ("reviewer: " + why) if why else "reviewer"}
+    return {"scope": SCOPE_GLOBAL, "basis": "DEFAULT",
+            "reason": ("mixed signals" if lang_hits else "no language-dependent signal") + "; default global"}
+
 
 def final_review_language(language: Any) -> str:
     """``zh-CN`` / ``ko`` / ``ja_JP`` -> ``zh`` / ``ko`` / ``ja``; unknown -> ``zh`` (the historical line)."""
@@ -677,7 +756,8 @@ def record_final_review_findings(rt: Path, *, episode: str, report_path: str | N
                                  cast_names: Iterable[Any] = (), dialogue_lines: Iterable[str] = (),
                                  review_round: str = "first") -> dict[str, Any]:
     """Every CONFIRMED finding of the independent final review as one FAILURE_OBSERVATION ``FINAL_REVIEW:<kind>``
-    (cluster ``FINAL_REVIEW:<kind>|<language>``): the reviewer's problems (issue | fix), its must-check DEFECTs, the
+    (cluster ``FINAL_REVIEW:<kind>|global``, or ``FINAL_REVIEW:<kind>|<language>`` when ``final_review_scope`` finds
+    it language-dependent; evidence ``kb_scope`` + ``scope_decision`` {scope, basis, reason}): the reviewer's problems (issue | fix), its must-check DEFECTs, the
     Gemini A/V findings the reviewer CONFIRMED and an identity-colour hard fail -- exactly the set
     final_fix_round.collect_findings acts on (unverified / dismissed Gemini flags are left out).
 
@@ -706,31 +786,40 @@ def record_final_review_findings(rt: Path, *, episode: str, report_path: str | N
         roles = ex.role_map(list(cast_names), "zh" if lang == "zh" else "en")
         import nalu_craft_standard as _craft  # noqa: PLC0415 -- same directory
         lines = list(dialogue_lines)
+        def _scrub(value: Any, limit: int) -> str | None:
+            out = _craft.scrub_fix(value, roles=roles, dialogue_lines=lines, scrub_text=ex.scrub_text,
+                                   clean_field=ex._clean_field)
+            return out[: limit - 1].rstrip() + "…" if out and len(out) > limit else out
+
         for idx, f in enumerate(findings[:FINAL_REVIEW_MAX_FINDINGS]):
             kind = re.sub(r"[^A-Z0-9_]", "_", str(f.get("kind") or "OTHER").upper())[:40] or "OTHER"
             route = FINAL_REVIEW_ROUTES.get(kind, "DIRECTING_GUIDANCE")
             failure_type = f"{FINAL_REVIEW}:{kind}"
-            text = _craft.scrub_fix(f.get("text"), roles=roles, dialogue_lines=lines, scrub_text=ex.scrub_text,
-                                    clean_field=ex._clean_field)
-            if text and len(text) > FINAL_REVIEW_TEXT_MAX:
-                text = text[: FINAL_REVIEW_TEXT_MAX - 1].rstrip() + "…"
+            text = _scrub(f.get("text"), FINAL_REVIEW_TEXT_MAX)
+            decision = final_review_scope(f, kind)
+            if decision["basis"] == "REVIEWER":
+                decision["reason"] = _scrub(decision["reason"], SCOPE_REASON_MAX) or "reviewer"
+            scope_key = SCOPE_GLOBAL if decision["scope"] == SCOPE_GLOBAL else lang
             detail = {k: v for k, v in {
                 "source": f.get("source"), "severity": f.get("severity"), "qa_item": f.get("item"),
                 "window": f.get("window"), "fix_class": f.get("class"), "description": text}.items()
                 if v not in (None, "", [])}
             evidence: dict[str, Any] = {
-                "cluster_key": f"{failure_type}|{lang}", "failure_code": kind, "detail_category": lang,
-                "item": kind, "lesson_route": route, "language": lang, "review_round": review_round,
-                "final_candidate_sha256": sha if sha != "NO_MEDIA" else None, "detail": detail}
+                "cluster_key": f"{failure_type}|{scope_key}", "failure_code": kind, "detail_category": scope_key,
+                "item": kind, "lesson_route": route, "language": lang, "kb_scope": decision["scope"],
+                "scope_decision": decision, "confirmed": True, "confirmed_by": f.get("source"),
+                "review_round": review_round, "final_candidate_sha256": sha if sha != "NO_MEDIA" else None,
+                "detail": detail}
             if route == "ENGINE":
                 evidence["lesson_class"] = ENGINE_THRESHOLD
             if _c.sensitive_findings(evidence):
                 detail.pop("description", None)
+                decision["reason"] = f"basis {decision['basis']}"
                 if _c.sensitive_findings(evidence):
                     continue
             digest = hashlib.sha256(
                 f"{f.get('source')}|{f.get('item')}|{f.get('window')}|{f.get('text')}".encode("utf-8")).hexdigest()[:12]
-            symptom = (f"final review {str(f.get('source') or 'finding').lower()} {kind} ({route}, {lang})"
+            symptom = (f"final review {str(f.get('source') or 'finding').lower()} {kind} ({route}, {scope_key})"
                        + (f": {text}" if text else ""))
             events.append(emit(rt, episode=episode, stage=FINAL_REVIEW_ROUTE_STAGE[route], failure_type=failure_type,
                                symptom=symptom, evidence=evidence,
