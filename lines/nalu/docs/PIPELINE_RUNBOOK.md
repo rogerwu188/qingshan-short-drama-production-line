@@ -1088,3 +1088,26 @@ measurement policy, not content; `post_generation_qa_runner.py` now records:
   (giggle_bgm_transactions/<EP>, additive): E03 recorded 4 546 / 8 000, accounting complete.
   Open for Roger: (1) approve E03 after viewing; (2) bgm_authenticity_gate window-label acceptance (above);
   (3) D-9/D-12 as before.  Next: S7-SYNC per SUPERVISOR_ORDERS seq=14 (repo work only in idle windows).
+
+## S6 chain-step latency (2026-11-19)
+A tail-chained unit (HARD_CONTINUATION / MOTIVATED_CUT, anchor role contains PREVIOUS) still waits for its
+predecessor's real tail frame -- dependency rules and anchor roles are unchanged.  What changed is the dead
+time around each chain step (~12 min before):
+* **In-run polling.**  When a paid S6 run has POSTed and the only remaining work is a successor waiting on an
+  in-flight unit's tail, the run sleeps `NALU_S6_INRUN_POLL_INTERVAL_SECONDS` (25, 5..120) and re-plans instead
+  of exiting.  The re-entry wave is live-bound, so that pass is a GET-only poll (no compile, no POST); when the
+  predecessor lands the same run extracts its tail and prepares + submits the successor through every gate
+  (order, budget, D-11, durable store).  Bounds: one wait <= `NALU_S6_INRUN_POLL_WAIT_SECONDS` (600), all
+  in-run waiting <= `NALU_S6_INRUN_POLL_MAX_SECONDS` (1500; 0 disables).  It never waits when a review is
+  pending, a wave is not live-bound, a blocker is anything but `VIDEO_NOT_ALL_COMPLETED`, or the run POSTed
+  nothing (a poll-only re-run exits in seconds as before).  Then the tick owns the wait.
+* **Tick interval.**  `paid_run_status.REMOTE_WAIT["VIDEO_NOT_ALL_COMPLETED"]`: 240 s -> 75 s, cap 90 -> 288
+  re-runs (same 6 h budget).
+* **Narrower preparation.**  `S6.are` verifies only the wave's units (`action_role_evidence_writer.py verify
+  --units`; the final pass still verifies all).  The strict compile is skipped when nothing it reads or writes
+  changed since the last PASS compile with the same argv (`s6_compile`, stat fingerprint, record in
+  `pipeline_logs/<EP>/S6_COMPILE_CACHE.json`; `NALU_S6_COMPILE_CACHE=0` disables) -- typically the second of
+  the two back-to-back compiles when the start frame had to be bound first.
+* **Measure it.**  Every step line now ends `dur=<s>`; each POST logs
+  `S6_CHAIN_STEP wave=N units=… prep=…s (from predecessor_landed|previous_post|run_start; body=…s) wait=…s`, and
+  the stage details carry `s6_inrun_poll` (polls, waits, chain steps, stop reason).

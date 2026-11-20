@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2509,
+  "file_count": 2510,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -477,7 +477,7 @@
     },
     {
       "path": "lines/nalu/docs/PIPELINE_RUNBOOK.md",
-      "sha256": "2c2ffd9d740e8f5caabfacb371b448b522bb26c3eb3a613c0c9e386b4b2daad4"
+      "sha256": "f3c98bf8e121218a2361e047e20a00514ea63b7314ffd1327d5fb53978d445fe"
     },
     {
       "path": "lines/nalu/docs/PORT_PARITY_REPORT.md",
@@ -625,7 +625,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/action_role_evidence_writer.py",
-      "sha256": "c1f7ce121b74e8d66970123e78a0fb2b7b6915a736621a22a587add54e36d7bb"
+      "sha256": "b16caa99b65716e29119253ad94db7200241e67328d1f182030a4115576e78fd"
     },
     {
       "path": "lines/nalu/runtime/tools/adapt_v4_layers_to_runtime.py",
@@ -805,7 +805,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "db85a5b6e72d46ecf680d691be90dca22e683047855f8860fdf1ac01d12d3fcd"
+      "sha256": "5589786c5e5beadcac46ab5a1366b4ccc7dd6e3d9725ee5b9648cb30dedf3f16"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -849,7 +849,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/paid_run_status.py",
-      "sha256": "0c5070decb37ea28d45710815448034235b893da5e090577775cc15cbf8d5333"
+      "sha256": "d0862701392b7d20a4443099feb706a792c84eaec67411c58a750ae6b087382b"
     },
     {
       "path": "lines/nalu/runtime/tools/paid_stage.sh",
@@ -8485,11 +8485,11 @@
     },
     {
       "path": "tools/tests/test_nalu_codex_cost_cut.py",
-      "sha256": "dc8e1acb43f0db9219d51711569bffef2964e0b8f11db21818c390eb84df3fda"
+      "sha256": "bae95c483f6e5bd2c721f58dfcdde3fdd24690bc530d66cba4aab02dfea2a4c1"
     },
     {
       "path": "tools/tests/test_nalu_codex_executor.py",
-      "sha256": "37097c3faa5daab5430810a08700fe8f6a6ea0b6fdab67191912f421810cf903"
+      "sha256": "12ab413fa5144031ce272465df3615014830c5da00abb8364b82a0fa0ceb788e"
     },
     {
       "path": "tools/tests/test_nalu_craft_standard.py",
@@ -9070,6 +9070,10 @@
     {
       "path": "tools/tests/test_s3ctl.py",
       "sha256": "4f053769a723fadf837f1601c6480c514f84018371fe035ce6caa023c8ae9e1d"
+    },
+    {
+      "path": "tools/tests/test_s6_chain_step_latency.py",
+      "sha256": "d056a5254c37aadb26ab23e32628b9ac44b6863c1b09be4edf6772eacb102bd5"
     },
     {
       "path": "tools/tests/test_s6_final_pass_as_submitted.py",

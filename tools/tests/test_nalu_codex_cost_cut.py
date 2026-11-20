@@ -40,7 +40,7 @@ class ClassifyTest(unittest.TestCase):
     def test_remote_only_blockers_wait(self) -> None:
         out = prs.classify({"stages": S6_WAIT}, "S6", "S6")
         self.assertEqual((out["verdict"], out["stage"]), (prs.WAIT, "S6"))
-        self.assertEqual(out["interval_s"], 240)
+        self.assertEqual(out["interval_s"], 75)  # 2026-11-19: was 240; cap scaled 90 -> 288 (same 6 h budget)
 
     def test_image_outage_waits_ten_minutes_six_times(self) -> None:
         out = prs.classify({"stages": {"S5": {"status": "BLOCKED", "blockers": ["HOPSAPI_IMAGE_PROVIDER_OUTAGE"]}}},
@@ -108,7 +108,9 @@ class TickDecisionTest(unittest.TestCase):
         self.assertEqual(decide(reruns_done=0, now=now + 10)["action"], "BACKOFF")
         due = decide(reruns_done=0, now=now + 241)
         self.assertEqual((due["action"], due["from"], due["until"]), ("RERUN", "S6", "S6"))
-        self.assertEqual(decide(reruns_done=90, now=now + 241)["action"], "RESUME")
+        self.assertEqual(decide(reruns_done=0, now=now + 76)["action"], "RERUN")  # 75 s interval (was 240)
+        self.assertEqual(decide(reruns_done=287, now=now + 241)["action"], "RERUN")
+        self.assertEqual(decide(reruns_done=288, now=now + 241)["action"], "RESUME")  # 288 x 75 s = 90 x 240 s
         self.assertEqual(prs.tick_decision(self.runtime, "E08", since=now + 1, reruns_done=0)["action"], "NO_RECORD")
         lock = self.runtime / "runtime" / ".paid_E08.lock"
         lock.mkdir()

@@ -1270,6 +1270,7 @@ class Ctx:
                 f"{key}=***" if SECRET_ENV_NAME.search(str(key)) else f"{key}={value}"
                 for key, value in sorted(extra_env.items())))
         started = now()
+        t0 = time.monotonic()
         try:
             completed = subprocess.run(
                 argv, cwd=str(cwd), env=self.child_env(paid=paid, extra=extra_env),
@@ -1290,9 +1291,11 @@ class Ctx:
             "extra_env": dict(extra_env or {}),
             "paid": paid, "exit_code": rc, "log": str(log_path),
             "started_at": started, "finished_at": now(),
+            "duration_s": round(time.monotonic() - t0, 3),
             "stdout_tail": tail(out), "stderr_tail": tail(err),
         }
-        self.log(f"  -> exit={rc} log={log_path.name}")
+        # per-step wall time (S6 chain-step profiling, 2026-11-19): grep `dur=` in the pipeline log
+        self.log(f"  -> exit={rc} log={log_path.name} dur={step['duration_s']:.1f}s")
         if check and rc != 0:
             step["fatal"] = True
         return step
@@ -6397,6 +6400,253 @@ def accept_done_derived_start_frames(ctx: Ctx) -> dict[str, Any]:
     return out
 
 
+# --------------------------------------------------------------------------- #
+# S6 chain-step latency (2026-11-19): compile cache + in-run polling
+# --------------------------------------------------------------------------- #
+#: The rolling-wave loop's iteration budget per pass (unchanged); in-run poll iterations come on top of it.
+S6_WAVE_LOOP_ITERATIONS = 7
+#: Where the S6 compile cache record lives: the pipeline log dir, OUTSIDE every tree the fingerprint walks.
+S6_COMPILE_CACHE_NAME = "S6_COMPILE_CACHE.json"
+_S6_FP_SKIP_DIRS = {"__pycache__", ".git", "tests", "node_modules"}
+
+
+def _s6_fp_walk(root: Path, out: list[Any], *, suffixes: tuple[str, ...] | None = None) -> None:
+    """(relpath, size, mtime_ns) of every file under ``root`` (stat only, no content read)."""
+    if not root:
+        return
+    root = Path(root)
+    if root.is_file():
+        st = root.stat()
+        out.append([str(root), st.st_size, st.st_mtime_ns])
+        return
+    if not root.is_dir():
+        out.append([str(root), None, None])
+        return
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if d not in _S6_FP_SKIP_DIRS)
+        for name in sorted(filenames):
+            if ".part" in name or name.endswith(".pyc") or name == S6_COMPILE_CACHE_NAME:
+                continue
+            if suffixes and not name.endswith(suffixes):
+                continue
+            path = Path(dirpath) / name
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+            out.append([str(path), st.st_size, st.st_mtime_ns])
+
+
+def s6_compile_fingerprint(ctx: Ctx, argv: list[Any]) -> str:
+    """Stat fingerprint of everything the S6 strict compile (build_nalu_preproduction --keyframe-dir) can read
+    or write: the episode's whole work tree (preproduction outputs included, keyframes, tails, Q1/start-frame/
+    action-role receipts, clips), its runtime preproduction inputs, the engine's receipt dirs, the durable
+    video store, the writer layers / GSM / requirements / config / scoped library + registry / orders, the
+    line and engine code + configs, the NALU_* environment and the exact argv.  Equal fingerprints mean the
+    disk is byte-for-byte (by size + ns mtime) what the last compile left behind, so re-running it cannot
+    produce anything different.  Any change anywhere -- including in the outputs -- is a miss."""
+    p = ctx.p
+    scope = getattr(p, "scope", None) or {}
+    authority = getattr(ctx, "authority", None) or {}
+    rows: list[Any] = []
+    trees = [getattr(p, "work", None), getattr(p, "rt_pre", None), ENGINE / "reports",
+             video_store_dir(ctx.episode), getattr(getattr(p, "legacy_grouping_plan", None), "parent", None),
+             scope.get("voice_refs"), ENGINE / "configs", RT_TOOLS.parent / "configs"]
+    for root in trees:
+        if root:
+            _s6_fp_walk(Path(root), rows)
+    for root in (RT_TOOLS, ENGINE / "tools"):
+        _s6_fp_walk(root, rows, suffixes=(".py", ".json"))
+    for f in (getattr(p, "contract", None), getattr(p, "writer_manifest", None), getattr(p, "gsm", None),
+              getattr(p, "asset_requirements", None), getattr(p, "overlay", None), CONFIG_PATH,
+              scope.get("voice_registry"), scope.get("asset_library"), scope.get("asset_library_seed"),
+              authority.get("orders_path")):
+        if f:
+            _s6_fp_walk(Path(f), rows)
+    env = sorted((k, v) for k, v in os.environ.items()
+                 if k.startswith(("NALU_", "QINGSHAN_", "STORYCLAW_")) and not SECRET_ENV_NAME.search(k)
+                 and not k.startswith("NALU_S6_INRUN_"))
+    return sha256_text(json.dumps({"argv": [str(a) for a in argv], "env": env, "files": rows},
+                                  sort_keys=True, ensure_ascii=False))
+
+
+def s6_compile(ctx: Ctx, *, ready_units=None) -> StageResult:
+    """``stage_s2(with_keyframes=True, ready_units=...)``, skipped when nothing it could read or write changed
+    since the last PASS compile with the same argv (s6_compile_fingerprint).  Typical hit: the ARE start-frame
+    rebuild immediately followed by the 6.1 rebuild of the same wave, or a re-entry of an unchanged wave.
+    The compile's own report is still what every later gate reads; a miss (any input or output changed, any
+    non-PASS compile, NALU_S6_COMPILE_CACHE=0) runs the compile exactly as before."""
+    argv = s2_argv(ctx, with_keyframes=True, ready_units=ready_units)
+    logs = getattr(ctx.p, "logs", None)
+    cache_path = Path(logs) / S6_COMPILE_CACHE_NAME if logs else None
+    enabled = cache_path is not None and os.environ.get("NALU_S6_COMPILE_CACHE", "1") != "0"
+    if enabled:
+        try:
+            fp = s6_compile_fingerprint(ctx, argv)
+        except Exception as exc:  # noqa: BLE001 - no fingerprint, no cache: compile as before
+            fp = None
+            ctx.say(f"   S6 compile cache: fingerprint unavailable ({type(exc).__name__}); compiling")
+        rec = read_json(cache_path, {}) or {}
+        if fp and rec.get("fingerprint") == fp and rec.get("status") == PASS \
+                and Path(ctx.p.preprod_report).is_file():
+            ctx.say(f"-- S6 compile cache HIT: inputs/outputs unchanged since the compile at {rec.get('at')} "
+                    f"(ready units {ready_units}); not recompiling")
+            res = StageResult(PASS, compile_cache={"hit": True, "fingerprint": fp, "compiled_at": rec.get("at")})
+            res.receipts = [str(ctx.p.preprod_report), str(ctx.p.machine_gate_bundle)]
+            return res
+    rebuilt = stage_s2(ctx, with_keyframes=True, ready_units=ready_units)
+    if enabled:
+        compiled_ok = rebuilt.status == PASS and all(
+            int(step.get("exit_code") or 0) == 0 for step in rebuilt.steps
+            if str(step.get("name") or "").startswith("s2_build_nalu_preproduction"))
+        try:
+            if compiled_ok:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                write_json(cache_path, {"schema": "nalu.s6_compile_cache.v1", "episode": ctx.episode,
+                                        "fingerprint": s6_compile_fingerprint(ctx, argv), "status": PASS,
+                                        "ready_units": list(ready_units) if ready_units is not None else None,
+                                        "at": now(), "run_id": getattr(ctx, "run_id", None)})
+            else:
+                cache_path.unlink(missing_ok=True)
+        except Exception as exc:  # noqa: BLE001 - a cache write never fails the stage
+            ctx.say(f"   S6 compile cache: record not written ({type(exc).__name__})")
+        rebuilt.details["compile_cache"] = {"hit": False}
+    return rebuilt
+
+
+def _s6_blocker_code(blocker: Any) -> str:
+    text = re.sub(r"^(?:wave\d+:)+", "", str(blocker or "").strip())
+    return text.split(":", 1)[0].strip()
+
+
+#: test seams: the in-run poll sleeps and reads the clock only through these
+_s6_sleep = time.sleep
+_s6_clock = time.monotonic
+
+
+class S6InRunPoll:
+    """Keep an S6 run alive while a tail-chained successor waits on a unit this run just POSTed.
+
+    Before (2026-11-19 diagnosis) every chain step cost ~12 min: the run POSTed, polled once, exited
+    VIDEO_NOT_ALL_COMPLETED, and the next rerun came only after REMOTE_WAIT's 240 s + the 3-min tick.  Now,
+    when this run has POSTed and the only thing left to do is wait for in-flight units that a successor's
+    start frame depends on, the run sleeps ``interval`` and re-plans: the re-entry wave is live-bound, so that
+    pass is a GET-only poll (no compile, no POST).  When the predecessor lands the same loop extracts its tail
+    and prepares + submits the successor through every unchanged gate (order, budget, D-11, durable store).
+
+    Bounds: one wait (since the last POST) <= ``max_wait_s`` (NALU_S6_INRUN_POLL_WAIT_SECONDS, 600), all
+    in-run waiting <= ``max_total_s`` (NALU_S6_INRUN_POLL_MAX_SECONDS, 1500; 0 disables), interval
+    NALU_S6_INRUN_POLL_INTERVAL_SECONDS (25, clamped 5..120).  Past a bound the run exits exactly as before
+    and the system tick owns the long wait."""
+
+    def __init__(self, ctx: Ctx) -> None:
+        def _int(name: str, default: int) -> int:
+            try:
+                return int(float(os.environ.get(name) or default))
+            except ValueError:
+                return default
+        self.max_total_s = max(0, _int("NALU_S6_INRUN_POLL_MAX_SECONDS", 1500))
+        self.max_wait_s = max(0, _int("NALU_S6_INRUN_POLL_WAIT_SECONDS", 600))
+        self.interval_s = min(120, max(5, _int("NALU_S6_INRUN_POLL_INTERVAL_SECONDS", 25)))
+        self.enabled = bool(self.max_total_s and self.max_wait_s and getattr(ctx, "paid_enabled", False)
+                            and not getattr(ctx, "dry", False))
+        self.waited_total_s = 0
+        self.waited_since_post_s = 0
+        self.polls = 0
+        self.posts: list[dict[str, Any]] = []
+        self.chain_continuations = 0
+        self.stop_reason: str | None = None
+        self.started = _s6_clock()
+        self.prep_started: float | None = self.started
+        self.prep_origin = "RUN_START"
+
+    # -- events ----------------------------------------------------------------------------------------
+    def note_landed(self, units: list[str]) -> None:
+        """A clip landed and its tail was extracted in this run: the next chain step's preparation starts now."""
+        if not units:
+            return
+        if self.waited_since_post_s:
+            self.chain_continuations += 1
+        if self.prep_origin != "PREDECESSOR_LANDED":
+            self.prep_started = _s6_clock()
+            self.prep_origin = "PREDECESSOR_LANDED"
+
+    def note_post(self, ctx: Ctx, wave_no: int, units: list[str], body_s: float) -> dict[str, Any]:
+        t = _s6_clock()
+        prep = t - (self.prep_started if self.prep_started is not None else t)
+        row = {"wave": wave_no, "units": list(units), "prep_s": round(prep, 1), "prep_from": self.prep_origin,
+               "body_s": round(body_s, 1), "wait_s": self.waited_since_post_s,
+               "run_elapsed_s": round(t - self.started, 1)}
+        self.posts.append(row)
+        ctx.say(f"S6_CHAIN_STEP wave={wave_no} units={','.join(units)} prep={row['prep_s']}s "
+                f"(from {self.prep_origin.lower()}; body={row['body_s']}s) wait={row['wait_s']}s "
+                f"run_elapsed={row['run_elapsed_s']}s")
+        self.waited_since_post_s = 0
+        self.prep_started, self.prep_origin = t, "PREVIOUS_POST"
+        return row
+
+    # -- decision --------------------------------------------------------------------------------------
+    def should_wait(self, pending: list[tuple[int, StageResult]], *, chain_blocked: list[str],
+                    all_live_bound: bool) -> bool:
+        """Sleep and re-plan in this run instead of exiting VIDEO_NOT_ALL_COMPLETED?"""
+        reason = None
+        if not self.enabled:
+            reason = "DISABLED"
+        elif not self.posts:
+            reason = "NO_POST_THIS_RUN"
+        elif not pending or any(r.status != BLOCKED or not r.blockers
+                                or {_s6_blocker_code(b) for b in r.blockers} != {"VIDEO_NOT_ALL_COMPLETED"}
+                                for _, r in pending):
+            reason = "NOT_A_PURE_REMOTE_WAIT"
+        elif not chain_blocked:
+            reason = "NO_SUCCESSOR_WAITS_ON_AN_IN_FLIGHT_UNIT"
+        elif not all_live_bound:
+            reason = "IN_FLIGHT_WAVE_NOT_LIVE_BOUND"
+        elif self.waited_total_s + self.interval_s > self.max_total_s:
+            reason = "INRUN_POLL_MAX_SECONDS_REACHED"
+        elif self.waited_since_post_s + self.interval_s > self.max_wait_s:
+            reason = "INRUN_POLL_WAIT_SECONDS_REACHED"
+        self.stop_reason = reason
+        return reason is None
+
+    def wait(self, ctx: Ctx, chain_blocked: list[str]) -> None:
+        self.polls += 1
+        ctx.say(f"-- S6 in-run poll {self.polls}: {sorted(chain_blocked)} wait(s) on an in-flight predecessor; "
+                f"re-polling in {self.interval_s}s (waited {self.waited_since_post_s}s this step, "
+                f"{self.waited_total_s}/{self.max_total_s}s this run)")
+        _s6_sleep(self.interval_s)
+        self.waited_total_s += self.interval_s
+        self.waited_since_post_s += self.interval_s
+
+    @property
+    def extra_iterations(self) -> int:
+        # every poll pass and every chain step continued in-run gets loop budget of its own
+        return self.polls + S6_WAVE_LOOP_ITERATIONS * self.chain_continuations
+
+    def summary(self) -> dict[str, Any]:
+        return {"enabled": self.enabled, "interval_s": self.interval_s, "max_wait_s": self.max_wait_s,
+                "max_total_s": self.max_total_s, "polls": self.polls, "waited_total_s": self.waited_total_s,
+                "chain_continuations": self.chain_continuations, "chain_steps": self.posts,
+                "stop_reason": self.stop_reason}
+
+
+def _s6_inrun_chain_state(ctx: Ctx, deps: list[tuple[str, str | None, bool]],
+                          wave_state: dict[str, Any]) -> tuple[list[str], bool]:
+    """(successors that wait on an in-flight unit's tail, every open wave's missing clips are live-bound)."""
+    done_now = {uid for uid, _, _ in deps if (ctx.p.video_media / f"{uid}.mp4").is_file()}
+    open_waves = [w for w in wave_state.get("waves") or [] if not w.get("completed_at")
+                  and any(u not in done_now for u in w.get("units") or [])]
+    in_flight = {u for w in open_waves for u in (w.get("units") or []) if u not in done_now}
+    chain_blocked = [uid for uid, prev, needs in deps
+                     if uid not in done_now and uid not in in_flight and needs and prev in in_flight]
+    try:
+        all_live = bool(open_waves) and all(_s6_live_bound_wave(ctx, list(w.get("units") or [])) is not None
+                                            for w in open_waves)
+    except Exception:  # noqa: BLE001 - cannot prove a GET-only re-entry: exit as before
+        all_live = False
+    return chain_blocked, all_live
+
+
 def stage_s6(ctx: Ctx) -> StageResult:
     """Rolling-wave video stage (2026-09-13): wave N = units whose video is not yet on disk
     and whose predecessor tail (when the anchor plan demands one) has been extracted.  Each
@@ -6429,7 +6679,12 @@ def stage_s6(ctx: Ctx) -> StageResult:
         write_json(wave_state_path, wave_state)
         ctx.say(f"-- S6: released {len(released)} wave(s) that never POSTed: "
                 + "; ".join(f"wave {r['wave']} ({r['reason']})" for r in released))
-    for _iteration in range(1, 8):
+    inrun = S6InRunPoll(ctx)
+    _iteration = 0
+    while True:
+        _iteration += 1
+        if _iteration > S6_WAVE_LOOP_ITERATIONS + inrun.extra_iterations:
+            break
         deps = unit_dependency_order(ctx)
         done = {uid for uid, _, _ in deps if (p.video_media / f"{uid}.mp4").is_file()}
         if not deps or len(done) == len(deps):
@@ -6693,7 +6948,11 @@ def stage_s6(ctx: Ctx) -> StageResult:
                 if live_poll is not None:
                     r = _s6_poll_live_bound_wave(ctx, w, live_poll)
                 else:
+                    _t_body = _s6_clock()
                     r = _stage_s6_body(ctx, ready_units=ready, run_qa=False)
+                    if r.details.get("posted_task_keys"):
+                        r.details["s6_chain_step"] = inrun.note_post(
+                            ctx, wave_no, [str(k) for k in r.details["posted_task_keys"]], _s6_clock() - _t_body)
                 r.details["rolling_wave"] = {"wave": wave_no, "ready_units": ready, "done_before": sorted(done)}
                 # Extract each unit's real final frame as soon as ITS OWN video lands, not when the
                 # whole wave passes poll (2026-10-13).  The extraction is what unblocks a tail-chained
@@ -6703,6 +6962,7 @@ def stage_s6(ctx: Ctx) -> StageResult:
                 # (ALREADY_PRESENT), so re-running it per tick costs one stat per finished unit.
                 on_disk = [uid for uid in ready if (ctx.p.video_media / f"{uid}.mp4").is_file()]
                 extracted = [extract_real_final_frame(ctx, uid) for uid in on_disk]
+                inrun.note_landed([str(row.get("unit_id")) for row in extracted if row.get("status") == "EXTRACTED"])
                 if extracted:
                     # accumulate across ticks: the wave's row set must keep every unit it has
                     # finished, or a later tick would publish a receipt that lost earlier tails.
@@ -6738,6 +6998,16 @@ def stage_s6(ctx: Ctx) -> StageResult:
             # a wave completed this pass, so new tails exist: re-plan now and submit what they unblock,
             # instead of leaving it for the next loop tick.  Progress-only, bounded by the outer loop.
             continue
+        if pending and deferred_review is None and inrun.enabled:
+            # In-run polling (2026-11-19): this run POSTed and a tail-chained successor only waits on an
+            # in-flight unit -> sleep and re-plan here (GET-only re-entry) instead of exiting for the tick.
+            chain_blocked, all_live = (_s6_inrun_chain_state(ctx, deps, wave_state) if inrun.posts
+                                       else ([], False))
+            if inrun.should_wait(pending, chain_blocked=chain_blocked, all_live_bound=all_live):
+                inrun.wait(ctx, chain_blocked)
+                continue
+            if inrun.posts:
+                ctx.say(f"-- S6 in-run poll: stop ({inrun.stop_reason}); the system tick follows the remote wait")
         if pending or deferred_review is not None:
             # report the most actionable wave first (a review the agent can answer beats "still rendering")
             order = {REVIEW_REQUIRED: 0, BLOCKED: 1}
@@ -6749,6 +7019,7 @@ def stage_s6(ctx: Ctx) -> StageResult:
                 res.blockers = list(res.blockers) + [b for b in deferred_review.blockers if b not in res.blockers]
                 res.details["deferred_review"] = deferred_review.details
             res.details["waves_this_pass"] = {str(n): r.status for n, r in results}
+            res.details["s6_inrun_poll"] = inrun.summary()
             return res
     _deps_final = unit_dependency_order(ctx)
     _missing = [uid for uid, _, _ in _deps_final if not (p.video_media / f"{uid}.mp4").is_file()]
@@ -6757,7 +7028,8 @@ def stage_s6(ctx: Ctx) -> StageResult:
         # all-units final pass with videos missing -- report and let the next tick continue.
         res = StageResult(BLOCKED)
         res.blockers.append("VIDEO_NOT_ALL_COMPLETED")
-        res.details = {"missing_videos": _missing, "note": "wave loop iteration budget exhausted this pass"}
+        res.details = {"missing_videos": _missing, "note": "wave loop iteration budget exhausted this pass",
+                       "s6_inrun_poll": inrun.summary()}
         return res
     ctx.say("-- S6 final pass: all unit videos on disk; full compile + post-generation QA")
     # final pass = every unit with its real predecessor tail bound (the wave block of the builder
@@ -6803,11 +7075,14 @@ def s6_action_role_evidence(ctx: Ctx, res: StageResult, units: list[str] | None)
     consumer; runtime/tools/action_role_evidence_writer.py writes the receipt from a
     submitted ``action_role`` review (reviewer looked at the real keyframe).
     """
-    verify_step = qa_run(ctx, [ACTION_ROLE_EVIDENCE, "verify", "--episode", ctx.episode],
+    scope = set(units) if units else None
+    # Only the units in scope are validated (the rows outside it were never acted on): a chain step re-checks the
+    # newly unblocked unit, not the whole episode.  The final pass passes every unit, so it still checks all.
+    scope_argv = ["--units", json.dumps(sorted(scope))] if scope else []
+    verify_step = qa_run(ctx, [ACTION_ROLE_EVIDENCE, "verify", "--episode", ctx.episode, *scope_argv],
                          name="s6_are_verify")
     res.steps.append(verify_step)
     report = qa_json(verify_step)
-    scope = set(units) if units else None
     needing = [uid for uid in (report.get("missing") or []) + (report.get("failing") or [])
                if scope is None or uid in scope]
     detail: dict[str, Any] = {"sub_stage": "S6.are", "verify": {k: report.get(k) for k in ("units", "pass", "missing", "failing")},
@@ -6848,7 +7123,7 @@ def s6_action_role_evidence(ctx: Ctx, res: StageResult, units: list[str] | None)
                                   "--review", review_path], name="s6_are_write_receipts")
         res.steps.append(write_step)
         detail["write"] = qa_json(write_step)
-        verify_again = qa_run(ctx, [ACTION_ROLE_EVIDENCE, "verify", "--episode", ctx.episode],
+        verify_again = qa_run(ctx, [ACTION_ROLE_EVIDENCE, "verify", "--episode", ctx.episode, *scope_argv],
                               name="s6_are_verify_after_write")
         res.steps.append(verify_again)
         report = qa_json(verify_again)
@@ -7499,7 +7774,7 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
         # contract binds the real tail, then ask again; still unbound -> fail closed, no null-media request
         ctx.say("-- S6.are: start frame not bound yet for " + ",".join(are.get("units_without_media") or [])
                 + "; rebuilding the start-frame contracts first")
-        pre = stage_s2(ctx, with_keyframes=True, ready_units=ready_units)
+        pre = s6_compile(ctx, ready_units=ready_units)
         res.steps.extend(pre.steps)
         are = s6_action_role_evidence(ctx, res, ready_units)
         are["rebuilt_before_review"] = pre.status
@@ -7515,13 +7790,14 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
     # 6.1 re-run preproduction with --keyframe-dir (and, for a rolling wave, the ready subset).
     # CAMERA_GRAMMAR_V1: the recompile keeps each harvested take's start-frame decision (no tail re-attached).
     as_submitted = record_start_frames_as_submitted(ctx)
-    rebuilt = stage_s2(ctx, with_keyframes=True, ready_units=ready_units)
+    rebuilt = s6_compile(ctx, ready_units=ready_units)
     res.steps.extend(rebuilt.steps)
     res.receipts = list(rebuilt.receipts)
     report = read_json(p.preprod_report, {}) or {}
     inner = {row.get("stage"): row.get("status") for row in (report.get("stages") or [])}
     res.details.update({
         "rebuild_with_keyframes": rebuilt.status,
+        "compile_cache": rebuilt.details.get("compile_cache"),
         "inner_stages": inner,
         "video_transaction_manifest": str(p.video_transaction),
         "grouped_seedance_manifest": str(p.grouped_seedance),
@@ -7764,6 +8040,8 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
                 res.status = HARD_STOP
                 res.blockers.append("BUDGET_HARD_STOP_S6")
                 return res
+            if status == PASS:
+                res.details["posted_task_keys"] = list(post_keys)  # S6_CHAIN_STEP timing + in-run polling
 
         poll_argv = video_poll_argv(ctx)
         # E10 (2026-09-29): the submitter writes its batch window statement next to the report under a

@@ -441,7 +441,7 @@ class CodexExecutorTests(unittest.TestCase):
         self._patch("resume", lambda ep, msg: resumed.append(msg) or {"status": "STARTED"})
         d = self.cp.run_dir("E10")
         session = self.cp.read_json(d / "session.json")
-        session["remote_wait"] = {"key": session["log"], "reruns": 90}
+        session["remote_wait"] = {"key": session["log"], "reruns": 288}  # cap 90 x 240 s = 288 x 75 s
         self.cp.write_json(d / "session.json", session)
         self.cp.tick(system=True)
         self.assertIn("REMOTE_WAIT_CAP", resumed[0])
