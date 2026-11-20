@@ -31,7 +31,8 @@ def _sha256(path: Path) -> str:
 
 
 def _orders(path: Path, *, expected_latest_seq: int,
-            engine_root: Path | None = None) -> list[dict[str, Any]]:
+            engine_root: Path | None = None,
+            expected_issuer: str | None = None) -> list[dict[str, Any]]:
     """Read a current, uniquely sequenced private order inbox or return no authority."""
     try:
         resolved = Path(path).expanduser().resolve()
@@ -63,7 +64,8 @@ def _orders(path: Path, *, expected_latest_seq: int,
     if latest != expected_latest_seq:
         ok, _reason = newer_orders_self_acknowledging(
             rows, expected_latest_seq=expected_latest_seq,
-            expected_issuer=os.environ.get("NALU_LINE_OWNER_ID", ""), engine_root=engine_root)
+            expected_issuer=(expected_issuer if expected_issuer is not None
+                             else os.environ.get("NALU_LINE_OWNER_ID", "")), engine_root=engine_root)
         if not ok:
             return []
     return rows
@@ -148,6 +150,23 @@ def _bound_sha(decision: dict[str, Any], media_item_id: str | None) -> str:
     return str(by_item.get(media_item_id) or "")
 
 
+#: Spellings an order may carry for a registered gate id (normalised: upper case, ``_`` -> ``-``).  Device
+#: agents record orders from the S7 blocker text, which names the blocker code, not the gate id (device 1101 E18
+#: 2026-11-20 RELEASE_AUDIO_LEVELLING_FAILED; KO-01 camera-motion order recorded under the blocker name).
+GATE_ID_ALIASES = {
+    "RELEASE-AUDIO-LEVELLING-FAILED": "RELEASE-AUDIO-LOUDNESS",
+    "RELEASE-AUDIO-LEVELLING": "RELEASE-AUDIO-LOUDNESS",
+    "FINAL-CUT-CAMERA-MOTION-FAIL": "FINAL-CUT-CAMERA-MOTION",
+    "FINAL-CUT-AUDIENCE-DETECTORS-FAIL": "FINAL-CUT-AUDIENCE-DETECTORS",
+}
+
+
+def normalize_gate_id(gate_id: Any) -> str:
+    """One canonical spelling per gate: upper case, ``-`` separators, blocker-code aliases folded."""
+    norm = str(gate_id or "").strip().upper().replace("_", "-")
+    return GATE_ID_ALIASES.get(norm, norm)
+
+
 def find_acceptance(orders: list[dict[str, Any]], *, episode: str, gate_id: str,
                     failing: list[str], media_sha256: str | None,
                     expected_issuer: str, media_item_id: str | None = None,
@@ -167,7 +186,7 @@ def find_acceptance(orders: list[dict[str, Any]], *, episode: str, gate_id: str,
                 or not str(row.get("order") or "").strip()
                 or dec.get("kind") != KIND
                 or str(dec.get("episode") or "") != episode
-                or str(dec.get("gate_id") or "") != gate_id
+                or normalize_gate_id(dec.get("gate_id")) != normalize_gate_id(gate_id)
                 or not _receipt_valid(row, expected_issuer=expected_issuer,
                                       engine_root=engine_root)):
             continue
@@ -180,6 +199,30 @@ def find_acceptance(orders: list[dict[str, Any]], *, episode: str, gate_id: str,
         if match is None or int(row.get("seq") or 0) > int(match.get("seq") or 0):
             match = row
     return match
+
+
+def find_acceptance_any_binding(orders: list[dict[str, Any]], *, episode: str, gate_id: str,
+                                failing: list[str], media_sha256: str | None, expected_issuer: str,
+                                media_item_ids: list[str | None],
+                                engine_root: Path | None = None) -> tuple[dict[str, Any] | None, str | None]:
+    """``find_acceptance`` over several media-binding keys; returns ``(order, matched_item_id)``.
+
+    The sha binding stays exact -- only the KEY the sha sits under may vary.  Each S7 gate historically
+    looked under one engine-chosen key (``UNIT_LOUDNESS_OUT_OF_ROLE_RANGE``, ``camera_motion``, ``loudness``)
+    that nothing told the recording agent, so an order bound under ``media_sha256`` or under the gate id
+    matched in the read-only helper and never in the runner (device 1101 E18, 2026-11-20).  ``None`` in
+    ``media_item_ids`` means the order's plain ``decision.media_sha256``."""
+    seen: set[Any] = set()
+    for item in media_item_ids:
+        if item in seen:
+            continue
+        seen.add(item)
+        order = find_acceptance(orders, episode=episode, gate_id=gate_id, failing=failing,
+                                media_sha256=media_sha256, expected_issuer=expected_issuer,
+                                media_item_id=item, engine_root=engine_root)
+        if order is not None:
+            return order, item
+    return None, None
 
 
 def acceptance_record(order: dict[str, Any], *, episode: str, gate_id: str,

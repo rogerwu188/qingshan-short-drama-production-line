@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2517,
+  "file_count": 2518,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -809,7 +809,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "15a310c92574c2a264fc7a002c33aa8cd51c51eeafcc848cf53fc4118e0b08e0"
+      "sha256": "747c089c3b4a41746a523c2bdd7f87d2b3501528ca9048d6e0cae911089a566d"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -917,7 +917,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/roger_gate_acceptance.py",
-      "sha256": "18680e42f98183aab4d3844af9ff08514fcdc616baef29b1d986ad7bdbd63ec6"
+      "sha256": "1532f2f1ae00bd0b7fe4aa16c9d5c2a13c881ec179bf1f50dc54f16da959d96f"
     },
     {
       "path": "lines/nalu/runtime/tools/run_unattended.sh",
@@ -8658,6 +8658,10 @@
     {
       "path": "tools/tests/test_nalu_s7_default_release_acceptance.py",
       "sha256": "ec4f811d7619f5d9169e17ab7ebbec2cc715161440077c2df299b8d9a17a3829"
+    },
+    {
+      "path": "tools/tests/test_nalu_s7_loudness_acceptance_honored.py",
+      "sha256": "c2f7bb9c3946a15820992fe10e111d7b9a4eb0cdf6d8e8f224e833a0ccbca05a"
     },
     {
       "path": "tools/tests/test_nalu_scoped_qa_paths.py",
