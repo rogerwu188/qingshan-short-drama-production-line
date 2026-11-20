@@ -127,6 +127,13 @@ NEVER_V2_STAMPED = ("captions, subtitles, speech bubbles or any written words, l
                     "watermarks; a second copy of anyone")  # keeps the scope-gate marker "captions, subtitles"
 #: live-action skin / hair finish on stamped units (v1.SKIN_FINISH_NEGATIVE in "Never:" wording)
 SKIN_FINISH_NEVER = "oily, glossy or sweaty skin sheen, wet-looking hair or over-sharpened skin texture"
+#: anime skin / hair finish on stamped anime units (v1.ANIME_FINISH_NEGATIVE in "Never:" wording; JA-01 E01 2026-11-20)
+ANIME_FINISH_NEVER = ("glossy, oily or wet-looking shine on skin or hair, or 3D-rendered skin shading (keep flat matte "
+                      "cel shading)")
+#: identity lock (line owner 2026-11-20, JA-01 anime E01: with the scene and angle unchanged, the person on screen
+#: transformed in place into the character who speaks).  Stamped units with people, said once after the references.
+IDENTITY_LOCK_V2 = ("Each person keeps their own reference face, hair and outfit to the last frame and never turns into "
+                    "another character, even the speaker.")
 #: said once after the dialogue literal(s): the words exist as sound only.  No all-caps label (H3 voices labels).
 SPOKEN_NOT_WRITTEN_ONE = ("The line is only heard: the picture stays clean, with no subtitle, caption or written "
                           "word of it.")
@@ -591,7 +598,8 @@ def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: se
                          "@Image1 and the wardrobe text, never from this crop." if face_crop
                     else f"@Image{index} is {entity}'s {body}.")
             if entity_id and ((onscreen and entity_id not in onscreen) or entity_id in offscreen_only):
-                line += f" It is for identity only: {entity} stays out of frame in this clip."
+                line += (f" It is for identity only: {entity} stays out of frame in this clip; nobody on screen takes "
+                         f"on {entity}'s face, hair or outfit.")
             elif index > 1:
                 # a face reference of someone already in the opening frame is that SAME person, not a second
                 # one: H3 otherwise sometimes renders the reference as an extra copy (lab E02 2026-10-23)
@@ -667,6 +675,9 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     # --- references ------------------------------------------------------------------------------------
     reference_lines = _reference_lines(unit, plan, onscreen=onscreen_ids, people=len(people), beings=len(beings),
                                        exact_first_frame=stamped)
+    if stamped and people and any("'s face and body." in line or "'s face only" in line or "character sheet of one" in line
+                                  for line in reference_lines):
+        reference_lines.append(IDENTITY_LOCK_V2)
     for index, row in enumerate(crossmodal_rows, 1):
         binding = f"{row['audio_slot']} is {row['provider_entity_label']}'s voice"
         reference_lines.append(binding + ". It gives timbre only — never speak or echo its words.")
@@ -1052,6 +1063,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     if stamped and v1.skin_finish_applies(unit, plan, anime=anime, has_people=bool(subjects)):
         negatives.append(SKIN_FINISH_NEVER)  # live-action skin / hair finish (line owner 2026-11-20, KO E01)
     negatives.append("music")
+    if stamped and v1.anime_finish_applies(unit, plan, anime=anime, has_people=bool(subjects)):
+        negatives.append(ANIME_FINISH_NEVER)  # anime skin / hair finish (line owner 2026-11-20, JA-01 E01)
     if anime:
         negatives.extend(_render_style.H3_NEGATIVES)
     if camera_lock:

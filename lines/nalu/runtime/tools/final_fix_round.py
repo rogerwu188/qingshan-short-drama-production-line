@@ -113,7 +113,11 @@ KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
                     "出油", "满脸汗", "冒汗", "头发湿", "湿发", "过锐", "锐化过度", "过度锐化")),
     ("FACE_DRIFT", ("face drift", "face changes", "face changed", "different face", "wrong face", "face swap",
                     "face does not match", "face doesn't match", "identity drift", "looks like a different",
-                    "脸变", "换脸", "脸不一样", "长相变", "面部漂移", "不像同一个人", "五官变")),
+                    "脸变", "换脸", "脸不一样", "长相变", "面部漂移", "不像同一个人", "五官变",
+                    # in-shot identity swap (JA-01 anime E01 2026-11-20): the person on screen morphs into another
+                    "transforms into", "turns into another", "turns into a different", "morphs into",
+                    "becomes another character", "becomes a different character", "identity swap",
+                    "变成另一个", "变成了另一个", "变成别人", "变成了别人")),
     ("SUBTITLE_WRAP", ("wrap", "line break", "lone punctuation", "on its own line", "换行", "单独成行", "断行")),
     ("DIALOGUE_TAIL_GUARD", ("cut off", "clipped", "truncated", "last syllable", "tail cut", "no pause",
                              "cuts mid", "尾音", "被剪", "切断", "截断", "没有停顿", "没停顿")),
@@ -196,6 +200,8 @@ def classify_text(text: str) -> str:
 def classify(item: str | None, text: str = "") -> str:
     """Fix kind of one finding: the QA item decides when it names one, else the finding's text."""
     item = str(item or "").upper()
+    if item == "QA-LOOKALIKE-CAST" and classify_text(text) == "FACE_DRIFT":
+        return "FACE_DRIFT"  # an in-shot identity swap reported under the look-alike item is a redo, not a record
     if item in ITEM_KIND:
         return ITEM_KIND[item]
     if item == "LOOK-DRIFT":
