@@ -657,8 +657,8 @@ def record_lookalike_cast(rt: Path, *, episode: str, report_path: str | None) ->
 FINAL_REVIEW = "FINAL_REVIEW"
 FINAL_REVIEW_ROUTES = {
     **{k: "DIRECTING_GUIDANCE" for k in ("PACING", "STORY", "LENGTH", "STATIC_SHOT_SPLIT", "OTHER")},
-    **{k: "MODEL_CONSTRAINT" for k in ("BURNED_TEXT", "FACE_DRIFT", "COSTUME_IDENTITY", "LOOKALIKE", "VOICE",
-                                       "ASR_MISMATCH")},
+    **{k: "MODEL_CONSTRAINT" for k in ("BURNED_TEXT", "FACE_DRIFT", "SKIN_SHEEN", "COSTUME_IDENTITY", "LOOKALIKE",
+                                       "VOICE", "ASR_MISMATCH")},
     **{k: "ENGINE" for k in ("SUBTITLE_WRAP", "BGM_FADES", "AUDIO_SMOOTHING", "DIALOGUE_TAIL_GUARD", "LETTERBOX",
                              "MASK")},
 }
@@ -680,10 +680,10 @@ SCOPE_LANGUAGE = "language"
 #: kinds whose cause lives in the dialogue language (voice casting / timbre, ASR and lip match, subtitle text)
 LANGUAGE_KINDS = frozenset({"VOICE", "ASR_MISMATCH", "SUBTITLE_WRAP"})
 #: kinds whose cause is the picture, the edit, the model or the mix -- the same in every language
-GLOBAL_KINDS = frozenset({"BURNED_TEXT", "FACE_DRIFT", "COSTUME_IDENTITY", "LOOKALIKE", "STATIC_SHOT_SPLIT",
+GLOBAL_KINDS = frozenset({"BURNED_TEXT", "FACE_DRIFT", "SKIN_SHEEN", "COSTUME_IDENTITY", "LOOKALIKE", "STATIC_SHOT_SPLIT",
                           "LETTERBOX", "MASK", "BGM_FADES", "AUDIO_SMOOTHING", "DIALOGUE_TAIL_GUARD"})
 LANGUAGE_ITEMS = frozenset({"QA-SUBTITLE-WRAP"})
-GLOBAL_ITEMS = frozenset({"QA-BURNED-TEXT", "QA-LOOKALIKE-CAST", "QA-OVERSIZED-MASK", "QA-BGM-DISCONTINUOUS",
+GLOBAL_ITEMS = frozenset({"QA-BURNED-TEXT", "QA-SKIN-SHEEN-DRIFT", "QA-LOOKALIKE-CAST", "QA-OVERSIZED-MASK", "QA-BGM-DISCONTINUOUS",
                           "QA-DIALOGUE-TAIL-CUT", "LETTERBOX", "LOOK-DRIFT"})
 #: text signals (lower-case substrings).  Language: what is SAID or WRITTEN in that language.
 LANGUAGE_SIGNALS = (

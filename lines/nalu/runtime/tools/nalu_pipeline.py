@@ -5867,6 +5867,89 @@ def _tail_text_clean(partial: Path, final: Path) -> dict[str, Any]:
         return {"status": "FAIL_OPEN", "tail_text_cleaned": False, "boxes": [], "error": str(exc)}
 
 
+def tail_normalize_anchor(ctx: Ctx, unit_id: str) -> Path | None:
+    """The clean texture anchor for ``unit_id``'s tail: the generated keyframe of its tail chain's root.  A unit
+    whose start frame is itself a predecessor tail (continuity-derived / hard continuation) walks back to the first
+    unit of the chain that opened on its own S5 keyframe, so the anchor is never an H3 output frame.  None when the
+    plan or the keyframe is missing (the normaliser then leaves the tail as it is)."""
+    try:
+        plan = read_json(ctx.p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json", {}) or {}
+        first_shot = {str(u.get("unit_id")): (u.get("editorial_shot_ids") or [None])[0] for u in plan.get("units") or []}
+        sourced = tail_sourced_units(ctx)
+        decisions = start_frame_source_decisions(ctx)
+        uid, hops = unit_id, 0
+        while uid in sourced and hops < 64:
+            if (decisions.get(uid) or {}).get("start_frame_source") == START_FRAME_OWN:
+                break  # this unit opened on its own keyframe after all
+            prev = sourced[uid].get("previous_unit_id")
+            if not prev:
+                break
+            uid, hops = str(prev), hops + 1
+        shot = first_shot.get(uid)
+        if not shot:
+            return None
+        key = ctx.p.preprod / "keyframes" / f"{shot}-keyframe-v1.png"
+        if not key.is_file() or key.with_suffix(".derived.json").is_file():
+            return None  # a derived keyframe is a tail copy, not a clean anchor
+        return key
+    except Exception:  # noqa: BLE001 - no anchor: no normalisation
+        return None
+
+
+def unit_start_keyframe(ctx: Ctx, unit_id: str) -> Path | None:
+    """``keyframes/<first shot>-keyframe-v1.png`` of ``unit_id`` (for a tail-started unit: the predecessor's tail
+    copy it opened on), or None."""
+    plan = read_json(ctx.p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json", {}) or {}
+    shot = next(((u.get("editorial_shot_ids") or [None])[0] for u in plan.get("units") or []
+                 if str(u.get("unit_id")) == unit_id), None)
+    key = ctx.p.preprod / "keyframes" / f"{shot}-keyframe-v1.png" if shot else None
+    return key if key is not None and key.is_file() else None
+
+
+def _tail_normalize(ctx: Ctx, unit_id: str, partial: Path, final: Path) -> dict[str, Any]:
+    """Pull the tail frame's tone / sharpening / skin sheen back toward the scene's clean keyframe before it anchors
+    the next unit (engine tools/tail_frame_normalize.py; fail-open, NALU_TAIL_NORMALIZE=0 opts out).  Line owner
+    2026-11-20: H3 compounds contrast, sharpening and specular sheen down a tail chain (KO E01 "oily face")."""
+    try:
+        import tail_frame_normalize as _tfn  # engine tools/ is on sys.path
+        raw, sidecar = _tfn.companion_paths(final)
+        return _tfn.normalize_tail_frame(partial, anchor=tail_normalize_anchor(ctx, unit_id), raw_copy=raw,
+                                         sidecar=sidecar, start=unit_start_keyframe(ctx, unit_id))
+    except Exception as exc:  # noqa: BLE001 - never block the pipeline on the normaliser
+        print(f"[nalu_pipeline] WARNING: tail-frame normalisation unavailable ({exc}); frame kept", file=sys.stderr)
+        return {"status": "FAIL_OPEN", "tail_normalized": False, "error": str(exc)}
+
+
+def s6_skin_sheen_check(ctx: Ctx, unit_id: str, clip: Path, clip_sha: str) -> dict[str, Any]:
+    """QA-SKIN-SHEEN-DRIFT (line owner 2026-11-20): free per-unit measurement of a freshly landed clip -- an early and
+    the last frame vs the image the unit opened on (its first-shot keyframe, a tail copy for a tail-started unit)
+    and vs the scene's clean anchor keyframe: near-white specular share of the face region, Laplacian variance and
+    local contrast (engine tools/tail_frame_normalize.sheen_drift).  Written to
+    ``real_final_frames/<unit>.skin_sheen.json``; the final review's must-check list reads it as a measured lead and
+    the final fix round redoes a confirmed unit once (paid, SKIN_SHEEN).  Never a gate; anime units and
+    ``NALU_SKIN_SHEEN_CHECK=0`` skip it; any error is recorded and ignored."""
+    if str(os.environ.get("NALU_SKIN_SHEEN_CHECK", "1")).strip().lower() in ("0", "false", "no", "off"):
+        return {"status": "SKIPPED_OPT_OUT"}
+    try:
+        if ctx_render_style(ctx) == "anime":
+            return {"status": "NOT_APPLICABLE", "reason": "RENDER_STYLE_ANIME"}
+        import tail_frame_normalize as _tfn  # engine tools/ is on sys.path
+        start = unit_start_keyframe(ctx, unit_id)
+        anchor = tail_normalize_anchor(ctx, unit_id)
+        refs = {"start_frame": start}
+        if anchor is not None and (start is None or anchor != start):
+            refs["anchor"] = anchor
+        row = _tfn.sheen_drift(clip, refs)
+        row.update(unit_id=unit_id, source_sha256=clip_sha, measured_at=now())
+        write_json(ctx.p.preprod / "real_final_frames" / f"{unit_id}.skin_sheen.json", row)
+        if row.get("flagged"):
+            ctx.say(f"   S6 skin-sheen drift {unit_id}: {','.join(row.get('reasons') or [])} "
+                    f"(QA-SKIN-SHEEN-DRIFT lead for the final review; not a gate)")
+        return {k: row.get(k) for k in ("status", "flagged", "reasons", "error") if row.get(k) is not None}
+    except Exception as exc:  # noqa: BLE001 - advisory measurement
+        return {"status": "ERROR", "error": f"{type(exc).__name__}: {str(exc)[:160]}"}
+
+
 def extract_real_final_frame(ctx: Ctx, unit_id: str) -> dict[str, Any]:
     """ffmpeg last-frame grab of the harvested unit video (same recipe as the engine's
     episode_parallel_batch_supervisor.bind_predecessor_tail_frame: -sseof -0.10/-0.20/-0.50)."""
@@ -5900,12 +5983,17 @@ def extract_real_final_frame(ctx: Ctx, unit_id: str) -> dict[str, Any]:
                                "-i", str(src), "-frames:v", "1", "-q:v", "2", str(partial)], check=False)
         if proc.returncode == 0 and partial.is_file() and partial.stat().st_size > 0:
             clean = _tail_text_clean(partial, dst)
+            norm = _tail_normalize(ctx, unit_id, partial, dst)
             os.replace(partial, dst)
             dst.with_suffix(".source.sha256").write_text(source_sha + "\n", encoding="utf-8")
+            sheen = s6_skin_sheen_check(ctx, unit_id, src, source_sha)
             return {"unit_id": unit_id, "status": "EXTRACTED", "path": str(dst), "sha256": sha256_file(dst),
                     "source": str(src), "source_sha256": source_sha, "sseof": off,
                     "tail_text_cleaned": bool(clean.get("tail_text_cleaned")),
-                    "tail_text_clean": clean}
+                    "tail_text_clean": clean,
+                    "tail_normalized": bool(norm.get("tail_normalized")),
+                    "tail_normalize": {k: norm.get(k) for k in ("status", "anchor", "error") if norm.get(k)},
+                    "skin_sheen": sheen}
         partial.unlink(missing_ok=True)
     return {"unit_id": unit_id, "status": "EXTRACT_FAILED", "source": str(src)}
 

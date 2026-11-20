@@ -52,7 +52,8 @@ _NUM_RE = re.compile(r"-?\d+(?:\.\d+)?")
 #: the final review's must-check defects (nalu_qa_defect_checklist, line owner 2026-11-19) -> the craft item a top
 #: gap cites when one of them is also among the cut's worst retention gaps
 QA_DEFECT_CRAFT_ITEMS = {"QA-BURNED-TEXT": "C-04", "QA-DIALOGUE-TAIL-CUT": "C-08", "QA-OVERSIZED-MASK": "C-13",
-                         "QA-LOOKALIKE-CAST": "C-12", "QA-SUBTITLE-WRAP": "S-08", "QA-BGM-DISCONTINUOUS": "C-16"}
+                         "QA-LOOKALIKE-CAST": "C-12", "QA-SUBTITLE-WRAP": "S-08", "QA-BGM-DISCONTINUOUS": "C-16",
+                         "QA-SKIN-SHEEN-DRIFT": "C-12"}
 
 #: what the author is told about the optional beat_role field (S7 cuts reactions to their v1 length from it)
 BEAT_ROLE_LINE = ("爽点表里的镜头填 `prompt_spec.beat_role`：SETUP 铺垫 | PAYOFF 爽点 | REACTION 爽点后的反应；"

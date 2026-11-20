@@ -1118,6 +1118,26 @@ time around each chain step (~12 min before):
   `S6_CHAIN_STEP wave=N units=… prep=…s (from predecessor_landed|previous_post|run_start; body=…s) wait=…s`, and
   the stage details carry `s6_inrun_poll` (polls, waits, chain steps, stop reason).
 
+## S6 tail-frame normalisation + skin-sheen drift (line owner 2026-11-20)
+KO E01 on device …0080: inside one scene the lead's face turned oily / glossy / sweaty with wet-looking hair and
+crunchy over-sharpened texture from one unit to the next.  A tail-chained unit opens on the predecessor's REAL final
+frame; H3 re-sharpens that compressed frame (lab H3 pairs: the first frame is ~1.15x sharper / ~1.06x more local
+contrast than the tail it starts from), so texture and sheen can compound down a chain.
+* **Normalise** (`tools/tail_frame_normalize.py`, local, zero credits): right after the OCR text clean at both
+  tail extraction points, the tail is pulled toward the chain root's own generated keyframe (supervisor: the planned
+  start keyframe): sharpness capped at the frame its unit opened on (bilateral + Gaussian blend, no unsharp mask),
+  L / a / b spread only ever lowered (L mean never moved: no brightness jump at a hard-continuation cut), a/b mean
+  pulled <= 2.5, skin highlights above the anchor's own level compressed.  Per-pixel / small symmetric filters only:
+  geometry untouched.  `<unit>.raw.png` keeps the pre-normalisation frame, `<unit>.tail_normalize.json` records
+  `tail_normalized` + before / after / anchor stats.  Fail-open; `NALU_TAIL_NORMALIZE=0` turns it off.
+* **Prompt**: stamped (CAMERA_GRAMMAR_V1) live-action H3 units with people carry `SKIN_FINISH_NEGATIVE` (natural
+  matte skin, dry hair, no sweaty sheen) -- skipped for anime and when the unit's text makes skin or hair wet.
+* **Detect** (free, never a gate): every freshly extracted unit gets `real_final_frames/<unit>.skin_sheen.json`
+  (an early and the last frame vs the start frame and the anchor: specular share of the face region, Laplacian
+  variance, local contrast).  The final review's must-check list shows flagged units as `QA-SKIN-SHEEN-DRIFT` leads;
+  a confirmed DEFECT is a `SKIN_SHEEN` paid redo in the final fix round (after face drift, same budget) and a global
+  `FINAL_REVIEW:SKIN_SHEEN` MODEL_CONSTRAINT knowledge event.  `NALU_SKIN_SHEEN_CHECK=0` turns the measurement off.
+
 ## S6 burned-text retry (line owner 2026-11-19)
 MiniMax-H3 sometimes burns the spoken line into the clip as a caption (centred, y ~0.74, 52-60 px glyphs at
 720 w).  HopsAPI returns a byte-identical clip for an identical request (changing the reference URL or

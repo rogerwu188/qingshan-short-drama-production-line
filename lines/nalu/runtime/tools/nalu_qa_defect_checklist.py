@@ -10,6 +10,8 @@ The independent final reviewer is asked SPECIFICALLY, with timestamps, about six
   QA-LOOKALIKE-CAST       two different characters who look alike
   QA-SUBTITLE-WRAP        our subtitle wrapping badly (a lone 「！」 on its own line)
   QA-BGM-DISCONTINUOUS    music that plays for a shot or two and stops, or starts / stops abruptly at a cut
+  QA-SKIN-SHEEN-DRIFT     (2026-11-20, KO E01 on device …0080) a face turning oily / glossy / sweaty, hair turning
+                          wet, or skin texture turning crunchy and over-sharpened from one shot to the next
 
 Where the engine can measure something for free, the reviewer gets the measurement (``measure``): OCR hits from the
 S7 burned-text scan / verify, the gap between each line's ASR end and the next cut, the cover-band area per burned
@@ -76,6 +78,14 @@ ITEMS: dict[str, dict[str, Any]] = {
                     "at a cut (no fade)?  Give each timestamp.  measurements.bgm lists the measured music segments "
                     "(start, end, duration, fades) and the flagged runs / edges.",
         "s7_fixable": True, "fix_owner": "S7", "craft_item": "C-16"},
+    "QA-SKIN-SHEEN-DRIFT": {
+        "title_zh": "人物皮肤突然油光/出汗/头发湿、质感过锐（相邻镜头间脸像抹了油）",
+        "question": "Does a character's skin suddenly look oily, glossy or sweaty, hair look wet, or skin texture turn "
+                    "harsh and over-sharpened (visible pores, specular highlights, higher contrast) from one shot to "
+                    "the next when the scene gives no reason (no rain, water, exertion or tears)?  Give each "
+                    "timestamp.  measurements.skin_sheen lists units whose specular share / sharpness / contrast "
+                    "drifted from the frame they opened on (S6, free).",
+        "s7_fixable": False, "fix_owner": "S6", "craft_item": "C-12"},
 }
 ITEM_IDS = tuple(ITEMS)
 
@@ -302,9 +312,36 @@ def measure_s6_burn_unresolved(state: Any) -> dict[str, Any]:
     return {"source": "S6 wave state s6_burn_retry (read only)", "units": rows} if rows else {}
 
 
+def measure_skin_sheen(tails_dir: Any) -> dict[str, Any]:
+    """Units whose landed clip drifted toward an oily / glossy / over-sharpened face (S6 ``<unit>.skin_sheen.json``
+    beside the real final frames, tools/tail_frame_normalize.sheen_drift).  Only the take currently on the assembly
+    path counts (its ``source_sha256`` must match the tail's ``.source.sha256`` marker).  {} when none."""
+    if not tails_dir or not Path(str(tails_dir)).is_dir():
+        return {}
+    rows = []
+    for path in sorted(Path(str(tails_dir)).glob("*.skin_sheen.json")):
+        row = _read(path)
+        if not isinstance(row, dict) or not row.get("flagged"):
+            continue
+        uid = str(row.get("unit_id") or path.name.split(".skin_sheen.json")[0])
+        marker = path.with_name(f"{uid}.source.sha256")
+        try:
+            current = marker.read_text(encoding="utf-8").strip()
+        except OSError:
+            current = ""
+        if current and row.get("source_sha256") and current != row.get("source_sha256"):
+            continue  # a superseded take
+        rows.append({"unit_id": uid, "reasons": row.get("reasons") or [],
+                     "worst": {name: (c or {}).get("worst") for name, c in (row.get("comparisons") or {}).items()}})
+    return {"source": "S6 skin-sheen drift per landed unit (read only)", "units": rows[:40],
+            "thresholds": (_read(Path(str(tails_dir)) / f"{rows[0]['unit_id']}.skin_sheen.json") or {}).get(
+                "thresholds") if rows else None} if rows else {}
+
+
 def measure(*, shots: list[dict[str, Any]], asr: Any = None, scan_path: Any = None, verify_path: Any = None,
             ass_path: Any = None, distinctness_path: Any = None, bgm_plan_path: Any = None,
-            audio_bed_path: Any = None, s6_wave_state_path: Any = None) -> dict[str, Any]:
+            audio_bed_path: Any = None, s6_wave_state_path: Any = None,
+            skin_sheen_dir: Any = None) -> dict[str, Any]:
     """All free measurements, each best-effort ({} when its input is missing).  Never raises."""
     out: dict[str, Any] = {}
     steps = (
@@ -316,6 +353,7 @@ def measure(*, shots: list[dict[str, Any]], asr: Any = None, scan_path: Any = No
         ("lookalike_cast", lambda: measure_lookalike(_read(distinctness_path))),
         ("bgm", lambda: measure_bgm(_read(bgm_plan_path), _read(audio_bed_path), shots)),
         ("s6_burn_unresolved", lambda: measure_s6_burn_unresolved(_read(s6_wave_state_path))),
+        ("skin_sheen", lambda: measure_skin_sheen(skin_sheen_dir)),
     )
     for key, fn in steps:
         try:
@@ -331,7 +369,7 @@ def measure(*, shots: list[dict[str, Any]], asr: Any = None, scan_path: Any = No
 MEASUREMENT_ITEM = {"burned_text": "QA-BURNED-TEXT", "masks": "QA-OVERSIZED-MASK",
                     "dialogue_tail": "QA-DIALOGUE-TAIL-CUT", "subtitle_wrap": "QA-SUBTITLE-WRAP",
                     "lookalike_cast": "QA-LOOKALIKE-CAST", "bgm": "QA-BGM-DISCONTINUOUS",
-                    "s6_burn_unresolved": "QA-BURNED-TEXT"}
+                    "s6_burn_unresolved": "QA-BURNED-TEXT", "skin_sheen": "QA-SKIN-SHEEN-DRIFT"}
 
 
 def reviewer_request(measurements: dict[str, Any]) -> dict[str, Any]:
@@ -446,6 +484,9 @@ def _measured_findings(measurements: dict[str, Any]) -> list[dict[str, Any]]:
         out.append({"item_id": "QA-BURNED-TEXT", "source": "S6_BURN_UNRESOLVED", "unit_id": row.get("unit_id"),
                     "detail": f"{row.get('unit_id')}: kept take has {row.get('kept_take_burned_frames')} burned "
                               f"frame(s) after {row.get('retries')} retry(ies) ({row.get('reason')})"})
+    for row in (measurements.get("skin_sheen") or {}).get("units") or []:
+        out.append({"item_id": "QA-SKIN-SHEEN-DRIFT", "source": "S6_SKIN_SHEEN", "unit_id": row.get("unit_id"),
+                    "detail": f"{row.get('unit_id')}: {','.join(row.get('reasons') or [])}"})
     # the local A/V evidence pack (av_evidence_pack.py, video-native final review 2026-11-19)
     pack = measurements.get("av_evidence_pack") or {}
     for row in pack.get("burned_text_runs") or []:
@@ -518,7 +559,7 @@ def routing(item_id: str, *, maskable: bool = True) -> str:
     del maskable  # kept for callers: burned text is now fixed by an S6 redo, not by a cover
     if item_id == "QA-LOOKALIKE-CAST":
         return "KNOWLEDGE_BASE_AND_NEXT_EPISODE_IDENTITY_DESIGN"
-    if item_id == "QA-BURNED-TEXT":
+    if item_id in ("QA-BURNED-TEXT", "QA-SKIN-SHEEN-DRIFT"):
         return "S6_UNIT_REDO_FINAL_FIX_ROUND"
     if item_id == "QA-OVERSIZED-MASK":
         return "RECORDED"
