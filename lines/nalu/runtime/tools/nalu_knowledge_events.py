@@ -34,6 +34,11 @@ Event vocabulary (``evidence.failure_type``; the collector clusters on it):
                                          measured (cluster ``QA_DEFECT|<item id>``; item id, routing, timestamps and
                                          counts only -- ``record_qa_defects``); the S3 cross-character similarity
                                          measurement records QA-LOOKALIKE-CAST too (``record_lookalike_cast``)
+  FINAL_REVIEW:<kind>                    one per CONFIRMED finding of the independent final review (reviewer
+                                         problems, must-check DEFECTs, Gemini findings the reviewer confirmed;
+                                         cluster ``FINAL_REVIEW:<kind>|<language>``, kind = final_fix_round.classify,
+                                         lesson_route DIRECTING_GUIDANCE / MODEL_CONSTRAINT / ENGINE; anonymised
+                                         description only -- ``record_final_review_findings``)
 
 Evidence quality (first daily review 2026-11-13 rejected all 46 clusters as too thin / bookkeeping):
 
@@ -56,6 +61,7 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -578,7 +584,8 @@ def record_craft_gaps(rt: Path, *, episode: str, craft_path: str | None, media_s
                                   clean_field=ex._clean_field, sensitive=_c.sensitive_findings)
         sha = str(media_sha256 or (parsed.get("bindings") or {}).get("final_video_sha256") or "NO_MEDIA")
         for spec in specs:
-            evidence = {**spec["evidence"], "final_candidate_sha256": sha if sha != "NO_MEDIA" else None}
+            evidence = {**spec["evidence"], "final_candidate_sha256": sha if sha != "NO_MEDIA" else None,
+                        "language": final_review_language(language)}
             events.append(emit(rt, episode=episode, stage=spec["stage"], failure_type=spec["failure_type"],
                                symptom=spec["symptom"], evidence=evidence,
                                dedupe_key=f"{episode}:{spec['failure_type']}:{spec['item_id']}:{sha}"))
@@ -636,6 +643,99 @@ def record_lookalike_cast(rt: Path, *, episode: str, report_path: str | None) ->
                                dedupe_key=f"{episode}:QA_DEFECT:QA-LOOKALIKE-CAST:{row.get('a')}:{row.get('b')}:"
                                           f"{row.get('cosine')}"))
         return {"status": "OK" if rows else "NONE", "events": events}
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}", "events": events}
+
+
+#: FINAL_REVIEW:<kind> (line owner 2026-11-20: a very poor KO E01 taught the knowledge base nothing).  The kind is
+#: final_fix_round.classify of the finding; the route says who can learn from it:
+#:   DIRECTING_GUIDANCE  how the episode is written / directed (Codex: script, storyboard, shot specs)
+#:   MODEL_CONSTRAINT    what the video / image model does wrong (a provider-prompt clause may help)
+#:   ENGINE              the engine's own S7 cut / mix / captions -- never a rule (lesson_class ENGINE_THRESHOLD)
+FINAL_REVIEW = "FINAL_REVIEW"
+FINAL_REVIEW_ROUTES = {
+    **{k: "DIRECTING_GUIDANCE" for k in ("PACING", "STORY", "LENGTH", "STATIC_SHOT_SPLIT", "OTHER")},
+    **{k: "MODEL_CONSTRAINT" for k in ("BURNED_TEXT", "FACE_DRIFT", "COSTUME_IDENTITY", "LOOKALIKE", "VOICE",
+                                       "ASR_MISMATCH")},
+    **{k: "ENGINE" for k in ("SUBTITLE_WRAP", "BGM_FADES", "AUDIO_SMOOTHING", "DIALOGUE_TAIL_GUARD", "LETTERBOX",
+                             "MASK")},
+}
+FINAL_REVIEW_ROUTE_STAGE = {"DIRECTING_GUIDANCE": "SCRIPT_AUTHORING", "MODEL_CONSTRAINT": "S6", "ENGINE": "S7"}
+FINAL_REVIEW_MAX_FINDINGS = 12
+FINAL_REVIEW_TEXT_MAX = 120
+_LANG_RE = re.compile(r"[a-z]{2}")
+
+
+def final_review_language(language: Any) -> str:
+    """``zh-CN`` / ``ko`` / ``ja_JP`` -> ``zh`` / ``ko`` / ``ja``; unknown -> ``zh`` (the historical line)."""
+    head = str(language or "").strip().lower()[:2]
+    return head if _LANG_RE.fullmatch(head) else "zh"
+
+
+def record_final_review_findings(rt: Path, *, episode: str, report_path: str | None, checklist_path: str | None = None,
+                                 media_sha256: str | None = None, language: str = "zh",
+                                 cast_names: Iterable[Any] = (), dialogue_lines: Iterable[str] = (),
+                                 review_round: str = "first") -> dict[str, Any]:
+    """Every CONFIRMED finding of the independent final review as one FAILURE_OBSERVATION ``FINAL_REVIEW:<kind>``
+    (cluster ``FINAL_REVIEW:<kind>|<language>``): the reviewer's problems (issue | fix), its must-check DEFECTs, the
+    Gemini A/V findings the reviewer CONFIRMED and an identity-colour hard fail -- exactly the set
+    final_fix_round.collect_findings acts on (unverified / dismissed Gemini flags are left out).
+
+    Evidence: kind, route (DIRECTING_GUIDANCE / MODEL_CONSTRAINT / ENGINE), source, severity, QA item, time window,
+    language, the review round and a short anonymised description (cast names -> 角色A/B, quotes -> 「…」, no
+    dialogue run, paths / URLs / ids removed, sensitive_findings clean; dropped when it cannot be cleaned).  ENGINE
+    findings carry lesson_class ENGINE_THRESHOLD (release-train engine items, never rule candidates).  Deduped per
+    finding and final-cut sha.  Best-effort, never raises."""
+    events: list[dict[str, Any]] = []
+    try:
+        report = _read(report_path)
+        if not report:
+            return {"status": "NO_REVIEW_REPORT", "events": events}
+        checklist = _read(checklist_path) if checklist_path else {}
+        sha = str(media_sha256 or report.get("media_sha256") or "NO_MEDIA")
+        bound = (checklist.get("bindings") or {}).get("final_video_sha256") if checklist else None
+        if bound not in (None, sha):
+            checklist = {}  # a must-check list of another cut is not a finding of this one
+        import final_fix_round as _ffr  # noqa: PLC0415 -- same directory
+        findings = _ffr.map_findings(_ffr.collect_findings(report, checklist), [])
+        if not findings:
+            return {"status": "NO_FINDINGS", "events": events}
+        lang = final_review_language(language)
+        ex = _exemplars()
+        from tools.collective_learning import contracts as _c  # noqa: PLC0415
+        roles = ex.role_map(list(cast_names), "zh" if lang == "zh" else "en")
+        import nalu_craft_standard as _craft  # noqa: PLC0415 -- same directory
+        lines = list(dialogue_lines)
+        for idx, f in enumerate(findings[:FINAL_REVIEW_MAX_FINDINGS]):
+            kind = re.sub(r"[^A-Z0-9_]", "_", str(f.get("kind") or "OTHER").upper())[:40] or "OTHER"
+            route = FINAL_REVIEW_ROUTES.get(kind, "DIRECTING_GUIDANCE")
+            failure_type = f"{FINAL_REVIEW}:{kind}"
+            text = _craft.scrub_fix(f.get("text"), roles=roles, dialogue_lines=lines, scrub_text=ex.scrub_text,
+                                    clean_field=ex._clean_field)
+            if text and len(text) > FINAL_REVIEW_TEXT_MAX:
+                text = text[: FINAL_REVIEW_TEXT_MAX - 1].rstrip() + "…"
+            detail = {k: v for k, v in {
+                "source": f.get("source"), "severity": f.get("severity"), "qa_item": f.get("item"),
+                "window": f.get("window"), "fix_class": f.get("class"), "description": text}.items()
+                if v not in (None, "", [])}
+            evidence: dict[str, Any] = {
+                "cluster_key": f"{failure_type}|{lang}", "failure_code": kind, "detail_category": lang,
+                "item": kind, "lesson_route": route, "language": lang, "review_round": review_round,
+                "final_candidate_sha256": sha if sha != "NO_MEDIA" else None, "detail": detail}
+            if route == "ENGINE":
+                evidence["lesson_class"] = ENGINE_THRESHOLD
+            if _c.sensitive_findings(evidence):
+                detail.pop("description", None)
+                if _c.sensitive_findings(evidence):
+                    continue
+            digest = hashlib.sha256(
+                f"{f.get('source')}|{f.get('item')}|{f.get('window')}|{f.get('text')}".encode("utf-8")).hexdigest()[:12]
+            symptom = (f"final review {str(f.get('source') or 'finding').lower()} {kind} ({route}, {lang})"
+                       + (f": {text}" if text else ""))
+            events.append(emit(rt, episode=episode, stage=FINAL_REVIEW_ROUTE_STAGE[route], failure_type=failure_type,
+                               symptom=symptom, evidence=evidence,
+                               dedupe_key=f"{episode}:{FINAL_REVIEW}:{kind}:{sha}:{idx}:{digest}"))
+        return {"status": "OK", "findings": len(findings), "events": events}
     except Exception as exc:  # noqa: BLE001
         return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}", "events": events}
 
