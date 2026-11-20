@@ -65,7 +65,7 @@ MAX_COVERAGE_RATIO = 0.85             # E37 bgm_cue_policy
 MIN_AMBIENCE_ONLY_SECONDS = 8.0
 DUCK_RANGE_DB = (-10.0, -6.0)         # bgm_authenticity_gate: dialogue_duck_db must be -10..-6
 DUCK_RAMP_S = 0.25
-FADE_IN_S, FADE_OUT_S = 0.5, 0.75
+FADE_IN_S, FADE_OUT_S = 1.5, 2.5   # owner 2026-11-19 (bgm_cue_shaping): no 0.5 s pops / 0.75 s cut-offs
 TX_DIR = ENGINE / "workflow/tasks/giggle_bgm_transactions"
 
 
@@ -366,7 +366,7 @@ def cmd_verify(a: argparse.Namespace) -> int:
     return 0 if good else 2
 
 
-MIN_CUE_SECONDS = 8.0
+MIN_CUE_SECONDS = 12.0   # owner 2026-11-19: no 3-8 s fragments (bgm_cue_shaping.MIN_CUE_SECONDS)
 SOURCE_TAIL_MARGIN_S = 0.5
 
 
@@ -453,19 +453,40 @@ def cmd_plan(a: argparse.Namespace) -> int:
 
     windows = {cue["cue_id"]: window_for_shots(list(cue["shots"])) for cue in source_plan["cues"]}
     windows = {cid: (t0, min(t1, content)) for cid, (t0, t1) in windows.items()}
+    # Cue shaping (owner 2026-11-19: music for one or two shots, then a stop): ends only at scene / mood
+    # boundaries with a fade, crossfade or hit stop; fade / pre-lap / hit entries; no fragments, no flicker.
+    import bgm_cue_shaping as _shape
+    shots_tl = []
+    for shot in contract.get("shots") or []:
+        sid = str(shot.get("shot_id") or "")
+        if shot_unit.get(sid) in seg_by_unit:
+            t0_, t1_ = window_for_shots([sid])
+            shots_tl.append({"shot_id": sid, "t0": t0_, "t1": t1_, "scene_id": shot.get("scene_id"), "shot": shot})
+    shots_tl.sort(key=lambda r: r["t0"])
+    source_len = {cue["source_key"]: longest_source_seconds(p, cue["source_key"]) for cue in source_plan["cues"]}
+    plan_cues = {cue["cue_id"]: cue for cue in source_plan["cues"]}
+    shaping = _shape.shape([{"cue_id": cid, "source_key": plan_cues[cid]["source_key"], "t0": t0, "t1": t1,
+                             "narrative_function": plan_cues[cid].get("narrative_function"),
+                             "sting": bool(plan_cues[cid].get("sting"))} for cid, (t0, t1) in windows.items()],
+                           shots_tl, content, source_len)
+    shaped = {c["cue_id"]: c for c in shaping["cues"]}
+    windows = {cid: (c["t0"], c["t1"]) for cid, c in shaped.items()}
     entry_delays = fit_cues_to_cut(windows, content)
     # The generated sources are already on disk (S6): a cue never asks for more than its longest candidate holds,
     # because the gate forbids loops and stretching (field device …1324 E03: 167 s sources, 196.7 s cue ->
     # SOURCE_TOO_SHORT_FOR_NO_LOOP_COVERAGE on both candidates).  The music enters later instead.
-    fit_cues_to_sources(windows, {cue["cue_id"]: longest_source_seconds(p, cue["source_key"])
-                                  for cue in source_plan["cues"]}, entry_delays)
+    fit_cues_to_sources(windows, {cue["cue_id"]: source_len[cue["source_key"]]
+                                  for cue in source_plan["cues"] if cue["cue_id"] in windows}, entry_delays)
     cues_out = []
     for cue in source_plan["cues"]:
         cue_id = cue["cue_id"]
+        if cue_id not in windows:   # dropped as a fragment / merged into an earlier cue of the same source
+            continue
         func = cue["narrative_function"]
         shots = list(cue["shots"])
         t0, t1 = windows[cue_id]
-        duck = float(cue["dialogue_duck_db"])
+        # owner 2026-11-19: duck about 10-14 dB under speech, never mute; the authenticity gate accepts -6..-10
+        duck = _shape.DUCK_DB
         volume = float(cue["volume"])
         # dialogue windows inside the cue, from the per-unit ASR (assembly), on the release timeline
         dialogue = []
@@ -488,19 +509,38 @@ def cmd_plan(a: argparse.Namespace) -> int:
         smooth = _smoothing(contract, a.episode)
         shape = {}
         if smooth is not None and dialogue:
-            duck = max(duck, smooth.STAMPED_DUCK_DB)
             shape = {"duck_shape": smooth.duck_shape(dialogue)}
+        sc = shaped[cue_id]
         cues_out.append({"cue_id": cue_id, "narrative_function": func, "source_key": cue["source_key"],
                          "shots": shots, "timeline_start": t0, "duration": round(t1 - t0, 3),
                          "volume": volume, "dialogue_duck_db": duck, "dialogue_windows": dialogue,
                          "dialogue_present": bool(dialogue),
                          **({"entry_delayed_seconds": entry_delays[cue_id]} if cue_id in entry_delays else {}),
-                         **{k: cue[k] for k in ("fade_in_s", "fade_out_s") if k in cue}, **shape})
+                         **{k: sc[k] for k in ("fade_in_s", "fade_out_s", "entry_type", "end_type", "end_at_boundary",
+                                               "sting", "fade_curve", "prelap_s", "hit_at", "merged_cue_ids",
+                                               "flicker_unresolved") if k in sc},
+                         **({"entry_type": "FADE_IN"} if cue_id in entry_delays else {}), **shape})
     cues_out.sort(key=lambda c: c["timeline_start"])
-    covered = sum(c["duration"] for c in cues_out)
+
+    def union_seconds(rows: list[dict]) -> float:
+        total, end = 0.0, 0.0
+        for r in sorted(rows, key=lambda r: r["timeline_start"]):
+            s0, s1 = r["timeline_start"], r["timeline_start"] + r["duration"]
+            total += max(0.0, s1 - max(s0, end))
+            end = max(end, s1)
+        return total
+
+    # coverage policy (<= 85 %, >= 8 s ambience) after shaping: the shortest cue goes before the limits break --
+    # less music, never a fragment
+    while len(cues_out) > 1 and (union_seconds(cues_out) / content > MAX_COVERAGE_RATIO
+                                 or content - union_seconds(cues_out) < MIN_AMBIENCE_ONLY_SECONDS):
+        victim = min(cues_out, key=lambda c: c["duration"])
+        shaping["dropped"].append({"cue_id": victim["cue_id"], "reason": "COVERAGE_POLICY_AFTER_SHAPING"})
+        cues_out.remove(victim)
+    covered = union_seconds(cues_out)
     failures = []
     for x, y in zip(cues_out, cues_out[1:]):
-        if y["timeline_start"] < x["timeline_start"] + x["duration"]:
+        if y["timeline_start"] < x["timeline_start"] + x["duration"] - _shape.allowed_overlap(x, y):
             failures.append(f"CUES_OVERLAP:{x['cue_id']}->{y['cue_id']}")
     ratio = round(covered / content, 6) if content else 0.0
     if ratio > MAX_COVERAGE_RATIO:
@@ -520,6 +560,8 @@ def cmd_plan(a: argparse.Namespace) -> int:
                        "minimum_ambience_only_seconds": MIN_AMBIENCE_ONLY_SECONDS, "dialogue_duck_db_range": DUCK_RANGE_DB,
                        "policy": "No wall-to-wall score. Native ambience, foley and dialogue stay; music only on the declared narrative cues, ducked under every spoken line."},
             "cues": cues_out, "generations": generations,
+            "cue_shaping": {"rule": shaping["rule"], "dropped": shaping["dropped"], "merged": shaping["merged"],
+                            "boundaries": shaping["boundaries"]},
             "actual_cue_seconds": round(covered, 3), "actual_coverage_ratio": ratio,
             "actual_ambience_only_seconds": round(content - covered, 3),
             "planned_credits": source_plan["planned_credits"],
@@ -685,6 +727,11 @@ def _fades(cue: dict) -> tuple[float, float]:
     return cue.get("fade_in_s", FADE_IN_S), cue.get("fade_out_s", FADE_OUT_S)
 
 
+def _curve(cue: dict) -> str:
+    """afade curve: equal-power ("qsin") on crossfades (bgm_cue_shaping), the smooth "hsin" elsewhere."""
+    return str(cue.get("fade_curve") or "hsin")
+
+
 def cmd_mix(a: argparse.Namespace) -> int:
     p = Paths(a.episode, contract=a.contract, assembly=a.assembly, grouping=a.grouping,
               project=a.project, work=a.work, transactions=a.bgm_transactions_dir)
@@ -708,7 +755,7 @@ def cmd_mix(a: argparse.Namespace) -> int:
         filters.append(
             f"[{idx}:a]atrim=start=0:end={dur:.3f},asetpts=PTS-STARTPTS,aresample=48000,"
             f"aformat=sample_fmts=fltp:channel_layouts=stereo,"
-            f"afade=t=in:st=0:d={fin},afade=t=out:st={max(dur - fout, 0):.3f}:d={fout},"
+            f"afade=t=in:st=0:d={fin}:curve={_curve(cue)},afade=t=out:st={max(dur - fout, 0):.3f}:d={fout}:curve={_curve(cue)},"
             f"volume='{duck_expr(cue)}':eval=frame,volume={float(cue['volume']):.3f},"
             f"adelay={int(round(start * 1000))}|{int(round(start * 1000))}[c{i}]")
         labels.append(f"[c{i}]")

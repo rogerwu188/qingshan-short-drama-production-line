@@ -7,7 +7,8 @@ also shown wherever OCR finds burned text, so the burned line is never readable.
 episode is covered only when its contract declares h3_burned_text_cover_policy=H3_BURNED_TEXT_COVER_V1 or
 configs/H3_BURNED_TEXT_COVER_V1.json lists it.
 
-  scan   <video> --out intervals.json            OCR the band, write [[start, end], ...] of burned text
+  scan   <video> --out intervals.json            OCR the band, write [[start, end], ...] of burned text and,
+                                                 per run, the tight boxes to blur (or flagged for review)
   verify <video> --captions report.json --out    OCR the finished picture: FAIL on CJK text outside the bar,
                                                  or inside it that does not match the caption on screen
 """
@@ -62,6 +63,47 @@ def cjk_count(text: str) -> int:
     return len(CJK.findall(text or ""))
 
 
+def _cover_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
+    base = {"margin": 0.012, "min_text_height": 0.02, "max_centre_offset_x": 0.25, "max_area_fraction": 0.12,
+            "face_pad": 0.01, "single_glyph_min_height": 0.04, "caption_gap_px": 8}
+    return {**base, **(cfg.get("cover") or {})}
+
+
+def dialogue_like(hit: Hit, section: dict[str, Any], cfg: dict[str, Any],
+                  dialogue_chars: set[str] | None = None) -> bool:
+    """The OCR hit looks like a burned spoken line, not set dressing.
+
+    Confidence at least ``section.min_confidence``; at least ``section.min_cjk_chars`` CJK characters, or ONE
+    large glyph (``cover.single_glyph_min_height``) that is a character of the episode's dialogue when that is
+    known; glyph height at least ``cover.min_text_height`` (embroidery, distant signage are smaller); a
+    horizontal box (a calligraphy scroll / door couplet reads as a vertical column); centred within
+    ``cover.max_centre_offset_x`` of the frame centre (H3 burns the line centred, K143).
+    """
+    t, text, conf, x0, y0, x1, y1 = hit
+    cov = _cover_cfg(cfg)
+    n = cjk_count(text)
+    h, w = y1 - y0, x1 - x0
+    if conf < section["min_confidence"] or h < float(cov["min_text_height"]):
+        return False
+    if abs((x0 + x1) / 2 - 0.5) > float(cov["max_centre_offset_x"]):
+        return False
+    if n >= int(section["min_cjk_chars"]):
+        return w >= h
+    if n == 1 and h >= float(cov["single_glyph_min_height"]):
+        glyph = CJK.findall(text)[0]
+        return dialogue_chars is None or glyph in dialogue_chars
+    return False
+
+
+def _in_search(hit: Hit, cfg: dict[str, Any]) -> bool:
+    s = cfg["scan"]
+    return hit[6] >= s["search_y0"] and hit[4] <= s["search_y1"]
+
+
+def _overlaps(a: tuple[float, float, float, float], b: tuple[float, float, float, float], pad: float = 0.0) -> bool:
+    return not (a[2] + pad < b[0] or b[2] + pad < a[0] or a[3] + pad < b[1] or b[3] + pad < a[1])
+
+
 def merge_intervals(times: list[float], *, step: float, gap: float, pad: float) -> list[list[float]]:
     """Frame times with a hit -> padded [start, end] runs; runs closer than ``gap`` are joined."""
     runs: list[list[float]] = []
@@ -91,40 +133,72 @@ def ocr_frames(video: Path, fps: float) -> list[Hit]:
     return hits
 
 
-def scan(hits: list[Hit], cfg: dict[str, Any]) -> list[list[float]]:
-    """Intervals of burned dialogue text in the search band (>= min_cjk_chars CJK at min_confidence)."""
+def scan(hits: list[Hit], cfg: dict[str, Any], dialogue_chars: set[str] | None = None) -> list[list[float]]:
+    """Intervals of burned dialogue text in the search window (see :func:`dialogue_like`)."""
     s = cfg["scan"]
-    times = sorted({t for t, text, conf, _x0, y0, _x1, y1 in hits
-                    if conf >= s["min_confidence"] and cjk_count(text) >= s["min_cjk_chars"]
-                    and y1 >= s["search_y0"] and y0 <= s["search_y1"]})
+    times = sorted({h[0] for h in hits if _in_search(h, cfg) and dialogue_like(h, s, cfg, dialogue_chars)})
     return merge_intervals(times, step=1.0 / s["fps"], gap=s["merge_gap_s"], pad=s["pad_s"])
 
 
-def interval_bands(hits: list[Hit], cfg: dict[str, Any], intervals: list[list[float]],
-                   *, episode: str | None = None) -> list[dict[str, float]]:
-    """The band to cover during each burned-text run: the episode's band widened to the text read in that run.
+def interval_boxes(hits: list[Hit], cfg: dict[str, Any], intervals: list[list[float]],
+                   dialogue_chars: set[str] | None = None,
+                   faces: dict[float, list[tuple[float, float, float, float]]] | None = None
+                   ) -> list[list[dict[str, Any]]]:
+    """Per burned-text run, the boxes to cover: the text OCR read in that run, ``cover.margin`` around it.
 
-    The band is where H3 usually burns the line, measured on other episodes; one clip can put it elsewhere.
-    Fleet 2026-11-14 (a device at E13 S7): the scan found the burned 「能难倒我？」 at 18.25-19.0 s with its box
-    at y 0.884-0.927, the blur covered only the E13 band y 0.66-0.81, and the verify refused the episode on
-    the same hit at every re-run (H3_BURNED_TEXT_STILL_VISIBLE, no acceptance route).  The run's own hits
-    say where the text is, so the cover of that run reaches them; runs whose text sits in the band are unchanged.
-    The verify is unchanged: text still readable outside the episode's band fails as before.
+    Hits of one run whose boxes touch are one box (one burned line read in several frames / rows); text in two
+    places stays two boxes, so a stray hit never grows the cover across the frame.  Each box is
+    ``{"x0","y0","x1","y1","action","reason"}`` with action BLUR, or SKIP when it covers more than
+    ``cover.max_area_fraction`` of the frame (AREA_OVER_CAP) or touches a face detected in that run
+    (OVERLAPS_FACE): a giant blur or a blurred face is worse than the text, so those are flagged for review.
+    ``faces``: frame time -> face boxes (frame fractions); None when faces were not measured.
     """
-    s, base = cfg["scan"], band_for(episode, cfg)
-    margin = float(s.get("band_margin", 0.012))
-    bands = []
+    cov = _cover_cfg(cfg)
+    margin, cap, face_pad = float(cov["margin"]), float(cov["max_area_fraction"]), float(cov["face_pad"])
+    out: list[list[dict[str, Any]]] = []
     for start, end in intervals:
-        band = dict(base)
-        for t, text, conf, x0, y0, x1, y1 in hits:
-            if not (start <= t <= end) or conf < s["min_confidence"] or cjk_count(text) < s["min_cjk_chars"]:
+        clusters: list[list[float]] = []
+        for h in sorted(hits):
+            if not (start <= h[0] <= end) or not _in_search(h, cfg) or not dialogue_like(h, cfg["scan"], cfg, dialogue_chars):
                 continue
-            if not (y1 >= s["search_y0"] and y0 <= s["search_y1"]):
-                continue
-            band = {"y0": min(band["y0"], y0 - margin), "y1": max(band["y1"], y1 + margin),
-                    "x0": min(band["x0"], x0 - margin), "x1": max(band["x1"], x1 + margin)}
-        bands.append({k: round(min(1.0, max(0.0, v)), 4) for k, v in band.items()})
-    return bands
+            box = [h[3], h[4], h[5], h[6]]
+            for c in clusters:
+                if _overlaps(tuple(c), tuple(box), margin):
+                    c[:] = [min(c[0], box[0]), min(c[1], box[1]), max(c[2], box[2]), max(c[3], box[3])]
+                    break
+            else:
+                clusters.append(box)
+        # unions can make clusters touch each other: merge until stable
+        merged = True
+        while merged:
+            merged = False
+            for i in range(len(clusters)):
+                for j in range(i + 1, len(clusters)):
+                    a, b = clusters[i], clusters[j]
+                    if _overlaps(tuple(a), tuple(b), margin):
+                        clusters[i] = [min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])]
+                        clusters.pop(j)
+                        merged = True
+                        break
+                if merged:
+                    break
+        run_faces = [f for t, fs in (faces or {}).items() if start <= t <= end for f in fs]
+        boxes = []
+        for x0, y0, x1, y1 in clusters:
+            box = {"x0": max(0.0, x0 - margin), "y0": max(0.0, y0 - margin),
+                   "x1": min(1.0, x1 + margin), "y1": min(1.0, y1 + margin)}
+            box = {k: round(v, 4) for k, v in box.items()}
+            area = (box["x1"] - box["x0"]) * (box["y1"] - box["y0"])
+            rect = (box["x0"], box["y0"], box["x1"], box["y1"])
+            if area > cap:
+                box.update(action="SKIP", reason="AREA_OVER_CAP", area=round(area, 4))
+            elif any(_overlaps(rect, tuple(f), face_pad) for f in run_faces):
+                box.update(action="SKIP", reason="OVERLAPS_FACE", area=round(area, 4))
+            else:
+                box.update(action="BLUR", reason="TEXT_BOX", area=round(area, 4))
+            boxes.append(box)
+        out.append(boxes)
+    return out
 
 
 def caption_at(captions: list[dict[str, Any]], t: float) -> str:
@@ -151,9 +225,26 @@ def reads_as_part_of(caption: str, read: str, min_ratio: float) -> bool:
                for i in range(len(cap) - n + 1))
 
 
+def _caption_rect_at(captions: list[dict[str, Any]], t: float, half: float) -> list[tuple[float, float]]:
+    """Vertical extents (frame fractions) where build_burnin_subtitles drew the captions on screen around ``t``."""
+    out = []
+    for c in captions:
+        if c.get("y0") is None or c.get("y1") is None:
+            continue
+        if float(c.get("start", 0)) - half <= t <= float(c.get("end", 0)) + half:
+            out.append((float(c["y0"]), float(c["y1"])))
+    return out
+
+
 def verify(hits: list[Hit], captions: list[dict[str, Any]], cfg: dict[str, Any],
-           *, episode: str | None = None) -> dict[str, Any]:
-    """Every CJK hit must sit inside the bar and read as the caption on screen at that moment."""
+           *, episode: str | None = None,
+           covered: list[tuple[float, float, list[dict[str, Any]]]] | None = None) -> dict[str, Any]:
+    """Every CJK hit must sit inside the bar and read as the caption on screen at that moment.
+
+    Hits that are not dialogue-like (small, vertical, off-centre: :func:`dialogue_like`) are ignored
+    (NOT_DIALOGUE_TEXT).  A hit inside a box the scan flagged for review (``covered`` SKIP boxes: over the area
+    cap / on a face) is reported under ``flagged_for_review`` and does not fail.  A hit that reads as the caption
+    on screen and sits where build_burnin_subtitles drew it (rows ``y0``/``y1``) is our caption."""
     v, band = cfg["verify"], band_for(episode, cfg)
     # The rule is about the spoken line H3 burns into the picture (K143), not about every character in frame:
     # E13 S7 stopped on 8 hits that were the meaningless characters painted on VU-014's gate plaque and door
@@ -162,9 +253,22 @@ def verify(hits: list[Hit], captions: list[dict[str, Any]], cfg: dict[str, Any],
     # reads like the caption on screen at that moment (a burned caption the bar failed to cover).
     pad = float(v.get("dialogue_band_pad", 0.10))
     caption_slack = float(v.get("caption_on_screen_slack", 0.04))
-    outside_candidates, mismatched = [], []
-    for t, text, conf, x0, y0, x1, y1 in hits:
+    outside_candidates, mismatched, flagged, not_dialogue = [], [], [], []
+    skip_boxes = [(s0, e0, b) for s0, e0, boxes in (covered or []) for b in boxes if b.get("action") == "SKIP"]
+    for hit in hits:
+        t, text, conf, x0, y0, x1, y1 = hit
         if conf < v["min_confidence"] or cjk_count(text) < v["min_cjk_chars"]:
+            continue
+        if not dialogue_like(hit, v, cfg):
+            not_dialogue.append({"t": round(t, 2), "text": text, "box": [round(x0, 3), round(y0, 3), round(x1, 3), round(y1, 3)],
+                                 "reason": "NOT_DIALOGUE_TEXT"})
+            continue
+        cx_, cy_ = (x0 + x1) / 2, (y0 + y1) / 2
+        flag = next((b for s0, e0, b in skip_boxes if s0 <= t <= e0
+                     and b["x0"] <= cx_ <= b["x1"] and b["y0"] <= cy_ <= b["y1"]), None)
+        if flag is not None:
+            flagged.append({"t": round(t, 2), "text": text, "reason": flag.get("reason"),
+                            "box": [flag["x0"], flag["y0"], flag["x1"], flag["y1"]]})
             continue
         cy, cx = (y0 + y1) / 2, (x0 + x1) / 2
         inside = band["y0"] <= cy <= band["y1"] and band["x0"] <= cx <= band["x1"]
@@ -205,6 +309,11 @@ def verify(hits: list[Hit], captions: list[dict[str, Any]], cfg: dict[str, Any],
         # frame are a burned copy of the line (knowledge-loop CASE_001 control), not the caption we drew.
         centre = (row["box"][1] + row["box"][3]) / 2
         at_caption_place = (band["y0"] - caption_slack) <= centre <= (band["y1"] + caption_slack)
+        # 2026-11-19: our caption keeps its normal place and moves clear of a blurred box, so the report row
+        # says where it was drawn; a caption read there is ours
+        drawn = _caption_rect_at(captions, t, half)
+        if drawn:
+            at_caption_place = any(y0c - caption_slack <= centre <= y1c + caption_slack for y0c, y1c in drawn)
         if looks_like_caption and at_caption_place:
             ignored.append({**row, "reason": "CAPTION_ON_SCREEN"})
             continue
@@ -214,48 +323,104 @@ def verify(hits: list[Hit], captions: list[dict[str, Any]], cfg: dict[str, Any],
     status = "PASS" if not outside and not mismatched else "FAIL"
     return {"schema": "qingshan.h3_burned_text_cover_verification.v1", "policy_id": POLICY_ID, "status": status,
             "text_outside_bar": outside, "text_inside_bar_not_the_caption": mismatched,
-            "ignored_non_dialogue_text": ignored,
+            "ignored_non_dialogue_text": ignored + not_dialogue, "flagged_for_review": flagged,
             "rule": "no CJK dialogue text outside the caption bar; text inside the bar must be the caption on "
                     "screen; scene signage away from the burn band is the period/anachronism gate's business"}
 
 
-def load_covered(path: Path | None) -> list[tuple[float, float, dict[str, float]]]:
-    """(start, end, band) per burned-text run of a scan output; [] for none or a scan without bands."""
+def load_covered(path: Path | None) -> list[tuple[float, float, list[dict[str, Any]]]]:
+    """(start, end, boxes) per burned-text run of a scan output; [] for none or a scan without boxes (an older
+    engine's whole-band scan is never replayed: the S7 caller always re-scans)."""
     if not path or not Path(path).is_file():
         return []
     data = json.loads(Path(path).read_text(encoding="utf-8"))
-    intervals, bands = data.get("intervals") or [], data.get("bands") or []
-    if len(bands) != len(intervals):
+    intervals, boxes = data.get("intervals") or [], data.get("boxes")
+    if not isinstance(boxes, list) or len(boxes) != len(intervals):
         return []
-    return [(float(s), float(e), dict(b)) for (s, e), b in zip(intervals, bands)]
+    return [(float(s), float(e), [dict(b) for b in bs]) for (s, e), bs in zip(intervals, boxes)]
 
 
-def main(argv: list[str] | None = None, *, ocr: Callable[[Path, float], list[Hit]] = ocr_frames) -> int:
+def contract_dialogue_chars(path: Path | None) -> set[str] | None:
+    """CJK characters of the episode's scripted dialogue (generation contract), or None when unknown."""
+    if not path or not Path(path).is_file():
+        return None
+    try:
+        contract = json.loads(Path(path).read_text(encoding="utf-8"))
+    except ValueError:
+        return None
+    rows = (contract.get("audio_contract") or {}).get("dialogue_units") or []
+    chars = {ch for row in rows for ch in CJK.findall(str(row.get("text") or ""))}
+    return chars or None
+
+
+def face_boxes(video: Path, times: list[float]) -> dict[float, list[tuple[float, float, float, float]]]:
+    """Face boxes (frame fractions) at ``times`` of ``video``: InsightFace when installed, else OpenCV Haar
+    (the S7 lock-off detector).  Local and free; {} when the frame or a detector is unavailable."""
+    if not Path(video).is_file() or not times:
+        return {}
+    try:
+        import cv2  # noqa: PLC0415
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lines/nalu/runtime/tools"))
+        from clip_lockoff_stabilize import detect_faces  # noqa: PLC0415
+    except Exception:  # noqa: BLE001
+        return {}
+    out: dict[float, list[tuple[float, float, float, float]]] = {}
+    cap = cv2.VideoCapture(str(video))
+    try:
+        for t in times:
+            cap.set(cv2.CAP_PROP_POS_MSEC, float(t) * 1000.0)
+            ok, frame = cap.read()
+            if not ok:
+                continue
+            h, w = frame.shape[:2]
+            out[round(float(t), 3)] = [(x0 / w, y0 / h, x1 / w, y1 / h) for x0, y0, x1, y1 in detect_faces(frame)]
+    finally:
+        cap.release()
+    return out
+
+
+def main(argv: list[str] | None = None, *, ocr: Callable[[Path, float], list[Hit]] = ocr_frames,
+         faces: Callable[[Path, list[float]], dict[float, list[tuple[float, float, float, float]]]] = face_boxes) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     sp = sub.add_parser("scan"); sp.add_argument("video", type=Path); sp.add_argument("--out", type=Path, required=True)
-    sp.add_argument("--episode", default=None, help="episode whose own band is the base of each run's cover band")
+    sp.add_argument("--episode", default=None, help="episode (its band only bounds where captions are expected)")
+    sp.add_argument("--contract", type=Path, default=None,
+                    help="generation contract: a single large glyph counts only when it is a dialogue character")
     vp = sub.add_parser("verify"); vp.add_argument("video", type=Path)
     vp.add_argument("--captions", type=Path, required=True, help="build_burnin_subtitles report (rows: text/start/end)")
     vp.add_argument("--out", type=Path, required=True)
     vp.add_argument("--episode", default=None,
                     help="episode whose own band applies (band_by_episode), e.g. E14")
+    vp.add_argument("--intervals", type=Path, default=None,
+                    help="the scan output: text inside a box it flagged for review is reported, not failed")
     a = ap.parse_args(argv)
     cfg = policy()
     if a.cmd == "scan":
         hits = ocr(a.video, cfg["scan"]["fps"])
-        intervals = scan(hits, cfg)
-        out = {"schema": "qingshan.h3_burned_text_intervals.v1", "policy_id": POLICY_ID, "video": str(a.video),
-               "intervals": intervals, "seconds": round(sum(e - s for s, e in intervals), 3),
-               "bands": interval_bands(hits, cfg, intervals, episode=a.episode)}
+        chars = contract_dialogue_chars(a.contract)
+        intervals = scan(hits, cfg, chars)
+        boxes = interval_boxes(hits, cfg, intervals, chars)
+        # faces only where a box would be blurred: 3 frames per such run (start, middle, end)
+        times = sorted({round(t, 3) for (s0, e0), bs in zip(intervals, boxes) if any(b["action"] == "BLUR" for b in bs)
+                        for t in (s0 + 0.1, (s0 + e0) / 2, max(s0, e0 - 0.1))})
+        face_map = faces(a.video, times) if times else {}
+        boxes = interval_boxes(hits, cfg, intervals, chars, faces=face_map)
+        flagged = [{"interval": iv, **b} for iv, bs in zip(intervals, boxes) for b in bs if b["action"] == "SKIP"]
+        out = {"schema": "qingshan.h3_burned_text_intervals.v2_tight_boxes", "policy_id": POLICY_ID,
+               "video": str(a.video), "intervals": intervals, "seconds": round(sum(e - s for s, e in intervals), 3),
+               "boxes": boxes, "flagged_for_review": flagged, "faces_checked": bool(face_map),
+               "cover": _cover_cfg(cfg)}
     else:
         rows = json.loads(a.captions.read_text(encoding="utf-8")).get("rows") or []
-        out = {**verify(ocr(a.video, cfg["verify"]["fps"]), rows, cfg, episode=a.episode),
+        out = {**verify(ocr(a.video, cfg["verify"]["fps"]), rows, cfg, episode=a.episode,
+                        covered=load_covered(a.intervals)),
                "video": str(a.video), "episode": getattr(a, "episode", None),
                "band": band_for(getattr(a, "episode", None), cfg)}
     a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_text(json.dumps(out, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({k: out[k] for k in out if k in ("status", "intervals", "seconds")}, ensure_ascii=False)[:400])
+    print(json.dumps({k: out[k] for k in out if k in ("status", "intervals", "seconds", "flagged_for_review")},
+                     ensure_ascii=False)[:400])
     return 0 if out.get("status", "PASS") == "PASS" else 2
 
 

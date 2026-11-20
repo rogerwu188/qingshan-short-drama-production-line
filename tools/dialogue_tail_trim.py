@@ -38,8 +38,10 @@ from typing import Any
 
 try:
     from tools import lang_profile as _lang
+    from tools import dialogue_tail_guard as _guard
 except ImportError:  # pragma: no cover - flat sys.path deployments
     import lang_profile as _lang
+    import dialogue_tail_guard as _guard
 
 SCHEMA = "nalu.dialogue_tail_trim.v1"
 TAIL_SECONDS = 0.5
@@ -195,8 +197,14 @@ def plan(contract: dict[str, Any], grouping: dict[str, Any], unit_asr: dict[str,
         later = [float(s.get("start") or 0.0) for s in segs[segs.index(hit) + 1:]]
         tail_end = max(line_end, min([line_end + TAIL_SECONDS, *later]))
         row["tail_capped_by_next_speech"] = tail_end < line_end + TAIL_SECONDS
-        kept = min(original, max(tail_end, MIN_UNIT_SECONDS, last_shot_start))
         frames = (unit_energy or {}).get(uid)
+        # tail guard (owner 2026-11-19; tools/dialogue_tail_guard): never cut before the last syllable has died
+        # away -- the ASR end runs early on the final syllable, and the cap at the next segment start used to land
+        # exactly on it
+        g = _guard.guard(line_end, frames, line_start=float(hit.get("start") or 0.0), hop=ENERGY_HOP)
+        row["tail_guard"] = g
+        tail_end = max(tail_end, g["guard"])
+        kept = min(original, max(tail_end, MIN_UNIT_SECONDS, last_shot_start))
         capped_cut = bool(row["tail_capped_by_next_speech"]) and kept == tail_end  # cut at the babble onset
         if frames and original - kept >= MIN_TRIM_SECONDS and not capped_cut:
             loud, quiet_at = speech_after(frames, kept, line_end)

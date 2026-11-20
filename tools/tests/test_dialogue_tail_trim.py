@@ -50,7 +50,9 @@ class PlanTests(unittest.TestCase):
         report = trim.plan(c, grouping([("U1", ["S1"])]), {"U1": HOLMES_009}, {"U1": 7.292})
         row = report["units"][0]
         self.assertTrue(row["trimmed"])
-        self.assertAlmostEqual(row["kept_seconds"], 4.32)  # the babble segment starts at the line end
+        # the babble segment starts at the line end; the tail guard (owner 2026-11-19) keeps 0.25 s past the ASR
+        # end so the last syllable (whose ASR end runs early) is never clipped
+        self.assertAlmostEqual(row["kept_seconds"], 4.32 + trim._guard.TAIL_GUARD_SECONDS)
         self.assertTrue(row["tail_capped_by_next_speech"])
         self.assertEqual(row["reason"], "TRIMMED_AT_LINE_END")
         self.assertIn("Fiorentitian", row["matched_text"])
@@ -155,7 +157,7 @@ class PlanTests(unittest.TestCase):
         c9 = contract([("S1", "CHAR-A", "I have heard of you, Mr. Holmes; I have heard of you from Mrs. Farintosh,")])
         row = trim.plan(c9, g, {"U1": HOLMES_009}, {"U1": 7.292},
                         unit_energy={"U1": [loud] * int(7.292 / hop)})["units"][0]
-        self.assertAlmostEqual(row["kept_seconds"], 4.32)
+        self.assertAlmostEqual(row["kept_seconds"], 4.32 + trim._guard.TAIL_GUARD_SECONDS)
         self.assertNotIn("energy_checked", row)
 
 

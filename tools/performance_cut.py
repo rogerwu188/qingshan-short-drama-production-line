@@ -42,8 +42,10 @@ from typing import Any
 
 try:
     from tools import lang_profile as _lang
+    from tools import dialogue_tail_guard as _guard
 except ImportError:  # pragma: no cover - flat sys.path deployments
     import lang_profile as _lang
+    import dialogue_tail_guard as _guard
 
 SCHEMA = "nalu.performance_cut.v1"
 HEAD_LEAD = 0.15
@@ -315,7 +317,8 @@ def _add_reason(reasons: list[str], reason: str) -> None:
 
 
 def _speaking_row(row: dict[str, Any], script: list[str], first_has_line: bool, last_has_line: bool,
-                  heard: list[dict[str, Any]], original: float, cjk_mode: bool) -> None:
+                  heard: list[dict[str, Any]], original: float, cjk_mode: bool,
+                  frames: list[float] | None = None, beat: float = _guard.POST_LINE_BEAT_SECONDS) -> None:
     hit = align(script, heard, cjk_mode)
     if hit is None or hit["first"] is None:
         row.update(status="NOT_MATCHED", coverage=(hit or {}).get("coverage", 0.0))
@@ -340,14 +343,22 @@ def _speaking_row(row: dict[str, Any], script: list[str], first_has_line: bool, 
         cut_in = max(0.0, first["start"] - HEAD_LEAD)
         if cut_in >= MIN_CUT_SECONDS:
             reasons.append("TRIM_HEAD_TO_LINE")
+    # tail guard + post-line beat (owner 2026-11-19; tools/dialogue_tail_guard): the cut never lands before the last
+    # syllable has actually died away (ASR word ends run early on Chinese finals), and a line gets a beat after it
+    tail = _guard.tail_cut(last["end"], float(original), frames=frames, line_start=first["start"],
+                           next_speech_start=after[0]["start"] if after else None, beat=beat,
+                           speech_gap=SPEECH_GAP, hop=ENERGY_HOP)
     if after:
-        cut_out = max(last["end"], min(last["end"] + TAIL_PAD, after[0]["start"] - SPEECH_GAP))
+        cut_out = tail["cut"]
         _add_reason(reasons, "DROP_REPEAT" if _resembles_script([h["tok"] for h in after], script)
                     else "TRIM_TAIL_UNSCRIPTED")
     elif last_has_line:
-        cut_out = min(float(original), last["end"] + TAIL_PAD)
+        cut_out = tail["cut"]
         if float(original) - cut_out >= MIN_CUT_SECONDS:
             reasons.append("TRIM_TAIL_TO_LINE")
+    if after or last_has_line:
+        row["tail_guard"] = {k: tail[k] for k in ("word_end", "speech_end", "guard", "beat", "cut",
+                                                  "capped_by_next_speech", "guard_applied")}
     cut_in, cut_out = max(0.0, cut_in), min(float(original), cut_out)
     row.update(status="MATCHED", coverage=hit["coverage"], line_start_seconds=round(first["start"], 3),
                line_end_seconds=round(last["end"], 3),
@@ -358,8 +369,32 @@ def _speaking_row(row: dict[str, Any], script: list[str], first_has_line: bool, 
         centre = (first["start"] + last["end"]) / 2.0
         cut_in = max(0.0, min(float(original) - MIN_KEEP_SECONDS, centre - MIN_KEEP_SECONDS / 2.0))
         cut_out = min(float(original), cut_in + MIN_KEEP_SECONDS)
+        if after or last_has_line:  # a min-length hold never cuts into the line's tail either
+            cut_out = max(cut_out, min(float(original), tail["guard"]))
         reasons.append("MIN_LENGTH_HOLD")
     row.update(after_in=round(cut_in, 3), after_out=round(cut_out, 3), reasons=reasons)
+
+
+def _reaction_follows(contract: dict[str, Any], grouping: dict[str, Any],
+                      lines_by_shot: dict[str, list[dict[str, Any]]], voice_only: set[str]) -> set[str]:
+    """Units whose next unit opens on the listener's reaction (beat_role REACTION, the silent shot after a PAYOFF)
+    or on an authored L-cut: their post-line beat is the shorter reaction beat (craft standard reaction cut)."""
+    shots = {str(s.get("shot_id")): s for s in contract.get("shots") or [] if isinstance(s, dict)}
+    units = [(str(u.get("unit_id")), [str(x) for x in u.get("editorial_shot_ids") or []])
+             for u in grouping.get("units") or []]
+    out = set()
+    for (uid, sids), (_nid, nsids) in zip(units, units[1:]):
+        if not sids or not nsids:
+            continue
+        nxt = shots.get(nsids[0]) or {}
+        spec = nxt.get("prompt_spec") if isinstance(nxt.get("prompt_spec"), dict) else {}
+        transition = spec.get("transition") if isinstance(spec.get("transition"), dict) else {}
+        silent_next = not [ln for ln in lines_by_shot.get(nsids[0], [])
+                           if str(ln.get("speaker_id") or "") not in voice_only]
+        if (beat_role(nxt) == "REACTION" or transition.get("sound_bridge_from_previous_seconds")
+                or (silent_next and beat_role(shots.get(sids[-1])) == "PAYOFF")):
+            out.add(uid)
+    return out
 
 
 def plan(contract: dict[str, Any], grouping: dict[str, Any], unit_asr: dict[str, Any],
@@ -375,6 +410,7 @@ def plan(contract: dict[str, Any], grouping: dict[str, Any], unit_asr: dict[str,
     head = {str(r.get("unit_id")): r for r in (head_report or {}).get("units") or []}
     rows: list[dict[str, Any]] = []
     speaking: dict[str, dict[str, Any]] = {}
+    reaction_next = _reaction_follows(contract, grouping, lines_by_shot, voice_only)
     for unit in grouping.get("units") or []:
         uid = str(unit.get("unit_id"))
         shot_ids = [str(s) for s in unit.get("editorial_shot_ids") or []]
@@ -404,7 +440,8 @@ def plan(contract: dict[str, Any], grouping: dict[str, Any], unit_asr: dict[str,
                 row["status"] = "NO_ASR_WORDS"
                 continue
             _speaking_row(row, script, bool(on_screen[shot_ids[0]]), bool(on_screen[shot_ids[-1]]), heard,
-                          float(original), cjk_mode)
+                          float(original), cjk_mode, frames=energy.get(uid),
+                          beat=_guard.post_line_beat(contract, reaction=uid in reaction_next))
             if row.get("status") == "MATCHED":
                 speaking[uid] = row
         else:
@@ -451,6 +488,10 @@ def plan(contract: dict[str, Any], grouping: dict[str, Any], unit_asr: dict[str,
     after_total = round(sum(float(r["after_out"] or 0) - float(r["after_in"] or 0) for r in rows), 3)
     return {"schema": SCHEMA, "episode": contract.get("episode"),
             "rule": {"head_lead_seconds": HEAD_LEAD, "tail_pad_seconds": TAIL_PAD, "speech_gap_seconds": SPEECH_GAP,
+                     "tail_guard_seconds": _guard.TAIL_GUARD_SECONDS,
+                     "speech_end_pad_seconds": _guard.SPEECH_END_PAD_SECONDS,
+                     "post_line_beat_seconds": _guard.post_line_beat(contract),
+                     "reaction_beat_seconds": _guard.post_line_beat(contract, reaction=True),
                      "min_keep_seconds": MIN_KEEP_SECONDS, "match_coverage": MATCH_COVERAGE,
                      "repeat_coverage": REPEAT_COVERAGE, "reasons": list(REASONS)},
             "speech_level_dbfs": level, "speech_threshold_dbfs": threshold,

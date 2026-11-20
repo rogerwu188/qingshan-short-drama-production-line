@@ -8,7 +8,7 @@ episode keeps the previous S7 path byte-for-byte):
 1. BGM ducking pumped.  A -8 dB duck with 0.25 s ramps toggled on and off at almost every short line, so the bed
    swung -25..-46 dB second to second.  ``smooth_duck_expr``: dialogue windows closer than ``DUCK_MERGE_GAP_S``
    merge into one duck, raised-cosine ramps (``DUCK_ATTACK_S`` down, ``DUCK_RELEASE_S`` up) and a lighter duck
-   (``STAMPED_DUCK_DB``, the shallow edge of the bgm_authenticity_gate -6..-10 dB contract).
+   (``STAMPED_DUCK_DB``, -10 dB: the deep edge of the bgm_authenticity_gate -6..-10 dB contract).
 2. Per-unit native loudness jumped at cuts (every H3 clip carries its own room tone / dialogue level).
    ``build_levelling_report``: before the AgentCut build each unit's integrated loudness is measured (dialogue
    units on their ASR speech windows, other units over the whole cut window) and a static gain toward the
@@ -45,8 +45,10 @@ SCHEMA = "nalu.unit_audio_levelling.v1"
 DUCK_MERGE_GAP_S = 2.5
 DUCK_ATTACK_S = 0.4
 DUCK_RELEASE_S = 1.2
-#: owner asked for ~-5 dB; bgm_authenticity_gate accepts -6..-10, so the stamped duck sits on its shallow edge
-STAMPED_DUCK_DB = -6.0
+#: owner 2026-11-19: duck about 10-14 dB under speech, never mute (it was -6 dB, the music sounded on/off against the
+#: lines); bgm_authenticity_gate accepts -6..-10, so the stamped duck sits on its deep edge
+#: (lines/nalu/runtime/tools/bgm_cue_shaping.DUCK_DB)
+STAMPED_DUCK_DB = -10.0
 
 # --- 2. per-unit levelling -----------------------------------------------------------------------------------
 MAX_UNIT_GAIN_DB = 6.0

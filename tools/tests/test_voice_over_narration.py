@@ -464,8 +464,10 @@ class SelectiveBgmDuckingTests(unittest.TestCase):
             args = SimpleNamespace(episode="E01", contract=tmp / "contract.json", assembly=assembly,
                                    grouping=tmp / "grouping.json", project=None, work=tmp / "work",
                                    bgm_transactions_dir=None)
+            # 8 s fixture cue < the 12 s no-fragment floor (bgm_cue_shaping); this test is about V.O. ducking
             with patch.object(bgm, "_load_current_source_plan", return_value=source_plan), \
-                    patch.object(bgm, "sha256_file", return_value="0" * 64):
+                    patch.object(bgm, "sha256_file", return_value="0" * 64), \
+                    patch.dict(os.environ, {"NALU_BGM_MIN_CUE_SECONDS": "4"}):
                 bgm.cmd_plan(args)
             plan = json.loads((assembly / "E01_BGM_PLAN.json").read_text())
         windows = plan["cues"][0]["dialogue_windows"]
