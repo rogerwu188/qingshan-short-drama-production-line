@@ -4038,6 +4038,11 @@ def latest_submitted_review(ctx: Ctx, kind: str) -> tuple[Path | None, dict[str,
 
 
 def merge_keyframe_answers(ctx: Ctx, shots: list[str]) -> tuple[Path | None, list[str], list[str]]:
+    return merge_review_answers(ctx, "keyframe", shots)
+
+
+def merge_review_answers(ctx: Ctx, kind: str, shots: list[str],
+                         expected_sha: dict[str, str] | None = None) -> tuple[Path | None, list[str], list[str]]:
     """One merged answer file covering ``shots``, built from the submitted reviews that touched them.
 
     ``latest_submitted_review`` returns only the NEWEST review of a kind, and the derived-Q1 branch
@@ -4063,7 +4068,7 @@ def merge_keyframe_answers(ctx: Ctx, shots: list[str]) -> tuple[Path | None, lis
     base: dict[str, Any] = {}
     for path in sorted(directory.glob("*_submitted.json"), reverse=True):
         payload = read_json(path)
-        if (not isinstance(payload, dict) or payload.get("kind") != "keyframe"
+        if (not isinstance(payload, dict) or payload.get("kind") != kind
                 or (payload.get("validation") or {}).get("status") != "PASS"
                 or str(payload.get("reviewer") or "") != REVIEWER_ID):
             continue
@@ -4077,6 +4082,8 @@ def merge_keyframe_answers(ctx: Ctx, shots: list[str]) -> tuple[Path | None, lis
             declared, media_path = media[0].get("sha256"), media[0].get("path")
             if not media_path or declared != sha256_file(Path(media_path)):
                 continue  # a regenerated frame invalidates the review that judged the old bytes
+            if expected_sha and expected_sha.get(item_id) and declared != expected_sha[item_id]:
+                continue  # the reviewer looked at other bytes than the start frame admitted now
             picked[item_id] = item
             source_files.append(str(path))
             source_sha.append(sha256_file(path))
@@ -4091,7 +4098,7 @@ def merge_keyframe_answers(ctx: Ctx, shots: list[str]) -> tuple[Path | None, lis
     merged["_merged_from"] = {"reviews": sorted(set(source_files)), "sha256": source_sha,
                               "note": "one review file per still, merged so the Q1 builder can "
                                       "materialise a pending derived set in a single pass"}
-    merged_path = REVIEWS_ROOT / ctx.episode / f"{ctx.episode}-keyframe-merged-{now().replace(':', '')}.json"
+    merged_path = REVIEWS_ROOT / ctx.episode / f"{ctx.episode}-{kind}-merged-{now().replace(':', '')}.json"
     write_json(merged_path, merged)
     return merged_path, sorted(picked), []
 
@@ -5112,6 +5119,64 @@ def accept_q1_row(row: dict[str, Any], record: dict[str, Any], failures: list[st
         write_json(ar_path, ar)
 
 
+def q1_order_bindings(row: dict[str, Any], detectors: list[str]) -> list[tuple[str, list[str]]]:
+    """(media key, detectors) pairs one Q1 row's gate order may be recorded under.
+
+    The Q1 row names a still by its shot (``item_id``); a continuity-derived start frame is also known by its
+    unit (start-frame receipt, wave state, the S6 messages), and the recording agent of device 1485 (JA-01 E03,
+    2026-11-21) had no way to tell which key the overlay reads.  The sha binding stays exact -- only the key the
+    sha sits under and the "<key>:" prefix of each detector may be the shot or the unit."""
+    item_id, uid = str(row.get("item_id") or ""), str(row.get("unit_id") or "")
+    out: list[tuple[str, list[str]]] = []
+    as_unit = [uid + d[len(item_id):] if item_id and uid and d.startswith(item_id + ":") else d for d in detectors]
+    for key in (item_id, uid):
+        for dets in (detectors, as_unit):
+            if key and (key, dets) not in out:
+                out.append((key, list(dets)))
+    return out
+
+
+def find_q1_gate_order(ctx: Ctx, orders: list[dict[str, Any]], row: dict[str, Any], gate_id: str,
+                       detectors: list[str], issuer: str,
+                       order_gate_id: str | None = None) -> tuple[dict[str, Any] | None, str, list[str]]:
+    """The newest sha-bound order accepting ``gate_id``'s detectors on this Q1 row: (order, media key, detectors)."""
+    sha = str(row.get("asset_sha256") or "")
+    for key, dets in q1_order_bindings(row, detectors):
+        order = _rga.find_acceptance(orders, episode=ctx.episode, gate_id=order_gate_id or gate_id, failing=dets,
+                                     media_sha256=sha, media_item_id=key, expected_issuer=issuer,
+                                     engine_root=ENGINE) if dets else None
+        if order is not None:
+            return order, key, dets
+    return None, str(row.get("item_id") or ""), list(detectors)
+
+
+def q1_orders_needed(ctx: Ctx, index: dict[str, Any], unit_ids: list[str]) -> list[dict[str, Any]]:
+    """For every still-rejected Q1 row of ``unit_ids``: the exact default-acceptance order(s) that would admit it
+    (one per failing registered gate, sha-bound to the still on disk), in record_supervisor_order.py terms.
+    Advisory output only: it names what to record, it never records or admits anything."""
+    ident = read_json(Path(str((index.get("identity_measurement") or {}).get("engine_report") or "")), {}) or {}
+    decisions = ((ident.get("objective_verification") or {}).get("decisions")) or []
+    out: list[dict[str, Any]] = []
+    wanted = set(unit_ids)
+    for row in index.get("results") or []:
+        uid = str(row.get("unit_id") or "")
+        if uid not in wanted or row.get("downstream_status") == "ADMITTED_FOR_VIDEO_SUBMIT":
+            continue
+        failures = [str(f) for f in (row.get("failures") or [])]
+        gates = failing_registered_gates(failures)
+        unattributed = [f for f in failures if not FAILED_GATE_RE.search(f)]
+        entry: dict[str, Any] = {"unit_id": uid, "item_id": row.get("item_id"),
+                                 "media": f"{row.get('item_id')}={row.get('asset_path') or ''}",
+                                 "media_sha256": row.get("asset_sha256"), "orders": []}
+        if unattributed or not gates:
+            entry["not_acceptable"] = unattributed or ["NO_REGISTERED_GATE_FAILURE"]
+        for gate in gates:
+            entry["orders"].append({"gate_id": gate, "acceptable": gate in Q1_MULTI_GATE_ACCEPTABLE,
+                                    "detectors": q1_gate_detectors(row, gate, failures, decisions)})
+        out.append(entry)
+    return out
+
+
 def q1_multi_gate_acceptance(ctx: Ctx, orders: list[dict[str, Any]], row: dict[str, Any],
                              failures: list[str], failed_gates: list[str],
                              decisions: list[dict[str, Any]], issuer: str) -> dict[str, Any] | None:
@@ -5128,13 +5193,11 @@ def q1_multi_gate_acceptance(ctx: Ctx, orders: list[dict[str, Any]], row: dict[s
     per_gate = []
     for gate in failed_gates:
         detectors = q1_gate_detectors(row, gate, failures, decisions)
-        order = _rga.find_acceptance(orders, episode=ctx.episode, gate_id=gate, failing=detectors,
-                                     media_sha256=sha, media_item_id=item_id, expected_issuer=issuer,
-                                     engine_root=ENGINE) if detectors else None
+        order, key, used = find_q1_gate_order(ctx, orders, row, gate, detectors, issuer)
         if order is None:
             return None
-        per_gate.append(_rga.acceptance_record(order, episode=ctx.episode, gate_id=gate, failing=detectors,
-                                               media_sha256=sha, media_item_id=item_id,
+        per_gate.append(_rga.acceptance_record(order, episode=ctx.episode, gate_id=gate, failing=used,
+                                               media_sha256=sha, media_item_id=key,
                                                gate_result_path=str(row.get("admission_result") or "")))
     return {
         "schema": "nalu.q1_multi_gate_line_owner_acceptance.v1",
@@ -5223,17 +5286,14 @@ def apply_line_owner_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: 
         # A per-item signature is exact and the cheapest thing to audit, so it is tried first; the
         # standing rule is the fallback for the case this feature exists for — the frame was
         # regenerated and the old sha binding no longer applies.
-        order = _rga.find_acceptance(
-            orders, episode=ctx.episode, gate_id=gate_id, failing=detectors,
-            media_sha256=str(row.get("asset_sha256") or ""), media_item_id=item_id,
-            expected_issuer=issuer, engine_root=ENGINE,
-        ) if detectors else None
+        order, order_key, order_dets = (find_q1_gate_order(ctx, orders, row, gate_id, detectors, issuer)
+                                        if detectors else (None, item_id, detectors))
         if order is not None:
             cos = {f"{item_id}:{d.get('character_id')}": d.get("aggregate_median") for d in decisions
                    if str(d.get("source_id") or "").endswith(f":{item_id}")}
-            record = _rga.acceptance_record(order, episode=ctx.episode, gate_id=gate_id, failing=detectors,
+            record = _rga.acceptance_record(order, episode=ctx.episode, gate_id=gate_id, failing=order_dets,
                                             media_sha256=str(row.get("asset_sha256") or ""),
-                                            media_item_id=item_id,
+                                            media_item_id=order_key,
                                             gate_result_path=str(row.get("admission_result") or ""))
             record.update({"item_id": item_id, "unit_id": uid, "cosines": cos,
                            "engine_status": row.get("status"), "engine_failures": failures,
@@ -5330,6 +5390,8 @@ def apply_derived_start_frame_acceptance(ctx: Ctx, index: dict[str, Any], index_
               if orders_path and not ctx.authority_blockers else [])
     issuer = ctx.authority.get("line_owner_id") or ""
     derived = tail_sourced_units(ctx)
+    ident = read_json(Path(str((index.get("identity_measurement") or {}).get("engine_report") or "")), {}) or {}
+    decisions = ((ident.get("objective_verification") or {}).get("decisions")) or []
     accepted: list[dict[str, Any]] = []
     refused: list[dict[str, Any]] = []
     if not orders or not issuer:
@@ -5365,6 +5427,38 @@ def apply_derived_start_frame_acceptance(ctx: Ctx, index: dict[str, Any], index_
                 or receipt_sha != sha
                 or str(owner.get("media_sha256") or "") != sha):
             why = "NO_ACCEPTED_START_FRAME_RECEIPT_FOR_THIS_SHA"
+            # Device 1485 (JA-01 E03, 2026-11-21): the start-frame receipt is only written AFTER the derived
+            # still is Q1-admitted (S6.sfe_derived), so for a Q1-rejected still it can never exist here.  A
+            # default acceptance the line owner recorded on this start-frame gate that names the still's
+            # failing Q1 gates ("<shot|unit>:<GATE>", same detectors as the per-gate route) and binds this
+            # exact sha admits the Q1 row; the receipt itself is still produced by the engine afterwards.
+            per_gate = []
+            for gate in gates:
+                dets = q1_gate_detectors(row, gate, failures, decisions)
+                order, key, used = find_q1_gate_order(ctx, orders, row, gate, dets, issuer,
+                                                      order_gate_id=START_FRAME_GATE_ID)
+                if order is None:
+                    per_gate = []
+                    break
+                per_gate.append(_rga.acceptance_record(order, episode=ctx.episode, gate_id=START_FRAME_GATE_ID,
+                                                       failing=used, media_sha256=sha, media_item_id=key,
+                                                       gate_result_path=str(row.get("admission_result") or "")))
+            if per_gate:
+                record = {"schema": "nalu.q1_multi_gate_line_owner_acceptance.v1",
+                          "episode": ctx.episode, "item_id": row.get("item_id"), "unit_id": uid,
+                          "gate_id": START_FRAME_GATE_ID, "gate_ids": gates, "gate_status_kept": "FAIL",
+                          "media_sha256": sha, "order_seqs": [r.get("order_seq") for r in per_gate],
+                          "per_gate": per_gate, "self_issued": False,
+                          "acceptance_status": "ACCEPTED_BY_DEFAULT_ORDER",
+                          "accepted_under": "START_FRAME_GATE_ORDER_NAMING_Q1_GATES",
+                          "q1_gate_ids_kept_fail": gates, "engine_status": row.get("status"),
+                          "engine_failures": failures, "start_frame_receipt": str(receipt_path),
+                          "start_frame_receipt_status": receipt.get("status") or "MISSING"}
+                accept_q1_row(row, record, failures)
+                if uid not in allowed:
+                    allowed.append(uid)
+                accepted.append(record)
+                continue
         if passed_outright:
             record = {"acceptance_status": "ADMITTED_START_FRAME_RECEIPT_PASS",
                       "accepted_under": "START_FRAME_SEMANTIC_EVIDENCE_REVIEW_PASS",
@@ -5417,6 +5511,103 @@ def apply_derived_start_frame_acceptance(ctx: Ctx, index: dict[str, Any], index_
         write_json(index_path, index)
     return {"accepted_unit_ids": [r["unit_id"] for r in accepted], "refused": refused,
             "effective_status": index.get("status")}
+
+
+def start_frame_receipt_path(unit_id: str) -> Path:
+    return ENGINE / "reports/start_frame_evidence" / f"{unit_id}_start_frame_evidence.json"
+
+
+#: start-frame receipt states (start_frame_receipt_state)
+SFE_CURRENT, SFE_CURRENT_FAIL, SFE_STALE, SFE_MISSING = "CURRENT", "CURRENT_FAIL", "STALE", "MISSING"
+
+
+def start_frame_receipt_state(unit_id: str, keyframe: Path) -> str:
+    """Whether the unit's START-FRAME-SEMANTIC-EVIDENCE receipt describes the start frame on disk NOW.
+
+    Until 2026-11-21 S6 asked only "does the receipt file exist?".  A derived start frame rewritten after its
+    receipt (re-materialised from a re-extracted / normalised / text-cleaned tail, PRs #277/#284; or a motivated
+    cut whose tail is now rejected and that opens on its own keyframe, PR #286) kept the receipt of the OLD bytes,
+    so S6 never asked for a new one and the derived acceptance / compile validator refused it for good
+    (NO_ACCEPTED_START_FRAME_RECEIPT_FOR_THIS_SHA / RECEIPT_SHA_STALE).
+
+    CURRENT: PASS or ACCEPTED_BY_LINE_OWNER_ORDER for these exact bytes.  CURRENT_FAIL: judged these bytes and
+    not passing (the writer re-runs, so a default acceptance recorded since is picked up).  STALE: another sha,
+    or unreadable.  MISSING: no receipt."""
+    path = start_frame_receipt_path(unit_id)
+    if not path.is_file():
+        return SFE_MISSING
+    receipt = read_json(path, {}) or {}
+    if not keyframe.is_file() or str(receipt.get("reference_sha256") or "") != sha256_file(keyframe):
+        return SFE_STALE
+    if receipt.get("status") == "PASS":
+        return SFE_CURRENT
+    owner = receipt.get("line_owner_acceptance") or {}
+    if (receipt.get("status") == "ACCEPTED_BY_LINE_OWNER_ORDER" and isinstance(owner, dict)
+            and str(owner.get("media_sha256") or "") == str(receipt.get("reference_sha256") or "")):
+        return SFE_CURRENT
+    return SFE_CURRENT_FAIL
+
+
+def start_frame_orders_needed(unit_ids: list[str]) -> list[dict[str, Any]]:
+    """The START-FRAME-SEMANTIC-EVIDENCE default acceptance each failing current receipt needs (advisory)."""
+    try:
+        import start_frame_evidence_writer as _sfw  # noqa: PLC0415
+        split = _sfw.blocker_detectors
+        never = tuple(_sfw.NEVER_ACCEPTABLE_BLOCKERS)
+    except Exception:  # noqa: BLE001 - the advice is best effort
+        split = lambda uid, blockers: sorted({f"{uid}:{b}" for b in blockers})  # noqa: E731
+        never = ("KEYFRAME_MISSING", "KEYFRAME_CHANGED_SINCE_REVIEW")
+    out = []
+    for uid in unit_ids:
+        receipt = read_json(start_frame_receipt_path(uid), {}) or {}
+        blockers = [str(b) for b in receipt.get("blockers") or []]
+        out.append({"unit_id": uid, "gate_id": START_FRAME_GATE_ID,
+                    "media": f"{uid}={receipt.get('reference_path') or ''}",
+                    "media_sha256": receipt.get("reference_sha256"),
+                    "detectors": split(uid, blockers),
+                    "not_acceptable": [b for b in blockers if b.split(":")[0] in never]})
+    return out
+
+
+def ensure_derived_start_frame_receipts(ctx: Ctx, res: StageResult, units: dict[str, Path], *,
+                                        sub_stage: str = "S6.sfe_derived") -> str:
+    """Make the engine (never an agent) produce a current START-FRAME-SEMANTIC-EVIDENCE receipt for every
+    admitted derived start frame in ``units`` (unit id -> start frame on disk).
+
+    Returns "OK" (every receipt current), "WRITTEN" (receipts rewritten, re-plan) or "STOP" (``res`` carries the
+    review request or the blocker).  A receipt is (re)written from the newest valid start_frame review answer
+    whose media is these exact bytes (several reviews merged, one per still); a unit with no such answer gets
+    a review request for exactly that still.  A receipt that judged these bytes and FAILs is re-written each
+    pass so a default acceptance recorded since is picked up; still failing, the stop names the exact order."""
+    need = {uid: kf for uid, kf in units.items() if start_frame_receipt_state(uid, kf) != SFE_CURRENT}
+    if not need:
+        return "OK"
+    res.details["derived_units_need_start_frame_receipt"] = sorted(need)
+    res.details["start_frame_receipt_states"] = {uid: start_frame_receipt_state(uid, kf) for uid, kf in need.items()}
+    shas = {uid: sha256_file(kf) for uid, kf in need.items() if kf.is_file()}
+    review_path, _covered, missing = merge_review_answers(ctx, "start_frame", sorted(need), expected_sha=shas)
+    if missing:
+        res.status = REVIEW_REQUIRED
+        res.details.update(request_review(ctx, res, "start_frame", sub_stage=sub_stage,
+                                          note="start-frame receipts for continuity-derived frames "
+                                               "(exact bytes now on disk)",
+                                          items=missing))
+        res.blockers.append(f"{sub_stage}:REVIEW_REQUIRED:{len(missing)}_frames")
+        return "STOP"
+    write_step = qa_run(ctx, [START_FRAME_EVIDENCE, "write", "--episode", ctx.episode, "--review", review_path],
+                        name="s6_sfe_write_receipts_derived")
+    res.steps.append(write_step)
+    still = sorted(uid for uid, kf in need.items() if start_frame_receipt_state(uid, kf) != SFE_CURRENT)
+    if not still:
+        return "WRITTEN"
+    res.status = BLOCKED
+    res.details["start_frame_orders_needed"] = start_frame_orders_needed(still)
+    res.details["start_frame_receipt_states"] = {uid: start_frame_receipt_state(uid, need[uid]) for uid in still}
+    res.blockers.append(f"{sub_stage}:START_FRAME_EVIDENCE_NOT_PASS:" + ",".join(still))
+    res.details["next"] = ("record the default acceptance named in start_frame_orders_needed (CLAUDE_CODE_PRODUCTION "
+                           "§5, --gate-id START-FRAME-SEMANTIC-EVIDENCE, one --detector per listed detector, "
+                           "--media <unit_id>=<start frame>), then resume S6: the engine re-writes the receipt")
+    return "STOP"
 
 
 def kb_events(fn: str, **kwargs: Any) -> dict[str, Any]:
@@ -7051,8 +7242,7 @@ def redo_keyframes_unadmitted(ctx: Ctx) -> list[str]:
         if uid in derived or (ctx.p.video_media / f"{uid}.mp4").is_file():
             continue
         keyframe = ctx.p.keyframes / f"{row.get('first_shot_id')}-keyframe-v1.png"
-        receipt = ENGINE / "reports/start_frame_evidence" / f"{uid}_start_frame_evidence.json"
-        if not _q1_admitted_now(ctx, uid, keyframe) or not receipt.is_file():
+        if not _q1_admitted_now(ctx, uid, keyframe) or start_frame_receipt_state(uid, keyframe) == SFE_MISSING:
             out.append(uid)
     return out
 
@@ -7504,10 +7694,12 @@ def stage_s6(ctx: Ctx) -> StageResult:
             pending_q1_deferred = []
         # D-5 receipts for derived frames that are already Q1-admitted (the review protocol's submit
         # may have materialised the admissions itself, so this must not depend on pending_q1)
-        need_sfe_now = [uid for uid, info in tail_sourced_units(ctx).items()
+        # keyed on the exact start frame on disk: a receipt of older bytes (frame re-materialised, normalised,
+        # text-cleaned, or switched to the unit's own keyframe since) is regenerated, never trusted by its name
+        need_sfe_now = {uid: info["keyframe_path"] for uid, info in tail_sourced_units(ctx).items()
                         if uid not in done and info["keyframe_path"].is_file()
                         and uid not in pending_ids
-                        and not (ENGINE / "reports/start_frame_evidence" / f"{uid}_start_frame_evidence.json").is_file()]
+                        and start_frame_receipt_state(uid, info["keyframe_path"]) != SFE_CURRENT}
         # 2026-10-01: a review gate must not stop the pipeline from polling/downloading a wave that is
         # already submitted.  The review request is still issued at once (so the reviewer works while the
         # provider renders); its blocker is merged into the result after the wave poll.  With no wave in
@@ -7519,22 +7711,9 @@ def stage_s6(ctx: Ctx) -> StageResult:
         def _derived_reviews():
             if need_sfe_now and not pending_q1:
                 res = StageResult(REVIEW_REQUIRED)
-                res.details["derived_units_need_start_frame_receipt"] = need_sfe_now
-                sf_path, sf_review = latest_submitted_review(ctx, "start_frame")
-                sf_answered = {str(it.get("item_id")) for it in ((sf_review or {}).get("items") or [])}
-                if sf_path is not None and all(uid in sf_answered for uid in need_sfe_now):
-                    write_step = qa_run(ctx, [START_FRAME_EVIDENCE, "write", "--episode", ctx.episode,
-                                              "--review", sf_path], name="s6_sfe_write_receipts_derived")
-                    res.steps.append(write_step)
-                    if (qa_json(write_step) or {}).get("status") == PASS:
-                        return _CONT
-                    res.status = BLOCKED
-                    res.blockers.append("S6.sfe_derived:START_FRAME_EVIDENCE_NOT_PASS")
-                    return res
-                res.details.update(request_review(ctx, res, "start_frame", sub_stage="S6.sfe_derived",
-                                                  note="start-frame receipts for continuity-derived frames",
-                                                  items=need_sfe_now))
-                res.blockers.append(f"S6.sfe_derived:REVIEW_REQUIRED:{len(need_sfe_now)}_frames")
+                outcome = ensure_derived_start_frame_receipts(ctx, res, need_sfe_now)
+                if outcome == "WRITTEN" or outcome == "OK":
+                    return _CONT
                 return res
             if pending_q1:
                 res = StageResult(REVIEW_REQUIRED)
@@ -7570,26 +7749,24 @@ def stage_s6(ctx: Ctx) -> StageResult:
                     if still:
                         res.status = BLOCKED
                         res.blockers.append("S6.q1_derived:NOT_ADMITTED:" + ",".join(uid for uid, _ in still))
+                        # name the default acceptance that admits each still (device 1485 E03, 2026-11-21: only
+                        # the start-frame route's refusal was shown, so the agent waited for a receipt the engine
+                        # writes only AFTER Q1 admission, instead of recording the per-gate Q1 orders)
+                        if _ix:
+                            res.details["q1_orders_needed"] = q1_orders_needed(ctx, _ix, [u for u, _ in still])
+                        res.details["next"] = (
+                            "quality never blocks: record one default-acceptance order per failing Q1 gate listed in "
+                            "q1_orders_needed (CLAUDE_CODE_PRODUCTION §5: --gate-id <gate_id>, one --detector per "
+                            "listed detector, --media <item_id>=<start frame>; one order per gate may carry all "
+                            "units), then resume S6.  The START-FRAME-SEMANTIC-EVIDENCE receipt is written by the "
+                            "engine after admission -- it is not a precondition and must not be hand-made.")
                         return res
-                    # D-5 start-frame receipt for the derived frames (same route as S5.sfe, scoped)
-                    need_sfe = [uid for uid, _ in pending_q1
-                                if not (ENGINE / "reports/start_frame_evidence" / f"{uid}_start_frame_evidence.json").is_file()]
-                    if need_sfe:
-                        sf_path, sf_review = latest_submitted_review(ctx, "start_frame")
-                        sf_answered = {str(it.get("item_id")) for it in ((sf_review or {}).get("items") or [])}
-                        if sf_path is not None and all(uid in sf_answered for uid in need_sfe):
-                            write_step = qa_run(ctx, [START_FRAME_EVIDENCE, "write", "--episode", ctx.episode,
-                                                      "--review", sf_path], name="s6_sfe_write_receipts_derived")
-                            res.steps.append(write_step)
-                            if (qa_json(write_step) or {}).get("status") == PASS:
-                                return _CONT  # receipts written; re-plan the wave
-                            res.status = BLOCKED
-                            res.blockers.append("S6.sfe_derived:START_FRAME_EVIDENCE_NOT_PASS")
-                            return res
-                        res.details.update(request_review(ctx, res, "start_frame", sub_stage="S6.sfe_derived",
-                                                          note="start-frame receipts for continuity-derived frames",
-                                                          items=need_sfe))
-                        res.blockers.append(f"S6.sfe_derived:REVIEW_REQUIRED:{len(need_sfe)}_frames")
+                    # D-5 start-frame receipt for the derived frames (same route as S5.sfe, scoped), keyed on the
+                    # exact admitted bytes
+                    _tsu = tail_sourced_units(ctx)
+                    need_sfe = {uid: _tsu[uid]["keyframe_path"] for uid, _ in pending_q1 if uid in _tsu}
+                    outcome = ensure_derived_start_frame_receipts(ctx, res, need_sfe)
+                    if outcome == "STOP":
                         return res
                     return _CONT  # admissions + receipts present; re-plan the wave
                 # no valid submitted answer covered the pending stills (merge_keyframe_answers
