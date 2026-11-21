@@ -194,10 +194,15 @@ def gemini_step(gemini: Path | None) -> str:
    `mode` 是 `multipass` 时，发现来自四个专审（每条的 `pass`）：A 画面/AI 瑕疵（QA-FACE-ARTIFACT 脸眼牙、QA-HAND-ARTIFACT 手指、
    QA-SKIN-SHEEN-DRIFT 皮肤油光/头发变湿、QA-BODY-MORPH、QA-OBJECT-POP、QA-FLICKER、QA-PHYSICS、烧字、遮罩、黑边）、
    B 身份与场内连贯（QA-IDENTITY-MISMATCH 对照身份卡、LOOK-DRIFT 服装发型配饰、QA-PROP/LIGHTING/POSITION-CONTINUITY、同脸）、
-   C 声音（QA-LIPSYNC、QA-VOICE-INCONSISTENT、QA-WRONG-SPEAKER、尾音、QA-LOUDNESS-JUMP、配乐、QA-SFX、QA-AUDIO-ARTIFACT）、
+   C 声音（QA-LIPSYNC、QA-VOICE-INCONSISTENT、QA-WRONG-SPEAKER、QA-VOICE-GENDER 女角色男声/男角色女声、尾音、QA-LOUDNESS-JUMP、
+   配乐、QA-SFX、QA-AUDIO-ARTIFACT）、
    D 导演/剪辑（CRAFT-PACING、CRAFT-SHOT-GRAMMAR、CRAFT-BEAT-MISSED、CRAFT-CLARITY、CRAFT-OPENING-HOOK、CRAFT-ENDING-HOOK、
-   CRAFT-EMOTION、CRAFT-SUBTITLE-READABILITY）。全部都要核对；确认后引擎这样处理（你只管判断真假）：烧字、身份/服装、
-   脸与皮肤漂移、手 → 付费重做该单元；声音类 → 免费 S7 重混/重剪；导演/剪辑类 → 记录并进知识库。
+   CRAFT-EMOTION、CRAFT-ACTING-MONOTONY、CRAFT-SUBTITLE-READABILITY）。全部都要核对；确认后引擎这样处理（你只管判断真假）：烧字、身份/服装、
+   脸与皮肤漂移、手、声音性别不对 → 付费重做该单元；声音类 → 免费 S7 重混/重剪；导演/剪辑类 → 记录并进知识库。
+   你自己也必查这两条（Gemini 没报也要看）：**声音性别**——每个说话镜头，画面里开口的人是女性/男性，听到的声音是不是同性别
+   （女角色配男声是硬伤，写 problems，带时间点和是谁）；**表演单调**——人物说话时有没有具体的小动作（整理袖口、握住桌沿、移开视线再看回、
+   上前半步、抱臂、碰项链、歪头、轻呼一口气），还是干站着念台词、或多个镜头反复同一个手势（如双手向两侧摊开），听的人是不是僵住不动；
+   单调就写 problems（`CRAFT-ACTING-MONOTONY`，kb_scope 写 global：这是导演问题，不分语言）。
    每一条 G/S 都要在 `qa_defect_checklist.gemini_verification` 里给结论：`[{{"id": "G1", "decision": "CONFIRMED|DISMISSED", "reason": "你看到/测到了什么"}}]`；
    CONFIRMED 的同时给 `"kb_scope": "global|language"` 和一句 `"kb_scope_reason"`（判法同第 3 步 problems 的 kb_scope；
    Gemini 自己的 `scope_hint` 只作参考）。

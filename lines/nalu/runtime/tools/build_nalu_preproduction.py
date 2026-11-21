@@ -32,6 +32,7 @@ import render_style as _render_style  # per-series live_action | anime
 if str(_pathlib.Path(__file__).resolve().parents[4] / "tools") not in _sys.path:
     _sys.path.append(str(_pathlib.Path(__file__).resolve().parents[4] / "tools"))
 import voice_over_narration as _vo  # V.O. narration: VOICE_ONLY_NO_PLATE lines stay out of the video
+import performance_variety as _pv  # PERFORMANCE_VARIETY_V1: varied physical business per dialogue beat
 import argparse
 import copy
 import hashlib
@@ -1559,6 +1560,11 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                 if str((props_by_id.get(prop_id) or {}).get("kind") or "").upper() in {"CREATURE", "ANIMAL"}]
         previous_shot_id = shot_id
 
+    # PERFORMANCE_VARIETY_V1 (line owner 2026-11-20, JA-01 E02: talking without small movements, always the same
+    # both-palms-out gesture): every on-screen speaker gets one concrete, beat-motivated business, never the same
+    # gesture family within 4 dialogue units or more than twice per scene; listeners get reactive business.
+    # CAMERA_GRAMMAR_V1 episodes only (the DIRECTOR_PROMPT_V2 renderer reads the English fields).
+    variety = _pv.assign_episode(shots, entities) if camera_grammar else None
     manifest = {
         "schema": "qingshan.editorial_seedance_manifest.v2_performance_complete",
         "episode": episode,
@@ -1584,6 +1590,7 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                     "lines run back to back (lead 0.2 s, gaps 0.3 s, tail 0.5 s; the 4 s floor is the unit's)",
             "rows": duration_report}} if duration_report else {}),
         "shots": shots,
+        **({"performance_variety": variety} if variety else {}),
     }
     if any(shot["prompt_spec"].get("voice_over") for shot in shots):
         manifest["voice_over_character_ids"] = sorted(vo_ids)

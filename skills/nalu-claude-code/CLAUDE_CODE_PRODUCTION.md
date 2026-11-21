@@ -148,6 +148,14 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 - H3 线对白镜再写 `performance.delivery_en`（可选，一句英文：情绪 + 怎么说，如 `"cold and contemptuous, low and clipped, a beat of silence before the second sentence"`）；H3 不收中文，没有它只剩通用念白句，演出发机械。
   写法要具体到声音怎么走（线主 2026-10-22「再起伏大一点」）：哪个词重读、哪里音调扬起或压到近乎耳语、哪里突然提高音量、哪里停顿，如 `"low and slow at first, then snaps up loud and sharp on 'repeat it', last word bitten off"`；只写情绪词（cold / angry）起伏不够。
   每句台词单独写一句导演指示（情绪 + 音调走向 + 力度），**不得按说话人套同一句模板**（化神 E04 两句模板贴满全集，线主 2026-11-04「没有感情」）；**不写**「只说一次 / 立刻开口 / 别复述参考音 / 保持音色」这类防错话（引擎已负责，渲染器会删掉），重做原因也不写进 delivery_en；引用台词用英文意译或位置，不写中文；喜剧点写夸张反差（一个炸、一个死平）。
+- **说话时的身体戏（线主 2026-11-20，JA-01 E02「说话时几乎没有小动作，有也全是双手向两侧摊开」）**：H3 线对白镜再写
+  `performance.business_en`（可选，一句英文动词短语，说话人本拍具体的小动作 + 微表情，由这一拍的意图推动），如
+  `"adjusts one cuff, eyes still on him"` / `"glances away for a beat, then looks back"` / `"takes a half step closer"` /
+  `"folds the arms"` / `"touches the base of the throat"` / `"tilts the head"` / `"lets out a small exhale before the words"`。
+  同一集里 4 句对白之内不重复同一类动作、一场里同一类最多 2 次；**不写**双手向两侧摊开 / 张开双臂耸肩，除非这一拍就是无奈或求饶；
+  特写只写脸和头部的动作（看不到手）；不写画面里没有的道具。人物可在 `character_entities[].mannerisms` 写 1–3 个英文习惯动作
+  （动词短语，如 `"twists a ring"`），引擎优先用它。没写的拍，引擎按情绪自动配一个不重复的动作（`tools/performance_variety.py`），
+  听的人也会配反应动作（点头、视线跟着说话人、重心移动），不要写成僵住不动。
 - **角色面孔区分（线主 2026-11-19，《摄政王》两个黑衣青年长成同一张脸）**：每个人物的 `appearance`（简报 `characters` 与合同 `character_entities[].appearance_ch1`，或 overlay 的 `identity_card_appearance`）必须写出具体的面部结构——脸型、下颌、眼型、鼻型、眉形、年龄感、体型、标志性特征（痣/疤/印记），不能只写服装和气质。同性别、同年龄段的角色要互相对照着写，写明彼此脸上哪里不同（如「方脸宽下颌、浓平眉」对「长脸尖下颌、细长眼、挑眉」），不靠服装、发色或配饰区分。S2 会把这段对照写进新身份牌提示词；S3 用 InsightFace 量不同角色身份牌两两相似度，≥0.38 自动给后出的角色重出一次（每对仅一次，之后记 advisory，不拦片）。
 - 首帧可见角色默认必须露正脸；远小/背影在 `cast[].face_visibility` 写 `FAR_FIGURE_*` / `BACK_*`。入场文字里只写本镜 cast 里有的人。
 - 道具名一旦出现在某镜文字里，该镜首帧就必须看得见。别设计「从怀里掏出来」这种首帧不可见的道具镜，尤其是承接上一单元尾帧的镜（会被派生起始帧审核卡死、重做也救不了）。
@@ -204,13 +212,17 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
   - **日文剧 / 韩文剧的音色（2026-11-18）**：Giggle 音色目录只有中文和英文，但同一个 speech 接口接受 MiniMax 系统音色 id
     （`Japanese_*` / `Korean_*`），不在目录里也照常用，直接写进 `voice_catalog.json` 的 `voice_id`。已实测可用：`Japanese_GentleButler`（日，男，温和管家）、
     `Korean_CalmGentleman`（韩，男，沉稳绅士）。下列为 MiniMax 公开系统音色 id，**未在本线实测**（第一次用某个 id 时先看 S4 参考音的免费识别结果，
-    报错或识别不出就换一个）：日文 `Japanese_IntellectualSenior`、`Japanese_DecisivePrincess`、`Japanese_LoyalKnight`、`Japanese_DominantMan`、
-    `Japanese_SeriousCommander`、`Japanese_ColdQueen`、`Japanese_DependableWoman`、`Japanese_KindLady`、`Japanese_CalmLady`、`Japanese_OptimisticYouth`、
-    `Japanese_GenerousIzakayaOwner`、`Japanese_SportyStudent`、`Japanese_InnocentBoy`、`Japanese_GracefulMaiden`；韩文 `Korean_SweetGirl`、
-    `Korean_CheerfulBoyfriend`、`Korean_EnchantingSister`、`Korean_ShyGirl`、`Korean_ReliableSister`、`Korean_StrictBoss`、`Korean_SassyGirl`、
-    `Korean_ElegantPrincess`、`Korean_BraveYouth`、`Korean_CalmLady`、`Korean_IntellectualSenior`、`Korean_LonelyWarrior`、`Korean_MatureLady`、
-    `Korean_InnocentBoy`、`Korean_ColdYoungMan`、`Korean_DominantMan`、`Korean_GentleBoss`、`Korean_ColdGirl`、`Korean_HaughtyLady`、
-    `Korean_IntellectualMan`、`Korean_CaringWoman`、`Korean_WiseTeacher`、`Korean_ConfidentBoss`、`Korean_PossessiveMan`、`Korean_GentleWoman`。
+    报错或识别不出就换一个）。**性别按下表选，不看 id 里的形容词猜**（线主 2026-11-20，JA-01 E02：女主 Rei 被配了 `Japanese_OptimisticYouth`——那是少年男声，她整集都是男声）：
+    日文女声 `Japanese_DecisivePrincess`、`Japanese_ColdQueen`、`Japanese_DependableWoman`、`Japanese_KindLady`、`Japanese_CalmLady`、`Japanese_GracefulMaiden`；
+    日文男声 `Japanese_IntellectualSenior`、`Japanese_LoyalKnight`、`Japanese_DominantMan`、`Japanese_SeriousCommander`、`Japanese_GentleButler`、
+    `Japanese_OptimisticYouth`（少年男声）、`Japanese_GenerousIzakayaOwner`、`Japanese_SportyStudent`、`Japanese_InnocentBoy`；
+    韩文女声 `Korean_SweetGirl`、`Korean_EnchantingSister`、`Korean_ShyGirl`、`Korean_ReliableSister`、`Korean_SassyGirl`、`Korean_ElegantPrincess`、
+    `Korean_CalmLady`、`Korean_MatureLady`、`Korean_ColdGirl`、`Korean_HaughtyLady`、`Korean_CaringWoman`、`Korean_GentleWoman`；
+    韩文男声 `Korean_CheerfulBoyfriend`、`Korean_StrictBoss`、`Korean_BraveYouth`、`Korean_IntellectualSenior`、`Korean_LonelyWarrior`、`Korean_InnocentBoy`、
+    `Korean_ColdYoungMan`、`Korean_DominantMan`、`Korean_GentleBoss`、`Korean_IntellectualMan`、`Korean_ConfidentBoss`、`Korean_PossessiveMan`、`Korean_CalmGentleman`
+    （`Korean_WiseTeacher` 性别未定，别用）。`voice_catalog.json` 行里同时写 `"voice_gender": "female|male"`。S4 开头引擎会自动对照角色性别
+    （`lines/nalu/runtime/tools/voice_gender.py`；含已锁定的旧音色）：不符就自动换成同语言、同性别、年龄最接近且没人用的音色并重出参考音（2 积分），
+    报告在 `voice/voice_gender_check.json`；女扮男装等角色在 `character_entities[].gender` 写真实性别。
     **不要**为找音色去调带付费参数的 `list_voices`；`list_voices.sh` 的免费目录里没有日韩音色是正常的。`casting_rationale` 照写（id 名里的形容词 + 角色为什么合适）；
     参考句用剧本外、带起伏的日文 / 韩文句子（与本集台词重复时 CAMERA_GRAMMAR_V1 的 S4 会自动换成引擎内置的日 / 韩校准句），读 3–10 秒（日文约 18–60 字、韩文约 15–50 个音节）。
   - **选角规则（线主 2026-10-22，不是门禁）**：通读整个目录（约 170 条，字段 voice_id / voice_name / style / gender / age / language），每个角色拿 gender、age、style 标签去对角色的年龄、身份、性格和整部剧的调子，选标签最贴的一条；旁白/播报类角色可用播音腔，普通角色优先选与性格相符的演绎/戏剧类 style，不用播音腔。同场说话人要一听就分得开。每个角色在 `voice_catalog.json` 行里写一句 `casting_rationale`（voice_name + 标签 + 为什么）。参考音不用中性朗读：在该行加 `reference_sample{text=一句不在本集剧本里、自带起伏的校准句（有问有叹，如「真的吗？你再说一遍！我等了整整三天，原来就为了这一句？」/ "What? Say that again! Three whole days I waited, and this is all you bring me?"；旧的平句「天快黑了…」读什么情绪都平，CAMERA_GRAMMAR_V1 的 S4 会自动换掉）, purpose:"VOICE_REFERENCE_ONLY", author, source_ref=该角色情绪最重的那场戏的镜头 id, speed 1.0–1.5, emotion=该角色最强烈的情绪}`；年龄标签按真实年龄用：「children」只给十岁以下，十二到十六岁的少年用同性别 youth 里偏年轻的声音（童声会把少年读成小孩甚至像女孩）；参考句绝不能是剧本台词（H3 会把参考音里的词串进别的单元，说出「像英文又不是英文」的乱码）：用一句剧本外的句子，按该角色情绪最外露、音调起伏最大的那场戏的情绪拉满读——H3 照参考音学语调，参考平，生成就平；CAMERA_GRAMMAR_V1 合同里 S4 遇到与本集台词相同的参考句会自动换成校准句并记录原因；情绪拉满后若音高明显超出该性别年龄（男孩读成女声），降一档情绪重读（speech-generate 的 `--emotion` 写一个基本情绪词：angry / sad / fearful / disgusted / surprised / happy（化神 E04 太玄写成「angry, stern and forceful」配平句，参考音只有 3 个半音起伏，他的台词全集最平）；文本须读 3–10 秒，太短就换一句更长的剧本外句子）。

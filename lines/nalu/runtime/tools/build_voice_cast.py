@@ -163,6 +163,17 @@ def build(episode: str, contract_path: Path, registry_path: Path, out_path: Path
             entry["f0_band_hz"] = build_f0_band(float(f0))
         else:
             unmeasured.append(cid)
+        # casting gender (2026-11-20, JA-01 E02: a woman locked to a young man's system voice; nothing recorded
+        # either gender): the character's and the voice's gender with their evidence, and the check's status
+        try:
+            import voice_gender as _vg  # same directory
+            ch = _vg.character_gender(wanted.get(cid))
+            vg = _vg.voice_gender(voice_id, voice_name=row.get("voice_name"), row=row, f0=f0)
+            entry.update({"gender": ch.get("gender"), "gender_basis": ch.get("basis"),
+                          "voice_gender": vg.get("gender"), "voice_gender_basis": vg.get("basis"),
+                          "casting_gender_check": _vg.casting_check(ch, vg)["status"]})
+        except Exception as exc:  # noqa: BLE001 - advisory only
+            entry["casting_gender_check"] = f"ERROR:{type(exc).__name__}"
         characters[cid] = entry
     cast = {"schema": SCHEMA, "episode": episode, "generated_at": now(),
             "source_registry": str(registry_path), "band_rule": "reference F0 median ±15 %",
@@ -213,6 +224,11 @@ def build(episode: str, contract_path: Path, registry_path: Path, out_path: Path
                 and characters[r["a"]].get("voice_id") == characters.get(r["b"], {}).get("voice_id")]
         matrix["rule"] = "TIMBRE_DISTINCT"
         matrix["advisories"], matrix["failures"] = matrix["failures"], same
+    # advisory (the S4 casting check recasts a MISMATCH before generation; anything left is reported, never blocks)
+    report["voice_gender_flags"] = [f"VOICE_GENDER_{row['casting_gender_check']}:{cid}:{row.get('gender')}:"
+                                    f"{row.get('voice_gender')}:{row.get('reference_f0_hz')}"
+                                    for cid, row in characters.items()
+                                    if row.get("casting_gender_check") in ("MISMATCH", "REVIEW")]
     if matrix["failures"]:
         report["failures"] = list(report.get("failures") or []) + matrix["failures"]
         report["status"] = "FAIL"

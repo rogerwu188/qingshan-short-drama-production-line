@@ -1200,6 +1200,10 @@ def run(episode: str, *, review_path: Path | None = None,
     voice_check_active = _uvc.active_for(episode)
     voice_cast = (read_json(p.voice_cast, {}) or {}) if voice_check_active else {}
     name_to_id = exp.character_name_to_id() if voice_check_active else {}
+    # before VOICE_TIMBRE_LOCK's active episode the same free measurement still runs, advisory only, for the
+    # VOICE_GENDER_MISMATCH flag (2026-11-20: JA-01 E02 had no voice check at all)
+    gender_cast = voice_cast if voice_check_active else (read_json(p.voice_cast, {}) or {})
+    gender_names = name_to_id if voice_check_active else (exp.character_name_to_id() if gender_cast else {})
 
     plot_by_unit: dict[str, dict[str, Any]] = {}
     submitted = read_json(review_path) if review_path else None
@@ -1257,6 +1261,17 @@ def run(episode: str, *, review_path: Path | None = None,
                                     expectations.get("expected_dialogue") or [], voice_cast, name_to_id,
                                     language=language)
             write_json(out_dir / f"{unit_id}_voice_consistency.json", voice)
+        elif gender_cast and (expectations.get("expected_dialogue") or []):
+            try:
+                probe = _uvc.check_unit(unit_id, media, dialogue.get("segments") or [],
+                                        expectations.get("expected_dialogue") or [], gender_cast, gender_names,
+                                        language=language)
+                voice = {**{k: probe.get(k) for k in ("schema", "unit_id", "speakers", "gender_flags")},
+                         "status": "ADVISORY_ONLY", "failures": [], "unverified": [],
+                         "failures_not_enforced": probe.get("failures") or []}
+                write_json(out_dir / f"{unit_id}_voice_consistency.json", voice)
+            except Exception as exc:  # noqa: BLE001 - advisory measurement never blocks
+                voice = {"status": "ADVISORY_ONLY", "failures": [], "error": f"{type(exc).__name__}: {str(exc)[:160]}"}
         combat = (combat_execution(media, out_dir, unit_id)
                   if is_combat_unit(expectations.get("editorial_shot_ids") or [], exp.shots) else None)
         return {"media": media, "media_sha256": media_sha, "measurement_fingerprint": fingerprint,
@@ -1372,6 +1387,7 @@ def run(episode: str, *, review_path: Path | None = None,
                           + ([f"{speech_rate['code']}:{speech_rate.get('ratio')}" ] if speech_rate.get("tier") in {"MINOR", "ADVISORY"} else [])
                           + ([f"voice:UNVERIFIED:{value}" for value in voice.get("unverified") or []]
                              if voice and voice.get("status") == "UNVERIFIED" else [])
+                          + [f"voice:{value}" for value in (voice or {}).get("gender_flags") or []]
                           + ([f"combat_execution:NOT_MEASURED:{combat.get('reason')}"]
                              if combat and combat.get("status") == "NOT_MEASURED" else []),
             "postgen_profile": POSTGEN_PROFILE,

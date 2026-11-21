@@ -1076,6 +1076,14 @@ def validate_task(task: dict[str, Any]) -> None:
             expected_transport = [str(row.get("voice_reference_url") or "") for row in bindings]
             if expected_transport != list(task.get("reference_audio_urls") or []):
                 raise ValueError(f"{task['task_key']} H3 speaker voice URL transport mismatch")
+            # free advisory voice / speaker consistency check (2026-11-20: a woman on screen spoke with a man's
+            # voice): slot order, prompt @AudioN, registry owner, voice vs speaker gender, unmarked offscreen
+            # speakers.  Prints VOICE_SPEAKER_CHECK; never raises.
+            try:
+                from tools.voice_speaker_consistency import advise as _voice_speaker_advise
+            except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
+                from voice_speaker_consistency import advise as _voice_speaker_advise  # type: ignore
+            _voice_speaker_advise(task, prompt_text)
         else:
             expected_transport = [str(row.get("voice_reference_asset_id") or "") for row in bindings]
             if expected_transport != list(task.get("reference_audio_asset_ids") or []):
