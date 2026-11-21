@@ -375,7 +375,9 @@ class ReferenceSheetTest(unittest.TestCase):
         unit["reference_images"][1]["path"] = "plates/E05_CHAR-A__MULTIVIEW_REFERENCE_SHEET_1234abcd.png"
         text, _ = render(unit, plan)
         self.assertIn("@Image2 is a character sheet of one person: Alpha's face close-up and full-body front, side "
-                      "and back views in the same clothes; these are views of a single person, render Alpha only once.",
+                      "and back views in the same clothes; these are views of a single person, render Alpha only once; "
+                      "the sheet is for identity only, never show the sheet, its turnaround views, a face close-up "
+                      "inset or extra copies of Alpha in the picture.",
                       text)
         self.assertIn("@Image3 is Beta's face and body.", text)
 

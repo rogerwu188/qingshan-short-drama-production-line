@@ -26,6 +26,12 @@ The task field ``h3_burn_retry`` (int, 1..max) carries the retry index from the 
 so their prompts, fingerprints and request bytes are unchanged.
 
 Env: ``NALU_S6_BURN_RETRY_MAX`` (default 2; 0 disables detection-triggered retries).
+
+Reference-sheet leaks (JA-01 E04 VU-007, 2026-11-21): a take that shows the unit's multi-view identity sheet as its
+picture (tools/h3_reference_sheet_guard.detect_leak) is retried like burned text, with the SHEET retry sentence
+(:data:`SHEET_RETRY_SENTENCES`) and the identity sheets sent as their front-view crop; a take is never CLEAN while the
+sheet detector fires.  An UNRESOLVED take's residual text band (:func:`residual_text_band`) moves our caption above it
+in S7 and joins the final fix round.
 """
 from __future__ import annotations
 
@@ -59,6 +65,20 @@ RETRY_SENTENCES = {
 }
 
 
+#: retry index -> the sentence of a retry after a REFERENCE-SHEET leak (no all-caps label, no digits); it also keeps
+#: the picture free of writing, because a sheet retry may follow a burned take
+SHEET_RETRY_SENTENCES = {
+    1: ("The identity reference images only show who each person is: the picture is one ordinary moment of the scene "
+        "with each person appearing once, never a character sheet, turnaround views or a face inset, and no writing "
+        "appears anywhere in the frame."),
+    2: ("Every frame is a single live moment of the scene itself, not a reference board: each person appears exactly "
+        "once, with no side or back view copies, no close-up inset and no caption or lettering anywhere."),
+}
+#: our subtitle band (fractions of the frame height): an H3 text box centred here stacks under our caption
+SUBTITLE_BAND = (0.55, 0.95)
+SHEET_LEAK_FLAG = "reference_sheet_leak"
+
+
 def max_retries(env: dict[str, str] | None = None) -> int:
     raw = str((env if env is not None else os.environ).get(ENV_MAX, DEFAULT_MAX)).strip()
     try:
@@ -76,15 +96,17 @@ def retry_index(payload: dict[str, Any] | None) -> int:
     return value if value > 0 else 0
 
 
-def retry_sentence(index: int) -> str:
+def retry_sentence(index: int, sheet: bool = False) -> str:
     if index <= 0:
         return ""
-    return RETRY_SENTENCES.get(index) or RETRY_SENTENCES[max(RETRY_SENTENCES)]
+    table = SHEET_RETRY_SENTENCES if sheet else RETRY_SENTENCES
+    return table.get(index) or table[max(table)]
 
 
-def apply_retry_sentence(text: str, index: int) -> str:
-    """``text`` with the retry sentence as its last line (trailing newlines kept); unchanged for index 0."""
-    sentence = retry_sentence(index)
+def apply_retry_sentence(text: str, index: int, sheet: bool = False) -> str:
+    """``text`` with the retry sentence (the sheet variant after a reference-sheet leak) as its last line (trailing
+    newlines kept); unchanged for index 0."""
+    sentence = retry_sentence(index, sheet)
     if not sentence or sentence in text:
         return text
     core = text.rstrip("\n")
@@ -94,11 +116,55 @@ def apply_retry_sentence(text: str, index: int) -> str:
 def strip_retry_sentence(text: str) -> tuple[str, int]:
     """(``text`` without an engine retry sentence, the retry index found or 0) -- the exact inverse of
     :func:`apply_retry_sentence`, used to prove a changed prompt differs from a reviewed one only by it."""
-    for index, sentence in RETRY_SENTENCES.items():
-        marker = "\n" + sentence
-        if marker in text:
-            return text.replace(marker, "", 1), index
+    for table in (RETRY_SENTENCES, SHEET_RETRY_SENTENCES):
+        for index, sentence in table.items():
+            marker = "\n" + sentence
+            if marker in text:
+                return text.replace(marker, "", 1), index
     return text, 0
+
+
+def sheet_retry(record: dict[str, Any] | None) -> bool:
+    """A unit's ``s6_burn_retry`` record asks for the sheet retry (its latest attempt followed a sheet leak)."""
+    attempts = list((record or {}).get("attempts") or [])
+    return bool(attempts and attempts[-1].get(SHEET_LEAK_FLAG))
+
+
+def combine_sheet_leak(detection: dict[str, Any], leak: dict[str, Any] | None) -> dict[str, Any]:
+    """The burn detection of a take merged with the reference-sheet detector: a LEAK makes the take BURNED (never
+    CLEAN) with the leak frames counted for the best take; a burn-detector FAIL_OPEN with a LEAK is still BURNED."""
+    if not isinstance(leak, dict) or leak.get("status") != "LEAK":
+        out = dict(detection)
+        if isinstance(leak, dict) and leak.get("status") not in (None, "NO_SHEET"):
+            out["sheet_leak"] = {k: leak.get(k) for k in ("status", "leak_frames", "best_score", "error")
+                                 if leak.get(k) is not None}
+        return out
+    out = dict(detection)
+    out["status"] = "BURNED"
+    out["burned_frames"] = int(detection.get("burned_frames") or 0) + int(leak.get("leak_frames") or 0)
+    out[SHEET_LEAK_FLAG] = True
+    out["sheet_leak"] = {k: leak.get(k) for k in ("status", "leak_frames", "longest_run", "best_score", "hits")
+                         if leak.get(k) is not None}
+    return out
+
+
+def residual_text_band(hits: list[dict[str, Any]] | None, band: tuple[float, float] = SUBTITLE_BAND
+                       ) -> dict[str, Any] | None:
+    """The vertical band (fractions of the frame) of the burned text a kept take still carries, from its detection
+    hits (``y_centre`` + ``glyph_px_at_720``), when it sits in our subtitle band; None otherwise.  Pure."""
+    ys = []
+    for h in hits or []:
+        try:
+            y = float(h.get("y_centre"))
+        except (TypeError, ValueError):
+            continue
+        if band[0] <= y <= band[1]:
+            half = max(0.012, float(h.get("glyph_px_at_720") or 52) / 1280.0 / 2.0 + 0.008)
+            ys.append((y - half, y + half))
+    if not ys:
+        return None
+    return {"y0": round(max(0.0, min(a for a, _ in ys)), 4), "y1": round(min(1.0, max(b for _, b in ys)), 4),
+            "hits": len(ys)}
 
 
 # ------------------------------------------------------------------------------------------- image perturbation

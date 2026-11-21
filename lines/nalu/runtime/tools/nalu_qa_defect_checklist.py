@@ -45,8 +45,9 @@ ITEMS: dict[str, dict[str, Any]] = {
     "QA-BURNED-TEXT": {
         "title_zh": "画面里模型烧进去的文字/字幕（如字幕下方多出一个大字「能」）",
         "question": "Is there any text or subtitle burned into the PICTURE by the video model (not our caption): stray "
-                    "glyphs, a second subtitle line, a big single character under or over our caption?  Give each "
-                    "timestamp.  Use measurements.burned_text (OCR hits) as leads, confirm by eye.",
+                    "glyphs, a second subtitle line, a big single character under or over our caption?  Two stacked "
+                    "identical or near-identical subtitle lines are this defect too (the model burned the line and "
+                    "ours sits on it), never a caption wrap.  Give each timestamp.  Use measurements.burned_text (OCR hits) as leads, confirm by eye.",
         "s7_fixable": "WHEN_MASKABLE", "fix_owner": "S7", "craft_item": "C-04"},
     "QA-DIALOGUE-TAIL-CUT": {
         "title_zh": "台词尾音被剪断，或句末没有自然停顿就切走",
@@ -309,10 +310,15 @@ def measure_s6_burn_unresolved(state: Any) -> dict[str, Any]:
     for uid, rec in sorted(((state or {}).get("s6_burn_retry") or {}).items()):
         if not isinstance(rec, dict) or not rec.get("burned_text_unresolved"):
             continue
+        band = rec.get("residual_text_band") if isinstance(rec.get("residual_text_band"), dict) else None
         rows.append({"unit_id": uid, "reason": rec.get("unresolved_reason"),
                      "retries": len(rec.get("attempts") or []),
                      "kept_take_burned_frames": rec.get("kept_take_burned_frames"),
-                     "kept_take_sha256": rec.get("kept_take_sha256")})
+                     "kept_take_sha256": rec.get("kept_take_sha256"),
+                     # 2026-11-21 (JA-01 E04): the kept take still shows the identity sheet / its burned text sits in
+                     # our subtitle band -- the final fix round takes the unit (final_fix_round.s6_unresolved_findings)
+                     **({"sheet_leak": True} if rec.get("kept_take_sheet_leak") else {}),
+                     **({"residual_in_subtitle_band": True, "residual_text_band": band} if band else {})})
     return {"source": "S6 wave state s6_burn_retry (read only)", "units": rows} if rows else {}
 
 
@@ -563,6 +569,8 @@ def gemini_block(gemini: dict[str, Any] | None, parsed: dict[str, Any],
             status = "CONFIRMED" if near else "UNVERIFIED"
         rows.append({"id": f.get("id"), "item": f.get("item"), "window": [f.get("start"), f.get("end")],
                      "severity": f.get("severity"), "status": status, "note": _clean(f.get("description"), 160),
+                     # the evidence is classified with the note by the final fix round (E04 2026-11-21)
+                     **({"evidence": _clean(f.get("evidence"), 160)} if f.get("evidence") else {}),
                      **({"reviewer_reason": decision.get("reason")} if decision.get("reason") else {}),
                      **{k: decision[k] for k in ("kb_scope", "kb_scope_reason") if decision.get(k)},
                      **{k: f[k] for k in ("pass", "scope_hint") if f.get(k)}})

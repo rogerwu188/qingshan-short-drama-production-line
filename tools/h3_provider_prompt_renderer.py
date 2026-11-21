@@ -297,8 +297,12 @@ def is_reference_sheet(ref: dict[str, Any]) -> bool:
 
 
 def reference_sheet_clause(entity: str) -> str:
+    # JA-01 E04 VU-007 (2026-11-21): H3 drew the whole sheet (inset close-up + three full bodies) as the picture --
+    # the sheet is identity evidence only, never something to show
     return (f"a character sheet of one person: {entity}'s face close-up and full-body front, side and back views "
-            f"in the same clothes; these are views of a single person, render {entity} only once")
+            f"in the same clothes; these are views of a single person, render {entity} only once; the sheet is for "
+            f"identity only, never show the sheet, its turnaround views, a face close-up inset or extra copies of "
+            f"{entity} in the picture")
 
 
 def director_active(unit: dict[str, Any], plan: dict[str, Any]) -> bool:
@@ -1442,7 +1446,9 @@ def _with_burn_retry(unit: dict[str, Any], plan: dict[str, Any], text: str,
     if not index:
         return _with_final_fix(unit, plan, text, receipt)
     uid = str(plan["unit_id"])
-    varied = _br.apply_retry_sentence(text, index)
+    # after a reference-sheet leak (h3_reference_sheet_guard, 2026-11-21) the sheet variant of the retry sentence
+    sheet = bool(unit.get("h3_reference_sheet_crop"))
+    varied = _br.apply_retry_sentence(text, index, sheet)
     failures = [*validate_provider_prompt_boundary(varied, source_id=uid, model_family="MINIMAX_H3")["failures"],
                 *validate_h3_provider_text_boundary(varied, source_id=uid)["failures"]]
     if len(varied) > _PROVIDER_RUNE_LIMIT:
@@ -1451,7 +1457,8 @@ def _with_burn_retry(unit: dict[str, Any], plan: dict[str, Any], text: str,
         return _with_final_fix(unit, plan, text, {
             **receipt, "h3_burn_retry": {"retry": index, "sentence": "SKIPPED", "failures": failures[:6]}})
     return _with_final_fix(unit, plan, varied, {
-        **receipt, "h3_burn_retry": {"retry": index, "sentence": _br.retry_sentence(index)},
+        **receipt, "h3_burn_retry": {"retry": index, "sentence": _br.retry_sentence(index, sheet),
+                                     **({"reference_sheet_crop": True} if sheet else {})},
         "prompt_budget": measure_prompt(varied, source_id=uid, model_family="MINIMAX_H3")})
 
 

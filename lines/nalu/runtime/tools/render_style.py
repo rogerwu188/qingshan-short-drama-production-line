@@ -273,6 +273,21 @@ def vlm_identity_question(kind: str) -> dict[str, Any]:
     }
 
 
+#: JA-01 anime E04 VU-007 (2026-11-21): H3 drew the character's multi-view identity sheet as the picture and the Q2
+#: VLM passed every identity question.  Asked of anime video_q2 items; a FAIL fails the anime identity check (redo /
+#: order path as before), a missing answer (a request built before this question) is not counted.
+SHEET_LEAK_QUESTION = "picture_is_performance_shot_not_character_sheet"
+SHEET_LEAK_QUESTION_SPEC: dict[str, Any] = {
+    "enum": ["PASS", "FAIL", "UNCERTAIN"],
+    "maps_to": ["CHARACTER-IDENTITY-ADMISSION", "QA-REFERENCE-SHEET-LEAK"],
+    "question": ("REFERENCE-SHEET LEAK: is every frame a normal performance shot of the scene -- NOT a character "
+                 "sheet / turnaround / model sheet (the same character shown as front, side and back full-body "
+                 "views side by side, often with a big face close-up inset on a flat background), NOT a collage, and "
+                 "with no character appearing as two or more copies in one frame?  FAIL if any frame shows such a "
+                 "sheet, collage or duplicated character."),
+}
+
+
 ART_STYLE_QUESTION_SPEC: dict[str, Any] = {
     "enum": ["PASS", "FAIL", "UNCERTAIN"],
     "maps_to": ["asset_library.qa.checks.REALISM"],
@@ -311,6 +326,8 @@ def style_questionnaire(kind: str, questionnaire: dict[str, dict[str, Any]], sty
             continue
         out[key] = row
     out[VLM_IDENTITY_QUESTION] = vlm_identity_question(kind)
+    if kind == "video_q2":
+        out[SHEET_LEAK_QUESTION] = dict(SHEET_LEAK_QUESTION_SPEC)
     if kind == "identity":
         out[CAST_DISTINCT_QUESTION] = dict(CAST_DISTINCT_QUESTION_SPEC)
     return out
@@ -354,6 +371,7 @@ __all__ = [
     "KEYFRAME_HARD_STYLE_ZH", "TOPOLOGY_OUTPUT_ZH", "LOCATION_OUTPUT_ZH", "PROMPT_BATCH_FRAME_EN",
     "SAME_IDENTITY_CLAUSE_ZH", "SHEET_REFERENCE_CLAUSE_ZH", "POSTER_OPENING_EN", "POSTER_COMPOSITION_EN",
     "CODEX_NOTE_ZH", "VLM_IDENTITY_METHOD", "VLM_IDENTITY_QUESTION", "ART_STYLE_QUESTION",
+    "SHEET_LEAK_QUESTION", "SHEET_LEAK_QUESTION_SPEC",
     "INSIGHTFACE_NOT_APPLICABLE_REASON", "vlm_identity_question", "ART_STYLE_QUESTION_SPEC", "style_questionnaire",
     "vlm_identity_failures", "not_applicable_measurement", "ANTI_AI_QUESTION_ANIME", "CAST_DISTINCT_QUESTION",
     "CAST_DISTINCT_QUESTION_SPEC",
