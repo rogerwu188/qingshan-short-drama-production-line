@@ -196,6 +196,13 @@ blocking check; direct the episode the way people watch films:
   emotion + how the line is said, e.g. `"cold and contemptuous, low and clipped, a beat of silence before the
   second sentence"`. H3 reads it instead of the generic brisk-delivery line; without it, a common `emotion` word
   (厌/怒/冷/疑/…) is mapped to English, otherwise the generic line stays.
+- Dialogue shots may add `prompt_spec.action.performance.business_en` (optional, PERFORMANCE_VARIETY_V1): one
+  English verb phrase of the speaker's concrete physical business + micro-expression for this beat, motivated by its
+  intent (`"adjusts one cuff, eyes still on him"`, `"glances away, then back"`, `"takes a half step closer"`).  No
+  gesture family twice within 4 dialogue beats or more than twice per scene; never the stock "both palms spread
+  outward / open-arms shrug" unless the beat is a shrug or a plea; face-only business in close-ups; no props that are
+  not in the shot.  Characters may carry `character_entities[].mannerisms` (1-3 English verb phrases).  Without it
+  the engine picks a non-repeating business (tools/performance_variety.py) and gives listeners reactive business.
 - Optional `"h3_prompt_style": "DIRECTOR_PROMPT_V2"` (contract top level) switches the episode's H3 units to the
   director-style prompt (docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md §7b); absent = the current prompt, unchanged.
   Under it, dialogue shots may add `prompt_spec.action.listener_reaction_en` (optional): one English sentence of what

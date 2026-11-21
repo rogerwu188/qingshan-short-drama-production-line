@@ -79,6 +79,39 @@ try:
     from tools import render_style as _render_style
 except ModuleNotFoundError:  # pragma: no cover
     import render_style as _render_style  # type: ignore
+try:
+    from tools import performance_variety as _pv
+except ModuleNotFoundError:  # pragma: no cover
+    import performance_variety as _pv  # type: ignore
+
+
+def _voice_gender_module():
+    """lines/nalu/runtime/tools/voice_gender.py (the casting-gender authority), or None where it is not shipped."""
+    try:
+        import voice_gender as module  # type: ignore
+        return module
+    except ModuleNotFoundError:
+        import sys
+        from pathlib import Path
+        runtime_tools = Path(__file__).resolve().parents[1] / "lines/nalu/runtime/tools"
+        if runtime_tools.is_dir() and str(runtime_tools) not in sys.path:
+            sys.path.append(str(runtime_tools))
+        try:
+            import voice_gender as module  # type: ignore
+            return module
+        except ModuleNotFoundError:  # pragma: no cover
+            return None
+
+
+def speaker_voice_gender(unit: dict[str, Any], character_id: str) -> str | None:
+    """male / female of a speaking character (character_entities: explicit field, else appearance words)."""
+    module = _voice_gender_module()
+    if module is None:
+        return None
+    row = next((r for r in unit.get("character_entities") or []
+                if isinstance(r, dict) and str(r.get("character_id") or r.get("entity_id") or "") == str(character_id)),
+               None)
+    return module.character_gender(row)["gender"] if row else None
 
 SCHEMA = "qingshan.minimax_h3_director_prompt.v2"
 CJK = re.compile(r"[㐀-鿿]")
@@ -680,7 +713,12 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         reference_lines.append(IDENTITY_LOCK_V2)
     for index, row in enumerate(crossmodal_rows, 1):
         binding = f"{row['audio_slot']} is {row['provider_entity_label']}'s voice"
-        reference_lines.append(binding + ". It gives timbre only — never speak or echo its words.")
+        # casting gender (2026-11-20, JA-01 E02 / 摄政王 E18: a woman on screen spoke with a man's voice): say whose
+        # voice it is in plain words, so a youthful or disguised look never pulls H3 to the other voice
+        gender = speaker_voice_gender(unit, str(row.get("character_id") or "")) if stamped else None
+        voice_kind = ("a woman's voice" if gender == "female" else "a man's voice" if gender == "male" else "")
+        reference_lines.append(binding + (f", {voice_kind}" if voice_kind else "")
+                               + ". It gives timbre only — never speak or echo its words.")
         evidence[f"VOICE_BINDING.{index}"] = binding
 
     # --- who is in frame -------------------------------------------------------------------------------
@@ -881,6 +919,7 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     last_exit = ""
     multi_beat = len(beats) > 1
     said_once: set[str] = set()
+    business_rendered = False
     for number, (source, translated) in enumerate(zip(beats, english_beats), 1):
         prefix = f"BEAT.{number}"
         spec = _spec_for(unit, source)
@@ -937,6 +976,12 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
             if not separator or not words.strip():
                 raise ValueError(f"DIALOGUE_SPEAKER_BINDING_INVALID:{raw}")
             speaker_label = str(binding["provider_entity_label"])
+            # visible in THIS beat (the binding's visible_speaker is unit-wide): a speaker shown in another shot of
+            # the unit but not in this one speaks from offscreen here, and the people on screen keep their lips
+            # closed (2026-11-20 voice/lip-owner review)
+            speaker_cid = str(binding.get("character_id") or role.get("dialogue_speaker_id") or "")
+            beat_visible = bool(binding.get("visible_speaker")) and (
+                not speaker_cid or not spec or _visible_in_spec(spec, speaker_cid))
             literal = f"<d>[{v1.DIALOGUE_LANGUAGE_TAGS[language]}] {words.strip()}</d>"
             evidence[f"{prefix}.DIALOGUE"] = literal
             performance = ((spec.get("action") or {}).get("performance"))
@@ -952,13 +997,24 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
                 delivery = delivery_clause(source, "EN")
             if delivery:
                 evidence[f"{prefix}.DIALOGUE_DELIVERY"] = delivery
+            on_screen = [s["label"] for s in subjects if s["kind"] == "PERSON" and (number - 1) in s["present"]
+                         and s["label"] != speaker_label and s["entity_id"] != speaker_cid]
             dialogue_rows.append({"label": speaker_label, "literal": literal, "delivery": delivery,
-                                  "visible": bool(binding.get("visible_speaker")),
-                                  "gaze": v1.speaker_gaze_clause(unit, binding) if stamped else "",
+                                  "visible": beat_visible, "listeners": on_screen,
+                                  "gaze": v1.speaker_gaze_clause(unit, binding) if stamped and beat_visible else "",
                                   "window": (float(source["start_seconds"]), float(source["end_seconds"]))})
             evidence[f"{prefix}.DIALOGUE_SPEAKER"] = speaker.strip()
             parts.append(_sentence(f"{speaker_label} speaks" + (f" line {len(dialogue_rows)}" if multi_beat else "")
-                                   + ("" if binding.get("visible_speaker") else " from offscreen")))
+                                   + ("" if beat_visible else " from offscreen")))
+            if not beat_visible and on_screen:
+                parts.append(_sentence(f"{_join_names(on_screen)} only listen{'s' if len(on_screen) == 1 else ''} "
+                                       f"with lips closed; the voice comes from outside the frame"))
+            business = (spec.get("action") or {}).get("performance_business_en") if beat_visible else ""
+            business_line = _pv.business_sentence(speaker_label, business)
+            if business_line:
+                parts.append(business_line)
+                evidence[f"{prefix}.PERFORMANCE_BUSINESS"] = business_line
+                business_rendered = True
         parts.append(_sentence(f"End: {exit_state}"))
         evidence[f"{prefix}.EXIT"] = exit_state
         last_exit = exit_state
@@ -978,6 +1034,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         actor_id = str(role.get("primary_actor_id") or (spec.get("action") or {}).get("subject_id") or "")
         speaker_id = str(role.get("dialogue_speaker_id") or "") if raw else ""
         reactions = (spec.get("action") or {}).get("listener_reaction_en")
+        listener_business = (spec.get("action") or {}).get("listener_business_en")
+        listener_business = listener_business if isinstance(listener_business, dict) else {}
         index = number - 1
         for s in subjects:
             cid = s["entity_id"]
@@ -990,6 +1048,10 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
             if authored:
                 action_lines.append(_sentence(authored if authored.lower().startswith(s["label"].lower())
                                               else f"{s['label']}: {authored}"))
+            elif speaker_label and _pv.listener_sentence(s["label"], listener_business.get(cid)):
+                # PERFORMANCE_VARIETY_V1: reactive business instead of a frozen pose
+                action_lines.append(_pv.listener_sentence(s["label"], listener_business.get(cid)))
+                business_rendered = True
             elif speaker_label:
                 action_lines.append(f"{s['label']} listens without speaking, holding {speaker_label}'s gaze.")
             elif actor_id and label_by_id.get(actor_id):
@@ -1024,9 +1086,13 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
                           ["Dialogue: none. Nobody speaks; every visible person keeps their mouth closed."])
     elif len(dialogue_rows) == 1:
         row = dialogue_rows[0]
+        listeners = row.get("listeners") or []
+        offscreen_head = (f"Dialogue ({row['label']}, offscreen and not shown, once; "
+                          + (f"{_join_names(listeners)} on screen keep{'s' if len(listeners) == 1 else ''} the lips "
+                             "closed and only listen" if listeners else "every visible person keeps their mouth closed")
+                          + "):")
         dialogue_lines = [f"Dialogue ({row['label']} only, once, lips in sync):" if row["visible"] else
-                          f"Dialogue ({row['label']}, offscreen and not shown, once; every visible person keeps "
-                          "their mouth closed):", row["literal"]]
+                          offscreen_head, row["literal"]]
         if row["delivery"]:
             dialogue_lines.append(row["delivery"])
         if row.get("gaze"):
@@ -1036,8 +1102,10 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         if stamped:
             dialogue_lines.append(SPOKEN_NOT_WRITTEN_ONE)
     else:
+        any_offscreen = any(not row["visible"] for row in dialogue_rows)
         dialogue_lines = ["Dialogue (in this order, each line exactly once, lips in sync; only the named speaker "
-                          "talks):"]
+                          "talks" + ("; during an offscreen line everyone on screen keeps the lips closed"
+                                     if any_offscreen else "") + "):"]
         for number, row in enumerate(dialogue_rows, 1):
             who = row["label"] + ("" if row["visible"] else " (offscreen, not shown)")
             dialogue_lines.append(f"{number}. {who}, {_span(row['window'])}: {row['literal']}"
@@ -1069,6 +1137,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         negatives.extend(_render_style.H3_NEGATIVES)
     if camera_lock:
         negatives.append(CAMERA_LOCK_NEVER)
+    if business_rendered:  # PERFORMANCE_VARIETY_V1 (line owner 2026-11-20, JA-01 E02)
+        negatives.append(_pv.NEVER_STOCK)
     never_line = "Never: " + "; ".join(dict.fromkeys(negatives)) + "."
     if stamped and subjects:  # provider expert: the anti-duplicate rule is the prompt's last sentence (no person: none)
         never_line += "\n" + v1.NO_DUPLICATE_PEOPLE

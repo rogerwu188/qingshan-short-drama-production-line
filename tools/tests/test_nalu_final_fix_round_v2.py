@@ -81,7 +81,9 @@ class ClassifierWordingTest(unittest.TestCase):
         }
         for (item, text), kind in cases.items():
             self.assertEqual(ffr.classify(item, text), kind, (item, text))
-        self.assertEqual(ffr.fix_class("VOICE_GENDER_MISMATCH"), ffr.RECORD)  # H3 voices natively: no free tool
+        # 2026-11-20: a paid redo with the own-voice sentence when the contract is consistent (a mapping / casting
+        # bug is downgraded to RECORD by nalu_pipeline._final_fix_annotate)
+        self.assertEqual(ffr.fix_class("VOICE_GENDER_MISMATCH"), ffr.PAID)
         # an actionable item is never overridden by face / sheen wording
         self.assertEqual(ffr.classify("QA-DIALOGUE-TAIL-CUT", "her face changes as the line is cut"),
                          "DIALOGUE_TAIL_GUARD")

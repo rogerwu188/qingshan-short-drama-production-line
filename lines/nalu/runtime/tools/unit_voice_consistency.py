@@ -149,13 +149,27 @@ def check_unit(unit_id: str, media: Path, segments: list[dict[str, Any]],
                          "segments": len(values), "in_band": in_band}
         if not in_band:
             failures.append(f"{code}:{cid}:{f0}")
+    # VOICE_GENDER_MISMATCH (advisory, 2026-11-20 JA-01 E02: a woman voiced by a young man's voice): the generated
+    # line's F0 on the other side of the gender divide from the character's recorded gender (voice_cast "gender",
+    # S4 voice_gender.py).  Never a failure here: the casting check at S4 is the fix, the final review the backstop.
+    gender_flags: list[str] = []
+    try:
+        import voice_gender as _vg  # noqa: PLC0415 - same directory
+        for cid, row in speakers.items():
+            want = _vg.norm_gender((characters.get(cid) or {}).get("gender"))
+            heard = _vg.f0_gender(row.get("f0_median_hz"))
+            row["f0_gender"] = heard
+            if want and heard and heard != want:
+                gender_flags.append(f"VOICE_GENDER_MISMATCH:{cid}:{want}:{heard}:{row.get('f0_median_hz')}")
+    except Exception:  # noqa: BLE001 - advisory only
+        pass
     for line in lines:
         if line["character_id"] and line["character_id"] not in speakers \
                 and not any(u.endswith(line["character_id"]) for u in unverified):
             unverified.append(f"SPEAKER_NOT_MEASURED:{line['character_id']}")
     status = "FAIL" if failures else ("UNVERIFIED" if unverified else "PASS")
     return {**base, "status": status, "failures": failures, "unverified": sorted(set(unverified)),
-            "speakers": speakers, "segments": attributed}
+            "gender_flags": gender_flags, "speakers": speakers, "segments": attributed}
 
 
 def main() -> int:

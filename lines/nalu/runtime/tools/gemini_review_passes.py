@@ -118,6 +118,9 @@ CLASS_TEXT: dict[str, tuple[str, str]] = {
     "QA-LIPSYNC": ("C", "口型不同步：说话时嘴不动、嘴动没声音、口型明显超前或滞后。"),
     "QA-VOICE-INCONSISTENT": ("C", "同一角色前后声音不一致（音色、年龄感明显变了），或声音与角色性别/年龄不符。"),
     "QA-WRONG-SPEAKER": ("C", "说话人错了：台词声音出自画面里另一个人，或该说话的人没开口。"),
+    # 2026-11-20 (JA-01 E02 ~1:13, 摄政王 E18 ~40 s): a woman on screen speaking with a man's voice, or the reverse
+    "QA-VOICE-GENDER": ("C", "声音性别不对：画面里正在说话的是女性却是男声（或男性却是女声），或声音年龄感明显和角色不符；"
+                             "写明画面里是谁、听到的是什么样的声音。"),
     "QA-DIALOGUE-TAIL-CUT": ("C", "台词尾音被切：一句话最后一个字在切镜处被截断，或一句说完没有自然停顿就切走/下一句立刻压上。"),
     "QA-LOUDNESS-JUMP": ("C", "响度跳变：相邻两句或相邻镜头之间音量突然变大/变小、底噪突然变化。"),
     "QA-BGM-DISCONTINUOUS": ("C", "背景音乐突兀：音乐只响一两个镜头就停，或在切镜处生硬起停、没有淡入淡出。"),
@@ -131,6 +134,10 @@ CLASS_TEXT: dict[str, tuple[str, str]] = {
     "CRAFT-ENDING-HOOK": ("D", "结尾钩子：最后 2-3 秒没有落在揭示或威胁上（解决了、抒情、淡出、无悬念）。"),
     "CRAFT-CLARITY": ("D", "清晰度：观众看不懂谁在说话、谁对谁做了什么、为什么。"),
     "CRAFT-EMOTION": ("D", "情绪节拍没落地：该有的反应/情绪高点没拍出来或表演不到位。"),
+    # 2026-11-20 (line owner, JA-01 anime E02): characters talk with almost no small movements, and what there is is
+    # always the same stock gesture (both hands spread outward)
+    "CRAFT-ACTING-MONOTONY": ("D", "表演单调：人物说话时几乎没有小动作/身体戏（干站着念台词），或多个镜头反复用同一个手势"
+                                   "（如双手向两侧摊开、同一个耸肩）；听的人僵住不动没有反应。写出重复的是什么动作、出现在哪些时间点。"),
     "CRAFT-SUBTITLE-READABILITY": ("D", "字幕可读性：我方字幕停留太短读不完、压在复杂背景上看不清、与画面里其它文字重叠。"),
 
     "OTHER": ("*", "其它任何观众会注意到的问题。"),

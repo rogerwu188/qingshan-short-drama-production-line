@@ -657,9 +657,10 @@ def record_lookalike_cast(rt: Path, *, episode: str, report_path: str | None) ->
 FINAL_REVIEW = "FINAL_REVIEW"
 FINAL_REVIEW_ROUTES = {
     **{k: "DIRECTING_GUIDANCE" for k in ("PACING", "STORY", "LENGTH", "STATIC_SHOT_SPLIT", "OTHER", "SHOT_GRAMMAR",
-                                         "HOOK", "EMOTION")},
+                                         "HOOK", "EMOTION", "ACTING_MONOTONY")},
     **{k: "MODEL_CONSTRAINT" for k in ("BURNED_TEXT", "FACE_DRIFT", "SKIN_SHEEN", "COSTUME_IDENTITY", "LOOKALIKE",
-                                       "VOICE", "ASR_MISMATCH", "HAND_ARTIFACT", "AI_ARTIFACT", "CONTINUITY")},
+                                       "VOICE", "ASR_MISMATCH", "HAND_ARTIFACT", "AI_ARTIFACT", "CONTINUITY",
+                                       "VOICE_GENDER_MISMATCH")},
     **{k: "ENGINE" for k in ("SUBTITLE_WRAP", "BGM_FADES", "AUDIO_SMOOTHING", "DIALOGUE_TAIL_GUARD", "LETTERBOX",
                              "MASK", "SFX", "SUBTITLE_READABILITY")},
 }
@@ -684,7 +685,10 @@ LANGUAGE_KINDS = frozenset({"VOICE", "ASR_MISMATCH", "SUBTITLE_WRAP", "SUBTITLE_
 #: kinds whose cause is the picture, the edit, the model or the mix -- the same in every language
 GLOBAL_KINDS = frozenset({"BURNED_TEXT", "FACE_DRIFT", "SKIN_SHEEN", "COSTUME_IDENTITY", "LOOKALIKE", "STATIC_SHOT_SPLIT",
                           "LETTERBOX", "MASK", "BGM_FADES", "AUDIO_SMOOTHING", "DIALOGUE_TAIL_GUARD",
-                          "HAND_ARTIFACT", "AI_ARTIFACT", "CONTINUITY", "SFX", "SHOT_GRAMMAR", "HOOK", "EMOTION"})
+                          "HAND_ARTIFACT", "AI_ARTIFACT", "CONTINUITY", "SFX", "SHOT_GRAMMAR", "HOOK", "EMOTION",
+                          # 2026-11-20: a woman voiced as a man is a casting / model fault in any language; acting
+                          # monotony (talking without business, one stock gesture) is direction, never language
+                          "VOICE_GENDER_MISMATCH", "ACTING_MONOTONY"})
 LANGUAGE_ITEMS = frozenset({"QA-SUBTITLE-WRAP"})
 GLOBAL_ITEMS = frozenset({"QA-BURNED-TEXT", "QA-SKIN-SHEEN-DRIFT", "QA-LOOKALIKE-CAST", "QA-OVERSIZED-MASK", "QA-BGM-DISCONTINUOUS",
                           "QA-DIALOGUE-TAIL-CUT", "LETTERBOX", "LOOK-DRIFT"})

@@ -3606,8 +3606,112 @@ def s4_voice_over(ctx: Ctx, res: StageResult) -> None:
     res.receipts.append(str(manifest_path))
 
 
+def provider_voice_catalog_rows(ctx: Ctx) -> list[dict[str, Any]]:
+    """The free provider voice list (list_voices.sh output: {voices: [{voice_id, gender, age, language, ...}]}) when
+    one sits next to runtime/voice_catalog.json (voices_available.json / voices.json) or NALU_PROVIDER_VOICE_CATALOG
+    names it; [] otherwise (the Japanese / Korean system voices come from voice_gender.SYSTEM_VOICE_GENDER)."""
+    base = Path(str(ctx.p.scope["voice_catalog"])).parent
+    paths = [Path(v) for v in [os.environ.get("NALU_PROVIDER_VOICE_CATALOG")] if v]
+    paths += [base / "voices_available.json", base / "voices.json"]
+    for path in paths:
+        payload = read_json(path, {}) if path.is_file() else {}
+        rows = payload.get("voices") if isinstance(payload, dict) else payload
+        if isinstance(rows, list) and rows:
+            return [r for r in rows if isinstance(r, dict)]
+    return []
+
+
+def s4_casting_gender_check(ctx: Ctx) -> dict[str, Any]:
+    """Casting gender check + auto-recast, before S4 generates or reuses any voice (and so before S6).
+
+    Line owner 2026-11-20, JA-01 E02 VU-020: Rei Taylor (a woman) was cast ``Japanese_OptimisticYouth`` (a young
+    man's voice) and every one of her lines came out male.  For each character with a voice_catalog row the
+    character's gender (contract character_entities) is compared with the voice's (voice_gender.py: provider catalog
+    / system-voice table / voice name, reference F0 as a secondary sign).  A MISMATCH is recast automatically: the
+    catalog row gets a voice of the right gender (same language, closest age, unused), a LOCKED registry row of the
+    old voice moves to ``superseded_rows`` and this episode's speech transaction of that entity is set aside, so S4
+    generates one new reference (2 credits).  REVIEW (F0-only / ambiguous evidence) is reported, never acted on.
+    Never blocks: any error is recorded and S4 continues."""
+    import voice_gender as _vg
+    p = ctx.p
+    report_path = p.voice / "voice_gender_check.json"
+    try:
+        catalog_path = Path(str(p.scope["voice_catalog"]))
+        catalog = read_json(catalog_path, {}) or {}
+        voices = catalog.get("voices") if isinstance(catalog.get("voices"), dict) else {}
+        if not voices:
+            return {"status": "NO_VOICE_CATALOG"}
+        contract = read_json(p.contract, {}) or {}
+        registry_path = Path(str(p.scope["voice_registry"]))
+        registry = read_json(registry_path, {}) or {}
+        cast = read_json(Path(str(p.scope["voice_cast"])), {}) if p.scope.get("voice_cast") else {}
+        plan = _vg.plan_casting(contract.get("character_entities") or [], voices,
+                                registry_rows=voice_rows(registry), voice_cast=cast or {},
+                                language=ctx_language(ctx), provider_catalog=provider_voice_catalog_rows(ctx))
+        plan["episode"] = ctx.episode
+        plan["checked_at"] = now()
+        applied = []
+        for rc in plan["recasts"]:
+            key, cid = rc["catalog_key"], rc["character_id"]
+            row = voices[key]
+            row.update({"voice_id": rc["to_voice_id"], "voice_name": rc["to_voice_name"], "voice_gender": rc["to_gender"],
+                        "casting_rationale": (f"[auto-recast {now()[:10]}: {rc['from_voice_id']} is not a "
+                                              f"{rc['to_gender']} voice] " + str(row.get("casting_rationale") or ""))[:600]})
+            row.setdefault("gender_recasts", []).append({**rc, "episode": ctx.episode, "at": now()})
+            moved = []
+            roles = registry.get("major_roles")
+            if isinstance(roles, list):
+                keys = set(_vg.entity_keys(cid))
+                keep = []
+                for reg in roles:
+                    if (isinstance(reg, dict) and (str(reg.get("entity_id")) in keys or str(reg.get("character_id")) in keys)
+                            and str(reg.get("voice_id") or reg.get("generation_voice_id") or "") == rc["from_voice_id"]):
+                        moved.append({**reg, "superseded_reason": f"VOICE_GENDER_RECAST:{rc['from_voice_id']}->"
+                                                                  f"{rc['to_voice_id']}", "superseded_at": now()})
+                    else:
+                        keep.append(reg)
+                if moved:
+                    registry["major_roles"] = keep
+                    registry.setdefault("superseded_rows", []).extend(moved)
+            safe = re.sub(r"[^A-Za-z0-9._-]+", "_", str(key)).strip("._")[:48]
+            txn = AUDIO_TRANSACTION_ROOT / str(p.scope["scope_id"]) / ctx.episode / "speech" / f"{safe}.json"
+            if txn.is_file():
+                aside = txn.parent / "_superseded"
+                aside.mkdir(parents=True, exist_ok=True)
+                os.replace(txn, aside / f"{txn.stem}.gender_recast_{now().replace(':', '')}.json")
+            applied.append({**rc, "registry_rows_superseded": len(moved)})
+            ctx.say(f"   VOICE_GENDER_RECAST {cid}: {rc['from_voice_id']} -> {rc['to_voice_id']} "
+                    f"({rc['to_gender']}; {rc['source']})")
+        for row in plan["rows"]:
+            if row["status"] == _vg.REVIEW or (row["status"] == _vg.MISMATCH and not (row.get("recast") or {}).get("to_voice_id")):
+                ctx.say(f"   VOICE_GENDER_{row['status']} {row['character_id']}: character {row['character_gender']} "
+                        f"({row['character_basis']}), voice {row['voice_id']} {row['voice_gender']} ({row['voice_basis']}), "
+                        f"F0 {row.get('f0_hz')}")
+        if applied:
+            catalog["voices"] = voices
+            write_json(catalog_path, catalog)
+            if registry:
+                registry["updated_at_utc"] = now()
+                write_json(registry_path, registry)
+            if p.speech_payloads.is_file():  # payloads were compiled from the old voice ids: rebuild (free)
+                p.speech_payloads.rename(p.speech_payloads.with_name(
+                    p.speech_payloads.name + f".stale_gender_recast_{now().replace(':', '')}"))
+        plan["applied"] = applied
+        plan["status"] = "RECAST" if applied else "CHECKED"
+    except Exception as exc:  # noqa: BLE001 - the check never blocks S4
+        plan = {"schema": "nalu.voice_gender_check.v1", "status": "ERROR",
+                "error": f"{type(exc).__name__}: {str(exc)[:300]}"}
+        ctx.say(f"   VOICE_GENDER_CHECK_ERROR {plan['error']}")
+    try:
+        write_json(report_path, plan)
+    except Exception:  # noqa: BLE001
+        pass
+    return plan
+
+
 def stage_s4(ctx: Ctx) -> StageResult:
     p = ctx.p
+    gender_check = s4_casting_gender_check(ctx)
     catalog_path = Path(str(ctx.p.scope["voice_catalog"]))
     payloads_stale = (p.speech_payloads.is_file() and catalog_path.is_file()
                       and catalog_path.stat().st_mtime > p.speech_payloads.stat().st_mtime)
@@ -3648,6 +3752,7 @@ def stage_s4(ctx: Ctx) -> StageResult:
 
     res = StageResult(PASS)
     res.details = {
+        "voice_gender_check": {k: gender_check.get(k) for k in ("status", "counts", "applied", "error") if k in gender_check},
         "payloads": str(p.speech_payloads),
         "task_count": len(tasks),
         "already_locked": sorted(already),
@@ -3777,6 +3882,25 @@ def upload_receipt_fields(receipt: dict[str, Any]) -> dict[str, Any]:
     return receipt
 
 
+def _voice_gender_fields(task: dict[str, Any], wav: Path) -> dict[str, Any]:
+    """{voice_gender, voice_gender_basis, character_gender, reference_f0_hz} for a freshly locked voice row.
+    Best-effort: a failed F0 measurement leaves it out."""
+    import voice_gender as _vg
+    f0 = None
+    try:
+        import dialogue_voice_metrics as _dvm  # engine tools/
+        samples, sr = _dvm.load_audio(Path(wav))
+        f0 = _dvm.estimate_f0_median(samples, sr)
+    except Exception:  # noqa: BLE001
+        f0 = None
+    voice = _vg.voice_gender(task["request"].get("voice_id"), voice_name=task["request"].get("voice_name"), f0=f0)
+    out = {"voice_gender": voice.get("gender"), "voice_gender_basis": voice.get("basis"),
+           "character_gender": _vg.norm_gender(task.get("character_gender"))}
+    if f0:
+        out["reference_f0_hz"] = round(float(f0), 2)
+    return out
+
+
 def write_voice_registry_row(ctx: Ctx, entity: str, task: dict[str, Any],
                              wav: Path, receipt: dict[str, Any]) -> None:
     """Write one production-ready row into the nalu voice registry.
@@ -3813,6 +3937,9 @@ def write_voice_registry_row(ctx: Ctx, entity: str, task: dict[str, Any],
         "character_id": task.get("character_id") or row.get("character_id") or str(entity),
         "voice_id": task["request"]["voice_id"],
         "voice_name": task["request"].get("voice_name"),
+        # casting gender (2026-11-20, JA-01 E02: a woman cast with a young man's system voice): the voice's own
+        # gender and its evidence, plus the character's, so every later check can compare them
+        **_voice_gender_fields(task, wav),
         "remote_asset_id": receipt.get("asset_id") or receipt.get("assetId"),
         "remote_url": receipt.get("file_url") or receipt.get("fileUrl"),
         "local_reference": str(wav),
@@ -10551,6 +10678,10 @@ def _final_fix_annotate(ctx: Any, mapped: list[dict[str, Any]], segments: list[d
                 if f["voice_check"].get("status") == "MAPPING_BUG":
                     ctx.say(f"FINAL_FIX_VOICE_MAPPING_BUG unit={uid} "
                             + ",".join(str(b.get("problem")) for b in f["voice_check"].get("bugs") or []))
+                    # the bound reference itself is the wrong voice (mapping or casting): a re-render with the same
+                    # reference repeats it -> recorded (and the S4 casting check recasts it), never a paid redo
+                    f["class"] = _ffr.RECORD
+                    f["redo_skipped"] = "VOICE_MAPPING_OR_CASTING_BUG"
             elif f.get("kind") == "DIALOGUE_TAIL_GUARD" and uid:
                 if perf is None:
                     perf = {str(r.get("unit_id")): r for r in (read_json(

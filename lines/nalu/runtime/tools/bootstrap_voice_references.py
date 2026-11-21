@@ -347,6 +347,8 @@ def build_task_payload(brief: dict[str, Any], *, episode: str, output_root: Path
     return {
         "entity_id": entity_id,
         "character": brief["name"],
+        # the character's gender (brief): S4 records it next to the voice's own gender in the registry row
+        "character_gender": brief.get("gender"),
         "episode_scope": episode,
         "route": {
             "endpoint": "/api/v1/generation/text-to-audio",

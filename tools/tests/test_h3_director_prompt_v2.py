@@ -136,7 +136,8 @@ class DirectorPromptV2Shape(unittest.TestCase):
         self.assertIn("@Image2 is Alpha's face and body. This is the same Alpha already in @Image1 — one "
                       "person; never draw a second Alpha.\n@Image3 is Beta's face and body. This is the same Beta "
                       "already in @Image1 — one person; never draw a second Beta.\n", text)
-        self.assertIn("@Audio1 is Alpha's voice. It gives timbre only — never speak or echo its words.", text)
+        self.assertIn("@Audio1 is Alpha's voice, a man's voice. It gives timbre only — never speak or echo its words.",
+                      text)
         self.assertEqual(receipt["status"], "PASS")
         self.assertEqual(receipt["h3_prompt_style"], "DIRECTOR_PROMPT_V2")
         self.assertTrue(1000 < len(text) < 3600, len(text))  # +identity lock sentence (2026-11-20)

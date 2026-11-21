@@ -40,7 +40,10 @@ v2 (2026-11-20, first real run E18 on device 1101):
 * after the second review every first finding is RESOLVED / PERSISTS / UNVERIFIED and the second review's NEW
   findings are listed (:func:`reconcile`); "unresolved" = PERSISTS + NEW;
 * a speaker / voice gender mismatch (VOICE_GENDER_MISMATCH) is checked against the unit's speaker_voice_contract
-  (:func:`voice_assignment_check`): a mapping bug is reported, never auto-fixed (H3 voices natively);
+  (:func:`voice_assignment_check`, the voice's gender from voice_gender.py): a mapping / casting bug is reported and
+  recorded, never redone (the same reference would voice it the same way; the S4 casting check recasts it for the
+  next episode); with a consistent contract it is a paid redo (2026-11-20, last in PAID_KINDS) carrying the
+  own-voice sentence;
 * a clipped tail that survives the wider guard gets its measured cause (:func:`tail_cut_cause`).
 
 Pure functions (no I/O except :func:`write_record`); nalu_pipeline wires them into S7 / S6 / S8.
@@ -69,7 +72,7 @@ PAID = "PAID_S6_REDO"
 RECORD = "RECORD_ONLY"
 
 FREE_KINDS = ("STATIC_SHOT_SPLIT", "AUDIO_SMOOTHING", "BGM_FADES", "SUBTITLE_WRAP", "DIALOGUE_TAIL_GUARD")
-PAID_KINDS = ("BURNED_TEXT", "COSTUME_IDENTITY", "FACE_DRIFT", "SKIN_SHEEN", "HAND_ARTIFACT")
+PAID_KINDS = ("BURNED_TEXT", "COSTUME_IDENTITY", "FACE_DRIFT", "SKIN_SHEEN", "HAND_ARTIFACT", "VOICE_GENDER_MISMATCH")
 #: owner order when the round's budget does not cover every paid redo
 PAID_PRIORITY = {kind: rank for rank, kind in enumerate(PAID_KINDS)}
 
@@ -99,6 +102,8 @@ ITEM_KIND = {
     "QA-LIPSYNC": "ASR_MISMATCH",
     "QA-VOICE-INCONSISTENT": "VOICE",
     "QA-WRONG-SPEAKER": "VOICE",
+    "QA-VOICE-GENDER": "VOICE_GENDER_MISMATCH",
+    "CRAFT-ACTING-MONOTONY": "ACTING_MONOTONY",
     "QA-LOUDNESS-JUMP": "AUDIO_SMOOTHING",
     "QA-AUDIO-ARTIFACT": "AUDIO_SMOOTHING",
     "QA-SFX": "SFX",
@@ -132,6 +137,11 @@ KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
                     "transforms into", "turns into another", "turns into a different", "morphs into",
                     "becomes another character", "becomes a different character", "identity swap",
                     "变成另一个", "变成了另一个", "变成别人", "变成了别人")),
+    ("ACTING_MONOTONY", ("same gesture", "repeated gesture", "stock gesture", "spread their hands", "spreads her hands",
+                         "spreads his hands", "hands spread", "palms spread", "spread both hands",
+                         "spreads both", "both hands outward", "both palms outward", "open-arm", "no gestures",
+                         "without gestures", "stands stiff", "stiff while talking", "frozen while speaking",
+                         "摊手", "同一个手势", "重复的手势", "手势重复", "动作单一", "说话时没有动作", "干站着", "僵着说话")),
     ("SUBTITLE_WRAP", ("wrap", "line break", "lone punctuation", "on its own line", "换行", "单独成行", "断行")),
     ("DIALOGUE_TAIL_GUARD", ("cut off", "clipped", "truncated", "last syllable", "tail cut", "no pause",
                              "cuts mid", "尾音", "被剪", "切断", "截断", "没有停顿", "没停顿")),
@@ -175,6 +185,9 @@ SENTENCES = {
                          "image for the whole clip; no garment changes colour or style."),
     "HAND_ARTIFACT": ("Every hand has a natural shape with five separate fingers from the first frame to the last; "
                       "fingers never merge, bend wrongly or pass through objects."),
+    "VOICE_GENDER_MISMATCH": ("Every line is spoken in the speaker's own voice from their audio reference: a woman "
+                              "speaks with a woman's voice and a man with a man's voice; nobody borrows another "
+                              "person's voice."),
     "SKIN_SHEEN": ("Every face keeps natural matte skin and dry hair from the first frame to the last: no oily, glossy "
                    "or sweaty sheen, no wet-looking strands and no harsh over-sharpened skin texture."),
 }
@@ -779,9 +792,25 @@ def voice_assignment_check(bindings: list[dict[str, Any]], registry_rows: list[d
         voice = by_entity.get(vid) or {}
         speaker = by_char.get(cid) or {}
         entity = chars.get(cid) or {}
-        speaker_sex = _sex(speaker.get("gender") or entity.get("gender") or entity.get("sex")
-                           or (entity.get("immutable") or {}).get("gender"))
-        voice_sex = _sex(voice.get("gender"))
+        speaker_sex = _sex(speaker.get("character_gender") or speaker.get("gender") or entity.get("gender")
+                           or entity.get("sex") or (entity.get("immutable") or {}).get("gender"))
+        if not speaker_sex and entity:
+            try:
+                import voice_gender as _vg  # noqa: PLC0415
+                speaker_sex = _vg.character_gender(entity)["gender"]
+            except Exception:  # noqa: BLE001
+                speaker_sex = None
+        # the VOICE's gender: its recorded voice_gender (S4 rows since 2026-11-20; legacy rows: "gender"), else
+        # voice_gender.py (system-voice table / voice name / reference F0)
+        voice_sex = _sex(voice.get("voice_gender") or voice.get("gender"))
+        if not voice_sex and voice:
+            try:
+                import voice_gender as _vg  # noqa: PLC0415 - same directory
+                voice_sex = _vg.voice_gender(voice.get("voice_id") or voice.get("generation_voice_id"),
+                                             voice_name=voice.get("voice_name"),
+                                             f0=voice.get("reference_f0_hz"))["gender"]
+            except Exception:  # noqa: BLE001
+                voice_sex = None
         row = {"speaker": b.get("speaker"), "character_id": cid or None, "voice_entity_id": vid or None,
                "audio_slot": b.get("audio_slot"), "speaker_gender": speaker_sex, "voice_gender": voice_sex,
                "visible_speaker": b.get("visible_speaker")}
