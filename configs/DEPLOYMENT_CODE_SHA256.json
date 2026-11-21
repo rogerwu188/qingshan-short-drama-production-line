@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2533,
+  "file_count": 2536,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -673,7 +673,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_keyframe_manifest.py",
-      "sha256": "522bf0da7740268508a555deb5c6cba863fc1c27e555b16f5d7de637d427b7a7"
+      "sha256": "cd5a32b3eeade0ba34cc53284d5739665ad8d1786ec48ab9634ac5acb51f254a"
     },
     {
       "path": "lines/nalu/runtime/tools/build_measured_edit_constraints.py",
@@ -813,7 +813,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "a64a05d347d83263d5f90ed26da7fc31d75178566a5d343ff26e33e190221e5a"
+      "sha256": "d5fb1ca78c9c3a7325bcd85eaa88830e6d31fb552fecf918240c0227d88fc56c"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -954,6 +954,10 @@
     {
       "path": "lines/nalu/runtime/tools/studio_asset_resolve.py",
       "sha256": "b372c652f6412378472be3536445ee65e2fe7afa3a9222b310d7f313a8232eb1"
+    },
+    {
+      "path": "lines/nalu/runtime/tools/tail_cast_check.py",
+      "sha256": "d8c01a35acff96eadc980df565cac22ae7debf52861ab2d502c502c2f2e96db4"
     },
     {
       "path": "lines/nalu/runtime/tools/tests/test_standing_rule_auto_acceptance.py",
@@ -8620,6 +8624,10 @@
       "sha256": "b637cb211e275f8c4f9e697b45c65a1c67a1e5db3653c225734c87be4c2ef2ab"
     },
     {
+      "path": "tools/tests/test_nalu_postgen_freeze_acceptance.py",
+      "sha256": "0bc04cddb57c09c81d86240d072d040faf9b0f75a7793bd4ae7c72f4c892566f"
+    },
+    {
       "path": "tools/tests/test_nalu_postgen_roger_acceptance_media_binding.py",
       "sha256": "73ed95a5b66d862ebb4b4d4ee52177beb7763d94a835e8eb207e4b762efedca7"
     },
@@ -8782,6 +8790,10 @@
     {
       "path": "tools/tests/test_original_identity_pixel_crop.py",
       "sha256": "52ab6f7c8ebd8e6290a08a4ca5bf177cdd78b39d51b8e251993953efde46363a"
+    },
+    {
+      "path": "tools/tests/test_own_keyframe_bind_after_tail_reject.py",
+      "sha256": "343cfc8ec81c4888c130ac71115c20cf4a84de2860ff792e6ba4cc0f81b700a5"
     },
     {
       "path": "tools/tests/test_pacing_style_gate.py",

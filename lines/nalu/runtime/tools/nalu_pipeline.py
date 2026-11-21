@@ -7038,69 +7038,9 @@ def exempt_harvested_bound_takes(ctx: Ctx, unbound: list[str], fin_report: dict[
     return [uid for uid in unbound if uid not in harvested], harvested
 
 
-#: start-frame cast check (metadata, free): the declared cast of the predecessor's last shot vs this unit's first shot
-TAIL_CAST_METHOD = "DECLARED_CAST_TAIL_VS_FIRST_SHOT"
-
-
-def _shot_in_frame_cast(row: dict[str, Any]) -> list[str]:
-    """Character ids a storyboard shot declares in frame (every cast member except an OFFSCREEN_VOICE_ONLY voice)."""
-    out: list[str] = []
-    for member in ((row or {}).get("prompt_spec") or {}).get("cast") or []:
-        cid = str(member.get("character_id") or member.get("character") or "").strip()
-        if cid and str(member.get("face_visibility") or "").upper() != "OFFSCREEN_VOICE_ONLY" and cid not in out:
-            out.append(cid)
-    return out
-
-
-def _shot_on_screen_speaker(row: dict[str, Any]) -> str:
-    """Character id of the shot's dialogue speaker when the storyboard shows that speaker in frame, else ""."""
-    spec = (row or {}).get("prompt_spec") or {}
-    raw = str(spec.get("dialogue") or "").strip()
-    if not raw:
-        return ""
-    name = raw.partition("：")[0] if "：" in raw else raw.partition(":")[0]
-    name = name.strip()
-    speaker_id = str((spec.get("role_semantic_disambiguation") or {}).get("dialogue_speaker_id") or "").strip()
-    for member in spec.get("cast") or []:
-        cid = str(member.get("character_id") or member.get("character") or "").strip()
-        if cid and (str(member.get("character") or "").strip() == name or cid == speaker_id):
-            return "" if str(member.get("face_visibility") or "").upper() == "OFFSCREEN_VOICE_ONLY" else cid
-    return ""
-
-
-def tail_cast_mismatch(editorial: dict[str, Any], plan: dict[str, Any], unit_id: str,
-                       previous_unit_id: str | None) -> dict[str, Any]:
-    """Free metadata check of a predecessor tail as ``unit_id``'s start frame (line owner 2026-11-20, JA-01 anime E01:
-    "the scene and angle stay the same but the character transforms in place into the one who is speaking").
-
-    A tail-started unit opens on the predecessor's REAL final frame, which shows the predecessor's last shot.  When the
-    storyboard's first shot of this unit shows an on-screen speaker who is not in that shot (or a wholly different
-    cast), H3 is told the speaker is "already in @Image1" and morphs the visible person into the speaker.  The
-    InsightFace start-frame check catches that for live action; for anime it is NOT_APPLICABLE, so nothing did.
-
-    Returns ``{"verdict": "REJECT" | "ACCEPT" | "NOT_MEASURED", "reasons": [...], ...}`` (no image is read)."""
-    units = {str(u.get("unit_id") or ""): u for u in plan.get("units") or []}
-    shots = {str(r.get("shot_id") or ""): r for r in editorial.get("shots") or []}
-    cur_ids = list((units.get(str(unit_id)) or {}).get("editorial_shot_ids") or [])
-    prev_ids = list((units.get(str(previous_unit_id or "")) or {}).get("editorial_shot_ids") or [])
-    base = {"method": TAIL_CAST_METHOD, "previous_unit_id": previous_unit_id}
-    if not cur_ids or not prev_ids or cur_ids[0] not in shots or prev_ids[-1] not in shots:
-        return {**base, "verdict": "NOT_MEASURED", "status": "NOT_MEASURED", "reason": "SHOT_ROWS_MISSING",
-                "reasons": []}
-    tail_cast = _shot_in_frame_cast(shots[prev_ids[-1]])
-    first_cast = _shot_in_frame_cast(shots[cur_ids[0]])
-    speaker = _shot_on_screen_speaker(shots[cur_ids[0]])
-    unit_cast: set[str] = set()
-    for sid in cur_ids:
-        unit_cast.update(_shot_in_frame_cast(shots.get(sid) or {}))
-    reasons = [f"TAIL_SHOWS_OFF_UNIT_CHARACTER:{cid}" for cid in tail_cast if cid not in unit_cast]
-    if speaker and speaker not in tail_cast:
-        reasons.append(f"ON_SCREEN_SPEAKER_NOT_IN_TAIL:{speaker}")
-    if tail_cast and first_cast and not set(tail_cast) & set(first_cast):
-        reasons.append("TAIL_SHOWS_A_DIFFERENT_CAST")
-    return {**base, "verdict": "REJECT" if reasons else "ACCEPT", "status": "MEASURED", "reasons": reasons,
-            "tail_shot_id": prev_ids[-1], "first_shot_id": cur_ids[0], "tail_cast": tail_cast,
-            "first_shot_cast": first_cast, "speaker_ids": [speaker] if speaker else []}
+#: start-frame cast check (metadata, free): shared with build_keyframe_manifest (plan time)
+from tail_cast_check import (TAIL_CAST_METHOD, _shot_in_frame_cast, _shot_on_screen_speaker,  # noqa: E402,F401
+                             tail_cast_mismatch, previous_unit_ids)
 
 
 def ctx_tail_cast_mismatch(ctx: Ctx, unit_id: str, previous_unit_id: str | None) -> dict[str, Any]:
@@ -7156,6 +7096,25 @@ def materialise_derived_keyframes(ctx: Ctx) -> list[dict[str, Any]]:
             rows.append({"unit_id": uid, "status": "OWN_KEYFRAME_REQUIRED", "start_frame_source": START_FRAME_OWN,
                          "reason": owner.get("reason"), "decided_by": LINE_OWNER_DECISION, "path": str(dst)}); continue
         if not src or not src.is_file():
+            if stamped and not hard and prev:
+                # the declared-cast check needs no tail image: decide now, before the predecessor's clip lands,
+                # so the unit's own keyframe is generated with the current S6 pass instead of one chain step
+                # later (PR #286 follow-up, device 0080 E05 VU-001 2026-11-21)
+                prior = decisions.get(uid) or {}
+                if prior.get("start_frame_source") == START_FRAME_OWN:
+                    rows.append({"unit_id": uid, "status": "OWN_KEYFRAME_REQUIRED", "start_frame_source": START_FRAME_OWN,
+                                 "reason": prior.get("reason"), "path": str(dst)}); continue
+                cast = ctx_tail_cast_mismatch(ctx, uid, prev)
+                if cast.get("verdict") == "REJECT":
+                    record_start_frame_source(ctx, uid, {
+                        "start_frame_source": START_FRAME_OWN, "reason": "TAIL_REJECTED", "previous_unit_id": prev,
+                        "tail": None, "tail_sha256": None, "first_shot_id": info["first_shot_id"],
+                        "decided_before_tail": True,
+                        "measurement": {k: cast.get(k) for k in ("method", "status", "verdict", "reasons",
+                                                                 "speaker_ids") if k in cast},
+                        "next": "the unit's own keyframe (S5 keyframe path; ~11 credits when none exists)"})
+                    rows.append({"unit_id": uid, "status": "OWN_KEYFRAME_REQUIRED", "start_frame_source": START_FRAME_OWN,
+                                 "reason": "TAIL_REJECTED", "reasons": cast.get("reasons")}); continue
             rows.append({"unit_id": uid, "status": "TAIL_NOT_YET_EXTRACTED", "previous_unit_id": prev}); continue
         check: dict[str, Any] | None = None
         if stamped and not hard:
@@ -7309,6 +7268,171 @@ def own_keyframes_needed(ctx: Ctx) -> list[str]:
         elif (prompts / f"{shots[0]}-KEYFRAME-V1.txt").is_file():
             need.append(uid)
     return sorted(set(need) | set(redo_keyframes_unadmitted(ctx)))
+
+
+def _unit_first_shots(ctx: Ctx) -> dict[str, str]:
+    plan = read_json(ctx.p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json", {}) or {}
+    return {str(u.get("unit_id")): str((u.get("editorial_shot_ids") or [""])[0])
+            for u in plan.get("units") or [] if u.get("unit_id") and u.get("editorial_shot_ids")}
+
+
+def _iso_epoch(value: Any) -> float | None:
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def own_keyframe_images_missing(ctx: Ctx, unit_ids: list[str]) -> list[str]:
+    """Of ``unit_ids``, the units whose own start keyframe ``<first shot>-keyframe-v1.png`` is not on disk."""
+    first = _unit_first_shots(ctx)
+    return [uid for uid in unit_ids
+            if not first.get(uid) or not (ctx.p.keyframes / f"{first[uid]}-keyframe-v1.png").is_file()]
+
+
+def _harvested_own_keyframe_plates(ctx: Ctx, shot: str) -> list[tuple[Path, dict[str, Any]]]:
+    """Harvested image plates of ``shot``'s keyframe task (``<shot>-KEYFRAME-V<n>``) still waiting for the rename:
+    files in the keyframe harvest dir (both harvester spellings) and completed rows of any keyframe harvest
+    status report whose plate is still on disk with the sha it was downloaded with."""
+    out: dict[str, tuple[Path, dict[str, Any]]] = {}
+    key = f"{shot}-KEYFRAME-V"
+    hdir = getattr(ctx.p, "keyframe_harvest_dir", None) or ctx.p.preprod / "keyframe_harvest"
+    if hdir.is_dir():
+        for path in set(hdir.glob(f"{key}*.png")) | set(hdir.glob(f"{ctx.episode}_{key}*.png")):
+            if path.is_file() and path.stat().st_size > 0:
+                out[str(path)] = (path, {"source": "KEYFRAME_HARVEST_DIR"})
+    rdir = getattr(ctx.p, "preprod_reports", None) or ctx.p.preprod / "reports"
+    reports = sorted(rdir.glob("*KEYFRAME_HARVEST_STATUS*.json")) if rdir.is_dir() else []
+    for report in reports:
+        for row in (read_json(report, {}) or {}).get("results") or []:
+            if not isinstance(row, dict) or not str(row.get("task_key") or "").startswith(key):
+                continue
+            if not str(row.get("remote_status") or "").startswith("completed") or not row.get("output_path"):
+                continue
+            path = Path(str(row["output_path"]))
+            if not path.is_absolute():
+                path = ENGINE / path
+            if not path.is_file() or (row.get("sha256") and sha256_file(path) != row.get("sha256")):
+                continue
+            out[str(path)] = (path, {"source": "KEYFRAME_HARVEST_STATUS", "status_report": str(report),
+                                     "task_key": row.get("task_key"), "task_id": row.get("task_id"),
+                                     "transaction": row.get("transaction")})
+    return sorted(out.values(), key=lambda item: item[0].stat().st_mtime, reverse=True)
+
+
+def bind_harvested_own_keyframes(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
+    """Free: materialise an own start keyframe that was already generated and harvested but never renamed into
+    ``keyframes/<first shot>-keyframe-v1.png`` -- the path S6, the anchor plan and Q1 read.
+
+    Device 0080 E05 VU-001 (2026-11-21): the S6 tail-cast rejection (PR #286) needed the unit's own keyframe,
+    the image task completed and was harvested, but the plate never reached the keyframe path, so S6 kept
+    blocking OWN_KEYFRAME_NOT_GENERATED and the only engine route left was another paid image.  The S5 rename
+    (apply_keyframe_renames) runs only on a paid S5 pass that harvested in the same run; a harvest by another
+    run (a failed-submit poll, a re-entry, a maintainer-authorised manual harvest) left the plate behind.
+
+    Only a plate harvested AFTER the unit's own-keyframe decision (start_frame_source / redo switch recorded_at)
+    counts, so a plate of a superseded prompt is never bound.  Never POSTs, never overwrites a keyframe."""
+    if not unit_ids:
+        return []
+    first = _unit_first_shots(ctx)
+    state = read_json(_wave_state_path(ctx), {}) or {}
+    decided = {**(state.get("start_frame_source") or {}), **(state.get("redo_start_frame_switch") or {})}
+    rows: list[dict[str, Any]] = []
+    for uid in unit_ids:
+        shot = first.get(uid)
+        if not shot:
+            continue
+        dest = ctx.p.keyframes / f"{shot}-keyframe-v1.png"
+        if dest.is_file():
+            continue
+        since = _iso_epoch((decided.get(uid) or {}).get("recorded_at"))
+        plates = [(path, meta) for path, meta in _harvested_own_keyframe_plates(ctx, shot)
+                  if since is None or path.stat().st_mtime >= since - 1]
+        if not plates:
+            continue
+        src, meta = plates[0]
+        sha = sha256_file(src)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        hdir = getattr(ctx.p, "keyframe_harvest_dir", None) or ctx.p.preprod / "keyframe_harvest"
+        if src.parent.resolve() == Path(hdir).resolve():
+            os.replace(src, dest)
+            action = "RENAMED"
+        else:
+            shutil.copyfile(src, dest)
+            action = "COPIED"
+        side = {"schema": "nalu.own_keyframe_binding.v1", "unit_id": uid, "shot_id": shot,
+                "source_path": str(src), "sha256": sha, "action": action, **meta,
+                "start_frame_source": (decided.get(uid) or {}).get("start_frame_source") or START_FRAME_OWN,
+                "bound_at": now(), "recorded_by": TOOL_ID,
+                "note": "harvested own start keyframe bound to its keyframe path (free); Q1 + the start-frame "
+                        "receipt then review these exact bytes"}
+        write_json(dest.with_suffix(".own_keyframe.json"), side)
+        rows.append({"unit_id": uid, "shot_id": shot, "status": "BOUND_HARVESTED_PLATE", "path": str(dest),
+                     "sha256": sha, "source": meta.get("source"), "action": action})
+    return rows
+
+
+def own_keyframe_diagnosis(ctx: Ctx, unit_ids: list[str]) -> dict[str, Any]:
+    """Why each unit's own keyframe is still missing after the S5 keyframe path (free, read-only)."""
+    first = _unit_first_shots(ctx)
+    km, kr = getattr(ctx.p, "keyframe_manifest", None), getattr(ctx.p, "keyframe_manifest_report", None)
+    manifest = (read_json(km, {}) or {}) if km else {}
+    tasks = {str(t.get("shot_id") or ""): str(t.get("task_key") or "") for t in manifest.get("tasks") or []}
+    table = {str(r.get("shot_id") or ""): r for r in
+             ((read_json(kr, {}) or {}) if kr else {}).get("decision_table") or []}
+    out: dict[str, Any] = {}
+    for uid in unit_ids:
+        shot = first.get(uid, "")
+        row = table.get(shot) or {}
+        out[uid] = {"first_shot_id": shot, "manifest_task_key": tasks.get(shot) or None,
+                    "keyframe_decision": row.get("decision"), "decision_basis": row.get("decision_basis"),
+                    "reuse_source": row.get("reuse_source"),
+                    "harvested_plates": [str(p) for p, _ in _harvested_own_keyframe_plates(ctx, shot)]}
+    return out
+
+
+def ensure_own_keyframe_admission(ctx: Ctx, unit_ids: list[str]) -> StageResult | None:
+    """Q1 admission + START-FRAME-SEMANTIC-EVIDENCE receipt for own start keyframes that are ON DISK but not bound
+    yet (a redo-switched unit's regenerated keyframe, redo_keyframes_unadmitted).  Scoped to exactly these stills,
+    the same route S6 runs for derived start frames: merge the valid submitted answers for these bytes, build the
+    Q1 admission, apply the line owner's sha-bound orders, write the receipt.  A still nobody answered gets a
+    review request for exactly that still.  Returns None when every unit is bound (re-plan), else the result."""
+    first = _unit_first_shots(ctx)
+    frames = {uid: ctx.p.keyframes / f"{first[uid]}-keyframe-v1.png" for uid in unit_ids
+              if first.get(uid) and (ctx.p.keyframes / f"{first[uid]}-keyframe-v1.png").is_file()}
+    if not frames:
+        return None
+    res = StageResult(REVIEW_REQUIRED)
+    res.details["own_keyframe_units_pending_binding"] = sorted(frames)
+    need_q1 = [uid for uid, kf in frames.items() if not _q1_admitted_now(ctx, uid, kf)]
+    if need_q1:
+        review_path, _covered, unanswered = merge_keyframe_answers(ctx, [first[uid] for uid in need_q1])
+        if unanswered or review_path is None:
+            res.details.update(request_review(ctx, res, "keyframe", sub_stage="S6.q1_own",
+                                              note="own start keyframes (exact bytes now on disk) need the keyframe "
+                                                   "questionnaire",
+                                              items=unanswered or [first[uid] for uid in need_q1]))
+            res.blockers.append(f"S6.q1_own:REVIEW_REQUIRED:{len(unanswered or need_q1)}_frames")
+            return res
+        build_step = qa_run(ctx, [KEYFRAME_Q1, "build", "--episode", ctx.episode, "--review", review_path],
+                            name="s6_q1_build_admission_own")
+        res.steps.append(build_step)
+        index_path = Path(str((qa_json(build_step) or {}).get("out") or ""))
+        index = read_json(index_path, {}) or {}
+        if index:
+            res.details["own_q1_line_owner_acceptance"] = apply_line_owner_q1_acceptance(ctx, index, index_path)
+        still = [uid for uid in need_q1 if not _q1_admitted_now(ctx, uid, frames[uid])]
+        if still:
+            res.status = BLOCKED
+            res.blockers.append("S6.q1_own:NOT_ADMITTED:" + ",".join(still))
+            if index:
+                res.details["q1_orders_needed"] = q1_orders_needed(ctx, index, still)
+            res.details["next"] = ("quality never blocks: record one default-acceptance order per failing Q1 gate "
+                                   "listed in q1_orders_needed, then resume S6")
+            return res
+    if ensure_derived_start_frame_receipts(ctx, res, frames, sub_stage="S6.sfe_own") == "STOP":
+        return res
+    return None
 
 
 def derived_units_pending_q1(ctx: Ctx) -> list[tuple[str, str]]:
@@ -7699,18 +7823,47 @@ def stage_s6(ctx: Ctx) -> StageResult:
                     + ", ".join(f"{r['unit_id']} ({r['reason']})" for r in redo_switched))
         derived_rows = materialise_derived_keyframes(ctx)
         own_needed = own_keyframes_needed(ctx)
+        own_touched = bool(own_needed) and not ctx.dry
+        own_bound: list[dict[str, Any]] = []
         if own_needed and not ctx.dry:
-            ctx.say(f"-- S6: {own_needed} start from their own keyframe; generating via the S5 keyframe path "
-                    "(~11 credits per image, D-46 plans only the missing images)")
+            # an own keyframe generated + harvested earlier (another run, a failed-submit poll, a manual harvest)
+            # is bound first, free -- never paid for twice (device 0080 E05 VU-001, 2026-11-21)
+            own_bound = bind_harvested_own_keyframes(ctx, own_needed)
+            if own_bound:
+                ctx.say("-- S6: bound harvested own keyframe(s): "
+                        + ", ".join(f"{r['unit_id']} <- {r['source']}" for r in own_bound))
+                own_needed = own_keyframes_needed(ctx)
+        if own_needed and not ctx.dry and own_keyframe_images_missing(ctx, own_needed):
+            ctx.say(f"-- S6: {own_keyframe_images_missing(ctx, own_needed)} start from their own keyframe; generating "
+                    "via the S5 keyframe path (~11 credits per image, D-46 plans only the missing images)")
             r5 = stage_s5(ctx)
-            still_missing = own_keyframes_needed(ctx)
+            own_bound += bind_harvested_own_keyframes(ctx, own_keyframes_needed(ctx))
+            still_missing = own_keyframe_images_missing(ctx, own_keyframes_needed(ctx))
             if r5.status != PASS or still_missing:
                 r5.status = r5.status if r5.status in (HARD_STOP, REVIEW_REQUIRED) else BLOCKED
                 r5.blockers = [f"S6.own_keyframe:{b}" for b in r5.blockers] or [
                     "S6.own_keyframe:OWN_KEYFRAME_NOT_GENERATED:" + ",".join(still_missing)]
                 r5.details["own_keyframe_units"] = own_needed
+                r5.details["own_keyframe_bound"] = own_bound
                 r5.details["redo_start_frame_switch"] = redo_switched
+                if still_missing:
+                    r5.details["own_keyframe_diagnosis"] = own_keyframe_diagnosis(ctx, still_missing)
                 return r5
+            own_needed = own_keyframes_needed(ctx)
+        if own_needed and not ctx.dry:
+            # the image is on disk; what is left is its Q1 admission / start-frame receipt for these exact bytes
+            # (a redo-switched unit).  S5's episode-wide Q1 reuses the newest review, which may not cover this
+            # still, so the S6 loop asked S5 again and again and reported OWN_KEYFRAME_NOT_GENERATED.
+            r_own = ensure_own_keyframe_admission(ctx, own_needed)
+            if r_own is not None:
+                r_own.details["own_keyframe_bound"] = own_bound
+                return r_own
+            if own_keyframes_needed(ctx):
+                res = StageResult(BLOCKED)
+                res.blockers.append("S6.own_keyframe:OWN_KEYFRAME_NOT_BOUND:" + ",".join(own_keyframes_needed(ctx)))
+                res.details["own_keyframe_diagnosis"] = own_keyframe_diagnosis(ctx, own_keyframes_needed(ctx))
+                return res
+        if own_touched:
             derived_rows = materialise_derived_keyframes(ctx)
         pending_q1 = [(uid, shot) for uid, shot in derived_units_pending_q1(ctx) if uid not in done]
         # A unit waiting on its own Q1 must only hold ITSELF back.  Until 2026-10-01 any pending
