@@ -325,6 +325,9 @@ $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下
   `defect_tolerance_minor_budget_override`（只列失败码，`authorized_by` 写「短剧工作流默认条款：质量不阻塞」）。
 - 成片观众检测器：`--gate-id FINAL-CUT-AUDIENCE-DETECTORS --detector <每个失败检测器> --media loudness=<成片> --media <检测器>=<成片>`；
   记好后把 `deliverables/<EP>/<EP>_final_9x16.mp4` 和 `workflow/nalu/<EP>/assembly/<EP>_NATIVE_AUDIO_LOUDNESS.json` 移到 `_superseded_*` 再跑 S7（成片编码确定，sha 不变）。
+- 响度门 `RELEASE_AUDIO_LEVELLING_FAILED`：照抄 S7 结果 `details.release_audio_loudness_acceptance_lookup.record_hint`
+  （`--gate-id RELEASE-AUDIO-LOUDNESS`，每条失败一个 `--detector`，`--media <失败码>=<EP>_final_levelled_9x16.mp4`），记好后**直接重跑 S7**，不要移走响度报告或成片；
+  仍不放行时看同一处的 `reason` 与 `candidates`（逐张订单写明被拒原因），不要写 CODE_BLOCKER。
 - 每条接受都要在 `NALU_STATUS.note` 里列一句（门禁 + 单元），编排代理会汇总给用户。记完同步更新 `.env` 与 `qingshan.json` 的 latest_order_seq。
 - 审核答案仍必须如实（看到穿帮就判 FAIL）；默认接受只改变「失败后停不停」，不改变「怎么判」。
 

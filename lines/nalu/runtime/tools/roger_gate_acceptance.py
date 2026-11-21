@@ -71,6 +71,110 @@ def _orders(path: Path, *, expected_latest_seq: int,
     return rows
 
 
+def gate_acceptance_orders(path: Path, *, expected_latest_seq: int, engine_root: Path | None = None,
+                           expected_issuer: str = "") -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """The inbox rows a NON-PAID gate acceptance may read, plus why (``_orders`` returns ``[]`` silently).
+
+    Structural refusals stay total (unreadable, inside the engine, wrong schema, bad / duplicate seqs,
+    ``latest_order_seq`` not the highest row).  The acknowledged-seq check exists so a newer order that changes
+    SPENDING authority is never silently ignored -- a gate acceptance spends nothing, so when the inbox is ahead
+    of the acknowledgement because of a paid / other row (device 1101 E19, 2026-11-21: the whole inbox read as
+    empty at S7 although the receipted acceptance rows were valid), the gate still reads every acknowledged row
+    and every newer row that is itself self-acknowledging (active, non-paid kind, expected issuer, valid
+    receipt).  The un-acknowledged rows are named in the diagnosis and are never read here."""
+    diag: dict[str, Any] = {"orders_path": str(path), "expected_latest_seq": expected_latest_seq}
+    strict = _orders(path, expected_latest_seq=expected_latest_seq, engine_root=engine_root,
+                     expected_issuer=expected_issuer)
+    if strict:
+        diag["inbox"] = "STRICT_OK"
+        return strict, diag
+    try:
+        resolved = Path(path).expanduser().resolve()
+        if engine_root is not None:
+            try:
+                resolved.relative_to(Path(engine_root).expanduser().resolve())
+                diag["inbox"] = "REFUSED_INBOX_INSIDE_ENGINE_ROOT"
+                return [], diag
+            except ValueError:
+                pass
+        payload = json.loads(resolved.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError) as exc:
+        diag["inbox"] = f"REFUSED_UNREADABLE:{type(exc).__name__}"
+        return [], diag
+    if not isinstance(payload, dict) or payload.get("_schema") != ORDERS_SCHEMA:
+        diag["inbox"] = "REFUSED_SCHEMA"
+        return [], diag
+    rows = payload.get("orders")
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        diag["inbox"] = "REFUSED_ROWS_NOT_OBJECTS"
+        return [], diag
+    seqs = [row.get("seq") for row in rows]
+    if any(isinstance(seq, bool) or not isinstance(seq, int) or seq < 1 for seq in seqs) or len(seqs) != len(set(seqs)):
+        diag["inbox"] = "REFUSED_BAD_OR_DUPLICATE_SEQ"
+        return [], diag
+    latest = payload.get("latest_order_seq")
+    if not rows:
+        diag["inbox"] = "EMPTY"
+        return [], diag
+    if isinstance(latest, bool) or not isinstance(latest, int) or max(seqs) != latest:
+        diag["inbox"] = f"REFUSED_LATEST_ORDER_SEQ_FIELD_{latest}_NOT_HIGHEST_ROW_{max(seqs)}"
+        return [], diag
+    if not expected_issuer:
+        diag["inbox"] = "REFUSED_LINE_OWNER_ID_NOT_SET"
+        return [], diag
+    if latest < (expected_latest_seq or 0):
+        diag["inbox"] = f"REFUSED_INBOX_SEQ_{latest}_BELOW_ACKNOWLEDGED_{expected_latest_seq}"
+        return [], diag
+    kept, ignored = [], []
+    for row in rows:
+        if int(row.get("seq") or 0) <= (expected_latest_seq or 0):
+            kept.append(row)
+            continue
+        ok, _why = newer_orders_self_acknowledging([row], expected_latest_seq=expected_latest_seq,
+                                                   expected_issuer=expected_issuer, engine_root=engine_root)
+        (kept if ok else ignored).append(row)
+    diag.update(inbox="ACK_TRAILS_INBOX_GATE_READ", inbox_latest_seq=latest,
+                ignored_unacknowledged_seqs=[r.get("seq") for r in ignored],
+                note=("NALU_LATEST_ORDER_SEQ trails the inbox because of rows that need acknowledgement; gate "
+                      "acceptances read only acknowledged and self-acknowledging non-paid rows"))
+    return kept, diag
+
+
+def acceptance_row_refusal(row: dict[str, Any], *, episode: str, gate_id: str, expected_issuer: str,
+                           engine_root: Path | None = None) -> str | None:
+    """Why ``row`` cannot be a GATE_FAIL_ACCEPTANCE for ``episode``/``gate_id`` (None = it can); the same
+    checks ``find_acceptance`` applies before detectors and sha, named for the S7 diagnostics."""
+    dec = row.get("decision") or {}
+    if dec.get("kind") != KIND:
+        return f"KIND_{dec.get('kind')}"
+    if str(dec.get("episode") or "") != episode:
+        return f"EPISODE_{dec.get('episode')}"
+    if normalize_gate_id(dec.get("gate_id")) != normalize_gate_id(gate_id):
+        return f"GATE_{dec.get('gate_id')}"
+    if str(row.get("issued_by") or "") != expected_issuer:
+        return f"ISSUER_{row.get('issued_by')}_NOT_{expected_issuer}"
+    if str(row.get("status") or "") != "active":
+        return f"STATUS_{row.get('status')}"
+    if not str(row.get("id") or "").strip() or not str(row.get("order") or "").strip():
+        return "MISSING_ID_OR_VERBATIM"
+    if not _receipt_valid(row, expected_issuer=expected_issuer, engine_root=engine_root):
+        return "SOURCE_RECEIPT_INVALID"
+    return None
+
+
+def bound_shas(decision: dict[str, Any]) -> dict[str | None, str]:
+    """Every sha256 an order binds: ``{None: media_sha256, <item>: media_sha256_by_item[item], ...}``."""
+    out: dict[str | None, str] = {}
+    if SHA256_RE.fullmatch(str(decision.get("media_sha256") or "")):
+        out[None] = str(decision["media_sha256"])
+    by_item = decision.get("media_sha256_by_item")
+    if isinstance(by_item, dict):
+        for key, value in by_item.items():
+            if SHA256_RE.fullmatch(str(value or "")):
+                out[str(key)] = str(value)
+    return out
+
+
 # Kinds that can only admit or approve; none of them can grant, widen or revoke spending.
 NON_PAID_ORDER_KINDS = frozenset({"GATE_FAIL_ACCEPTANCE", "STANDING_RULE", "S8_APPROVAL"})
 

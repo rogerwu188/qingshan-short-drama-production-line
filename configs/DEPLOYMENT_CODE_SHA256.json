@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2530,
+  "file_count": 2532,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -813,7 +813,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "b36da04a8819ac3f3537969dfd6ef88365b407fe7d07e06fe70eee4ffd84837b"
+      "sha256": "accb2f3aa2dee4a7e78a73e3181c89ed9334b3bcda306c3c25ec1edecae035fa"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -921,7 +921,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/roger_gate_acceptance.py",
-      "sha256": "1532f2f1ae00bd0b7fe4aa16c9d5c2a13c881ec179bf1f50dc54f16da959d96f"
+      "sha256": "d5b201e3f23645b1dbb8c4b62e2277e293520e4faab27105f4a92e489743b103"
     },
     {
       "path": "lines/nalu/runtime/tools/run_unattended.sh",
@@ -1017,7 +1017,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "319fd804847940134e661d6e0fd2d8cbbc5a4f2dab8ccf0780d6428d1aba94b4"
+      "sha256": "74a6eccb7899d8bee89e27b07bc0a4a878acf291fd16812873ff9e58e086b96c"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -8684,6 +8684,10 @@
       "sha256": "f716ef5b96193c8ace9dae844a42ac603be842b35b5ba1790637c3fe7887f400"
     },
     {
+      "path": "tools/tests/test_nalu_s6_derived_start_frame_receipt_current.py",
+      "sha256": "aac2067ac382676ca0239a646262049b313164bd5b0f985ffca64d5e1b63d97e"
+    },
+    {
       "path": "tools/tests/test_nalu_s6_final_pass_derived_order_acceptance.py",
       "sha256": "9fad187dda5116eedaddde1821d97b33610dca52fcc039e99ddc61c660a2244f"
     },
@@ -8702,6 +8706,10 @@
     {
       "path": "tools/tests/test_nalu_s7_loudness_acceptance_honored.py",
       "sha256": "c2f7bb9c3946a15820992fe10e111d7b9a4eb0cdf6d8e8f224e833a0ccbca05a"
+    },
+    {
+      "path": "tools/tests/test_nalu_s7_loudness_acceptance_v2.py",
+      "sha256": "e5aa5d055c09b6d8376a5714a2c3bd94c9dd8d6717cbcaf3ce3ca66ccf5565aa"
     },
     {
       "path": "tools/tests/test_nalu_scoped_qa_paths.py",
