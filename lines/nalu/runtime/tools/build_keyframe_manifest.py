@@ -2161,12 +2161,84 @@ def derived_opener_shot_ids(inputs: "Inputs", *, camera_grammar: bool | None = N
         # edge / extra face) or a controlled redo switched it: the unit starts from its own keyframe.
         if camera_grammar and uid in own_start_frame_units(inputs):
             continue
+        # PR #286 at plan time (device 0080 E05 VU-001, 2026-11-21): S6's free declared-cast check rejects a
+        # predecessor tail that shows another character / lacks the on-screen speaker, and the unit then opens
+        # on its OWN keyframe.  The check reads only the storyboard + grouping, so the keyframe is generated
+        # here with the rest instead of being discovered at S6 (one image, after the predecessor's clip).
+        if camera_grammar and tail_cast_rejected(inputs, plan, uid):
+            continue
         # Line-owner decision (2026-10-29): an explicit, authority-stamped own-keyframe decision in the S6
         # wave state applies on every episode, policy or not (nalu_pipeline start-frame-decision).
         if uid in line_owner_start_frame_units(inputs):
             continue
         out.add(first[uid])
     return out
+
+
+def own_start_opener_shot_ids(inputs: "Inputs", *, camera_grammar: bool | None = None) -> set[str]:
+    """First shots of CONTINUITY_DERIVED_KEYFRAME units that open on their OWN keyframe instead of the previous
+    tail: an S6 wave-state own-start decision, a line-owner decision, or (plan time) a declared-cast rejection."""
+    if camera_grammar is None:
+        try:
+            from tools.camera_grammar_policy import active
+            camera_grammar = active(inputs.contract, episode=inputs.episode)
+        except ImportError:
+            camera_grammar = False
+    try:
+        plan = load_json(inputs.grouping_plan_path)
+        anchors = inputs.anchor_plan
+    except Exception:  # noqa: BLE001
+        return set()
+    first = {str(u.get("unit_id")): str((u.get("editorial_shot_ids") or [""])[0]) for u in plan.get("units") or []}
+    own = set(line_owner_start_frame_units(inputs))
+    if camera_grammar:
+        own |= own_start_frame_units(inputs)
+    out = set()
+    for row in anchors.get("units") or []:
+        uid = str(row.get("unit_id"))
+        if str((row.get("opening_anchor_contract") or {}).get("source") or "") != "CONTINUITY_DERIVED_KEYFRAME":
+            continue
+        if first.get(uid) and (uid in own or (camera_grammar and tail_cast_rejected(inputs, plan, uid))):
+            out.add(first[uid])
+    return out
+
+
+def promote_own_start_openers(inputs: "Inputs", decisions: list[dict[str, Any]],
+                              derived_openers: set[str]) -> list[dict[str, Any]]:
+    """An own-start opener whose semantic-novelty decision was an exact-SHA reuse of a keyframe that is itself a
+    D-68 tail-derived opener (or of nothing) would "reuse" another unit's real tail -- exactly the frame the
+    rejection keeps out -- or a still that never exists, and S6 then blocked OWN_KEYFRAME_NOT_GENERATED with no
+    task to generate (PR #286 follow-up, device 0080 E05 VU-001 2026-11-21).  Such a row gets its own image (one
+    task); a reuse of a real generated keyframe stays a reuse (no extra credits).  Rows updated in place."""
+    own = own_start_opener_shot_ids(inputs)
+    changed = []
+    for row in decisions:
+        if str(row.get("shot_id")) not in own or row.get("decision") == "NEW_KEYFRAME":
+            continue
+        if row.get("reuse_mode") != "EXACT_SHA_REUSE_OF_EARLIER_KEYFRAME":
+            continue
+        source = str(row.get("reuse_source") or "")
+        if source and source not in derived_openers:
+            continue
+        row.update({"decision": "NEW_KEYFRAME", "superseded_reuse_source": source or None, "reuse_mode": None,
+                    "reuse_source": None, "reuse_materialization": None, "novelty_classes": [],
+                    "policy_basis": "OWN_START_FRAME_AFTER_TAIL_REJECTION: the reuse source is a tail-derived "
+                                    "opener (or absent), so the own start frame needs its own image"})
+        changed.append(row)
+    return changed
+
+
+def tail_cast_rejected(inputs: "Inputs", plan: dict[str, Any], unit_id: str) -> bool:
+    """True when the shared declared-cast check (tail_cast_check, the one S6 runs) rejects the previous unit's
+    tail as ``unit_id``'s start frame.  A check that cannot run never rejects (the unit stays tail-derived)."""
+    try:
+        import tail_cast_check as _tcc  # noqa: PLC0415
+        prev = _tcc.previous_unit_ids(plan).get(str(unit_id))
+        if not prev:
+            return False
+        return _tcc.tail_cast_mismatch(inputs.seedance, plan, str(unit_id), prev).get("verdict") == "REJECT"
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def line_owner_start_frame_units(inputs: "Inputs") -> set[str]:
@@ -2315,6 +2387,8 @@ def main(argv: list[str] | None = None) -> int:
     for row in deferred:
         row["decision"] = "DEFERRED_TO_PREVIOUS_UNIT_REAL_FINAL_FRAME"
         row["decision_basis"] = "D-68 continuity-derived opener: start frame = previous unit real tail"
+    # an own-start opener (tail rejected) must not "reuse" a tail copy: promote it to its own image
+    promote_own_start_openers(inputs, decisions, derived_openers)
     # CAMERA_GRAMMAR_V1 monologue groups (owner 2026-11-01): the continuation of a speaker's take after a cutaway
     # reuses that take's keyframe (same setup, no new image)
     monologue_keyframe_reuse(inputs, decisions)
