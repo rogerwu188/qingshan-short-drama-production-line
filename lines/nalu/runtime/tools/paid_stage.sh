@@ -232,10 +232,15 @@ fi
 
 # GET-only HopsAPI reconciliation of RESPONSE_LOST creates BEFORE the budget preflight refuses them (lab E12):
 # the executor shell carries no provider key, so this entry is the only place it can run.  Never POSTs.
+# --auto honours the kill switch NALU_LOST_RESPONSE_AUTO_RECONCILE=0; each settled transaction prints one
+# LOST_RESPONSE_RECONCILED line (ruling A: bound -> harvested, never re-POSTed; else written off + ONE new attempt).
 RECON="$ENGINE_ROOT/tools/hopsapi_usage.py"
 if [ -f "$RECON" ] && [ -n "${HOPSAPI_API_KEY:-}" ]; then
   echo "paid_stage: HopsAPI GET-only reconciliation of lost creates for $EPISODE"
-  "$VENV" "$RECON" reconcile "$EPISODE" >/dev/null 2>&1 || echo "paid_stage: reconciliation skipped/failed (non-fatal); budget check decides" >&2
+  RECON_ERR="$(mktemp)"
+  "$VENV" "$RECON" reconcile "$EPISODE" --auto >/dev/null 2>"$RECON_ERR" || echo "paid_stage: reconciliation skipped/failed (non-fatal); budget check decides" >&2
+  grep '^LOST_RESPONSE_RECONCILED ' "$RECON_ERR" || true
+  rm -f "$RECON_ERR"
 fi
 
 # A speech request that never bound a task id is written off (unit price counted as spent, one new attempt)
@@ -255,7 +260,23 @@ fi
 LEDGER="$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_budget_ledger.py"
 if [ -f "$LEDGER" ]; then
   echo "paid_stage: budget position for $EPISODE"
-  "$VENV" "$LEDGER" --check --episode "$EPISODE" --planned-credits 0 || die "budget preflight refused; no POST was attempted"
+  PREFLIGHT_DIR="$NALU_RUNTIME_ROOT/runtime/paid_runs/$EPISODE"
+  mkdir -p "$PREFLIGHT_DIR"
+  PREFLIGHT_REPORT="$PREFLIGHT_DIR/preflight_budget.json"
+  if ! "$VENV" "$LEDGER" --check --episode "$EPISODE" --planned-credits 0 --out "$PREFLIGHT_REPORT"; then
+    # Refused ONLY by lost HopsAPI creates the engine settles itself (grace period running, or a usage read to
+    # retry): a remote wait the system tick re-runs -- this same preflight then reconciles them -- instead of a
+    # stop that waits for a human (fleet 1485 E03 S6 / 1101 E20 S5, 2026-11-21).  Anything else still stops here.
+    if [ "$CHECK_ONLY" = 0 ] && [ -n "${FROM_STAGE:-}" ] && [ -f "$RECON" ] \
+        && BLOCKER="$("$VENV" "$RECON" wait-state "$EPISODE" --budget-report "$PREFLIGHT_REPORT" --blocker-only 2>/dev/null)" \
+        && [ -n "$BLOCKER" ]; then
+      echo "paid_stage: budget preflight refused only by lost HopsAPI creates ($BLOCKER); no POST was attempted"
+      "$VENV" "$HERE/paid_run_status.py" record-wait --episode "$EPISODE" --from "$FROM_STAGE" --until "$UNTIL_STAGE" \
+        --rc 4 --reason "$BLOCKER" --started "$(date +%s)"
+      exit 4
+    fi
+    die "budget preflight refused; no POST was attempted"
+  fi
 fi
 [ "$CHECK_ONLY" = 1 ] && exit 0
 

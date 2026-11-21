@@ -875,6 +875,8 @@ def is_hopsapi_transaction(payload: dict[str, Any]) -> bool:
 
 #: fallback exposure of a bound HopsAPI task with no recorded estimate (video 8 s x 20; image 1.2 -> 2)
 HOPSAPI_FALLBACK_EXPOSURE = {"video": 160, "image": 2}
+#: tools/hopsapi_usage.RETRY_ARCHIVE_SUFFIX (kept literal: this ledger imports no engine tool for its scans)
+LOST_RESPONSE_RETRY_ARCHIVE_SUFFIX = ".lost_response_reconciled.1"
 
 
 def scan_hopsapi_video_spend(episode: str) -> dict[str, Any]:
@@ -900,6 +902,32 @@ def scan_hopsapi_spend(episode: str, kinds: tuple[str, ...] = ("video", "image")
         dirname = VIDEO_TRANSACTION_DIRNAME if kind == "video" else IMAGE_TRANSACTION_DIRNAME
         directory = ENGINE_ROOT / "workflow" / "tasks" / dirname / episode
         sources.extend((kind, path) for path in _store_json_files(directory))
+        # A written-off lost create stays spent after its ONE new attempt replaced the live row: the submitter
+        # archived it beside the transaction (tools/hopsapi_usage.auto_retry_open).  Counted unless the live row
+        # is still that same attempt (counted below, once).
+        for archive in sorted(directory.glob(f"*.json{LOST_RESPONSE_RETRY_ARCHIVE_SUFFIX}")) \
+                if directory.is_dir() else []:
+            try:
+                kept = load_json(archive)
+            except (OSError, json.JSONDecodeError):
+                continue
+            written = kept.get("written_off_credits") if isinstance(kept, dict) else None
+            if not isinstance(kept, dict) or not is_hopsapi_transaction(kept) \
+                    or kept.get("state") != "WRITTEN_OFF_UNATTRIBUTABLE_RETRYABLE" \
+                    or not isinstance(written, (int, float)) or isinstance(written, bool) or written <= 0:
+                continue
+            live_path = archive.with_name(archive.name[: -len(LOST_RESPONSE_RETRY_ARCHIVE_SUFFIX)])
+            try:
+                live = load_json(live_path) if live_path.is_file() else {}
+            except (OSError, json.JSONDecodeError):
+                live = {}
+            if isinstance(live, dict) and live.get("attempt_id") == kept.get("attempt_id") \
+                    and live.get("state") == kept.get("state"):
+                continue
+            settled += Decimal(str(written))
+            by_kind[kind]["settled_credits"] += Decimal(str(written))
+            rows.append({"source": str(archive), "kind": kind, "task_key": kept.get("task_key"), "task_id": None,
+                         "credits": written, "status": "WRITTEN_OFF_UNATTRIBUTABLE_ARCHIVED"})
     for kind, path in sources:
         try:
             payload = load_json(path)

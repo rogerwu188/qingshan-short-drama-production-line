@@ -42,6 +42,18 @@ SCHEMA = "qingshan.giggle_charged_write_off.v1"
 UNRESOLVED = {"CHARGE_STATE_UNRESOLVED_BATCH", "CHARGED_TASK_ID_MISSING",
               "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION"}
 NEVER_RESUBMIT = "DO_NOT_RESUBMIT_THIS_FINGERPRINT"
+#: Line owner standing ruling A (2026-11-11), applied by the engine itself to a lost HopsAPI create whose task
+#: cannot be bound after the grace period (tools/hopsapi_usage.py; fleet 1485 E03 / 1101 E20, 2026-11-21: lines
+#: must not wait for a human to paste it).  Recorded on the transaction as ``written_off_by_order`` exactly
+#: like an --apply of this tool; the reserved credits are counted as spent (``written_off_credits``).
+RULING_A_AUTHORITY = {
+    "kind": "LINE_OWNER_STANDING_RULING",
+    "order_id": "RULING-A-2026-11-11-K073",
+    "issued_by": "line_owner",
+    "verbatim": ("check whether the remote created the task / charged (if yes bind and harvest, don't resubmit); "
+                 "if not, write off per K073 counting the reserved credits as spent, then resubmit once as a new "
+                 "attempt within the episode cap"),
+}
 
 
 def load(path: Path) -> dict[str, Any] | None:

@@ -110,7 +110,9 @@ class ReconcileTest(unittest.TestCase):
         self.assertEqual(fake.calls, [])
         self.assertTrue(report["unresolved_remaining"])
 
-    def test_no_unattributed_rows_verifies_zero_with_evidence(self):
+    def test_no_unattributed_rows_is_written_off_at_the_reserved_price_with_evidence(self):
+        # line owner ruling A (2026-11-21 engine change): nothing billed to bind -> written off, reserved credits
+        # counted as spent, ONE new attempt (was VERIFIED_ZERO_NO_REMOTE_TASK at 0 credits)
         a = self.lost("E11-VU-008", 44)
         b = self.lost("E11-VU-018", 44)
         self.tx("E11-VU-013", state="SUBMITTED_TASK_ID_BOUND", task_id=SIB, intent_recorded_at=at(44))
@@ -118,13 +120,15 @@ class ReconcileTest(unittest.TestCase):
         self.tx("E10-VU-001", episode="E10", state="SUBMITTED_TASK_ID_BOUND", task_id="tsk_other_episode_bound")
         report = self.run_reconcile(fake)
         video = report["kinds"]["video"]
-        self.assertEqual(video["status"], usage.VERIFIED_ZERO_STATE)
+        self.assertEqual(video["status"], usage.AUTO_WRITEOFF_STATE)
         self.assertEqual(video["scope"], "key")  # sibling bound in the same run is billed on this key
         self.assertFalse(report["unresolved_remaining"])
         for path in (a, b):
             data = self.load(path)
-            self.assertEqual(data["state"], usage.VERIFIED_ZERO_STATE)
-            self.assertEqual(data["credit"], 0)
+            self.assertEqual(data["state"], usage.AUTO_WRITEOFF_STATE)
+            self.assertEqual(data["credit_status"], usage.NO_BILLED_TASK_CREDIT_STATUS)
+            self.assertEqual(data["written_off_credits"], usage.WRITEOFF_FALLBACK_CREDITS["video"])
+            self.assertEqual(data["written_off_by_order"]["order_id"], "RULING-A-2026-11-11-K073")
             self.assertEqual(data["retry_guard"], "RETRY_ALLOWED_NEW_ATTEMPT")
             self.assertEqual(data["state_history"][0]["state"], usage.LOST_STATE)
             self.assertIn("response_lost_at", data)  # the lost-response record is kept
@@ -140,12 +144,13 @@ class ReconcileTest(unittest.TestCase):
         self.assertEqual(record["query"]["pages"], 2)
         self.assertEqual(record["transaction_before"]["state"], usage.LOST_STATE)
         self.assertNotIn("test-key-not-real", usage.evidence_path(self.root, "E11").read_text(encoding="utf-8"))
-        # the ledger now treats them as settled (0), not unresolved
+        # the ledger now treats them as settled and counts their reserved credits as spent
         with patch.object(ledger, "ENGINE_ROOT", self.root.parent.parent):
             states = ledger.scan_transaction_states("E11")
             spend = ledger.scan_hopsapi_spend("E11")
         self.assertEqual(states["unresolved_transactions"], [])
         self.assertEqual(spend["pending_exposure_credits"], 160)  # only the sibling (no estimate) counts
+        self.assertEqual(spend["settled_credits"], 2 * usage.WRITEOFF_FALLBACK_CREDITS["video"])
 
     def test_single_unattributed_row_after_intent_is_adopted_and_polled(self):
         path = self.lost("E11-VU-008", 44, estimated_credits=7)
@@ -170,9 +175,10 @@ class ReconcileTest(unittest.TestCase):
         # device's task -- never adopted, and it no longer holds the episode at NEEDS_MANUAL_ATTRIBUTION
         path = self.lost("E11-VU-008", 30)
         report = self.run_reconcile(FakeUsage(rows=[row(OTHER, 40)]))
-        self.assertEqual(report["kinds"]["video"]["status"], usage.VERIFIED_ZERO_STATE)
+        self.assertEqual(report["kinds"]["video"]["status"], usage.AUTO_WRITEOFF_STATE)
         data = self.load(path)
-        self.assertEqual(data["state"], usage.VERIFIED_ZERO_STATE)
+        self.assertEqual(data["state"], usage.AUTO_WRITEOFF_STATE)
+        self.assertEqual(data["credit_status"], usage.NO_BILLED_TASK_CREDIT_STATUS)
         self.assertNotIn("task_id", data)
 
     def test_post_intent_row_still_decides_next_to_a_pre_intent_foreign_row(self):
@@ -222,7 +228,7 @@ class ReconcileTest(unittest.TestCase):
         self.lost("E11-VU-008", 44, hopsapi_key_fingerprint=fp)
         fake = FakeUsage(rows=[], account_rows=[row(OTHER, 40)])
         report = self.run_reconcile(fake)
-        self.assertEqual(report["kinds"]["video"]["status"], usage.VERIFIED_ZERO_STATE)
+        self.assertEqual(report["kinds"]["video"]["status"], usage.AUTO_WRITEOFF_STATE)
         self.assertEqual([c["query"]["scope"] for c in fake.calls], ["key"])
 
     def test_failed_usage_read_changes_nothing(self):
@@ -237,7 +243,7 @@ class ReconcileTest(unittest.TestCase):
         path = self.lost("E11-VU-008", 44)
         before = path.read_text(encoding="utf-8")
         report = self.run_reconcile(FakeUsage(rows=[]), dry_run=True)
-        self.assertEqual(report["kinds"]["video"]["status"], usage.VERIFIED_ZERO_STATE)
+        self.assertEqual(report["kinds"]["video"]["status"], usage.AUTO_WRITEOFF_STATE)
         self.assertEqual(path.read_text(encoding="utf-8"), before)
         self.assertFalse(usage.evidence_path(self.root, "E11").exists())
 
@@ -248,9 +254,10 @@ class ReconcileTest(unittest.TestCase):
         self.tx("E11-S01-02-KEYFRAME-V1", kind="image", state="SUBMITTED_TASK_ID_BOUND",
                 task_id="tsk_bound_img", intent_recorded_at=at(12))
         report = self.run_reconcile(fake)
-        self.assertEqual(report["kinds"]["image"]["status"], usage.VERIFIED_ZERO_STATE)
+        self.assertEqual(report["kinds"]["image"]["status"], usage.AUTO_WRITEOFF_STATE)
         self.assertEqual(fake.calls[0]["query"]["model"], "gpt-image-2")
-        self.assertEqual(self.load(path)["state"], usage.VERIFIED_ZERO_STATE)
+        self.assertEqual(self.load(path)["state"], usage.AUTO_WRITEOFF_STATE)
+        self.assertEqual(self.load(path)["written_off_credits"], usage.WRITEOFF_FALLBACK_CREDITS["image"])
 
     def test_interrupted_intent_without_task_id_is_reconciled_like_a_lost_response(self):
         # device ...0069 E15 S5 (2026-11-17): the submitter died between the intent record and the create
@@ -261,9 +268,9 @@ class ReconcileTest(unittest.TestCase):
                 task_id="tsk_bound_img", intent_recorded_at=at(12))
         self.assertEqual(usage.pending_lost("E11", self.root), 1)
         report = self.run_reconcile(FakeUsage(rows=[row("tsk_bound_img", 11, model="gpt-image-2")]))
-        self.assertEqual(report["kinds"]["image"]["status"], usage.VERIFIED_ZERO_STATE)
+        self.assertEqual(report["kinds"]["image"]["status"], usage.AUTO_WRITEOFF_STATE)
         data = self.load(stuck)
-        self.assertEqual(data["state"], usage.VERIFIED_ZERO_STATE)
+        self.assertEqual(data["state"], usage.AUTO_WRITEOFF_STATE)
         self.assertEqual(data["retry_guard"], "RETRY_ALLOWED_NEW_ATTEMPT")
         self.assertEqual(data["state_history"][0]["state"], "INTENT_RECORDED")
 

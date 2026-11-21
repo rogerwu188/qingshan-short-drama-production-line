@@ -164,6 +164,15 @@ def written_off_retry_open(path: Path, row: dict[str, Any]) -> bool:
     return True
 
 
+def lost_response_retry_open(path: Path, row: dict[str, Any]) -> bool:
+    """tools/hopsapi_usage.auto_retry_open: ONE new attempt per auto-reconciled lost HopsAPI create."""
+    try:
+        import hopsapi_usage  # noqa: PLC0415
+    except ImportError:  # imported as tools.<module>
+        from tools import hopsapi_usage  # noqa: PLC0415
+    return hopsapi_usage.auto_retry_open(path, row)
+
+
 def prior_submission_result(task: dict[str, Any], transaction_dir: Path) -> dict[str, Any] | None:
     path = transaction_path(transaction_dir, task)
     current_fingerprint = submission_fingerprint(task)
@@ -222,7 +231,16 @@ def prior_submission_result(task: dict[str, Any], transaction_dir: Path) -> dict
             f"{task_key} duplicate submit blocked by transaction state {state} "
             "(the one new attempt after a write-off is already used)"
         )
-    if state not in {"NOT_CHARGED_RETRYABLE", "VERIFIED_ZERO_NO_REMOTE_TASK", "WRITTEN_OFF_UNATTRIBUTABLE_RETRYABLE"}:
+    if state in {"VERIFIED_ZERO_NO_REMOTE_TASK", "WRITTEN_OFF_UNATTRIBUTABLE_RETRYABLE"}:
+        # Settled by the lost-response reconciliation (ruling A): ONE new attempt per lost transaction; a resubmit
+        # that lost its response again is written off (counted) but never resubmitted by itself.
+        if lost_response_retry_open(path, transaction):
+            return None
+        raise DuplicateSubmissionBlocked(
+            f"{task_key} duplicate submit blocked by transaction state {state} "
+            "(the one automatic new attempt after a lost response is already used)"
+        )
+    if state != "NOT_CHARGED_RETRYABLE":
         raise DuplicateSubmissionBlocked(
             f"{task_key} duplicate submit blocked by transaction state {state}"
         )

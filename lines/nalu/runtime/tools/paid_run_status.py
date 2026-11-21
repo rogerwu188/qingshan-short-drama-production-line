@@ -53,6 +53,10 @@ REMOTE_WAIT: dict[str, dict[str, int]] = {
     "VIDEO_NOT_ALL_COMPLETED": {"interval_s": VIDEO_REMOTE_WAIT_INTERVAL_S,
                                 "max_reruns": VIDEO_REMOTE_WAIT_BUDGET_S // VIDEO_REMOTE_WAIT_INTERVAL_S},
     "HOPSAPI_IMAGE_PROVIDER_OUTAGE": {"interval_s": 600, "max_reruns": 6},
+    # A lost HopsAPI create the engine settles by itself (tools/hopsapi_usage.py, ruling A): the re-run's preflight
+    # reconciles once the grace period (video 20 min / image 10 min) passed, or retries a failed usage read.  3 h of
+    # re-runs before the producer is woken (fleet 1485 E03 / 1101 E20, 2026-11-21: the line waited for a human).
+    "HOPSAPI_LOST_RESPONSE_RECONCILING": {"interval_s": 300, "max_reruns": 36},
 }
 WAIT, ACT = "WAIT", "ACT"
 NEXT_WAIT = "NEXT: END_TURN_WAIT_FOR_TICK"
@@ -160,6 +164,26 @@ def record(runtime: Path, episode: str, from_stage: str, until_stage: str, rc: i
         {"verdict": ACT, "reason": "PIPELINE_STATE_NOT_UPDATED_BY_THIS_RUN"}
     rec = {"schema": "nalu.paid_run_record.v1", "episode": episode, "from": from_stage, "until": until_stage,
            "exit_code": rc, "log": log, "started_at": started, "finished_at": time.time(),
+           "finished_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), **verdict}
+    d = runs_dir(runtime, episode)
+    d.mkdir(parents=True, exist_ok=True)
+    tmp = d / "last.json.tmp"
+    tmp.write_text(json.dumps(rec, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    tmp.replace(d / "last.json")
+    return rec
+
+
+def record_wait(runtime: Path, episode: str, from_stage: str, until_stage: str, rc: int, reason: str,
+                started: float) -> dict[str, Any]:
+    """A WAIT record for a run that stopped before the pipeline (paid_stage.sh preflight): ``reason`` is a
+    REMOTE_WAIT blocker (``HOPSAPI_LOST_RESPONSE_RECONCILING:...``); anything else records ACT."""
+    code = blocker_code(reason)
+    verdict: dict[str, Any] = ({"verdict": WAIT, "reason": f"REMOTE_PENDING:{code}", "stage": from_stage,
+                                "status": "PREFLIGHT_WAIT", "blockers": [reason],
+                                **REMOTE_WAIT[code]} if code in REMOTE_WAIT else
+                               {"verdict": ACT, "reason": f"PREFLIGHT:{reason}"})
+    rec = {"schema": "nalu.paid_run_record.v1", "episode": episode, "from": from_stage, "until": until_stage,
+           "exit_code": rc, "log": "", "started_at": started, "finished_at": time.time(),
            "finished_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), **verdict}
     d = runs_dir(runtime, episode)
     d.mkdir(parents=True, exist_ok=True)
@@ -286,6 +310,13 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--rc", type=int, required=True)
     r.add_argument("--log", default="")
     r.add_argument("--started", type=float, required=True)
+    w = sub.add_parser("record-wait")
+    w.add_argument("--episode", required=True)
+    w.add_argument("--from", dest="from_stage", required=True)
+    w.add_argument("--until", required=True)
+    w.add_argument("--rc", type=int, required=True)
+    w.add_argument("--reason", required=True)
+    w.add_argument("--started", type=float, required=True)
     s = sub.add_parser("status")
     s.add_argument("--episode", required=True)
     a = ap.parse_args(argv)
@@ -295,6 +326,11 @@ def main(argv: list[str] | None = None) -> int:
         if rec.get("stage"):
             print(_clip(f"paid_stage: {rec['stage']} {rec.get('status')}"
                         + (f" blockers: {', '.join(rec.get('blockers') or [])}" if rec.get("blockers") else "")))
+        print(next_line(rec))
+        return 0
+    if a.cmd == "record-wait":
+        rec = record_wait(runtime, a.episode, a.from_stage, a.until, a.rc, a.reason, a.started)
+        print(_clip(f"paid_stage: preflight {rec.get('status') or ''} {a.reason}"))
         print(next_line(rec))
         return 0
     for line in status_lines(runtime, a.episode):

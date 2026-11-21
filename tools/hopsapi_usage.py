@@ -17,8 +17,12 @@ completion: video >= 20 min, image >= 10 min after the newest lost intent of the
 1. list billed media rows of that model from (earliest lost intent - 1 min) to now;
 2. a row whose task id is bound to NO transaction anywhere in ``workflow/tasks/**`` is
    *unattributed*;
-3. no unattributed row -> each lost transaction becomes ``VERIFIED_ZERO_NO_REMOTE_TASK`` (0 credits;
-   the next run may POST a new attempt);
+3. no unattributed row -> nothing on the provider can be bound to the lost POST.  Line owner standing ruling
+   A (2026-11-11, K073): the POST is written off with its reserved credits counted as spent
+   (``WRITTEN_OFF_UNATTRIBUTABLE_RETRYABLE``, ``credit_status`` ``ASSUMED_CHARGED_NO_BILLED_TASK_FOUND``) and the
+   unit gets ONE new attempt.  (Engines before 2026-11-21 settled this case as ``VERIFIED_ZERO_NO_REMOTE_TASK``
+   at 0 credits; a usage row only appears once a task finished, so a task still queued at the provider was
+   invisible and its later charge was never counted.  Old rows in that state stay settled.)
 4. exactly one lost transaction, exactly one unattributed row billed after its intent, and no other
    lost transaction (any episode) of that kind overlapping the window -> the row's task id is
    ADOPTED: the transaction becomes ``SUBMITTED_TASK_ID_BOUND`` and is polled / harvested like any
@@ -28,6 +32,24 @@ completion: video >= 20 min, image >= 10 min after the newest lost intent of the
    charged at its planned price (``written_off_credits``, counted as spend by the ledger) and a new attempt
    may POST.  ``NEEDS_MANUAL_ATTRIBUTION`` rows written by older engines are reconciled again into it.  Several lost POSTs vs several unattributed rows are never paired by guesswork: a
    wrong pairing would harvest one unit's paid clip under another unit.  ``adopt`` binds one by hand.
+
+ONE new attempt per lost transaction (fleet devices 1485 E03 S6, 1101 E20 S5, 2026-11-21): the submitters call
+:func:`auto_retry_open` before they replace an auto-reconciled row with a new intent.  It archives the written-off
+row beside the transaction (``<tx>.json.lost_response_reconciled.1``, still counted by the budget ledger) and
+refuses a second auto-reconciled row of the same transaction, so a resubmit that loses its response again is
+written off (counted) but never resubmitted by itself: no paid retry loop.
+
+What the provider can see: HopsAPI has no idempotency key, no client reference and no task-list endpoint; a lost
+create has no task id to query.  The only provider view is the billing usage list above, which shows a media
+task once it FINISHED (failed / cancelled tasks are never billed).  Hence the grace period, and why "nothing
+billed" is written off at the reserved price instead of being called zero.
+
+Automatic use (``reconcile_episode(auto=True)``: the pipeline's budget check, the S6 re-entry, ``paid_stage.sh``
+preflight and therefore every system-tick re-run) stops when ``NALU_LOST_RESPONSE_AUTO_RECONCILE=0`` (kill
+switch; the operator CLI ``reconcile`` without ``--auto`` still works).  While a lost transaction waits for its
+grace period or the usage read fails, :func:`lost_response_wait` turns the budget refusal into a remote wait
+(``HOPSAPI_LOST_RESPONSE_RECONCILING``) that the system tick re-runs, instead of a stop that waits for a human.
+Each settled transaction logs one line ``LOST_RESPONSE_RECONCILED kind=BOUND|WRITTEN_OFF ...`` (stderr).
 
 Key scope: ``scope=key`` sees only the current key.  It is used when every lost intent carries the
 current key's fingerprint, or (legacy intents without one) a sibling transaction bound within
@@ -81,6 +103,19 @@ WRITEOFF_FALLBACK_CREDITS = {"video": 15.0, "image": 2.0}
 #: overtaken.  The neutral health probe keeps its own never-re-POST rule and is left alone.
 INTERRUPTED_STATE = "INTENT_RECORDED"
 RECONCILABLE_STATES = {LOST_STATE, MANUAL_STATE, INTERRUPTED_STATE}
+#: A neutral health probe (``hopsapi_health_probe``) whose create response was lost sits in the episode's image
+#: store at RESPONSE_LOST and the ledger refuses every paid step on it -- and this tool skipped every probe, so
+#: nothing could ever settle it (fleet device 1101 E20 S5, 2026-11-21).  A lost / manual probe is reconciled
+#: like any POST (it is never re-POSTed: the next probe is a new attempt anyway); an INTENT_RECORDED probe is
+#: still left to its live owner (the ledger does not count INTENT_RECORDED as unresolved).
+PROBE_RECONCILABLE_STATES = {LOST_STATE, MANUAL_STATE}
+KILL_SWITCH_ENV = "NALU_LOST_RESPONSE_AUTO_RECONCILE"
+NO_BILLED_TASK_CREDIT_STATUS = "ASSUMED_CHARGED_NO_BILLED_TASK_FOUND"
+#: rows an auto reconciliation leaves retryable; :func:`auto_retry_open` allows ONE new attempt per transaction
+AUTO_RETRY_STATES = {VERIFIED_ZERO_STATE, AUTO_WRITEOFF_STATE}
+RETRY_ARCHIVE_SUFFIX = ".lost_response_reconciled.1"
+#: the budget-gate blocker paid_run_status treats as a remote wait (the system tick re-runs the stage)
+WAIT_BLOCKER = "HOPSAPI_LOST_RESPONSE_RECONCILING"
 STORES = {"video": "giggle_video_submit_transactions", "image": "giggle_submit_transactions"}
 USAGE_MODELS = {"video": hops.H3_MODEL, "image": "gpt-image-2"}
 GRACE_SECONDS = {"video": int(os.environ.get("HOPSAPI_USAGE_GRACE_VIDEO_SECONDS", "1200")),
@@ -241,7 +276,8 @@ def lost_transactions(tasks_root: Path, kind: str, episode: str | None = None) -
         for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
             payload = _load(path)
             if payload and _is_hopsapi(payload) and payload.get("state") in RECONCILABLE_STATES \
-                    and not payload.get("task_id") and not payload.get("hopsapi_health_probe"):
+                    and not payload.get("task_id") \
+                    and (not payload.get("hopsapi_health_probe") or payload.get("state") in PROBE_RECONCILABLE_STATES):
                 found.append((path, payload))
     return found
 
@@ -355,7 +391,7 @@ def reconcile_kind(episode: str, kind: str, *, tasks_root: Path, now: datetime |
         and (parse_utc(row.get("intent_recorded_at")) or now) >= start - timedelta(seconds=OTHER_LOST_LOOKBACK_SECONDS)]
     adopt = None
     if not unattributed:
-        decision = VERIFIED_ZERO_STATE
+        decision = AUTO_WRITEOFF_STATE  # ruling A: nothing to bind -> written off at the reserved price
     elif (len(group) == 1 and len(unattributed) == 1 and not overlapping_other_lost
           and (parse_utc(unattributed[0].get("created_at")) or start) >= intents[0]):
         decision = BOUND_STATE
@@ -373,9 +409,11 @@ def reconcile_kind(episode: str, kind: str, *, tasks_root: Path, now: datetime |
         "pre_intent_foreign_task_ids": [str(r["request_id"]) for r in pre_intent_foreign],
         "bound_task_id_count": len(bound), "lost_transaction_count": len(group),
         "overlapping_other_lost": overlapping_other_lost, "dry_run": dry_run,
-        "rule": ("rows billed before the earliest lost intent are foreign and ignored; "
-                 "no unattributed billed row -> VERIFIED_ZERO_NO_REMOTE_TASK; exactly one lost POST and one "
-                 "unattributed row billed after its intent -> adopt; otherwise NEEDS_MANUAL_ATTRIBUTION"),
+        "rule": ("rows billed before the earliest lost intent are foreign and ignored; exactly one lost POST and "
+                 "one unattributed row billed after its intent -> adopt (bind + poll, never re-POST); otherwise "
+                 "(no unattributed row, or rows that cannot be paired) -> written off at the reserved price, one "
+                 "new attempt (line owner ruling A / K073)"),
+        "no_billed_task_found": not unattributed,
     }
     results = []
     for (path, row), intent_at in zip(entries, intents):
@@ -418,17 +456,22 @@ def reconcile_kind(episode: str, kind: str, *, tasks_root: Path, now: datetime |
                 except Exception:  # noqa: BLE001 - no charge: the poller records the settled cost
                     pass
             else:
-                planned = current.get("estimated_credits")
-                credits = (float(planned) if isinstance(planned, (int, float)) and not isinstance(planned, bool)
-                           and planned > 0 else WRITEOFF_FALLBACK_CREDITS.get(kind, 15.0))
+                credits = reserved_credits(current, kind)
+                record["written_off_credits"] = credits
+                none_billed = bool(record.get("no_billed_task_found"))
                 current.update({
                     "state": AUTO_WRITEOFF_STATE, "retry_guard": "RETRY_ALLOWED_NEW_ATTEMPT",
-                    "credit_status": "ASSUMED_CHARGED_UNATTRIBUTABLE_SHARED_KEY",
+                    "credit_status": (NO_BILLED_TASK_CREDIT_STATUS if none_billed
+                                      else "ASSUMED_CHARGED_UNATTRIBUTABLE_SHARED_KEY"),
                     "written_off_credits": credits, "written_off_at": record["reconciled_at"],
                     "unattributed_task_ids": record["unattributed_task_ids"],
-                    "operator_note": ("billed HopsAPI rows in the window cannot be told apart from other devices' "
-                                      "tasks on the shared key: assumed charged at the planned price (counted as "
-                                      "spend), a new attempt may POST (line owner 2026-11-11)")})
+                    "written_off_by_order": write_off_authority(record["reconciled_at"]),
+                    "operator_note": (("no billed HopsAPI task can be bound to this lost POST after the grace period"
+                                       if none_billed else
+                                       "billed HopsAPI rows in the window cannot be told apart from other devices' "
+                                       "tasks on the shared key")
+                                      + ": written off at the reserved price (counted as spend), ONE new attempt "
+                                        "may POST (line owner ruling A / K073)")})
 
         written = False if dry_run else _write_transaction(path, row, update)
         record["written"] = written
@@ -436,6 +479,8 @@ def reconcile_kind(episode: str, kind: str, *, tasks_root: Path, now: datetime |
             if not written:
                 record["new_state"] = "SKIPPED_TRANSACTION_CHANGED"
             append_evidence(tasks_root, episode, {**record, "transaction_before": row})
+            if written:
+                log_reconciled(record, kind)
         results.append({k: record.get(k) for k in ("task_key", "transaction", "previous_state", "new_state",
                                                    "adopted_task_id", "written")})
     return {"kind": kind, "status": decision, "lost": len(group), "scope": scope, "row_count": len(rows),
@@ -445,12 +490,53 @@ def reconcile_kind(episode: str, kind: str, *, tasks_root: Path, now: datetime |
             "transactions": results}
 
 
+def auto_enabled(environ: dict[str, str] | None = None) -> bool:
+    """The kill switch: ``NALU_LOST_RESPONSE_AUTO_RECONCILE=0`` (or off/false/no) stops every automatic use."""
+    value = str((os.environ if environ is None else environ).get(KILL_SWITCH_ENV, "1")).strip().lower()
+    return value not in {"0", "off", "false", "no"}
+
+
+def reserved_credits(row: dict[str, Any], kind: str) -> float:
+    """What the lost POST reserved (its planned ``estimated_credits``); the kind's fallback without one."""
+    planned = row.get("estimated_credits")
+    if isinstance(planned, (int, float)) and not isinstance(planned, bool) and planned > 0:
+        return float(planned)
+    return WRITEOFF_FALLBACK_CREDITS.get(kind, 15.0)
+
+
+def write_off_authority(recorded_at: str) -> dict[str, Any]:
+    """The K073 order block tools/write_off_charged_losses.py records, for ruling A applied by the engine."""
+    import write_off_charged_losses as k073  # noqa: PLC0415 - engine tool, no provider call
+    return {**k073.RULING_A_AUTHORITY, "applied_by": "tools/hopsapi_usage.py (automatic)",
+            "recorded_at_utc": recorded_at}
+
+
+def log_reconciled(record: dict[str, Any], kind: str, stream: Any = None) -> str:
+    """One grep-able line per settled transaction: ``LOST_RESPONSE_RECONCILED kind=BOUND|WRITTEN_OFF ...``."""
+    decided = "BOUND" if record.get("decision") == BOUND_STATE else "WRITTEN_OFF"
+    fields = [f"kind={decided}", f"episode={record.get('episode')}", f"store={kind}",
+              f"task_key={record.get('task_key')}", f"attempt={record.get('attempt_id')}"]
+    if decided == "BOUND":
+        fields.append(f"task_id={record.get('adopted_task_id')}")
+    else:
+        fields += [f"credits={record.get('written_off_credits')}",
+                   "reason=" + ("NO_BILLED_TASK_FOUND" if record.get("no_billed_task_found") else "UNATTRIBUTABLE"),
+                   "resubmit=ONE_NEW_ATTEMPT"]
+    line = "LOST_RESPONSE_RECONCILED " + " ".join(fields)
+    print(line, file=stream or sys.stderr, flush=True)
+    return line
+
+
 def reconcile_episode(episode: str, *, kinds: Iterable[str] = ("video", "image"), tasks_root: Path | None = None,
-                      now: datetime | None = None, dry_run: bool = False) -> dict[str, Any]:
+                      now: datetime | None = None, dry_run: bool = False, auto: bool = False) -> dict[str, Any]:
     """Reconcile every lost HopsAPI transaction of the episode.  No lost transaction = no network.
-    A usage read failure changes nothing and is reported (the ledger keeps refusing)."""
+    A usage read failure changes nothing and is reported (the ledger keeps refusing).  ``auto=True`` (the
+    engine's own calls) honours the kill switch."""
     root = tasks_root or tasks_root_default()
     report: dict[str, Any] = {"schema": SCHEMA, "episode": episode, "kinds": {}}
+    if auto and not auto_enabled():
+        report.update(status="AUTO_RECONCILE_DISABLED", unresolved_remaining=bool(pending_lost(episode, root)))
+        return report
     for kind in kinds:
         try:
             report["kinds"][kind] = reconcile_kind(episode, kind, tasks_root=root, now=now, dry_run=dry_run)
@@ -467,6 +553,78 @@ def pending_lost(episode: str, tasks_root: Path | None = None) -> int:
     """Offline: how many HopsAPI transactions of the episode wait for usage reconciliation."""
     root = tasks_root or tasks_root_default()
     return sum(len(lost_transactions(root, kind, episode)) for kind in STORES)
+
+
+def _store_identity(path: Any) -> tuple[str, str, str]:
+    value = Path(str(path))
+    return (value.parent.parent.name, value.parent.name, value.name)
+
+
+def lost_response_wait(episode: str, *, failures: Iterable[Any], unresolved: Iterable[Any],
+                       tasks_root: Path | None = None, now: datetime | None = None) -> dict[str, Any] | None:
+    """Offline: is a budget refusal ONLY lost HopsAPI creates this tool will settle by itself?
+
+    ``failures`` is the ledger's failure list, ``unresolved`` its ``unresolved_transactions`` rows (or paths).
+    A dict (``blocker`` = ``HOPSAPI_LOST_RESPONSE_RECONCILING:...``) means: wait and re-run, the next run
+    reconciles (grace elapsed) or retries the usage read; None means the refusal needs judgement (cap, other
+    unresolved spend, kill switch) and stays a hard stop."""
+    if not auto_enabled():
+        return None
+    failures = [str(f) for f in failures or []]
+    if not failures or any(not f.startswith("UNRECONCILED_TRANSACTIONS") for f in failures):
+        return None
+    root = tasks_root or tasks_root_default()
+    now = now or utc_now()
+    lost = [(kind, path, row) for kind in STORES for path, row in lost_transactions(root, kind, episode)]
+    if not lost:
+        return None
+    lost_ids = {_store_identity(path) for _kind, path, _row in lost}
+    rows = [r.get("transaction") if isinstance(r, dict) else r for r in unresolved or []]
+    if not rows or any(not r or _store_identity(r) not in lost_ids for r in rows):
+        return None
+    eligible = []
+    for kind, _path, row in lost:
+        intent = parse_utc(row.get("intent_recorded_at"))
+        if intent is not None:
+            eligible.append(intent + timedelta(seconds=GRACE_SECONDS[kind]))
+    eligible_at = max(eligible) if eligible else now
+    phase = "PENDING_GRACE" if now < eligible_at else "RECONCILE_DUE"
+    return {"blocker": f"{WAIT_BLOCKER}:{len(lost)}:{phase}:eligible_at={iso(eligible_at)}",
+            "lost": len(lost), "phase": phase, "eligible_at": iso(eligible_at),
+            "task_keys": sorted(str(row.get("task_key")) for _k, _p, row in lost)}
+
+
+def _retry_identity(row: dict[str, Any]) -> list[Any]:
+    history = row.get("usage_reconciliation_history") or []
+    stamp = (row.get("written_off_at") or (row.get("reconciliation") or {}).get("reconciled_at")
+             or (history[-1].get("reconciled_at") if history and isinstance(history[-1], dict) else None)
+             or row.get("ledger_reconciled_at") or "")
+    return [row.get("attempt_id"), str(stamp), row.get("state")]
+
+
+def auto_retry_open(path: Path, row: dict[str, Any]) -> bool:
+    """True when an auto-reconciled row (written off / verified zero) may be followed by its ONE new attempt.
+
+    Called by the submitters (the caller holds the transaction lock) right before a new intent replaces the
+    row.  The row is archived verbatim beside the transaction (``RETRY_ARCHIVE_SUFFIX``, not ``*.json``: no live
+    scan reads it; the budget ledger still counts its write-off).  The archive names the attempt it let through:
+    the same row again (a run that stopped before its intent) is still open; a DIFFERENT auto-reconciled row of
+    the same transaction -- the new attempt lost its response too and was written off -- is refused, so the
+    engine never loops paid resubmits.  An unreadable archive fails closed."""
+    if row.get("state") not in AUTO_RETRY_STATES:
+        return False
+    identity = _retry_identity(row)
+    archive = path.with_name(path.name + RETRY_ARCHIVE_SUFFIX)
+    if archive.is_file():
+        try:
+            kept = json.loads(archive.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        return isinstance(kept, dict) and _retry_identity(kept) == identity
+    temporary = archive.with_name(archive.name + ".part")
+    temporary.write_text(json.dumps(row, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, archive)
+    return True
 
 
 def adopt(transaction: Path, task_id: str, *, tasks_root: Path | None = None,
@@ -565,6 +723,15 @@ def main(argv: list[str] | None = None) -> int:
     rec.add_argument("--kinds", default="video,image")
     rec.add_argument("--dry-run", action="store_true", help="query and decide, write nothing")
     rec.add_argument("--tasks-root", type=Path)
+    rec.add_argument("--auto", action="store_true",
+                     help=f"engine call (paid_stage.sh): honours the kill switch {KILL_SWITCH_ENV}=0")
+    wst = sub.add_parser("wait-state", help="offline: is a budget refusal only lost creates this tool settles? "
+                                            "(exit 0 + JSON with the wait blocker, else exit 1)")
+    wst.add_argument("episode")
+    wst.add_argument("--budget-report", type=Path, required=True,
+                     help="the ledger's --out report of the refused check")
+    wst.add_argument("--tasks-root", type=Path)
+    wst.add_argument("--blocker-only", action="store_true", help="print only the wait blocker (shell use)")
     adp = sub.add_parser("adopt", help="bind one billed task id to a lost / manual-attribution transaction")
     adp.add_argument("transaction", type=Path)
     adp.add_argument("--task-id", required=True)
@@ -581,9 +748,18 @@ def main(argv: list[str] | None = None) -> int:
         unknown = [k for k in kinds if k not in STORES]
         if unknown:
             raise SystemExit(f"unknown kind(s): {unknown}")
-        report = reconcile_episode(episode, kinds=kinds, tasks_root=args.tasks_root, dry_run=args.dry_run)
+        report = reconcile_episode(episode, kinds=kinds, tasks_root=args.tasks_root, dry_run=args.dry_run,
+                                   auto=args.auto)
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 1 if report["unresolved_remaining"] else 0
+    if args.cmd == "wait-state":
+        budget = _load(args.budget_report) or {}
+        stores = budget.get("durable_transaction_stores") or {}
+        wait = lost_response_wait(args.episode, failures=budget.get("failures") or [],
+                                  unresolved=stores.get("unresolved_transactions") or [],
+                                  tasks_root=args.tasks_root)
+        print(wait["blocker"] if wait and args.blocker_only else json.dumps(wait or {"wait": False}, ensure_ascii=False))
+        return 0 if wait else 1
     if args.cmd == "adopt":
         print(json.dumps(adopt(args.transaction, args.task_id, tasks_root=args.tasks_root), ensure_ascii=False,
                          indent=2))

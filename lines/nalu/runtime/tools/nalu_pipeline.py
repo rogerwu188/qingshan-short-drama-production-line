@@ -1307,9 +1307,9 @@ class Ctx:
         Lab E11 S6 (2026-10-31): four create POSTs timed out, the submitter recorded the two that
         reached the intent as RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION, and every re-entry's budget
         check refused (correct: no idempotency key) with no way out.  tools/hopsapi_usage.py lists
-        the billed media rows of the window (GET only): none unattributed -> VERIFIED_ZERO_NO_REMOTE_TASK
-        (0, retry allowed); one lost POST + one unattributed row -> adopted and polled; anything else
-        -> NEEDS_MANUAL_ATTRIBUTION.  In-process (the key never reaches a child argv/env record),
+        the billed media rows of the window (GET only): one lost POST + one unattributed row -> adopted and
+        polled; anything else (nothing billed, or rows that cannot be paired) -> written off at the reserved
+        price with ONE new attempt (ruling A / K073; kill switch NALU_LOST_RESPONSE_AUTO_RECONCILE=0).  In-process (the key never reaches a child argv/env record),
         only on a real paid run with HOPSAPI_API_KEY set, at most once a minute; a failed usage read
         changes nothing, so the ledger keeps failing closed."""
         if getattr(self, "dry", True) or not getattr(self, "paid_enabled", False) \
@@ -1325,12 +1325,44 @@ class Ctx:
         if not hopsapi_usage.pending_lost(self.episode, tasks_root):
             return None
         self._hopsapi_reconciled_at = time.time()
-        report = hopsapi_usage.reconcile_episode(self.episode, tasks_root=tasks_root)
+        report = hopsapi_usage.reconcile_episode(self.episode, tasks_root=tasks_root, auto=True)
         out = self.p.logs / f"{self.run_id}_hopsapi_usage_reconcile_{label}.json"
         out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         summary = {kind: row.get("status") for kind, row in (report.get("kinds") or {}).items()}
         self.say(f"   HopsAPI usage reconciliation of lost creates: {summary} ({out.name})")
         return report
+
+    def lost_response_wait(self, budget: dict[str, Any], *, label: str) -> dict[str, Any] | None:
+        """Was this budget refusal ONLY lost HopsAPI creates the engine settles by itself (ruling A)?
+
+        Fleet devices 1485 E03 S6 and 1101 E20 S5 (2026-11-21): a 502 during a paid create left the
+        transaction RESPONSE_LOST; the next budget check refused (correct) while the grace period ran, the
+        stage stopped as HARD_STOP_BUDGET and the line waited for a human to paste ruling A.  When the refusal
+        is nothing but such transactions (tools/hopsapi_usage.lost_response_wait reads the ledger's own report),
+        the run records it on ``self`` and the stage loop turns the stop into a remote wait
+        (HOPSAPI_LOST_RESPONSE_RECONCILING): the system tick re-runs the stage, whose preflight reconciles once
+        the grace period passed.  Anything else -- the cap, other unresolved spend, the kill switch -- stays a
+        hard stop.  Offline; never fatal."""
+        self._lost_response_wait = None  # the LAST refusal of the stage decides
+        try:
+            report = json.loads((self.p.logs / f"{self.run_id}_budget_{label}.json").read_text(encoding="utf-8"))
+            if str(ENGINE / "tools") not in sys.path:
+                sys.path.insert(0, str(ENGINE / "tools"))
+            import hopsapi_usage  # noqa: PLC0415 - engine tool, offline here
+            stores = report.get("durable_transaction_stores") or {}
+            wait = hopsapi_usage.lost_response_wait(
+                self.episode, failures=report.get("failures") or [],
+                unresolved=stores.get("unresolved_transactions") or [],
+                tasks_root=ENGINE / "workflow" / "tasks")
+        except Exception as exc:  # noqa: BLE001 - the hard stop stands
+            self.say(f"   lost-response wait check skipped: {type(exc).__name__}: {str(exc)[:200]}")
+            return None
+        if wait:
+            self._lost_response_wait = wait
+            self.say(f"   budget refusal is only lost HopsAPI creates ({wait['lost']}, {wait['phase']}, eligible "
+                     f"{wait['eligible_at']}): remote wait, the tick re-runs this stage and the engine reconciles "
+                     "them (ruling A) -- no human needed")
+        return wait
 
     def settle_unbound_audio(self, *, label: str) -> list[dict[str, Any]] | None:
         """Write off this episode's speech requests that never bound a task id, before a budget check.
@@ -1494,6 +1526,9 @@ class Ctx:
         if budget["exit_code"] != 0:
             self.say(f"!! HARD_STOP budget guard refused {name}: "
                      f"{json.dumps(verdict, ensure_ascii=False)}")
+            wait = self.lost_response_wait(budget, label=name)
+            if wait:
+                budget["lost_response_wait"] = wait
             return HARD_STOP, budget
         reservation_id = (verdict.get("reservation_result") or {}).get("reservation_id")
         self.say(f"   budget ok: planned={planned_credits} "
@@ -13598,6 +13633,7 @@ def run_episode(ctx: Ctx) -> int:
         row["attempts"] = int(row.get("attempts") or 0) + 1
         row["started_at"] = now()
         row.pop("reopen_required", None)   # S5 sets it again if the asset is still not locked
+        ctx._lost_response_wait = None
         try:
             result = STAGE_FUNCS[sid](ctx)
         except _media.MediaToolBlocked as exc:
@@ -13606,6 +13642,14 @@ def run_episode(ctx: Ctx) -> int:
         except Exception as exc:  # noqa: BLE001 — a stage crash must not lose state
             result = StageResult("CRASHED", exception=f"{type(exc).__name__}: {exc}")
             result.blockers = [f"STAGE_CRASHED:{type(exc).__name__}:{exc}"]
+        lost_wait = getattr(ctx, "_lost_response_wait", None)
+        if result.status == HARD_STOP and lost_wait:
+            # only lost HopsAPI creates refused the budget: a remote wait the system tick re-runs, not a stop
+            # that waits for a human (Ctx.lost_response_wait; fleet 1485 E03 / 1101 E20, 2026-11-21)
+            result.status = BLOCKED
+            result.blockers = [lost_wait["blocker"]] + [b for b in result.blockers
+                                                       if not str(b).startswith("BUDGET_HARD_STOP")]
+            result.details["lost_response_wait"] = lost_wait
         row.update({
             "status": result.status,
             "finished_at": now(),
