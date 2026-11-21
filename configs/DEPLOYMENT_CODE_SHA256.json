@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2526,
+  "file_count": 2530,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -813,7 +813,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "e25fcd7a93175cf4ed03c01e6e7a56ea7d715a1db710e0ed5a935a1739349434"
+      "sha256": "b36da04a8819ac3f3537969dfd6ef88365b407fe7d07e06fe70eee4ffd84837b"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -984,6 +984,10 @@
       "sha256": "fa73a3d32ddbdb32ba6e7945f6bdba7fc9b2b7729ffe1ee27e7d7e357de4c2b2"
     },
     {
+      "path": "lines/nalu/runtime/tools/voice_gender.py",
+      "sha256": "8b0cf74e8e7b5de82b85f4e444ceaea24f3aaa871af5ddaff416500bee6d053e"
+    },
+    {
       "path": "lines/nalu/runtime/tools/with_line_env.sh",
       "sha256": "9b924ca5c527503431dd31b63f19cbf7ce36562aed8a324659af071087a02963"
     },
@@ -1013,7 +1017,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "eb0b1316d1ff5afbb9f865dade077cb4e5873fcaeb06a6123979d5ea4854f5de"
+      "sha256": "319fd804847940134e661d6e0fd2d8cbbc5a4f2dab8ccf0780d6428d1aba94b4"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -5780,6 +5784,10 @@
       "sha256": "fe155011d5f5d50f2b1ca26259d6fe79f75ae752634d1b842dc3e456b1245ccc"
     },
     {
+      "path": "tools/performance_variety.py",
+      "sha256": "ee4a5c700d08a01ad3faa5212c760b7b1daa00058a426a7fed065907127f7e26"
+    },
+    {
       "path": "tools/pipeline_environment_baseline.py",
       "sha256": "41a25180498852b94a76725137f02993bc54bd824a7f38d42f60b9d7dc83c262"
     },
@@ -8476,6 +8484,10 @@
       "sha256": "233dbe0767c8b5e8059f1d51a3900939cde5df4b6a5b88d0322130ecc378f3f8"
     },
     {
+      "path": "tools/tests/test_nalu_acting_variety_voice_gender.py",
+      "sha256": "af0dd6ab9f52e7f39edd017ab895b332453b0f7a8964032d9e79b277ef3cbf58"
+    },
+    {
       "path": "tools/tests/test_nalu_av_final_review.py",
       "sha256": "7d786b3ca9b60e04559231f79fc33d3b01730d5023690adc819e4c45de9ba0be"
     },
@@ -10050,6 +10062,10 @@
     {
       "path": "tools/voice_reference_sample.py",
       "sha256": "f16b4af6c6d2d31548b6ff9fdf7538cb373ac1c38ce2251de02862d4527aa316"
+    },
+    {
+      "path": "tools/voice_speaker_consistency.py",
+      "sha256": "c96de8f4324e12207d9448f78c17034bfab96448584a048270b308c58c3d44e7"
     },
     {
       "path": "tools/voice_timbre_lock.py",
