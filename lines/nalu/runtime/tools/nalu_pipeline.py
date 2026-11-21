@@ -4011,9 +4011,10 @@ GATE_REGISTRY = ENGINE / "configs/GATE_REGISTRY_v3_20260716.json"
 # human check only after a finished episode, so every per-asset QA is a MACHINE
 # review — deterministic measurers plus a Claude VLM structured review)
 # --------------------------------------------------------------------------- #
-def qa_run(ctx: Ctx, argv: list[Any], *, name: str) -> dict[str, Any]:
+def qa_run(ctx: Ctx, argv: list[Any], *, name: str, extra_env: dict[str, str] | None = None) -> dict[str, Any]:
     """Run one of this pipeline's QA tools.  Always free, never a paid child."""
-    step = ctx.run([VENV, *argv], name=name, paid=False, cwd=ENGINE)
+    step = (ctx.run([VENV, *argv], name=name, paid=False, cwd=ENGINE, extra_env=extra_env) if extra_env
+            else ctx.run([VENV, *argv], name=name, paid=False, cwd=ENGINE))
     return step
 
 
@@ -9503,7 +9504,14 @@ def s6_qa(ctx: Ctx, res: StageResult) -> dict[str, Any]:
 
     run_argv = [POST_GEN_QA, "run", "--episode", ctx.episode, "--review", review_path,
                 "--language", ctx_language(ctx)]
-    run_step = qa_run(ctx, run_argv, name="s6_qa_post_generation_qa_runner")
+    # the runner reads the private inbox from the environment; authority configured only in qingshan.json
+    # never reached it, so every post-gen acceptance silently read the (refused) in-engine default inbox
+    authority = getattr(ctx, "authority", None) or {}
+    auth_env = {env: str(authority.get(key)) for key, env in AUTH_ENV.items()
+                if key in ("orders_path", "latest_order_seq", "line_owner_id")
+                and authority.get(key) and not os.environ.get(env)}
+    run_step = (qa_run(ctx, run_argv, name="s6_qa_post_generation_qa_runner", extra_env=auth_env) if auth_env
+                else qa_run(ctx, run_argv, name="s6_qa_post_generation_qa_runner"))
     res.steps.append(run_step)
     verdict = qa_json(run_step)
     detail.update({
@@ -9522,6 +9530,20 @@ def s6_qa(ctx: Ctx, res: StageResult) -> dict[str, Any]:
                      else [f"POST_GENERATION_QA_{verdict.get('status')}"]),
     })
     summary = read_json(Path(str(verdict.get("out") or "")), {}) if verdict.get("out") else {}
+    if isinstance(summary, dict) and summary.get("postgen_orders_needed") and detail["status"] != PASS:
+        # quality never blocks (§5): name the exact order per still-rejected unit, why no recorded order
+        # matched, and why no redo runs -- instead of a bare PARTIAL_N_OF_M the agent can only re-run into
+        needed = summary["postgen_orders_needed"]
+        detail["postgen_orders_needed"] = needed
+        detail["record_hint"] = summary.get("postgen_record_hint")
+        detail["postgen_acceptance_lookup"] = {
+            "inbox": (summary.get("roger_gate_acceptance") or {}).get("inbox"),
+            "orders_read": (summary.get("roger_gate_acceptance") or {}).get("orders_read")}
+        detail["blockers"] += [f"{row['unit_id']}:{row.get('reason')}:REROLL_{row.get('reroll', '').split(':')[0]}"
+                               for row in needed][:8]
+        detail["next"] = ("record ONE default-acceptance order with details.post_generation_qa.record_hint "
+                          "(gate POST-GENERATION-QA-ADMISSION, every --detector and --media listed), then rerun S6; "
+                          "a unit whose reroll is AVAILABLE_ONCE may instead get one controlled redo")
     if isinstance(summary, dict) and summary.get("units"):
         detail["knowledge_events"] = kb_events(
             "record_review_round", episode=ctx.episode, stage="S6", kind="POSTGEN",
