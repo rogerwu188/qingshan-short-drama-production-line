@@ -6415,16 +6415,20 @@ def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
             continue  # this exact take was already measured and decided
         det = _br.detect(clip)
         _s6_burn_note_fail_open(ctx, uid, det)
+        # a take that shows the unit's identity sheet as its picture is never CLEAN (JA-01 E04 VU-007 2026-11-21:
+        # "clean" only because H3 drew the reference sheet instead of text) -- retried like burned text
+        det = _br.combine_sheet_leak(det, s6_sheet_leak_check(ctx, uid, clip))
         attempts = list(rec.get("attempts") or [])
         check = {k: det.get(k) for k in ("status", "frames_sampled", "burned_frames", "longest_run", "elapsed_ms",
-                                         "error") if det.get(k) is not None}
+                                         "error", _br.SHEET_LEAK_FLAG, "sheet_leak") if det.get(k) is not None}
         check.update(at=now(), retry=len(attempts), hits=(det.get("hits") or [])[:6])
         if det.get("status") != "BURNED" and not attempts:
             continue  # clean first take: nothing to record
         rec.setdefault("checks", {})[clip_sha] = check
         takes = list(rec.get("takes") or [])
         takes.append({"sha256": clip_sha, "retry": len(attempts), "burned_frames": int(det.get("burned_frames") or 0),
-                      "status": det.get("status"), "path": str(clip)})
+                      "status": det.get("status"), "path": str(clip),
+                      **({_br.SHEET_LEAK_FLAG: True} if det.get(_br.SHEET_LEAK_FLAG) else {})})
         decision: dict[str, Any]
         if det.get("status") == "BURNED" and retry_max > 0 and len(attempts) < retry_max:
             seconds = next((float(t.get("duration_seconds") or 0) for t in
@@ -6449,8 +6453,12 @@ def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
         frames = f"{det.get('burned_frames')}/{det.get('frames_sampled')}"
         if det.get("status") == "BURNED":
             ctx.say(f"S6_BURN_DETECTED unit={uid} frames={frames} retry={len(attempts)}/{retry_max} "
-                    f"elapsed={det.get('elapsed_ms')}ms -> {decision['action']} ({decision['reason']})")
+                    + ("reference_sheet_leak=1 " if det.get(_br.SHEET_LEAK_FLAG) else "")
+                    + f"elapsed={det.get('elapsed_ms')}ms -> {decision['action']} ({decision['reason']})")
         row = {"unit_id": uid, "clip_sha256": clip_sha, "detection": check, **decision}
+        if det.get(_br.SHEET_LEAK_FLAG):  # global MODEL_CONSTRAINT lesson (best-effort, never into the stage)
+            row["kb"] = kb_events("record_s6_reference_sheet_leak", episode=ctx.episode, unit_id=uid,
+                                  detection=det.get("sheet_leak") or {}, clip_sha256=clip_sha)
         if decision["action"] == "RETRY":
             n = int(decision["retry"])
             park = ctx.p.video_media / f"_superseded_{ctx.run_id}_burn_retry{n}"
@@ -6459,6 +6467,8 @@ def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
             takes[-1]["path"] = str(park / clip.name)
             attempts.append({"retry": n, "failed_clip_sha256": clip_sha, "burned_frames": det.get("burned_frames"),
                              "parked_clip": str(park / clip.name), "cost": decision.get("cost"),
+                             # the retry after a sheet leak sends the sheets as front-view crops + the sheet sentence
+                             **({_br.SHEET_LEAK_FLAG: True} if det.get(_br.SHEET_LEAK_FLAG) else {}),
                              "run_id": ctx.run_id, "recorded_at": now(), "recorded_by": TOOL_ID})
             rec.update(status="RETRY_PENDING", attempts=attempts)
             row["parked_clip"] = str(park / clip.name)
@@ -6480,13 +6490,20 @@ def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
                 for take in takes:
                     if take.get("sha256") == best["sha256"]:
                         take["path"] = str(clip)
+            # where the kept take's text sits: in our subtitle band it would stack under our caption (JA-01 E04
+            # VU-004) -- S7 moves that caption above it and the final fix round gets the unit (2026-11-21)
+            band = _br.residual_text_band(((rec.get("checks") or {}).get(best["sha256"]) or {}).get("hits"))
             rec.update(status="UNRESOLVED", unresolved_reason=decision["reason"], kept_take_sha256=best["sha256"],
                        kept_take_burned_frames=best.get("burned_frames"), kept_take_retry=best.get("retry"),
+                       kept_take_sheet_leak=bool(best.get(_br.SHEET_LEAK_FLAG)), residual_text_band=band,
                        **{_br.UNRESOLVED_FLAG: True})
             rec.setdefault("checks", {})[best["sha256"]] = {**(rec["checks"].get(best["sha256"]) or {}),
                                                             "kept_as_best": True}
             ctx.say(f"S6_BURN_UNRESOLVED unit={uid} retry={len(attempts)}/{retry_max} reason={decision['reason']} "
-                    f"kept_take={str(best['sha256'])[:12]} burned_frames={best.get('burned_frames')}")
+                    f"kept_take={str(best['sha256'])[:12]} burned_frames={best.get('burned_frames')}"
+                    + (" reference_sheet_leak=1" if best.get(_br.SHEET_LEAK_FLAG) else "")
+                    + (f" subtitle_band_text={band['y0']}-{band['y1']} (S7 moves our caption above it; final fix "
+                       "round)" if band else ""))
             row["kept_take_sha256"] = best["sha256"]
         rec["takes"] = takes
         rec["updated_at"] = now()
@@ -6495,6 +6512,44 @@ def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
         write_json(state_path, state)
         out.append(row)
     return out
+
+
+def s6_sheet_leak_check(ctx: Ctx, uid: str, clip: Path) -> dict[str, Any] | None:
+    """Reference-sheet leak check of a landed take (tools/h3_reference_sheet_guard.detect_leak, free, advisory):
+    does the picture show one of the multi-view identity sheets the unit's compiled task sent?  None when the task
+    sent no sheet (most units; nothing measured) or on any error."""
+    try:
+        import h3_reference_sheet_guard as _sg  # noqa: PLC0415 - engine tools/, like h3_burn_retry
+        task = next((t for t in (read_json(ctx.p.video_transaction, {}) or {}).get("tasks") or []
+                     if str(t.get("unit_id") or t.get("task_key")) == uid), None)
+        sheets = [p if p.is_absolute() else ENGINE / p for p in _sg.unit_sheets(task)]
+        if not sheets:
+            return None
+        return _sg.detect_leak(clip, sheets)
+    except Exception as exc:  # noqa: BLE001 - advisory: never blocks
+        return {"status": "FAIL_OPEN", "error": f"{type(exc).__name__}: {str(exc)[:160]}"}
+
+
+def s7_residual_burn_bands(ctx: Ctx) -> Path | None:
+    """``<EP>_S6_RESIDUAL_BURN_BANDS.json`` {units: {uid: {y0, y1}}} of units whose kept S6 take still carries burned
+    text in our subtitle band (``s6_burn_retry`` UNRESOLVED + residual_text_band), for build_burnin_subtitles
+    --avoid-bands: that unit's captions are drawn above the burned line instead of stacking on it (JA-01 E04 VU-004,
+    2026-11-21).  None when there is none."""
+    import h3_burn_retry as _br
+    units = {}
+    for uid, rec in ((read_json(_wave_state_path(ctx), {}) or {}).get(_br.STATE_KEY) or {}).items():
+        band = rec.get("residual_text_band") if isinstance(rec, dict) else None
+        if isinstance(band, dict) and rec.get(_br.UNRESOLVED_FLAG) and band.get("y0") is not None:
+            clip = ctx.p.video_media / f"{uid}.mp4"
+            if rec.get("kept_take_sha256") and clip.is_file() and sha256_file(clip) != rec["kept_take_sha256"]:
+                continue  # the unit was redone since: the band belongs to a superseded take
+            units[str(uid)] = {"y0": float(band["y0"]), "y1": float(band["y1"])}
+    if not units:
+        return None
+    path = ctx.p.assembly / f"{ctx.episode}_S6_RESIDUAL_BURN_BANDS.json"
+    write_json(path, {"schema": "nalu.s6_residual_burn_bands.v1", "episode": ctx.episode, "units": units,
+                      "recorded_at": now(), "recorded_by": TOOL_ID})
+    return path
 
 
 def _s6_burn_note_fail_open(ctx: Ctx, uid: str, det: dict[str, Any]) -> None:
@@ -12505,12 +12560,19 @@ def _stage_s7_pass(ctx: Ctx) -> StageResult:
             res.details.setdefault("warnings", []).append(
                 f"H3_BURNED_TEXT_FLAGGED_FOR_REVIEW:{len(flagged)} burned-text box(es) left unblurred "
                 "(over the area cap or on a face); see " + str(cover_json))
+    # an UNRESOLVED S6 burn in our subtitle band: that unit's captions go above the burned line (free, 2026-11-21)
+    try:
+        avoid_bands = s7_residual_burn_bands(ctx)
+    except Exception as exc:  # noqa: BLE001 - advisory placement: captions stay where they were
+        avoid_bands = None
+        res.details.setdefault("warnings", []).append(f"S6_RESIDUAL_BURN_BANDS_UNREADABLE:{type(exc).__name__}")
+    avoid_argv: list[Any] = ["--avoid-bands", avoid_bands] if avoid_bands is not None else []
     sub_step = ctx.run([VENV, RT_TOOLS / "build_burnin_subtitles.py", "--episode", ctx.episode,
                         "--project", p.agentcut_project, "--asr", asr_json, "--contract", p.contract,
                         "--grouping", p.grouping_plan, "--source", captioned_source,
                         "--out-ass", subtitles_ass_path(ctx), "--out-video", subbed,
                         "--out-report", p.assembly / f"{ctx.episode}_BURNIN_SUBTITLES.json",
-                        "--language", ctx_language(ctx), *vo_argv, *split_argv, *cover_argv,
+                        "--language", ctx_language(ctx), *vo_argv, *split_argv, *cover_argv, *avoid_argv,
                         *(["--unit-recut", recut_report] if recut_report is not None else [])],
                        name="s7_burnin_subtitles")
     steps.append(sub_step)

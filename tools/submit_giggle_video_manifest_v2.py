@@ -624,6 +624,9 @@ def provider_prompt_unit(task: dict[str, Any]) -> dict[str, Any]:
     # S6 burned-text retry n (h3_burn_retry.py, owner 2026-11-19): absent on every other task
     if task.get("h3_burn_retry") or machine.get("h3_burn_retry"):
         prompt_unit["h3_burn_retry"] = int(task.get("h3_burn_retry") or machine.get("h3_burn_retry"))
+    # S6 retry after a reference-sheet leak (h3_reference_sheet_guard, 2026-11-21): the sheet retry sentence
+    if task.get("h3_reference_sheet_crop") or machine.get("h3_reference_sheet_crop"):
+        prompt_unit["h3_reference_sheet_crop"] = True
     # final fix round redo (final_fix_round.py, owner 2026-11-20): {kind(s), sentence}; absent on every other task
     if isinstance(task.get("h3_final_fix") or machine.get("h3_final_fix"), dict):
         prompt_unit["h3_final_fix"] = dict(task.get("h3_final_fix") or machine.get("h3_final_fix"))
@@ -1638,6 +1641,30 @@ def _burn_retry_perturb(data: bytes, index: int) -> tuple[bytes, dict[str, Any]]
     return perturb_start_frame(data, index)
 
 
+def _sheet_crop_requested(task: dict[str, Any]) -> bool:
+    try:
+        from tools.h3_reference_sheet_guard import crop_requested
+    except ModuleNotFoundError:
+        from h3_reference_sheet_guard import crop_requested
+    return crop_requested(task)
+
+
+def _is_sheet(value: Any) -> bool:
+    try:
+        from tools.h3_reference_sheet_guard import is_sheet_path
+    except ModuleNotFoundError:
+        from h3_reference_sheet_guard import is_sheet_path
+    return is_sheet_path(value)
+
+
+def _sheet_front_view(data: bytes) -> tuple[bytes, dict[str, Any]]:
+    try:
+        from tools.h3_reference_sheet_guard import crop_front_view
+    except ModuleNotFoundError:
+        from h3_reference_sheet_guard import crop_front_view
+    return crop_front_view(data)
+
+
 def _hopsapi_reference_uploads(task: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     """Upload every reference image and audio for one task (free, before the intent record).
 
@@ -1674,6 +1701,12 @@ def _hopsapi_reference_uploads(task: dict[str, Any]) -> tuple[list[dict[str, Any
             data, perturbation = (_burn_retry_perturb_strong(data, perturb_index, fix_retry) if fix_retry
                                   else _burn_retry_perturb(data, perturb_index))
             note = {**note, "burn_retry_perturbation": perturbation}
+        if index > 1 and _sheet_crop_requested(task) and _is_sheet(value):
+            # a retry / redo after the take showed the identity sheet as its picture (JA-01 E04 VU-007, 2026-11-21):
+            # the sheet is sent as its front-view crop (face close-up panel); the compiled task, prompt and source
+            # reference shas are unchanged, the note records it (sent_reference_sha256 = the bytes H3 received)
+            data, crop = _sheet_front_view(data)
+            note = {**note, "reference_sheet_crop": crop}
         mime = hopsapi.sniff_mime(data, str(value))
         notes.append(note)
         images.append(hopsapi.upload_bytes(data, file_name=f"{key}-image{index}.{hopsapi.EXT_BY_MIME[mime]}",

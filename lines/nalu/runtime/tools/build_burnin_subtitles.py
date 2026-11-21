@@ -33,6 +33,11 @@ Without the flag every caption is built exactly as before.
 are captioned at the placement's start/end (the mixed-in S4 wav), never ASR-assigned; every other
 caption is built exactly as before.
 
+--avoid-bands (2026-11-21, JA-01 E04 VU-004): <EP>_S6_RESIDUAL_BURN_BANDS.json {units: {uid: {y0, y1}}} -- units whose
+kept S6 take still carries H3-burned text in our subtitle band (S6 retries UNRESOLVED).  A caption of such a unit that
+would overlap the burned line is drawn just ABOVE it (never above mid-frame; else below it), so the two never stack
+into a doubled line; the report row records ``moved_clear_of_burned_text``.  Every other caption is unchanged.
+
   build --episode EP --project <agentcut project> --asr <per-unit asr json> --contract <generation contract>
         --grouping <grouping plan> --source <picture_native.mp4> --out-ass <.ass> --out-video <subbed.mp4>
         [--language zh|en|ja|ko] [--voice-over-placement <EP>_voice_over_placement.json]
@@ -419,6 +424,44 @@ def caption_y(default_y: int, cap_h: int, cap_x: tuple[int, int], start: float, 
     return default_y
 
 
+def avoid_rects(bands: dict, clips: list[dict], width: int, height: int
+                ) -> list[tuple[float, float, tuple[int, int, int, int]]]:
+    """(start, end, (x, y, w, h)) on the timeline for each unit's residual burned-text band (fractions of the frame),
+    over the unit's whole on-screen window; the band spans the centred caption width."""
+    out = []
+    for clip in clips:
+        uid = str((clip.get("metadata") or {}).get("source_id") or "")
+        band = (bands or {}).get(uid)
+        if not isinstance(band, dict):
+            continue
+        y0 = max(0, int(float(band["y0"]) * height)); y1 = min(height, math.ceil(float(band["y1"]) * height))
+        if y1 - y0 >= 2:
+            start = float(clip["start"])
+            out.append((start, start + float(clip["duration"]), (20, y0, width - 40, y1 - y0)))
+    return out
+
+
+def caption_y_above(default_y: int, cap_h: int, start: float, end: float,
+                    rects: list[tuple[float, float, tuple[int, int, int, int]]], height: int, gap: int = 8,
+                    bottom_margin: int = 24, top_limit: float = 0.5) -> int:
+    """Where to draw one caption so it never stacks on a residual burned line (JA-01 E04 VU-004 2026-11-21): unchanged
+    when no band on screen with it overlaps; else just ABOVE the band (not above ``top_limit``), else just below it
+    (inside the bottom margin), else unchanged."""
+    hit = [r for s0, e0, r in rects if s0 < end and e0 > start
+           and not (r[1] + r[3] <= default_y or r[1] >= default_y + cap_h)]
+    if not hit:
+        return default_y
+    top = min(r[1] for r in hit)
+    bottom = max(r[1] + r[3] for r in hit)
+    above = top - gap - cap_h
+    if above >= int(top_limit * height):
+        return above
+    below = bottom + gap
+    if below + cap_h <= height - bottom_margin:
+        return below
+    return default_y
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--episode", required=True); ap.add_argument("--project", required=True, type=Path)
@@ -435,6 +478,9 @@ def main() -> int:
                     help="H3_BURNED_TEXT_COVER_V1: blur the burned text boxes of --cover-intervals; captions move clear of them")
     ap.add_argument("--cover-intervals", type=Path,
                     help="burned_text_cover.py scan output: per burned-text run, the tight boxes to blur")
+    ap.add_argument("--avoid-bands", type=Path,
+                    help="<EP>_S6_RESIDUAL_BURN_BANDS.json: captions of these units move clear of the residual "
+                         "H3-burned line (above it) instead of stacking on it")
     ap.add_argument("--unit-recut", type=Path,
                     help="<EP>_UNIT_RECUT.json (Roger 2026-10-30 E12 item 3): per re-cut unit, contract lines whose audio "
                          "the re-cut dropped are not burned in, truncated lines take the override text; the unit's ASR "
@@ -585,6 +631,10 @@ def main() -> int:
             chain.append(f"{src}split=2[base{j}][cut{j}];[cut{j}]crop={bw}:{bh}:{bx}:{by},"
                          f"gblur=sigma={blur_sigma(bh, cover_cfg)}:steps=2[blur{j}];[base{j}][blur{j}]overlay=x={bx}:y={by}:"
                          f"enable='between(t,{b_s:.3f},{b_e:.3f})'[b{j + 1}]")
+    avoid: list[tuple[float, float, tuple[int, int, int, int]]] = []
+    if a.avoid_bands and a.avoid_bands.is_file():
+        avoid = avoid_rects((json.loads(a.avoid_bands.read_text(encoding="utf-8")) or {}).get("units") or {},
+                            clips, W, H)
     first_src = f"[b{len(chain)}]" if chain else "[0:v]"
     for i, (s_t, e_t, ln) in enumerate(events):
         rows = wrap_text(ln["text"]).split("\\N")
@@ -609,6 +659,11 @@ def main() -> int:
         widest_px = int(max(d.textlength(row, font=cap_font) for row in rows)) if rows else 0
         y = caption_y(H - MARGIN_BOTTOM - img.height, img.height, ((W - widest_px) // 2, (W + widest_px) // 2),
                       s_t, e_t, blurs, H, gap=gap_px)
+        if avoid:
+            moved = caption_y_above(y, img.height, s_t, e_t, avoid, H, gap=gap_px)
+            if moved != y and i < len(report):
+                report[i]["moved_clear_of_burned_text"] = {"from_y": y, "to_y": moved}
+            y = moved
         if i < len(report):
             report[i]["y0"], report[i]["y1"] = round((y + 8) / H, 4), round((y + img.height - 8) / H, 4)
         src = first_src if i == 0 else f"[v{i}]"
@@ -624,6 +679,8 @@ def main() -> int:
            "text_source": "generation contract dialogue_units (verbatim)", "timing_source": str(a.asr),
            "unit_recut": str(a.unit_recut) if a.unit_recut else None, "unit_recut_dropped_lines": recut_dropped,
            "unmapped_dialogue_lines": unmapped_lines,
+           **({"avoid_bands": str(a.avoid_bands), "avoid_rects": [{"start": s0, "end": e0, "y": r[1], "h": r[3]}
+                                                                 for s0, e0, r in avoid]} if avoid else {}),
            "font": font_name, "font_file": font_file, "font_source": font_source,
            **({"cover_intervals": cover["intervals"], "cover_style": cover["style"], "cover_boxes": cover["boxes"],
                "cover_flagged_for_review": cover["flagged_for_review"],

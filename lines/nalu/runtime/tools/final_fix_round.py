@@ -46,6 +46,21 @@ v2 (2026-11-20, first real run E18 on device 1101):
   own-voice sentence;
 * a clipped tail that survives the wider guard gets its measured cause (:func:`tail_cut_cause`).
 
+v3 (2026-11-21, JA-01 anime E04 on device 1485: both reviews flagged a character model sheet drawn as the picture (P0)
+and two stacked identical subtitle lines (H3 burned the line under ours), yet the round redid six other units):
+
+* findings are classified on their CONTENT (note + evidence), not only the class label: a picture showing a character
+  reference / setting sheet, turnaround, three-view, 设定图 / 三视图 / 立绘 / model sheet or duplicated copies of a
+  character is REFERENCE_SHEET_LEAK (paid redo; the submitter sends each identity sheet as its front-view crop,
+  tools/h3_reference_sheet_guard.py) whatever the class; two stacked identical / near-identical subtitle lines,
+  a duplicated / ghost caption, 字幕重复叠加 are BURNED_TEXT (the model's line under ours) even under
+  QA-SUBTITLE-WRAP (:func:`sheet_leak_text`, :func:`stacked_subtitle_text`);
+* paid redos are ranked by SEVERITY first (P0 > P1 > P2 > P3; a finding without one counts as P1), then by the
+  kind order, then by the defect's on-screen seconds (:func:`plan_paid`): a P0 is redone before anything else that
+  competes for the budget;
+* S6 burned-text / sheet-leak retries that stayed UNRESOLVED (``s6_burn_unresolved`` of the must-check list) join the
+  round as findings of their unit (source S6_UNRESOLVED; never a trigger on their own).
+
 Pure functions (no I/O except :func:`write_record`); nalu_pipeline wires them into S7 / S6 / S8.
 """
 from __future__ import annotations
@@ -72,13 +87,14 @@ PAID = "PAID_S6_REDO"
 RECORD = "RECORD_ONLY"
 
 FREE_KINDS = ("STATIC_SHOT_SPLIT", "AUDIO_SMOOTHING", "BGM_FADES", "SUBTITLE_WRAP", "DIALOGUE_TAIL_GUARD")
-PAID_KINDS = ("BURNED_TEXT", "COSTUME_IDENTITY", "FACE_DRIFT", "SKIN_SHEEN", "HAND_ARTIFACT", "VOICE_GENDER_MISMATCH")
+PAID_KINDS = ("BURNED_TEXT", "REFERENCE_SHEET_LEAK", "COSTUME_IDENTITY", "FACE_DRIFT", "SKIN_SHEEN", "HAND_ARTIFACT", "VOICE_GENDER_MISMATCH")
 #: owner order when the round's budget does not cover every paid redo
 PAID_PRIORITY = {kind: rank for rank, kind in enumerate(PAID_KINDS)}
 
 #: QA-* / Gemini item -> fix kind (LOOK-DRIFT and OTHER are classified on their text)
 ITEM_KIND = {
     "QA-BURNED-TEXT": "BURNED_TEXT",
+    "QA-REFERENCE-SHEET-LEAK": "REFERENCE_SHEET_LEAK",
     "QA-DIALOGUE-TAIL-CUT": "DIALOGUE_TAIL_GUARD",
     "QA-SUBTITLE-WRAP": "SUBTITLE_WRAP",
     "QA-BGM-DISCONTINUOUS": "BGM_FADES",
@@ -179,6 +195,9 @@ GEMINI_MATCH_S = 1.5
 SENTENCES = {
     "BURNED_TEXT": ("Nothing is written anywhere in the picture: no caption, subtitle, sign lettering or text of any "
                     "kind appears in any frame, and the spoken words are only heard."),
+    "REFERENCE_SHEET_LEAK": ("The identity reference images only show who each person is: the picture is one "
+                             "ordinary moment of the scene, with each person appearing once, and never shows a "
+                             "character sheet, turnaround views, a face close-up inset or extra copies of anyone."),
     "FACE_DRIFT": ("Each person keeps exactly the face of their identity reference image from the first frame to the "
                    "last: the same face shape, eyes, nose, hairline and age, with no drift toward another face."),
     "COSTUME_IDENTITY": ("Each person wears exactly the costume colours and garments of their identity reference "
@@ -276,6 +295,58 @@ _SHEEN_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
     r"skin (?:sheen|shine|looks (?:oily|greasy|wet|plastic|waxy))", r"(?:wet|damp)[- ](?:looking )?hair",
     r"油(?:光|亮|腻)", r"(?:皮肤|脸上|额头)(?:发亮|反光|油)", r"满脸(?:油|汗)", r"汗津津", r"(?:头发|发丝)(?:湿|潮)",
 ))
+#: a character reference / model sheet drawn AS the picture (JA-01 E04 VU-007 2026-11-21: H3 copied the multi-view
+#: identity sheet -- bust, big face close-up, front / side / back full bodies -- over the background; reviewed as
+#: CRAFT-SHOT-GRAMMAR "对白中突兀切入角色设定三视图静态立绘" and "重复人物叠影和设定卡式静态构图")
+_SHEET_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
+    r"(?:character|reference|model|design|setting|concept|turnaround)[- ]?(?:sheet|board)", r"setting card",
+    r"turn-?around", r"three[- ]view", r"multi[- ]?view", r"(?:front|side|back)[ ,/]+(?:and |/ )?(?:side|back)[ ,/]+"
+    r"(?:and |/ )?(?:back|front)\s+(?:view|full[- ]body)", r"(?:orthographic|reference) views?",
+    r"(?:duplicat|repeat|multiple|several|extra|two|three|four)\w*\s+(?:copies|copy|instances?|clones?)\s+of\s+(?:the\s+)?"
+    r"(?:same\s+)?(?:character|person|actor|actress|him|her)",
+    r"(?:same|one) (?:character|person) (?:appears|shown|drawn) (?:twice|several times|multiple times|three times)",
+    r"close-?up inset", r"(?:face|portrait) inset",
+    r"设定(?:图|卡|稿|画|表)", r"三视图", r"多视图", r"转面图", r"立绘", r"人设(?:图|卡)", r"角色卡", r"定妆照",
+    r"(?:重复|多个|两个|几个)(?:的)?(?:同一)?(?:个)?(?:人物|角色|人)(?:叠影|重影|分身|副本)", r"人物(?:叠影|分身)",
+    r"同一(?:个)?(?:人物|角色|人)(?:出现|画了)?(?:两次|多次|三次)",
+))
+#: two stacked identical / near-identical subtitle lines = the model's burned line under our caption (JA-01 E04 VU-004:
+#: Gemini QA-SUBTITLE-WRAP "字幕行重复叠加显示", reviewer "同一句字幕在底部重复叠加")
+_STACKED_SUBTITLE_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
+    r"(?:stacked|doubled|duplicated?|repeated|ghost(?:ed)?|double)\s+(?:subtitle|caption)s?",
+    r"(?:subtitle|caption)s?\s+(?:line\s+)?(?:is |are )?(?:stacked|doubled|duplicated|repeated|shown twice|appears? twice)",
+    r"two\s+(?:identical|near[- ]identical|matching|same)\s+(?:subtitle\s+|caption\s+)?lines",
+    r"same\s+(?:subtitle|caption|line)\s+(?:appears|shown|displayed)\s+twice",
+    r"字幕(?:行)?[^。；;]{0,6}(?:重复|叠加|重叠|叠在一起|出现两次|两遍|双行)", r"(?:重复|双重|两行相同|两行一样)(?:的)?字幕",
+    r"同一(?:句|行|条)(?:台词|字幕)[^。；;]{0,10}(?:重复|叠|两次|两遍)", r"字幕重影", r"重复叠加",
+    r"两行(?:几乎)?(?:相同|一样|一模一样)",
+))
+
+
+#: "differs from the design sheet" compares a character WITH its card -- not a sheet in the picture ...
+_SHEET_COMPARE = re.compile(r"不符|不一致|不像|不对|偏离|对照|对比|相比|跟.{0,8}不|和.{0,8}不(?:同|一样)|与.{0,8}不(?:同|一样)|"
+                            r"\bmatch|differ|mismatch|deviat|compar|consisten|on-model|off-model", re.IGNORECASE)
+#: ... unless the wording also says the sheet is what is shown
+_SHEET_SHOWN = re.compile(r"切入|插入|出现|画面(?:是|变成|里是|中是|成了)|式|静态|叠影|分身|\bcopied|\bcuts? to|\binsert|"
+                          r"appears?\b|\bshown\b|drawn as|as the (?:picture|frame|shot)|in the (?:picture|frame|shot)|"
+                          r"\bstatic\b|\bagain\b", re.IGNORECASE)
+
+
+def sheet_leak_text(text: str) -> bool:
+    """The wording describes a character reference / model sheet (or duplicated copies of a character) IN the
+    picture.  A comparison with the character's card ("hair differs from the design sheet") is not one, unless the
+    wording also says the sheet is what is shown."""
+    text = str(text or "")
+    if not _matches(_SHEET_PATTERNS, text):
+        return False
+    return not _SHEET_COMPARE.search(text) or bool(_SHEET_SHOWN.search(text))
+
+
+def stacked_subtitle_text(text: str) -> bool:
+    """The wording describes two stacked identical / near-identical subtitle lines (model-burned line under ours)."""
+    return _matches(_STACKED_SUBTITLE_PATTERNS, str(text or ""))
+
+
 #: speaker / voice gender mismatch (E18 2026-11-20 P1: "a woman on screen is given a low male voice line")
 _VOICE_GENDER_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
     r"(?:woman|girl|female|lady|she)\b.{0,40}\b(?:male|man's|men's|masculine|deep|low) voice",
@@ -298,6 +369,10 @@ def strong_kind(text: str) -> str | None:
     describes model-burned text is never record-only."""
     text = str(text or "")
     low = text.lower()
+    if sheet_leak_text(text):
+        return "REFERENCE_SHEET_LEAK"
+    if stacked_subtitle_text(text):
+        return "BURNED_TEXT"
     if _matches(_BURN_PATTERNS, text) or any(w in low for w in _BURN_STRONG_WORDS):
         return "BURNED_TEXT"
     if _matches(_VOICE_GENDER_PATTERNS, text):
@@ -315,6 +390,10 @@ def classify(item: str | None, text: str = "") -> str:
     gender, face drift / identity swap or skin sheen."""
     item = str(item or "").upper()
     strong = strong_kind(text)
+    if strong == "REFERENCE_SHEET_LEAK":
+        return strong  # the picture IS the identity sheet: whatever the class label says (E04 VU-007)
+    if strong == "BURNED_TEXT" and stacked_subtitle_text(text):
+        return strong  # two stacked identical lines = the model's line under ours, even under QA-SUBTITLE-WRAP
     if strong == "BURNED_TEXT" and (item not in _SUBTITLE_ITEMS or _MODEL_MARK.search(str(text or ""))):
         return "BURNED_TEXT"
     if strong == "BURNED_TEXT":
@@ -390,8 +469,12 @@ def collect_findings(report: dict[str, Any] | None, checklist: dict[str, Any] | 
         if span and any(item == g.get("item") and w and w[0] - GEMINI_MATCH_S <= span[1]
                         and span[0] <= w[1] + GEMINI_MATCH_S for item, w in reviewer):
             continue
+        note = str(g.get("note") or "")
+        evidence = str(g.get("evidence") or "")
         out.append({"source": "GEMINI_CONFIRMED", "item": str(g.get("item") or "OTHER"),
-                    "text": str(g.get("note") or ""), "severity": g.get("severity"),
+                    # the evidence is classified with the note (E04: "two identical lines" under QA-SUBTITLE-WRAP)
+                    "text": note + (f" | {evidence}" if evidence and evidence not in note else ""),
+                    "severity": g.get("severity"),
                     **({"window": [round(span[0], 3), round(span[1], 3)]} if span else {}), **_kb_scope(g),
                     **({"scope_hint": g["scope_hint"]} if g.get("scope_hint") in ("global", "language") else {}),
                     **({"pass": g["pass"]} if g.get("pass") else {})})
@@ -405,6 +488,30 @@ def collect_findings(report: dict[str, Any] | None, checklist: dict[str, Any] | 
     if "identity_color_mismatch" in (report.get("hard_fail") or []):
         out.append({"source": "REVIEW_HARD_FAIL", "item": None, "text": "identity colour mismatch (hard fail)",
                     "kind_hint": "COSTUME_IDENTITY"})
+    out.extend(s6_unresolved_findings(checklist.get("s6_burn_unresolved")))
+    return out
+
+
+S6_SOURCE = "S6_UNRESOLVED"
+
+
+def s6_unresolved_findings(rows: Any) -> list[dict[str, Any]]:
+    """S6 retries that did not clear the unit (``s6_burn_unresolved`` of the must-check list, from the S6 wave state):
+    the kept take still shows the identity sheet (REFERENCE_SHEET_LEAK, P0) or model-burned text -- in our subtitle
+    band P1 (it stacks under our caption, E04 VU-004), elsewhere P2.  Findings of their unit, never a trigger alone."""
+    out = []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict) or not row.get("unit_id"):
+            continue
+        sheet = bool(row.get("sheet_leak"))
+        in_band = bool(row.get("residual_in_subtitle_band"))
+        out.append({"source": S6_SOURCE, "item": "QA-REFERENCE-SHEET-LEAK" if sheet else "QA-BURNED-TEXT",
+                    "unit_id": str(row["unit_id"]), "severity": "P0" if sheet else "P1" if in_band else "P2",
+                    "kind_hint": "REFERENCE_SHEET_LEAK" if sheet else "BURNED_TEXT",
+                    "text": ("S6: the kept take still shows the identity reference sheet" if sheet else
+                             "S6: the kept take still carries model-burned text"
+                             + (" in the subtitle band" if in_band else ""))
+                    + f" after {int(row.get('retries') or 0)} retries ({row.get('reason') or 'unresolved'})"})
     return out
 
 
@@ -452,6 +559,11 @@ def map_findings(findings: list[dict[str, Any]], segments: list[dict[str, Any]])
         row = {**{k: v for k, v in f.items() if k != "kind_hint"}, "kind": kind, "class": fix_class(kind)}
         seg = (tail_owner(segments, f.get("window")) if kind == "DIALOGUE_TAIL_GUARD" else None) \
             or unit_at(segments, f.get("window"))
+        if seg is None and f.get("unit_id"):  # a unit-level finding (S6): its segment gives the window
+            seg = next((s for s in segments or [] if str(s.get("unit_id")) == str(f["unit_id"])
+                        and _num(s.get("output_start")) is not None and _num(s.get("output_end")) is not None), None)
+            if seg is not None and not f.get("window"):
+                row["window"] = [round(float(seg["output_start"]), 3), round(float(seg["output_end"]), 3)]
         if seg is not None:
             row["unit_id"] = str(seg["unit_id"])
             row["on_screen_seconds"] = round(float(seg["output_end"]) - float(seg["output_start"]), 3)
@@ -461,9 +573,36 @@ def map_findings(findings: list[dict[str, Any]], segments: list[dict[str, Any]])
 
 CONFIRMED_SOURCES = ("QA_CHECKLIST_REVIEWER", "GEMINI_CONFIRMED")
 #: which copy of a duplicated finding is kept (confirmed must-check first, so the trigger rule is unchanged)
-SOURCE_RANK = {"QA_CHECKLIST_REVIEWER": 0, "GEMINI_CONFIRMED": 1, "REVIEW_HARD_FAIL": 2, "REVIEW_PROBLEM": 3}
+SOURCE_RANK = {"QA_CHECKLIST_REVIEWER": 0, "GEMINI_CONFIRMED": 1, "REVIEW_HARD_FAIL": 2, "REVIEW_PROBLEM": 3,
+               S6_SOURCE: 4}
 DEDUPE_S = 1.0
 _SEVERITY_RANK = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+#: a confirmed finding without a severity (must-check DEFECT, hard fail) ranks as P1
+DEFAULT_SEVERITY = "P1"
+_SEVERITY_WORDS = {"CRITICAL": "P0", "BLOCKER": "P0", "BLOCKING": "P0", "SEVERE": "P1", "HIGH": "P1", "MAJOR": "P1",
+                   "MEDIUM": "P2", "MODERATE": "P2", "NORMAL": "P2", "LOW": "P3", "MINOR": "P3", "TRIVIAL": "P3"}
+
+
+def severity_of(value: Any) -> str:
+    """P0..P3 of a finding's severity (P-labels, or critical / high / medium / low words); DEFAULT_SEVERITY if none."""
+    raw = str(value or "").strip().upper()
+    if raw in _SEVERITY_RANK:
+        return raw
+    m = re.match(r"^P\s*([0-3])\b", raw)
+    if m:
+        return f"P{m.group(1)}"
+    return _SEVERITY_WORDS.get(raw, DEFAULT_SEVERITY)
+
+
+def _defect_seconds(f: dict[str, Any]) -> float:
+    """On-screen seconds of one finding: its window (clipped to its unit), else its unit's on-screen seconds."""
+    unit_s = float(f.get("on_screen_seconds") or 0)
+    w = f.get("window")
+    if isinstance(w, (list, tuple)) and len(w) == 2 and _num(w[0]) is not None and _num(w[1]) is not None:
+        span = max(0.0, float(w[1]) - float(w[0]))
+        if span > 0:
+            return round(min(span, unit_s) if unit_s else span, 3)
+    return unit_s
 
 
 def _near(a: list[float] | None, b: list[float] | None, tol: float = DEDUPE_S) -> bool:
@@ -583,7 +722,10 @@ def needs_round(rejected: bool, mapped: list[dict[str, Any]]) -> bool:
 def plan_paid(mapped: list[dict[str, Any]], *, budget: int, headroom: int | None,
               unit_cost: Callable[[str], int], eligible: Callable[[str], str | None] | None = None,
               unit_order: list[str] | None = None) -> dict[str, Any]:
-    """One redo per unit; burned text, then costume / identity, then face drift, each by on-screen duration.
+    """One redo per unit, ranked by severity first (P0 before anything else; the unit's most severe finding), then
+    by the owner's kind order (burned text, reference sheet, costume / identity, face drift, ...), then by the
+    defect's on-screen seconds (the unit's finding windows summed, capped at the unit), then the cut order (JA-01 E04
+    2026-11-21: two P0 units lost the budget to P2 burned-text units).
 
     ``eligible(uid)`` returns a skip reason or None.  The allowance is min(budget, headroom); a unit that does not
     fit is skipped (``BUDGET_CAP``) and cheaper ones after it may still fit.  Pure."""
@@ -597,14 +739,22 @@ def plan_paid(mapped: list[dict[str, Any]], *, budget: int, headroom: int | None
         if not uid:
             unlocated.append({"kind": f["kind"], "reason": "NO_UNIT_FOR_FINDING", "source": f.get("source")})
             continue
-        row = units.setdefault(uid, {"unit_id": uid, "kinds": [], "on_screen_seconds": f.get("on_screen_seconds") or 0})
+        row = units.setdefault(uid, {"unit_id": uid, "kinds": [], "on_screen_seconds": f.get("on_screen_seconds") or 0,
+                                     "severity": "P3", "defect_seconds": 0.0})
         if f["kind"] not in row["kinds"]:
             row["kinds"].append(f["kind"])
+        sev = severity_of(f.get("severity"))
+        if _SEVERITY_RANK[sev] < _SEVERITY_RANK[row["severity"]]:
+            row["severity"] = sev
+        row["defect_seconds"] = round(float(row["defect_seconds"]) + _defect_seconds(f), 3)
     for row in units.values():
         row["kinds"].sort(key=lambda k: PAID_PRIORITY[k])
         row["kind"] = row["kinds"][0]
-    ranked = sorted(units.values(), key=lambda r: (PAID_PRIORITY[r["kind"]], -float(r["on_screen_seconds"] or 0),
-                                                   order.get(r["unit_id"], 10 ** 6), r["unit_id"]))
+        if row["on_screen_seconds"]:
+            row["defect_seconds"] = min(float(row["defect_seconds"]), float(row["on_screen_seconds"]))
+    ranked = sorted(units.values(), key=lambda r: (_SEVERITY_RANK[r["severity"]], PAID_PRIORITY[r["kind"]],
+                                                   -float(r["defect_seconds"] or 0), order.get(r["unit_id"], 10 ** 6),
+                                                   r["unit_id"]))
     allowance = int(budget) if headroom is None else min(int(budget), max(0, int(headroom)))
     spent = 0
     selected, skipped = [], list(unlocated)

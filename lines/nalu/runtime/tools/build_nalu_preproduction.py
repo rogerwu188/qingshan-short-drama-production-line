@@ -1817,6 +1817,23 @@ def s6_burn_retry_indices(out_dir: Path, episode: str) -> dict[str, int]:
     return out
 
 
+def s6_sheet_retry_units(out_dir: Path, episode: str) -> set[str]:
+    """Units whose latest S6 burn retry followed a REFERENCE-SHEET leak (tools/h3_reference_sheet_guard, JA-01 E04
+    VU-007 2026-11-21): the task carries ``h3_reference_sheet_crop`` -- the sheet retry sentence and, at send time,
+    each identity sheet as its front-view crop.  Read from the S6 wave state, which is never removed."""
+    path = out_dir / "reports" / f"{episode}_S6_WAVE_STATE.json"
+    try:
+        state = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, ValueError):
+        return set()
+    out = set()
+    for uid, row in (state.get("s6_burn_retry") or {}).items():
+        attempts = (row or {}).get("attempts") or []
+        if attempts and isinstance(attempts[-1], dict) and attempts[-1].get("reference_sheet_leak"):
+            out.add(str(uid))
+    return out
+
+
 def final_fix_redo_fields(out_dir: Path, episode: str) -> dict[str, dict[str, Any]]:
     """unit -> ``h3_final_fix`` {round, kind, kinds, sentence} of units the final fix round (owner 2026-11-20,
     final_fix_round.py) parked for one paid redo.  Read from ``reports/<EP>_FINAL_FIX_REDO.json``, which is never
@@ -3366,6 +3383,7 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
                        else root / "reports" / "action_role_evidence")
     redo_findings = q2_redo_prompt_findings(out_dir, episode, contract)
     burn_retries = s6_burn_retry_indices(out_dir, episode)
+    sheet_retries = s6_sheet_retry_units(out_dir, episode)
     final_fixes = final_fix_redo_fields(out_dir, episode)
     # K075 is an episode-wide judgement (a face shown once keeps the plate everywhere), so it reads the
     # full editorial manifest, never the wave subset.
@@ -3708,6 +3726,8 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             task["h3_redo_findings"] = list(redo_findings[uid])
         if burn_retries.get(uid):  # S6 burned-text retry n (h3_burn_retry): retry sentence + perturbed @Image1
             task["h3_burn_retry"] = int(burn_retries[uid])
+            if uid in sheet_retries:  # ... after a reference-sheet leak: sheet sentence + front-view crop of sheets
+                task["h3_reference_sheet_crop"] = True
         if final_fixes.get(uid):  # final fix round redo (final_fix_round.py): the redo sentence + perturbed @Image1
             task["h3_final_fix"] = dict(final_fixes[uid])
         task["dialogue_lines"] = lines

@@ -26,6 +26,18 @@ def image_paths(inputs: list[str]) -> list[Path]:
     return paths
 
 
+def _box_fields(box, width: int, height: int) -> dict:
+    """{"box_norm": [x0, y0, x1, y1], "y_centre": y} of one RapidOCR quad (fractions of the frame); {} if unreadable."""
+    try:
+        xs = [float(pt[0]) for pt in box]
+        ys = [float(pt[1]) for pt in box]
+        x0, x1, y0, y1 = min(xs) / width, max(xs) / width, min(ys) / height, max(ys) / height
+    except (TypeError, ValueError, IndexError, ZeroDivisionError):
+        return {}
+    return {"box_norm": [round(x0, 4), round(y0, 4), round(x1, 4), round(y1, 4)],
+            "y_centre": round((y0 + y1) / 2.0, 4)}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate still-image OCR audit JSON.")
     parser.add_argument("--image", action="append", required=True, help="Image file or directory; can be repeated.")
@@ -50,6 +62,7 @@ def main() -> int:
             critical_failures += 1
             continue
         result, _elapsed = engine(frame)
+        frame_h, frame_w = frame.shape[:2]
         for _box, text, confidence in result or []:
             clean = str(text).strip()
             score = float(confidence)
@@ -74,6 +87,9 @@ def main() -> int:
                 "latin_chars": latin_count,
                 "unlisted_chinese": classification["unlisted_chinese"],
                 "numeric_string": classification["numeric_string"],
+                # where the text sits (fractions of the frame): Q2 counts text in our subtitle band as burned
+                # (JA-01 E04 VU-004 2026-11-21)
+                **_box_fields(_box, frame_w, frame_h),
             })
 
     lexicon_policy_configured = bool(args.allow_text or args.forbid_text)

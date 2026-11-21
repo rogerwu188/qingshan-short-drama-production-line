@@ -101,12 +101,20 @@ CLASS_TEXT: dict[str, tuple[str, str]] = {
     "QA-FLICKER": ("A", "时间闪烁：画面或局部纹理闪动/抖动、背景扭曲蠕动、首尾帧闪一下。"),
     "QA-PHYSICS": ("A", "物理错误：物体悬空、穿模、不合理的运动或重力、液体/布料行为异常。"),
     "QA-BURNED-TEXT": ("A", "画面里视频模型自己烧进去的文字：大号台词字、第二行字幕、乱码字、字幕上下多出的单个大字（片头剧名卡和片尾卡不算）。"
+                            "底部出现上下两行相同或几乎相同的字幕（同一句台词叠了两遍）也是这一类：那是模型烧进画面的台词压在我方字幕下面，"
+                            "不是 QA-SUBTITLE-WRAP。"
                             "每一段文字（每个短语）出现到消失单独列一条，不要把多段合成一个长时间窗。"),
+    # 2026-11-21 (JA-01 anime E04 VU-007): H3 drew the multi-view identity sheet itself as the picture -- reported as
+    # CRAFT-SHOT-GRAMMAR "角色设定三视图静态立绘" and never re-rendered
+    "QA-REFERENCE-SHEET-LEAK": ("A", "角色设定图泄漏进画面：画面变成角色设定图/人设卡/三视图/转面图（正面、侧面、背面全身像并排，"
+                                     "常带一个大脸特写小窗、纯色背景），或同一个角色在同一画面里出现多个副本/叠影、静态立绘式构图。"
+                                     "这是视频模型把身份参考图画进了画面，一律 P0（不要归到 CRAFT-SHOT-GRAMMAR）。"),
     "QA-OVERSIZED-MASK": ("A", "过大的遮罩/模糊框：明显的矩形模糊、马赛克或遮挡块，比字幕区大，盖住脸、手或动作。"),
     "LETTERBOX": ("A", "画幅：竖屏 9:16 成片里混入横版镜头（上下黑边）或左右黑边。"),
     # in A, not D: the benchmark's low-resolution D pass caught 1 of 4 lone-punctuation wraps, the 2-fps single
     # pass 4 of 4 (2026-11-20)
-    "QA-SUBTITLE-WRAP": ("A", "我方字幕排版：标点（！？。）或一两个字单独占一行、超过两行、我方字幕和画面里其它文字重叠压字。"),
+    "QA-SUBTITLE-WRAP": ("A", "我方字幕排版：标点（！？。）或一两个字单独占一行、超过两行、我方字幕和画面里其它文字重叠压字。"
+                              "（两行相同的字幕上下叠在一起不是排版问题，报 QA-BURNED-TEXT。）"),
     # B -- identity / continuity
     "QA-IDENTITY-MISMATCH": ("B", "角色和其身份卡不符：脸型/五官/年龄/发型明显不是卡上那个人，或同一角色前后镜头换了一张脸；或景别机位不变时画面里的人在镜头内逐渐变成另一个角色（常是正在说话的那个）。"),
     "LOOK-DRIFT": ("B", "同一场内同一角色造型前后不一致：服装颜色/款式、发型、胡子、配饰变了。"),
@@ -340,7 +348,8 @@ def build_pass_prompt(pid: str, *, duration: float, context: dict[str, Any] | No
             if window else f"全集约 {duration:.0f} 秒。")
     role = {
         "A": "画面与 AI 生成瑕疵专审：只看画面（不需要声音），逐镜头、逐秒盯细节，特别是脸、眼、牙、手、皮肤质感，"
-             "并把每个镜头和前一个镜头对比（同一角色皮肤是否突然变油亮/塑料感、头发是否突然变湿），画面里有没有多余的字。",
+             "并把每个镜头和前一个镜头对比（同一角色皮肤是否突然变油亮/塑料感、头发是否突然变湿），画面里有没有多余的字，"
+             "画面是不是变成了角色设定图/三视图（同一角色多个副本、大脸特写小窗）。",
         "B": "身份与连贯性专审：对照下面附的角色身份卡（图片按顺序是 " +
              "、".join(c["label"] for c in context.get("cards") or [] if c.get("_sent")) +
              "），检查每个镜头里每个角色是否就是卡上的人；在每一场内部检查服装颜色、发型、配饰、道具、光线方向和色温、"

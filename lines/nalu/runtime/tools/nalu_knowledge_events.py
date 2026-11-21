@@ -619,6 +619,36 @@ def record_qa_defects(rt: Path, *, episode: str, checklist_path: str | None,
         return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}", "events": events}
 
 
+S6_SHEET_LEAK_TYPE = "QA_DEFECT:QA-REFERENCE-SHEET-LEAK"
+
+
+def record_s6_reference_sheet_leak(rt: Path, *, episode: str, unit_id: str, detection: dict[str, Any] | None = None,
+                                   clip_sha256: str | None = None) -> dict[str, Any]:
+    """S6 detected that a landed H3 take shows the unit's multi-view identity sheet as its picture
+    (tools/h3_reference_sheet_guard, JA-01 E04 VU-007 2026-11-21): one FAILURE_OBSERVATION
+    ``QA_DEFECT:QA-REFERENCE-SHEET-LEAK`` -- a MODEL_CONSTRAINT lesson of global scope (the same in every language),
+    deduped per take.  Evidence: scores / frame counts only.  Best-effort, never raises."""
+    try:
+        det = detection if isinstance(detection, dict) else {}
+        evidence = {"cluster_key": f"{S6_SHEET_LEAK_TYPE}|{SCOPE_GLOBAL}", "item": "QA-REFERENCE-SHEET-LEAK",
+                    "failure_code": "REFERENCE_SHEET_LEAK", "detail_category": SCOPE_GLOBAL,
+                    "lesson_route": "MODEL_CONSTRAINT", "kb_scope": SCOPE_GLOBAL,
+                    "scope_decision": {"scope": SCOPE_GLOBAL, "basis": "KIND",
+                                       "reason": "the video model drew its identity reference sheet: picture-level, "
+                                                 "language-independent"},
+                    "detector": "h3_reference_sheet_guard.detect_leak",
+                    "detail": {k: det.get(k) for k in ("leak_frames", "longest_run", "best_score")
+                               if det.get(k) is not None}}
+        event = emit(rt, episode=episode, stage="S6", failure_type=S6_SHEET_LEAK_TYPE,
+                     symptom="H3 take shows the character's multi-view identity sheet (turnaround views / face inset "
+                             "/ duplicated copies) as the picture; retried with the sheet sent as a front-view crop",
+                     evidence=evidence, unit_ids=[unit_id],
+                     dedupe_key=f"{episode}:{S6_SHEET_LEAK_TYPE}:{unit_id}:{clip_sha256 or 'NO_SHA'}")
+        return {"status": "OK", "events": [event]}
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}", "events": []}
+
+
 def record_lookalike_cast(rt: Path, *, episode: str, report_path: str | None) -> dict[str, Any]:
     """The S3 cross-character similarity (``<EP>_CHARACTER_DISTINCTNESS.json``): one ``QA_DEFECT|QA-LOOKALIKE-CAST``
     event per too-similar pair (character ids and the cosine only), so the knowledge base and the next episode's
@@ -660,7 +690,7 @@ FINAL_REVIEW_ROUTES = {
                                          "HOOK", "EMOTION", "ACTING_MONOTONY")},
     **{k: "MODEL_CONSTRAINT" for k in ("BURNED_TEXT", "FACE_DRIFT", "SKIN_SHEEN", "COSTUME_IDENTITY", "LOOKALIKE",
                                        "VOICE", "ASR_MISMATCH", "HAND_ARTIFACT", "AI_ARTIFACT", "CONTINUITY",
-                                       "VOICE_GENDER_MISMATCH")},
+                                       "VOICE_GENDER_MISMATCH", "REFERENCE_SHEET_LEAK")},
     **{k: "ENGINE" for k in ("SUBTITLE_WRAP", "BGM_FADES", "AUDIO_SMOOTHING", "DIALOGUE_TAIL_GUARD", "LETTERBOX",
                              "MASK", "SFX", "SUBTITLE_READABILITY")},
 }
@@ -688,9 +718,11 @@ GLOBAL_KINDS = frozenset({"BURNED_TEXT", "FACE_DRIFT", "SKIN_SHEEN", "COSTUME_ID
                           "HAND_ARTIFACT", "AI_ARTIFACT", "CONTINUITY", "SFX", "SHOT_GRAMMAR", "HOOK", "EMOTION",
                           # 2026-11-20: a woman voiced as a man is a casting / model fault in any language; acting
                           # monotony (talking without business, one stock gesture) is direction, never language
-                          "VOICE_GENDER_MISMATCH", "ACTING_MONOTONY"})
+                          "VOICE_GENDER_MISMATCH", "ACTING_MONOTONY",
+                          # 2026-11-21 (JA-01 E04): H3 drew the identity sheet as the picture -- a model fault
+                          "REFERENCE_SHEET_LEAK"})
 LANGUAGE_ITEMS = frozenset({"QA-SUBTITLE-WRAP"})
-GLOBAL_ITEMS = frozenset({"QA-BURNED-TEXT", "QA-SKIN-SHEEN-DRIFT", "QA-LOOKALIKE-CAST", "QA-OVERSIZED-MASK", "QA-BGM-DISCONTINUOUS",
+GLOBAL_ITEMS = frozenset({"QA-BURNED-TEXT", "QA-REFERENCE-SHEET-LEAK", "QA-SKIN-SHEEN-DRIFT", "QA-LOOKALIKE-CAST", "QA-OVERSIZED-MASK", "QA-BGM-DISCONTINUOUS",
                           "QA-DIALOGUE-TAIL-CUT", "LETTERBOX", "LOOK-DRIFT"})
 #: text signals (lower-case substrings).  Language: what is SAID or WRITTEN in that language.
 LANGUAGE_SIGNALS = (
@@ -787,7 +819,10 @@ def record_final_review_findings(rt: Path, *, episode: str, report_path: str | N
         if bound not in (None, sha):
             checklist = {}  # a must-check list of another cut is not a finding of this one
         import final_fix_round as _ffr  # noqa: PLC0415 -- same directory
-        findings = _ffr.map_findings(_ffr.collect_findings(report, checklist), [])
+        # the review's own findings only: S6 unresolved retries (final_fix_round.S6_SOURCE) are engine measurements
+        # with their own S6 events, never "confirmed by the final review"
+        findings = [f for f in _ffr.map_findings(_ffr.collect_findings(report, checklist), [])
+                    if f.get("source") != getattr(_ffr, "S6_SOURCE", "S6_UNRESOLVED")]
         if not findings:
             return {"status": "NO_FINDINGS", "events": events}
         lang = final_review_language(language)

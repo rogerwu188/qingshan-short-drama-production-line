@@ -1552,6 +1552,24 @@ def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
 # --------------------------------------------------------------------------- #
 # objective blocks
 # --------------------------------------------------------------------------- #
+#: our subtitle band (fractions of the frame height).  Q2 reviews the RAW clip, before S7 adds our captions, so any
+#: model text of >= 2 characters centred here is a burned line that would stack under ours (JA-01 E04 VU-004
+#: 2026-11-21: OCR read '素，！' at 0.887 here and Q2 passed it because it was not on the forbidden list)
+SUBTITLE_BAND = (0.55, 0.95)
+_LETTER = re.compile(r"[A-Za-z\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\uf900-\ufaff]")
+
+
+def subtitle_band_text(entry: dict[str, Any]) -> bool:
+    """An OCR recognition of >= 2 characters (at least one letter / CJK / kana / hangul) centred in our subtitle band
+    (``y_centre`` recorded by tools/still_image_ocr_audit.py; older reports without it never match)."""
+    try:
+        y = float(entry.get("y_centre"))
+    except (TypeError, ValueError):
+        return False
+    text = "".join(str(entry.get("text") or "").split())
+    return SUBTITLE_BAND[0] <= y <= SUBTITLE_BAND[1] and len(text) >= 2 and bool(_LETTER.search(text))
+
+
 def build_period_verification(item: dict[str, Any], questionnaire: dict[str, Any],
                               ocr_rows: list[dict[str, Any]], forbidden_terms: list[str]
                               ) -> tuple[dict[str, Any], list[str]]:
@@ -1612,6 +1630,10 @@ def build_period_verification(item: dict[str, Any], questionnaire: dict[str, Any
             frame_failures.append(f"OCR_LATIN_CHARACTERS_PRESENT:{report.get('latin_chars')}")
         if hits:
             frame_failures.append("OCR_FORBIDDEN_TERM_VISIBLE:" + ",".join(hits))
+        band = [str(e.get("text") or "").strip() for e in entries if subtitle_band_text(e)
+                and not (_is_noise(e) and float(e.get("confidence") or 1.0) < 0.60)]
+        if band:
+            frame_failures.append("OCR_BURNED_TEXT_IN_SUBTITLE_BAND:" + ",".join(band[:3]))
         per_frame.append({
             "frame": row.get("frame"), "frame_sha256": row.get("frame_sha256"),
             "ocr_report": row.get("report_path"),
@@ -1664,7 +1686,8 @@ def anime_identity_verification(item: dict[str, Any], questionnaire: dict[str, A
                                 declared_ids: list[str]) -> tuple[dict[str, Any], list[str], str]:
     """render_style=anime: the reviewer's structured anime character-consistency review over the clip is the identity
     method; InsightFace (identity, face count, speaker framing) is NOT_APPLICABLE and never fails or redoes a unit."""
-    keys = (*GATE_QUESTIONS[IDENTITY_GATE], _render_style.VLM_IDENTITY_QUESTION)
+    # + the reference-sheet leak question (2026-11-21, JA-01 E04 VU-007): skipped when not answered
+    keys = (*GATE_QUESTIONS[IDENTITY_GATE], _render_style.VLM_IDENTITY_QUESTION, _render_style.SHEET_LEAK_QUESTION)
     checks = _checks(item, questionnaire, keys)
     failures = [row["question_id"] for row in checks if row["answer"] != "PASS"]
     if _render_style.VLM_IDENTITY_QUESTION not in failures:
