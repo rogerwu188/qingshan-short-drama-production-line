@@ -321,6 +321,7 @@ $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下
   之后照常做 keyframe Q1 / start_frame 审核再出视频。不要自己手动把尾帧拷成关键帧。
   派生起始帧（S6 自动）：承接上一单元尾帧、且首镜有画内说话人的单元，S6 先用同一套 InsightFace 量尾帧——说话人不在画面/贴边/被切/脸中心在外侧 20%，或人脸数多于声明——就不用尾帧，改用该单元自己的关键帧（没有就自动出一张），被拒的尾帧也不再作为参考图发给 H3；
   决定逐单元记在 `reports/<EP>_S6_WAVE_STATE.json` 的 `start_frame_source`（`TAIL_FRAME` / `OWN_KEYFRAME_TAIL_REJECTED` + 测量值）。估预算时每个这样的单元多算 11 积分。
+- S6 生成后 QA（`POST_GENERATION_QA_PARTIAL_N_OF_M`，例如 `freeze:FAIL` 定格、技术检查、对白）：照抄 S6 结果 `details.post_generation_qa.record_hint`（`--gate-id POST-GENERATION-QA-ADMISSION`，每条原因一个 `--detector <unit>:<原因>`，`--media <unit>=<当前 unit mp4>`，同门禁多个单元一张订单），记好后直接重跑 S6。`postgen_orders_needed[].reroll` 为 `NOT_EXECUTABLE`（该单元已重做过一次）时不再重做；为 `AVAILABLE_ONCE` 时可受控重做一次或直接记单。仍不放行看同处 `candidates[].refused`（逐张订单的被拒原因，如 sha 不是当前片）。
 - 视频 Q2：`--gate-id VIDEO-Q2-ASSEMBLY-ADMISSION --detector <unit>:<每个失败门禁 ID> --media <unit>=<unit mp4>`；
   6 镜左右的短集任何 P2 都会超 10% 缺陷预算：同时写 `$NALU_RUNTIME_ROOT/preproduction/<EP>/qa_overrides.json` 的
   `defect_tolerance_minor_budget_override`（只列失败码，`authorized_by` 写「短剧工作流默认条款：质量不阻塞」）。

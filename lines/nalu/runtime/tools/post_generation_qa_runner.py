@@ -59,6 +59,7 @@ import copy
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -1084,6 +1085,21 @@ def contact_sheet(unit_id: str, media: Path, out_dir: Path,
 # --------------------------------------------------------------------------- #
 # reroll requests in the shape tools/reroll_cost_guard.py consumes
 # --------------------------------------------------------------------------- #
+def redo_already_used(p: Any, episode: str, unit_id: str, reroll_number: int) -> str | None:
+    """Why this unit's one paid redo is already spent (None = it is still available)."""
+    media = Path(p.video_media)
+    for name in (f"{unit_id}.mp4", f"{episode}-{unit_id}.mp4"):
+        parked = sorted(media.glob(f"_superseded_*/{name}")) if media.is_dir() else []
+        if parked:
+            return f"ONE_PAID_REDO_PER_UNIT_USED:SUPERSEDED_CLIP:{parked[0]}"
+    wave = read_json(Path(p.preprod_reports) / f"{episode}_S6_WAVE_STATE.json", {}) or {}
+    if unit_id in (wave.get("q2_auto_redo") or {}):
+        return "ONE_PAID_REDO_PER_UNIT_USED:Q2_AUTO_REDO (S6_WAVE_STATE.q2_auto_redo)"
+    if reroll_number > 1:
+        return f"ONE_PAID_REDO_PER_UNIT_USED:REROLL_LEDGER_SUBMITTED_{reroll_number - 1}"
+    return None
+
+
 def build_reroll_requests(episode: str, rejected: list[dict[str, Any]],
                           total_paid_tasks: int) -> dict[str, Any]:
     p = QaPaths(episode)
@@ -1091,6 +1107,7 @@ def build_reroll_requests(episode: str, rejected: list[dict[str, Any]],
     ledger = read_json(p.reroll_ledger, {"schema": "nalu.reroll_ledger.v1",
                                          "episode": episode, "events": []})
     requests: list[dict[str, Any]] = []
+    not_executable: list[dict[str, Any]] = []
     recorded_at = now()
     for row in rejected:
         unit_id = row["unit_id"]
@@ -1099,6 +1116,16 @@ def build_reroll_requests(episode: str, rejected: list[dict[str, Any]],
         # Counted by the guard's own reader so the ordinal here and the ordinal
         # the guard recomputes from the same ledger can never disagree.
         reroll_number = reroll_ledger.reroll_number_for(ledger, unit_id)
+        # Owner policy (CLAUDE_CODE_PRODUCTION §5): one paid redo per unit, whoever did it.  A unit already
+        # redone gets no new request -- re-asking every S6 pass is what left device 0080 E05 looping at
+        # POST_GENERATION_QA_PARTIAL_18_OF_20 (the engine never executes a post-gen reroll itself).
+        used = redo_already_used(p, episode, unit_id, reroll_number)
+        if used:
+            not_executable.append({"unit_id": unit_id, "failure_reason": reason,
+                                   "all_reasons": row.get("reasons") or [],
+                                   "why_not_executed": used,
+                                   "next": "default acceptance (§5): record the order in postgen_orders_needed"})
+            continue
         out = p.qa_root / "reroll" / f"{unit_id}_reroll_cost_guard.json"
         argv = [str(VENV), str(ENGINE / "tools/reroll_cost_guard.py"),
                 "--policy", str(REROLL_POLICY), "--ledger", str(p.reroll_ledger),
@@ -1125,13 +1152,20 @@ def build_reroll_requests(episode: str, rejected: list[dict[str, Any]],
             "policy": str(REROLL_POLICY),
             "rule": "a reroll runs only on a PASS_* status from this guard AND a fresh "
                     "nalu_budget_ledger.py --check inside the 8000-credit cap",
+            "executed_by": ("NOT_THE_ENGINE: post-generation QA never submits.  A controlled redo is the agent "
+                            "parking the clip (video/<unit>.mp4 -> video/_superseded_<tag>/) and rerunning S6; "
+                            "otherwise record the default acceptance in postgen_orders_needed"),
         })
     # Record the requests in the ledger the guard reads.  Outcome REQUESTED,
     # not SUBMITTED: this builder decides what to ask for and never POSTs, and
     # the guard only counts SUBMITTED / COMPLETED toward the episode budget, so
     # an unspent request must not consume it.  Without this write the events
     # list stayed empty forever and every reroll read as the first one.
+    already = {(str(e.get("shot_id") or ""), e.get("reroll_number")) for e in ledger.get("events") or []
+               if str(e.get("outcome") or "").upper() == "REQUESTED"}
     for request in requests:
+        if (request["unit_id"], request["reroll_number"]) in already:
+            continue   # same request as the previous S6 pass: do not grow the ledger every run
         reroll_ledger.record_reroll_event(
             ledger,
             shot_id=request["unit_id"],
@@ -1154,6 +1188,8 @@ def build_reroll_requests(episode: str, rejected: list[dict[str, Any]],
         "total_paid_tasks": total_paid_tasks,
         "request_count": len(requests),
         "requests": requests,
+        "not_executable_count": len(not_executable),
+        "not_executable": not_executable,
     }
     write_json(p.reroll_requests, payload)
     write_json(p.reroll_ledger, ledger)
@@ -1466,7 +1502,16 @@ def run(episode: str, *, review_path: Path | None = None,
         "roger_gate_acceptance": acceptance,
         "reroll_requests": str(p.reroll_requests),
         "reroll_request_count": rerolls["request_count"],
+        "reroll_not_executable": rerolls.get("not_executable") or [],
     }
+    needed = acceptance.get("orders_needed") or []
+    if needed:
+        why_no_redo = {r["unit_id"]: r["why_not_executed"] for r in rerolls.get("not_executable") or []}
+        for row in needed:
+            row["reroll"] = (f"NOT_EXECUTABLE:{why_no_redo[row['unit_id']]}" if row["unit_id"] in why_no_redo
+                             else "AVAILABLE_ONCE: controlled redo (park the clip, rerun S6) or record the order")
+        summary["postgen_orders_needed"] = needed
+        summary["postgen_record_hint"] = acceptance.get("record_hint")
     import speech_rate_check as _src
     summary["speech_rate_episode"] = _src.episode_summary([row.get("speech_rate_qa") or {} for row in rows],
                                                           language)
@@ -1569,18 +1614,77 @@ def _acceptance_detector(unit_id: str, reason: str) -> str:
     return f"{unit_id}:{text}"
 
 
-def apply_roger_postgen_acceptance(episode: str, rows: list[dict[str, Any]],
-                                   postgen_dir: Path) -> dict[str, Any]:
-    """Admit a REJECTED unit only on an explicit, media-bound Roger GATE_FAIL_ACCEPTANCE order.
+#: Spellings device agents give the post-generation gate (normalised by roger_gate_acceptance.normalize_gate_id).
+#: The contract never named POST-GENERATION-QA-ADMISSION, so orders were recorded under the blocker text
+#: (``POST_GENERATION_QA_PARTIAL_18_OF_20``), the check name (``freeze``) or the Q2 gate (device 0080 E05,
+#: 2026-11-21: seq=62 for VU-012/VU-015 freeze never matched and S6 dead-ended).  The sha binding stays exact.
+POSTGEN_GATE_ALIASES = frozenset({
+    "POST-GENERATION-QA-ADMISSION", "POST-GENERATION-QA", "POST-GENERATION-QA-SCOPE", "POSTGEN-QA",
+    "POST-GEN-QA", "POSTGEN", "POSTGEN-QA-ADMISSION", "POST-GEN-QA-ADMISSION", "POSTGEN-ADMISSION",
+    "S6-POST-GENERATION-QA", "S6-POSTGEN-QA", "S6-QA", "POST-GEN-PLOT", "POST-GEN-PLOT-QA",
+    "VIDEO-Q2-ASSEMBLY-ADMISSION", "FREEZE", "FREEZE-QA", "VIDEO-FREEZE", "POST-GENERATION-FREEZE",
+})
+_POSTGEN_TOKEN_SYNONYMS = {"FROZEN": "FREEZE", "FREEZE-FRAME": "FREEZE", "FROZEN-FRAME": "FREEZE",
+                           "FREEZE-QA": "FREEZE", "FREEZE-DETECTION": "FREEZE", "STATIC-FREEZE": "FREEZE",
+                           "VIDEO-FREEZE": "FREEZE", "FROZEN-RUN": "FREEZE", "FROZEN-RUNS": "FREEZE"}
+_POSTGEN_STATUS_TOKENS = frozenset({"FAIL", "FAILED", "REJECT", "REJECTED", "BLOCK", "BLOCKED"})
+_POSTGEN_UNIT_RE = re.compile(r"^(?:E\d+-)?[A-Z]{1,4}-?\d+[A-Z]?\d*$")
+_POSTGEN_VALUE_RE = re.compile(r"^-?\d+(?:\.\d+)?(?:S|LU|PX|%)?$")
 
-    Mirrors roger_gate_acceptance.py (S7) and nalu_pipeline.apply_roger_q1_acceptance (S5):
-      * the order must be active, issued_by Roger, kind GATE_FAIL_ACCEPTANCE, this episode,
-        gate_id POST-GENERATION-QA-ADMISSION;
-      * its detectors must cover EVERY reason of that unit (a new failure is not accepted);
-      * it must bind this take: decision.media_sha256_by_item[<unit>] (or decision.media_sha256)
-        must equal the measured media sha256.  An unbound order is refused here on purpose —
-        post-generation takes change, and an unbound acceptance would silently cover the next one.
-    The per-unit record keeps engine_verdict/engine_reasons plus the acceptance record."""
+
+def postgen_gate_matches(gate_id: Any) -> bool:
+    """Is ``gate_id`` a spelling of the post-generation QA gate (alias set or the PARTIAL_N_OF_M blocker)?"""
+    import roger_gate_acceptance as _rga
+    norm = _rga.normalize_gate_id(gate_id)
+    return norm in POSTGEN_GATE_ALIASES or norm.startswith("POST-GENERATION-QA")
+
+
+def _postgen_short_unit(unit_id: str) -> str:
+    return re.sub(r"^E\d+-", "", str(unit_id).strip().upper())
+
+
+def _postgen_tokens(text: str) -> frozenset[str]:
+    out: set[str] = set()
+    for part in str(text).split(":"):
+        tok = part.strip().upper().replace("_", "-")
+        if not tok or tok in _POSTGEN_STATUS_TOKENS or _POSTGEN_VALUE_RE.match(tok):
+            continue
+        out.add(_POSTGEN_TOKEN_SYNONYMS.get(tok, tok))
+    return frozenset(out)
+
+
+def postgen_detector_covers(detector: Any, unit_id: str, reason: str) -> bool:
+    """Does one order detector name one post-generation reject reason of ``unit_id``?
+
+    Accepted shapes (the order's sha binding pins the exact clip, so the detector only has to NAME the
+    failure): the canonical ``<unit>:<reason without value>`` (``E05-VU-012:freeze:FAIL``), the short unit
+    (``VU-012:freeze``), any case / ``_`` vs ``-``, the reason without unit (``freeze``), ``FROZEN`` for
+    ``freeze``, or ``<unit>:<post-gen gate id>`` as the unit's whole post-gen gate.  A detector naming another
+    unit or another check never covers."""
+    d = str(detector or "").strip()
+    if not d:
+        return False
+    if d == _acceptance_detector(unit_id, reason):
+        return True
+    parts = [x.strip() for x in d.split(":")]
+    head = parts[0].upper().replace("_", "-")
+    if len(parts) > 1 and _POSTGEN_UNIT_RE.match(head):
+        if _postgen_short_unit(head) != _postgen_short_unit(unit_id):
+            return False
+        parts = parts[1:]
+    rest = ":".join(parts)
+    if postgen_gate_matches(rest) and _rga_norm(rest) not in {"FREEZE", "FREEZE-QA", "VIDEO-FREEZE"}:
+        return True
+    td = _postgen_tokens(rest)
+    return bool(td) and td <= _postgen_tokens(reason)
+
+
+def _rga_norm(value: Any) -> str:
+    import roger_gate_acceptance as _rga
+    return _rga.normalize_gate_id(value)
+
+
+def _postgen_orders() -> tuple[list[dict[str, Any]], dict[str, Any], str, Path]:
     import roger_gate_acceptance as _rga
     orders_path = Path(os.environ.get("NALU_SUPERVISOR_ORDERS_PATH") or
                        (ENGINE / "workflow/claude_writer_agent/SUPERVISOR_ORDERS.json"))
@@ -1588,33 +1692,113 @@ def apply_roger_postgen_acceptance(episode: str, rows: list[dict[str, Any]],
         expected_latest_seq = int(os.environ.get("NALU_LATEST_ORDER_SEQ") or 0)
     except ValueError:
         expected_latest_seq = 0
-    orders = _rga._orders(orders_path, expected_latest_seq=expected_latest_seq,
-                          engine_root=ENGINE)
+    issuer = str(os.environ.get("NALU_LINE_OWNER_ID") or "Roger")
+    orders, inbox = _rga.gate_acceptance_orders(orders_path, expected_latest_seq=expected_latest_seq,
+                                                engine_root=ENGINE, expected_issuer=issuer)
+    if not os.environ.get("NALU_SUPERVISOR_ORDERS_PATH"):
+        inbox["orders_path_source"] = "DEFAULT_INSIDE_ENGINE (NALU_SUPERVISOR_ORDERS_PATH not set)"
+    return orders, inbox, issuer, orders_path
+
+
+def find_postgen_acceptance(orders: list[dict[str, Any]], *, episode: str, unit_id: str, media_sha: str,
+                            reasons: list[str], issuer: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """The newest order that admits this rejected unit, plus how it matched or, per order, why not."""
+    import roger_gate_acceptance as _rga
+    info: dict[str, Any] = {"unit_id": unit_id, "media_sha256": media_sha, "reasons": list(reasons)}
+    candidates: list[dict[str, Any]] = []
+    short = _postgen_short_unit(unit_id)
+    for row in sorted(orders, key=lambda r: -int(r.get("seq") or 0)):
+        dec = row.get("decision") or {}
+        gid = dec.get("gate_id")
+        gate_ok = postgen_gate_matches(gid)
+        detectors = [str(x) for x in dec.get("detectors") or [] if str(x)]
+        shas = _rga.bound_shas(dec)
+        relevant = (str(dec.get("episode") or "") == episode
+                    and (gate_ok or media_sha in shas.values()
+                         or any(short in _postgen_short_unit(x) for x in detectors)))
+        refusal = _rga.acceptance_row_refusal(row, episode=episode,
+                                              gate_id=(str(gid) if gate_ok else POSTGEN_GATE_ID),
+                                              expected_issuer=issuer, engine_root=ENGINE)
+        if refusal:
+            if relevant:
+                candidates.append({"seq": row.get("seq"), "gate_id": gid, "refused": refusal})
+            continue
+        # the sha must sit under this unit (full or short id), the plain media_sha256, or a non-unit key
+        # (``freeze``, the gate id); a key naming ANOTHER unit never binds this one
+        exact_keys = [k for k, v in shas.items() if v == media_sha
+                      and (k is None or _postgen_short_unit(k) == short
+                           or not _POSTGEN_UNIT_RE.match(str(k).upper().replace("_", "-")))]
+        uncovered = [r for r in reasons if not any(postgen_detector_covers(d, unit_id, r) for d in detectors)]
+        if exact_keys and not uncovered:
+            key = next((k for k in (unit_id, short, None) if k in exact_keys), exact_keys[0])
+            info.update(matched_seq=row.get("seq"), media_item_id=key, gate_id_in_order=gid,
+                        coverage=("VERBATIM" if all(_acceptance_detector(unit_id, r) in detectors for r in reasons)
+                                  else "TOLERANT_NAMING"))
+            return row, info
+        if not relevant:
+            continue
+        cand: dict[str, Any] = {"seq": row.get("seq"), "gate_id": gid, "detectors": detectors[:12],
+                                "binds_current_sha": bool(exact_keys),
+                                "bound_sha256": {("media_sha256" if k is None else k): v[:12]
+                                                 for k, v in shas.items()}}
+        if not exact_keys:
+            cand["refused"] = (f"SHA_NOT_CURRENT: order binds {sorted(v[:12] for v in shas.values()) or 'nothing'}, "
+                               f"current clip is {media_sha[:12]} (re-record against the current clip)")
+        else:
+            cand["refused"] = "DETECTORS_DO_NOT_NAME_REASONS"
+            cand["uncovered_reasons"] = uncovered
+        candidates.append(cand)
+    info["reason"] = ("NO_ORDERS_READ" if not orders
+                      else "NO_ORDER_MATCHES_EPISODE_GATE_REASONS_AND_SHA")
+    info["candidates"] = candidates[:12]
+    return None, info
+
+
+def apply_roger_postgen_acceptance(episode: str, rows: list[dict[str, Any]],
+                                   postgen_dir: Path) -> dict[str, Any]:
+    """Admit a REJECTED unit only on an explicit, media-bound line-owner GATE_FAIL_ACCEPTANCE order.
+
+    Mirrors roger_gate_acceptance.py (S7) and nalu_pipeline.apply_roger_q1_acceptance (S5):
+      * the order must be active, issued by the line owner, source-receipted, kind GATE_FAIL_ACCEPTANCE,
+        this episode, and a post-generation gate spelling (``postgen_gate_matches``: POST-GENERATION-QA-ADMISSION,
+        the ``POST_GENERATION_QA_PARTIAL_N_OF_M`` blocker text, ``freeze`` ...);
+      * its detectors must name EVERY reason of that unit (``postgen_detector_covers``; a new failure is not
+        accepted);
+      * it must bind THIS take: some ``media_sha256_by_item`` value (or ``media_sha256``) must equal the measured
+        clip sha256 exactly.  An unbound or stale-sha order is refused -- post-generation takes change.
+    Inbox read: roger_gate_acceptance.gate_acceptance_orders (a trailing NALU_LATEST_ORDER_SEQ does not hide a
+    receipted non-paid acceptance).  Every still-rejected unit gets ``orders_needed`` with the exact
+    record_supervisor_order.py arguments and, per order, why it did not match."""
+    import roger_gate_acceptance as _rga
+    orders, inbox, issuer, orders_path = _postgen_orders()
     accepted: list[dict[str, Any]] = []
     still: list[str] = []
+    needed: list[dict[str, Any]] = []
     for row in rows:
         if row.get("verdict") != "REJECT":
             continue
         unit_id = row["unit_id"]
         media_sha = str(row.get("media_sha256") or "")
-        detectors = sorted({_acceptance_detector(unit_id, reason) for reason in row.get("reasons") or []})
-        order = (_rga.find_acceptance(
-            orders, episode=episode, gate_id=POSTGEN_GATE_ID,
-            failing=detectors, media_sha256=media_sha, media_item_id=unit_id,
-            expected_issuer=str(os.environ.get("NALU_LINE_OWNER_ID") or "Roger"),
-            engine_root=ENGINE) if detectors else None)
-        dec = ((order or {}).get("decision") or {})
-        bound = str((dec.get("media_sha256_by_item") or {}).get(unit_id) or dec.get("media_sha256") or "")
-        if order is None or not bound or bound != media_sha:
+        reasons = [str(r) for r in row.get("reasons") or [] if str(r)]
+        detectors = sorted({_acceptance_detector(unit_id, reason) for reason in reasons})
+        order, info = (find_postgen_acceptance(orders, episode=episode, unit_id=unit_id, media_sha=media_sha,
+                                               reasons=reasons, issuer=issuer)
+                       if reasons and _rga.SHA256_RE.fullmatch(media_sha) else
+                       (None, {"unit_id": unit_id, "reason": "NO_REASONS_OR_NO_MEDIA_SHA"}))
+        if order is None:
             still.append(unit_id)
+            needed.append({**info, "gate_id": POSTGEN_GATE_ID, "detectors": detectors,
+                           "media": str(row.get("media_path") or ""),
+                           "record_args": ([f"--detector '{d}'" for d in detectors]
+                                           + [f"--media {unit_id}={row.get('media_path')}"])})
             continue
         record = _rga.acceptance_record(
             order, episode=episode, gate_id=POSTGEN_GATE_ID, failing=detectors,
-            media_sha256=media_sha, media_item_id=unit_id,
+            media_sha256=media_sha, media_item_id=info.get("media_item_id"),
             gate_result_path=str(postgen_dir / unit_id / f"{unit_id}_POST_GENERATION_QA.json"))
-        record.update({"unit_id": unit_id, "engine_verdict": "REJECT",
-                       "engine_reasons": list(row.get("reasons") or [])})
-        row.update({"engine_verdict": "REJECT", "engine_reasons": list(row.get("reasons") or []),
+        record.update({"unit_id": unit_id, "engine_verdict": "REJECT", "engine_reasons": list(reasons),
+                       "gate_id_in_order": info.get("gate_id_in_order"), "coverage": info.get("coverage")})
+        row.update({"engine_verdict": "REJECT", "engine_reasons": list(reasons),
                     "verdict": "ADMIT", "verdict_basis":
                         "MEASURED_REJECT+LINE_OWNER_ORDER_ACCEPTANCE (roger_gate_acceptance, never self-issued)",
                     "reasons": [], "primary_reason": None, "roger_acceptance": record})
@@ -1626,7 +1810,15 @@ def apply_roger_postgen_acceptance(episode: str, rows: list[dict[str, Any]],
             "gate_id": POSTGEN_GATE_ID, "recorded_at": now(), "recorded_by": TOOL_ID,
             "orders_path": str(orders_path), "accepted": accepted,
             "still_rejected_unit_ids": still})
-    return {"accepted_unit_ids": [r["unit_id"] for r in accepted], "still_rejected_unit_ids": still}
+    out: dict[str, Any] = {"accepted_unit_ids": [r["unit_id"] for r in accepted], "still_rejected_unit_ids": still,
+                           "orders_read": len(orders), "inbox": inbox}
+    if needed:
+        out["orders_needed"] = needed
+        out["record_hint"] = (f"record_supervisor_order.py --episode {episode} --gate-id {POSTGEN_GATE_ID} "
+                              + " ".join(" ".join(n["record_args"]) for n in needed)
+                              + " --order ... --context '<unit: reasons, redo count>' --orders <private inbox>"
+                              "; then rerun S6 (one order, one seq for all units)")
+    return out
 
 
 def main() -> int:
@@ -1699,6 +1891,7 @@ def main() -> int:
                       "admitted": summary["admitted_count"],
                       "rejected": summary["rejected_count"],
                       "rerolls": summary["reroll_request_count"],
+                      "rerolls_not_executable": [r["unit_id"] for r in summary.get("reroll_not_executable") or []],
                       "out": summary["_written_to"]}, ensure_ascii=False))
     return 0 if summary["status"] == "ADMIT_ALL" else 2
 
