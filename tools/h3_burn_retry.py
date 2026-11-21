@@ -138,6 +138,49 @@ def perturb_start_frame(data: bytes, index: int) -> tuple[bytes, dict[str, Any]]
         return data, {**note, "status": "SKIPPED_UNDECODABLE", "error": f"{type(exc).__name__}: {exc}"[:200]}
 
 
+#: final-fix burned-text redo retry n -> (crop fraction per side, JPEG quality); escalates per retry (2026-11-20)
+STRONG_STEPS = {1: (0.01, 86), 2: (0.02, 80)}
+
+
+def perturb_start_frame_strong(data: bytes, index: int, retry: int) -> tuple[bytes, dict[str, Any]]:
+    """A STRONGER @Image1 perturbation for a final-fix burned-text redo retry (line owner 2026-11-20, E18: the
+    one-pixel nudge only re-rolls the seed and three of four redone units burned the same line again).
+
+    Retry ``retry`` (1..2) crops ``STRONG_STEPS[retry][0]`` of the width / height (1 % then 2 %) at a retry-indexed
+    offset, scales back to the original size (aspect and framing kept: a 1-2 % scale jitter), nudges one pixel and
+    re-encodes at a different JPEG quality.  Never raises; falls back to :func:`perturb_start_frame`."""
+    if retry <= 0:
+        return perturb_start_frame(data, index)
+    frac, quality = STRONG_STEPS.get(retry) or STRONG_STEPS[max(STRONG_STEPS)]
+    before = hashlib.sha256(data).hexdigest()
+    try:
+        from PIL import Image  # noqa: PLC0415
+        with Image.open(io.BytesIO(data)) as image:
+            image.load()
+            work = image.convert("RGB")
+        w, h = work.size
+        dx, dy = max(2, round(w * frac)), max(2, round(h * frac))  # pixels removed per axis in total
+        # retry-indexed offset: retry 1 keeps a third of the margin on the left / top, retry 2 two thirds
+        left, top = (dx // 3, dy // 3) if retry % 2 else (2 * dx // 3, 2 * dy // 3)
+        box = (left, top, left + w - dx, top + h - dy)
+        resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
+        work = work.crop(box).resize((w, h), resample)
+        x, y = (41 * (index + retry)) % max(1, w), (59 * (index + retry)) % max(1, h)
+        r, g, b = work.getpixel((x, y))
+        work.putpixel((x, y), (r, g, b + 1 if b < 255 else b - 1))
+        out = io.BytesIO()
+        work.save(out, format="JPEG", quality=quality)
+        encoded = out.getvalue()
+        if encoded == data:
+            raise ValueError("re-encode produced identical bytes")
+        return encoded, {"retry": index, "final_fix_burn_retry": retry, "sha256_before": before,
+                         "status": "PERTURBED", "method": f"CROP_SCALE_{round(frac * 100)}PCT_JPEG_Q{quality}",
+                         "crop_box": list(box), "size": [w, h], "sha256_after": hashlib.sha256(encoded).hexdigest()}
+    except Exception as exc:  # noqa: BLE001 - the plain perturbation still changes the bytes
+        encoded, note = perturb_start_frame(data, index + retry)
+        return encoded, {**note, "final_fix_burn_retry": retry, "strong_error": f"{type(exc).__name__}: {exc}"[:200]}
+
+
 # ------------------------------------------------------------------------------------------------- detection
 #: frame reader: video path, fps -> iterable of (time_s, BGR ndarray)
 FrameReader = Callable[[Path, float], Any]

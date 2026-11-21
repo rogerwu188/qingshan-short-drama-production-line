@@ -1589,6 +1589,23 @@ def _final_fix_round(task: dict[str, Any]) -> int:
     return 1 if isinstance(fix, dict) and fix.get("sentence") else 0
 
 
+def _final_fix_burn_retry(task: dict[str, Any]) -> int:
+    """n > 0 when the task is burned-text retry n of a final-fix redo (``h3_final_fix.burn_retry``), else 0."""
+    fix = task.get("h3_final_fix") or (task.get("machine_contract") or {}).get("h3_final_fix")
+    try:
+        return max(0, int((fix or {}).get("burn_retry") or 0)) if isinstance(fix, dict) else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def _burn_retry_perturb_strong(data: bytes, index: int, retry: int) -> tuple[bytes, dict[str, Any]]:
+    try:
+        from tools.h3_burn_retry import perturb_start_frame_strong
+    except ModuleNotFoundError:
+        from h3_burn_retry import perturb_start_frame_strong
+    return perturb_start_frame_strong(data, index, retry)
+
+
 def _burn_retry_perturb(data: bytes, index: int) -> tuple[bytes, dict[str, Any]]:
     try:
         from tools.h3_burn_retry import perturb_start_frame
@@ -1628,7 +1645,10 @@ def _hopsapi_reference_uploads(task: dict[str, Any]) -> tuple[list[dict[str, Any
             # A final-fix redo (owner 2026-11-20) takes the next index after the burn retries.
             perturb_index = (max(_burn_retry_index(task), 2) + _final_fix_round(task) if _final_fix_round(task)
                              else _burn_retry_index(task))
-            data, perturbation = _burn_retry_perturb(data, perturb_index)
+            fix_retry = _final_fix_burn_retry(task) if _final_fix_round(task) else 0
+            # a final-fix redo still burned (2026-11-20): retry n escalates to a 1-2 % crop/scale + new JPEG quality
+            data, perturbation = (_burn_retry_perturb_strong(data, perturb_index, fix_retry) if fix_retry
+                                  else _burn_retry_perturb(data, perturb_index))
             note = {**note, "burn_retry_perturbation": perturbation}
         mime = hopsapi.sniff_mime(data, str(value))
         notes.append(note)

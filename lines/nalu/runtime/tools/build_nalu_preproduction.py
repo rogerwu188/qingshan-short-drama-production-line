@@ -1823,7 +1823,9 @@ def final_fix_redo_fields(out_dir: Path, episode: str) -> dict[str, dict[str, An
     for uid, row in ((state or {}).get("units") or {}).items():
         if isinstance(row, dict) and row.get("sentence"):
             out[str(uid)] = {"round": int(row.get("round") or 1), "kind": row.get("kind"),
-                             "kinds": list(row.get("kinds") or [row.get("kind")]), "sentence": str(row["sentence"])}
+                             "kinds": list(row.get("kinds") or [row.get("kind")]), "sentence": str(row["sentence"]),
+                             # burned-text retry n of the redo (2026-11-20): the submitter's stronger perturbation
+                             **({"burn_retry": int(row["burn_retry"])} if int(row.get("burn_retry") or 0) else {})}
     return out
 
 

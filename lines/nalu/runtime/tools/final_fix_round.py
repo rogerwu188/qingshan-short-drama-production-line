@@ -29,6 +29,20 @@ Each confirmed finding is mapped to one fix class:
 * ``RECORD_ONLY`` -- pacing, story, length shortfall, voice collision, ASR mismatch, look-alike cast, letterbox,
   oversized mask and anything else: recorded in ``final_fix_round.json`` and the S8 summary, never acted on.
 
+v2 (2026-11-20, first real run E18 on device 1101):
+
+* findings are DEDUPED (same kind, window +-1 s) across the checklist, confirmed-Gemini and reviewer-problem paths
+  before planning and counting (:func:`dedupe`); wording that names model-burned text is BURNED_TEXT on any path
+  (:func:`strong_kind`), as is face drift / identity swap / skin sheen wording under a record-only item;
+* a BURNED_TEXT redo take is measured with the S6 detector and retried up to twice with an escalated request
+  (retry-indexed clean-picture sentence + 1-2 % crop/scale jitter of @Image1 at a new JPEG quality) inside the
+  round's budget, keeping the best take (:func:`plan_burn_retry`, :func:`round_budget_left`);
+* after the second review every first finding is RESOLVED / PERSISTS / UNVERIFIED and the second review's NEW
+  findings are listed (:func:`reconcile`); "unresolved" = PERSISTS + NEW;
+* a speaker / voice gender mismatch (VOICE_GENDER_MISMATCH) is checked against the unit's speaker_voice_contract
+  (:func:`voice_assignment_check`): a mapping bug is reported, never auto-fixed (H3 voices natively);
+* a clipped tail that survives the wider guard gets its measured cause (:func:`tail_cut_cause`).
+
 Pure functions (no I/O except :func:`write_record`); nalu_pipeline wires them into S7 / S6 / S8.
 """
 from __future__ import annotations
@@ -101,10 +115,10 @@ ITEM_KIND = {
 #: (kind, keywords) in priority order; the first match wins.  Lower-case English + Chinese.
 KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("LOOKALIKE", ("look alike", "lookalike", "look-alike", "same face as", "长得一样", "长得几乎一样", "撞脸")),
-    ("BURNED_TEXT", ("burned-in", "burned in", "burnt-in", "burnt in", "burned text", "burned caption",
+    ("BURNED_TEXT", ("burned-in", "burnt-in", "burned text", "burned caption",
                      "burned subtitle", "on-screen text", "onscreen text", "stray text", "garbled text",
                      "stray caption", "second subtitle", "text overlay", "stray glyph", "烧进", "烧录", "烧入",
-                     "画面里的字", "画面文字", "乱码", "多余字幕", "多出一个", "模型字幕", "字幕重影")),
+                     "画面里的字", "画面文字", "乱码", "多余字幕", "多出一行字", "模型字幕", "字幕重影")),
     ("COSTUME_IDENTITY", ("costume", "wardrobe", "outfit", "clothing", "clothes", "garment", "identity colo",
                           "colour mismatch", "color mismatch", "changes colo", "different colo", "服装", "衣服",
                           "换装", "服色", "衣色", "戏服", "颜色不一致", "颜色变")),
@@ -164,6 +178,18 @@ SENTENCES = {
     "SKIN_SHEEN": ("Every face keeps natural matte skin and dry hair from the first frame to the last: no oily, glossy "
                    "or sweaty sheen, no wet-looking strands and no harsh over-sharpened skin texture."),
 }
+#: burned-text redo retry n (escalation, 2026-11-20 E18: three of four redone units burned the same line again):
+#: each retry words the clean-picture sentence differently, so the prompt (and the request) differs from every take
+#: before it; never the S6 retry sentences (h3_burn_retry.RETRY_SENTENCES) or SENTENCES["BURNED_TEXT"]
+BURN_RETRY_SENTENCES = {
+    1: ("The image carries no writing of any sort: the spoken line lives only in the soundtrack, and the lower "
+        "half of every frame shows only clothing, hands and the set."),
+    2: ("Treat the frame as a clean film negative with no titles: no letter, character, caption bar or written "
+        "word is ever drawn over the scene, from the first frame to the last."),
+}
+#: retries of a fix-round burned-text redo (detection-triggered, inside NALU_FINAL_FIX_BUDGET_CREDITS)
+FIX_BURN_RETRY_MAX = 2
+FIX_BURN_RETRY_ENV = "NALU_FINAL_FIX_BURN_RETRY_MAX"
 _ASCII_TEXT = re.compile(r"^[A-Za-z][A-Za-z ,'\-]{0,60}$")
 
 
@@ -197,16 +223,101 @@ def classify_text(text: str) -> str:
     return "OTHER"
 
 
+# ------------------------------------------------------------------ strong wording (any path, any item)
+#: model-burned on-screen text, whatever the path / item says (E18 2026-11-20: a reviewer problem "model-burned
+#: '劳烦师兄了' at 32.75 s" fell through to OTHER / record-only).  Our own subtitles are never "burned" and never
+#: "in the picture" in these words, so the patterns stay specific to text the model drew into the frame.
+_BURN_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
+    r"burn(?:ed|t)-in\b", r"burn(?:ed|t)\s+(?:in(?:to)?|onto)\s+(?:the\s+)?(?:picture|frame|image|video|clip|shot)\b",
+    r"model[- ]?(?:burn(?:ed|t)?|drawn|rendered|generated)\b.{0,24}(?:text|caption|subtitle|line|letter|word|glyph|字|[\"'“「『])",
+    r"burn(?:ed|t)\s+(?:in(?:to)?\s+)?(?:the\s+)?(?:text|caption|subtitle|line|lettering|words?|glyphs?|dialogue)",
+    r"(?:text|caption|subtitle|lettering|words?|glyphs?)\s+(?:is |are |was |were |gets? |got )?burn(?:ed|t)\b",
+    r"(?:lettering|text|writing|words)\b.{0,30}\b(?:in|into|on) (?:the |its )?(?:picture|frame|image)\b",
+    r"(?:quoted|spoken|dialogue) line\b.{0,30}\b(?:rendered|written|drawn|shown|appears?) (?:on[- ]?screen|in (?:the )?(?:picture|frame))",
+    r"(?:rendered|written|drawn|printed|painted) (?:on[- ]?screen|in(?:to)? (?:the )?(?:picture|frame|image))",
+    r"on[- ]?screen (?:text|lettering|words?|glyphs?)", r"(?:stray|extra|second|duplicate|garbled|model) (?:caption|subtitle|text)",
+    r"text overlay",
+    r"烧(?:字|进|入|录|在|上|到|出|着)", r"字幕上叠", r"叠(?:了|着)?(?:一行|一串)?(?:字(?!幕)|文字|台词)",
+    r"画面(?:里|中|上|内)(?:的|出现|有|浮现|多出|多了|显示)?(?:了|一行|一串|几个)?(?:字(?!幕)|文字|台词|字样)",
+    r"屏幕(?:里|中|上)(?:的|出现|有|浮现|显示)?(?:了|一行)?(?:字(?!幕)|文字|台词)",
+    r"(?:出现|浮现|多出|多了)(?:了)?(?:一行|一串|几个)?(?:文字|字样)", r"(?:多余|额外|模型|第二(?:行|条)?)(?:生成)?(?:的)?字幕",
+    r"(?:台词|对白)[^。；;]{0,14}(?:显示|出现|写|印)在(?:画面|屏幕)",
+))
+#: burned-text keywords of KEYWORDS strong enough to override an item ("多出一个" also means an extra person)
+_BURN_STRONG_WORDS = tuple(w for w in dict(KEYWORDS)["BURNED_TEXT"]
+                           if w not in ("乱码",))
+#: our own subtitles are "captions" too: on a subtitle item the burned override needs an explicit model / extra mark
+_SUBTITLE_ITEMS = ("QA-SUBTITLE-WRAP", "CRAFT-SUBTITLE-READABILITY")
+_MODEL_MARK = re.compile(r"model|模型|stray|extra|second|duplicate|多余|额外|第二|重影|烧", re.IGNORECASE)
+#: identity / face drift wording beyond KEYWORDS (also when the item names a record-only class)
+_FACE_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
+    r"face (?:drift|chang|morph|shift|swap)", r"(?:different|another|wrong) (?:face|person|actor|actress)",
+    r"identity (?:drift|swap|change|mismatch)", r"(?:facial )?features (?:change|shift|morph)",
+    r"(?:morph|transform|turn)s? into (?:another|a different|someone)", r"no longer looks like",
+    r"脸(?:变|型变|不一样|不像|换)", r"(?:相貌|面容|长相|五官)(?:变|不一致|不一样)", r"换(?:了)?(?:一个人|个人|脸)",
+    r"(?:变成|成了)(?:了)?(?:另一个|别人|另一人)", r"不像(?:同一个人|本人)", r"身份(?:漂移|错乱|互换)",
+))
+#: skin sheen wording beyond KEYWORDS
+_SHEEN_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
+    r"(?:oily|greasy|glossy|shiny|waxy|plastic|sweaty|wet)[- ](?:looking )?(?:skin|face|forehead|complexion|sheen)",
+    r"skin (?:sheen|shine|looks (?:oily|greasy|wet|plastic|waxy))", r"(?:wet|damp)[- ](?:looking )?hair",
+    r"油(?:光|亮|腻)", r"(?:皮肤|脸上|额头)(?:发亮|反光|油)", r"满脸(?:油|汗)", r"汗津津", r"(?:头发|发丝)(?:湿|潮)",
+))
+#: speaker / voice gender mismatch (E18 2026-11-20 P1: "a woman on screen is given a low male voice line")
+_VOICE_GENDER_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
+    r"(?:woman|girl|female|lady|she)\b.{0,40}\b(?:male|man's|men's|masculine|deep|low) voice",
+    r"(?:man|boy|male|he)\b.{0,40}\b(?:female|woman's|feminine|girl's|high-pitched) voice",
+    r"(?:male|female|masculine|feminine) voice\b.{0,40}\b(?:woman|girl|man|boy|female|male)\b",
+    r"voice (?:gender|sex) (?:mismatch|wrong)", r"(?:gender|sex)[- ](?:mismatch|wrong)\b.{0,20}voice",
+    r"(?:女|女性|女子|女人|姑娘|女孩|她)[^。；;]{0,16}(?:男声|男性声|男人的声|男子的声|低沉的男)",
+    r"(?:男|男性|男子|男人|他)[^。；;]{0,16}(?:女声|女性声|女人的声|女子的声)",
+    r"(?:男声|女声)[^。；;]{0,10}(?:配给|配在|给了|安在)", r"声音(?:与|和)?(?:角色)?性别不符", r"性别(?:不符|错)",
+))
+
+
+def _matches(patterns: tuple[re.Pattern[str], ...], text: str) -> bool:
+    return any(p.search(text) for p in patterns)
+
+
+def strong_kind(text: str) -> str | None:
+    """The kind a finding's wording names beyond doubt (burned text first, then voice gender, identity / face drift
+    and skin sheen), or None.  Used whatever the path or item, so a reviewer-problem / Gemini OTHER finding that
+    describes model-burned text is never record-only."""
+    text = str(text or "")
+    low = text.lower()
+    if _matches(_BURN_PATTERNS, text) or any(w in low for w in _BURN_STRONG_WORDS):
+        return "BURNED_TEXT"
+    if _matches(_VOICE_GENDER_PATTERNS, text):
+        return "VOICE_GENDER_MISMATCH"
+    if _matches(_FACE_PATTERNS, text):
+        return "FACE_DRIFT"
+    if _matches(_SHEEN_PATTERNS, text):
+        return "SKIN_SHEEN"
+    return None
+
+
 def classify(item: str | None, text: str = "") -> str:
-    """Fix kind of one finding: the QA item decides when it names one, else the finding's text."""
+    """Fix kind of one finding.  Wording that names model-burned text wins over any item; otherwise the QA item
+    decides when it names an actionable kind, and a record-only / unknown item yields to wording that names voice
+    gender, face drift / identity swap or skin sheen."""
     item = str(item or "").upper()
-    if item == "QA-LOOKALIKE-CAST" and classify_text(text) == "FACE_DRIFT":
+    strong = strong_kind(text)
+    if strong == "BURNED_TEXT" and (item not in _SUBTITLE_ITEMS or _MODEL_MARK.search(str(text or ""))):
+        return "BURNED_TEXT"
+    if strong == "BURNED_TEXT":
+        strong = None
+    if item == "QA-LOOKALIKE-CAST" and (strong == "FACE_DRIFT" or classify_text(text) == "FACE_DRIFT"):
         return "FACE_DRIFT"  # an in-shot identity swap reported under the look-alike item is a redo, not a record
     if item in ITEM_KIND:
-        return ITEM_KIND[item]
+        kind = ITEM_KIND[item]
+        if fix_class(kind) == RECORD and strong:
+            return strong
+        return kind
     if item == "LOOK-DRIFT":
-        kind = classify_text(text)
-        return kind if kind in ("FACE_DRIFT", "BURNED_TEXT") else "COSTUME_IDENTITY"
+        kind = strong or classify_text(text)
+        return kind if kind in ("FACE_DRIFT", "BURNED_TEXT", "SKIN_SHEEN") else "COSTUME_IDENTITY"
+    if strong:
+        return strong
     return classify_text(text)
 
 
@@ -304,13 +415,30 @@ def unit_at(segments: list[dict[str, Any]], window: list[float] | None) -> dict[
     return best
 
 
+TAIL_OWNER_S = 0.5
+
+
+def tail_owner(segments: list[dict[str, Any]], window: list[float] | None) -> dict[str, Any] | None:
+    """A clipped line tail reported at (or just after) a cut belongs to the OUTGOING unit: a point within
+    TAIL_OWNER_S after a segment boundary maps to the segment that ends there."""
+    if not window:
+        return None
+    t = float(window[0])
+    for prev, seg in zip(segments or [], (segments or [])[1:]):
+        a = _num(seg.get("output_start"))
+        if a is not None and prev.get("unit_id") and a <= t <= a + TAIL_OWNER_S:
+            return prev
+    return None
+
+
 def map_findings(findings: list[dict[str, Any]], segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Each finding with its kind, fix class and (when it has a time) the unit and that unit's on-screen seconds."""
     out = []
     for f in findings:
         kind = f.get("kind_hint") or classify(f.get("item"), f.get("text") or "")
         row = {**{k: v for k, v in f.items() if k != "kind_hint"}, "kind": kind, "class": fix_class(kind)}
-        seg = unit_at(segments, f.get("window"))
+        seg = (tail_owner(segments, f.get("window")) if kind == "DIALOGUE_TAIL_GUARD" else None) \
+            or unit_at(segments, f.get("window"))
         if seg is not None:
             row["unit_id"] = str(seg["unit_id"])
             row["on_screen_seconds"] = round(float(seg["output_end"]) - float(seg["output_start"]), 3)
@@ -319,6 +447,108 @@ def map_findings(findings: list[dict[str, Any]], segments: list[dict[str, Any]])
 
 
 CONFIRMED_SOURCES = ("QA_CHECKLIST_REVIEWER", "GEMINI_CONFIRMED")
+#: which copy of a duplicated finding is kept (confirmed must-check first, so the trigger rule is unchanged)
+SOURCE_RANK = {"QA_CHECKLIST_REVIEWER": 0, "GEMINI_CONFIRMED": 1, "REVIEW_HARD_FAIL": 2, "REVIEW_PROBLEM": 3}
+DEDUPE_S = 1.0
+_SEVERITY_RANK = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+
+
+def _near(a: list[float] | None, b: list[float] | None, tol: float = DEDUPE_S) -> bool:
+    """Two windows within ``tol`` seconds of each other (overlap after widening each by tol/2 per side)."""
+    if not a or not b:
+        return False
+    return float(a[0]) - tol <= float(b[1]) and float(b[0]) <= float(a[1]) + tol
+
+
+def same_finding(a: dict[str, Any], b: dict[str, Any], tol: float = DEDUPE_S) -> bool:
+    """Same kind, and the same time window (+-tol) -- or, both without a time, the same unit (or none)."""
+    if a.get("kind") != b.get("kind"):
+        return False
+    if a.get("window") and b.get("window"):
+        return _near(a["window"], b["window"], tol)
+    if not a.get("window") and not b.get("window"):
+        return a.get("unit_id") == b.get("unit_id")
+    return False
+
+
+def dedupe(mapped: list[dict[str, Any]], tol: float = DEDUPE_S) -> list[dict[str, Any]]:
+    """One finding per (kind, time window +-1 s): the must-check checklist path, the confirmed Gemini path and the
+    score report's problems often describe the same defect (E18 2026-11-20: 15 problems counted as 30).  The copy
+    from the highest-ranked source is kept, with every source, the merged count and the most severe severity."""
+    ordered = sorted(enumerate(mapped), key=lambda r: (SOURCE_RANK.get(str(r[1].get("source")), 9), r[0]))
+    kept: list[tuple[int, dict[str, Any]]] = []
+    for index, f in ordered:
+        match = next((k for _i, k in kept if same_finding(k, f, tol)), None)
+        if match is None:
+            kept.append((index, {**f, "sources": list(f.get("sources") or [f.get("source")])}))
+            continue
+        match["sources"] = list(dict.fromkeys([*match["sources"], *(f.get("sources") or [f.get("source")])]))
+        match["merged"] = int(match.get("merged") or 1) + int(f.get("merged") or 1)
+        if f.get("text") and f["text"] not in str(match.get("text") or ""):
+            match.setdefault("merged_text", []).append(str(f["text"])[:240])
+        sev = [x for x in (match.get("severity"), f.get("severity")) if x]
+        if sev:
+            match["severity"] = min(sev, key=lambda x: _SEVERITY_RANK.get(str(x).upper(), 9))
+        if match.get("window") and f.get("window"):
+            match["window"] = [min(match["window"][0], f["window"][0]), max(match["window"][1], f["window"][1])]
+    return [f for _i, f in sorted(kept, key=lambda r: r[0])]
+
+
+# --------------------------------------------------------------------------------------- reconciliation
+RESOLVED = "RESOLVED"
+PERSISTS = "PERSISTS"
+UNVERIFIED = "UNVERIFIED"
+NEW = "NEW"
+RECONCILE_S = 1.5
+
+
+def _same_defect(first: dict[str, Any], second: dict[str, Any]) -> bool:
+    """A second-review finding is the first one again: same kind, and the same unit or a window within
+    RECONCILE_S (a re-cut moves timestamps a little; a unit redo keeps the unit id)."""
+    if first.get("kind") != second.get("kind"):
+        return False
+    if first.get("unit_id") and first.get("unit_id") == second.get("unit_id"):
+        return True
+    if first.get("window") and second.get("window"):
+        return _near(first["window"], second["window"], RECONCILE_S)
+    return not first.get("window") and not second.get("window") and not first.get("unit_id") \
+        and not second.get("unit_id")
+
+
+def reconcile(first: list[dict[str, Any]], second: list[dict[str, Any]] | None) -> dict[str, Any]:
+    """Each (deduped) first-review finding marked RESOLVED / PERSISTS / UNVERIFIED against the (deduped) second
+    review, plus the second review's NEW findings.  ``second`` None = no second review of a new cut: everything is
+    UNVERIFIED.  A first finding with neither a time nor a unit cannot be matched and stays UNVERIFIED unless a
+    second finding of its kind has no time either.  "unresolved" = PERSISTS + NEW (distinct)."""
+    rows: list[dict[str, Any]] = []
+    used: set[int] = set()
+    keep = ("kind", "class", "unit_id", "window", "source", "sources", "severity", "text", "voice_check",
+            "tail_cause", "burn_check")
+
+    def view(f: dict[str, Any]) -> dict[str, Any]:
+        out = {k: f.get(k) for k in keep if f.get(k) not in (None, [], "")}
+        if "text" in out:
+            out["text"] = str(out["text"])[:240]
+        return out
+
+    for f in first or []:
+        if second is None:
+            rows.append({**view(f), "status": UNVERIFIED, "reason": "NO_SECOND_REVIEW_OF_A_NEW_CUT"})
+            continue
+        match = next((i for i, g in enumerate(second) if i not in used and _same_defect(f, g)), None)
+        if match is not None:
+            used.add(match)
+            rows.append({**view(f), "status": PERSISTS, "second": view(second[match])})
+        elif not f.get("window") and not f.get("unit_id"):
+            rows.append({**view(f), "status": UNVERIFIED, "reason": "NO_TIME_OR_UNIT_TO_MATCH"})
+        else:
+            rows.append({**view(f), "status": RESOLVED})
+    new = [{**view(g), "status": NEW} for i, g in enumerate(second or []) if i not in used]
+    counts = {status: sum(1 for r in rows if r["status"] == status) for status in (RESOLVED, PERSISTS, UNVERIFIED)}
+    counts[NEW] = len(new)
+    unresolved_rows = [r for r in rows if r["status"] == PERSISTS] + new
+    return {"first_findings": len(first or []), "second_findings": None if second is None else len(second),
+            "counts": counts, "unresolved_count": len(unresolved_rows), "rows": rows, "new": new}
 
 
 def triggered(rejected: bool, mapped: list[dict[str, Any]]) -> bool:
@@ -453,17 +683,160 @@ def costume_sentence(rows: list[dict[str, Any]], character_ids: Iterable[str] | 
 
 
 def redo_sentence(kinds: list[str], *, wardrobe_rows: list[dict[str, Any]] | None = None,
-                  character_ids: Iterable[str] | None = None) -> str:
+                  character_ids: Iterable[str] | None = None, burn_retry: int = 0) -> str:
     """One line appended to the unit's provider prompt (the highest-priority kind's sentence, plus the costume pin
-    when costume / identity is among the unit's findings)."""
+    when costume / identity is among the unit's findings).  ``burn_retry`` n > 0 swaps the burned-text sentence for
+    the retry-indexed wording (BURN_RETRY_SENTENCES)."""
     kinds = sorted(set(kinds), key=lambda k: PAID_PRIORITY.get(k, 9))
     parts = []
     for kind in kinds:
         text = (costume_sentence(wardrobe_rows or [], character_ids) if kind == "COSTUME_IDENTITY"
+                else burn_retry_sentence(burn_retry) if kind == "BURNED_TEXT" and burn_retry > 0
                 else SENTENCES.get(kind, ""))
         if text and text not in parts:
             parts.append(text)
     return " ".join(parts[:2])
+
+
+def burn_retry_sentence(index: int) -> str:
+    if index <= 0:
+        return SENTENCES["BURNED_TEXT"]
+    return BURN_RETRY_SENTENCES.get(index) or BURN_RETRY_SENTENCES[max(BURN_RETRY_SENTENCES)]
+
+
+def burn_retry_max(env: dict[str, str] | None = None) -> int:
+    raw = str((os.environ if env is None else env).get(FIX_BURN_RETRY_ENV, FIX_BURN_RETRY_MAX)).strip()
+    try:
+        return max(0, min(FIX_BURN_RETRY_MAX, int(float(raw))))
+    except ValueError:
+        return FIX_BURN_RETRY_MAX
+
+
+def plan_burn_retry(rec: dict[str, Any] | None, detection: dict[str, Any], *, retry_max: int,
+                    budget_left: float | None, headroom: int | None, cost: int) -> dict[str, Any]:
+    """What to do with a freshly landed fix-round redo take of a BURNED_TEXT unit.  Pure.
+
+    ``rec`` is the unit's FINAL_FIX_REDO record ({"burn_retries": [...]}).  KEEP (clean / detector fail-open),
+    RETRY n (still burned, retries left, the round's remaining budget AND the episode headroom cover one more
+    take) or KEEP_BEST (the take with the fewest burned frames stays)."""
+    done = len((rec or {}).get("burn_retries") or [])
+    status = detection.get("status")
+    if status == "FAIL_OPEN":
+        return {"action": "KEEP", "reason": "DETECTOR_FAIL_OPEN", "retry": done}
+    if status != "BURNED":
+        return {"action": "KEEP", "reason": "RESOLVED" if done else "CLEAN", "retry": done}
+    if retry_max <= 0:
+        return {"action": "KEEP_BEST", "reason": "RETRY_DISABLED", "retry": done}
+    if done >= retry_max:
+        return {"action": "KEEP_BEST", "reason": "RETRY_MAX_REACHED", "retry": done}
+    if budget_left is None or cost > budget_left:
+        return {"action": "KEEP_BEST", "reason": "FINAL_FIX_BUDGET_CAP", "retry": done, "cost": cost,
+                "budget_left": budget_left}
+    if headroom is None:
+        return {"action": "KEEP_BEST", "reason": "BUDGET_HEADROOM_UNKNOWN", "retry": done, "cost": cost}
+    if cost > int(headroom):
+        return {"action": "KEEP_BEST", "reason": "BUDGET_HEADROOM_SHORT", "retry": done, "cost": cost,
+                "headroom": int(headroom)}
+    return {"action": "RETRY", "reason": "BURNED_TEXT_STILL_DETECTED", "retry": done + 1, "cost": cost}
+
+
+def round_budget_left(record: dict[str, Any] | None, redo_state: dict[str, Any] | None,
+                      budget: int | None = None) -> float:
+    """NALU_FINAL_FIX_BUDGET_CREDITS minus the round's planned redo spend minus every burn retry already
+    submitted (all units share the one cap)."""
+    cap = budget_credits() if budget is None else int(budget)
+    planned = float(((record or {}).get("paid") or {}).get("planned_credits") or 0)
+    retries = sum(float(r.get("cost") or 0) for row in ((redo_state or {}).get("units") or {}).values()
+                  if isinstance(row, dict) for r in row.get("burn_retries") or [])
+    return round(cap - planned - retries, 3)
+
+
+# ------------------------------------------------------------------------------- voice / speaker gender
+_FEMALE = {"female", "f", "woman", "girl", "女", "女性"}
+_MALE = {"male", "m", "man", "boy", "男", "男性"}
+
+
+def _sex(value: Any) -> str | None:
+    v = str(value or "").strip().lower()
+    return "female" if v in _FEMALE else "male" if v in _MALE else None
+
+
+def voice_assignment_check(bindings: list[dict[str, Any]], registry_rows: list[dict[str, Any]],
+                           character_entities: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Is a speaker / voice gender mismatch a MAPPING bug in the unit's speaker_voice_contract?  Pure.
+
+    For each binding: the speaking character (``character_id``) and the voice entity (``voice_entity_id``) are
+    looked up in the voice registry (major_roles: entity_id, character_id, gender) and the character entities.
+    MAPPING_BUG when the voice entity belongs to another character or its gender differs from the speaker's;
+    CONTRACT_OK when every binding is consistent (the model voiced or lip-synced the wrong person: a generation
+    defect, record + KB); UNKNOWN when genders / rows are missing."""
+    by_entity = {str(r.get("entity_id")): r for r in registry_rows or [] if r.get("entity_id")}
+    by_char = {str(r.get("character_id")): r for r in registry_rows or [] if r.get("character_id")}
+    chars = {str(c.get("character_id")): c for c in character_entities or [] if c.get("character_id")}
+    rows, bugs, unknown = [], [], []
+    for b in bindings or []:
+        cid, vid = str(b.get("character_id") or ""), str(b.get("voice_entity_id") or b.get("speaker_entity_id") or "")
+        voice = by_entity.get(vid) or {}
+        speaker = by_char.get(cid) or {}
+        entity = chars.get(cid) or {}
+        speaker_sex = _sex(speaker.get("gender") or entity.get("gender") or entity.get("sex")
+                           or (entity.get("immutable") or {}).get("gender"))
+        voice_sex = _sex(voice.get("gender"))
+        row = {"speaker": b.get("speaker"), "character_id": cid or None, "voice_entity_id": vid or None,
+               "audio_slot": b.get("audio_slot"), "speaker_gender": speaker_sex, "voice_gender": voice_sex,
+               "visible_speaker": b.get("visible_speaker")}
+        owner = str(voice.get("character_id") or "")
+        if owner and cid and owner != cid:
+            row["problem"] = f"VOICE_ENTITY_OF_ANOTHER_CHARACTER:{owner}"
+            bugs.append(row)
+        elif speaker_sex and voice_sex and speaker_sex != voice_sex:
+            row["problem"] = f"VOICE_GENDER_{voice_sex.upper()}_FOR_{speaker_sex.upper()}_SPEAKER"
+            bugs.append(row)
+        elif not speaker_sex or not voice_sex:
+            unknown.append(row)
+        rows.append(row)
+    status = "MAPPING_BUG" if bugs else "NO_BINDINGS" if not rows else "UNKNOWN" if unknown else "CONTRACT_OK"
+    return {"status": status, "bindings": rows, "bugs": bugs}
+
+
+# ------------------------------------------------------------------------------------ tail-cut causes
+CLIP_END_EPS = 0.05
+
+
+def tail_cut_cause(row: dict[str, Any] | None, next_row: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Why a clipped line tail can survive the wider tail guard, from the unit's performance-cut row
+    (tools/performance_cut: original_seconds, after_out, tail_guard {word_end, speech_end, guard, cut,
+    capped_by_next_speech}) and the next unit's row.  Pure.
+
+    CLIP_END_NO_ROOM      the guard reaches the clip's own end: the line runs to the last frame of the take, so no
+                          S7 cut can extend it (hold-last-frame would freeze the picture, not finish the syllable)
+    NEXT_SHOT_SPEECH_AT_HEAD  the next unit opens on speech within its first 0.15 s: the cut is a hard audio jump
+    NEXT_SPEECH_IN_TAKE   unscripted speech right after the line in the same take (the guard still wins)
+    GUARD_APPLIED         the guard was applied with room to spare: the report disagrees with the measurement
+    NO_PERFORMANCE_CUT_ROW / NOT_A_MATCHED_LINE"""
+    if not isinstance(row, dict):
+        return {"cause": "NO_PERFORMANCE_CUT_ROW"}
+    tg = row.get("tail_guard") or {}
+    if not tg:
+        return {"cause": "NOT_A_MATCHED_LINE", "status": row.get("status")}
+    original = _num(row.get("original_seconds"))
+    out = {k: tg.get(k) for k in ("word_end", "speech_end", "guard", "cut", "capped_by_next_speech")}
+    out["original_seconds"] = original
+    out["after_out"] = row.get("after_out")
+    guard_at = _num(tg.get("guard")) or 0.0
+    speech_end_at = _num(tg.get("speech_end"))
+    if original is not None and (guard_at >= original - CLIP_END_EPS
+                                 or (speech_end_at is None and (_num(row.get("after_out")) or 0) >= original - CLIP_END_EPS)):
+        return {**out, "cause": "CLIP_END_NO_ROOM"}
+    nxt = next_row if isinstance(next_row, dict) else {}
+    head = _num(nxt.get("line_start_seconds"))
+    nin = _num(nxt.get("after_in")) or 0.0
+    if head is not None and head - nin <= 0.15:
+        return {**out, "cause": "NEXT_SHOT_SPEECH_AT_HEAD", "next_unit": nxt.get("unit_id"),
+                "next_line_lead_seconds": round(head - nin, 3)}
+    if tg.get("capped_by_next_speech"):
+        return {**out, "cause": "NEXT_SPEECH_IN_TAKE"}
+    return {**out, "cause": "GUARD_APPLIED"}
 
 
 def apply_sentence(text: str, sentence: str) -> str:
@@ -492,15 +865,28 @@ def summary(record: dict[str, Any] | None) -> dict[str, Any]:
     """The concise view (S8 details, checkpoint, fleet status)."""
     record = record if isinstance(record, dict) else {}
     paid = record.get("paid") or {}
-    return {"status": record.get("status"),
-            "first_verdict": (record.get("first_review") or {}).get("verdict"),
-            "second_verdict": (record.get("second_review") or {}).get("verdict"),
-            "findings": len(record.get("findings") or []),
-            "free_fixes": sorted({a.get("kind") for a in record.get("free_actions") or [] if a.get("kind")}),
-            "units_redone": [r.get("unit_id") for r in paid.get("selected") or []],
-            "planned_credits": paid.get("planned_credits", 0),
-            "credits_spent": record.get("credits_spent"),
-            "unresolved": len(record.get("unresolved") or [])}
+    rec = record.get("reconciliation") or {}
+    out = {"status": record.get("status"),
+           "first_verdict": (record.get("first_review") or {}).get("verdict"),
+           "second_verdict": (record.get("second_review") or {}).get("verdict"),
+           "findings": len(record.get("findings") or []),
+           "free_fixes": sorted({a.get("kind") for a in record.get("free_actions") or [] if a.get("kind")}),
+           "units_redone": [r.get("unit_id") for r in paid.get("selected") or []],
+           "planned_credits": paid.get("planned_credits", 0),
+           "credits_spent": record.get("credits_spent"),
+           "unresolved": len(record.get("unresolved") or [])}
+    if rec:
+        out["reconciliation"] = dict(rec.get("counts") or {})
+        out["second_findings"] = rec.get("second_findings")
+    burn = paid.get("burn_checks") or {}
+    if burn:
+        out["burn_redo"] = {uid: row.get("status") for uid, row in burn.items()}
+    bugs = [f.get("unit_id") for f in [*(record.get("findings") or []),
+                                       *((record.get("second_review") or {}).get("findings") or [])]
+            if (f.get("voice_check") or {}).get("status") == "MAPPING_BUG"]
+    if bugs:
+        out["voice_mapping_bugs"] = sorted({u for u in bugs if u})
+    return out
 
 
 def status_note(record: dict[str, Any] | None) -> str:
@@ -510,22 +896,37 @@ def status_note(record: dict[str, Any] | None) -> str:
         return ""
     if s["status"] == "NOT_NEEDED":
         return "final-fix: not needed (review clean)"
-    parts = [f"final-fix {s['status']}", f"1st {s['first_verdict'] or '?'}"]
+    parts = [f"final-fix {s['status']}", f"1st {s['first_verdict'] or '?'} ({s['findings']})"]
     if s["second_verdict"]:
-        parts.append(f"2nd {s['second_verdict']}")
+        parts.append(f"2nd {s['second_verdict']}"
+                     + (f" ({s['second_findings']})" if s.get("second_findings") is not None else ""))
     if s["free_fixes"]:
         parts.append("free " + ",".join(s["free_fixes"]))
     if s["units_redone"]:
         parts.append(f"redo {','.join(s['units_redone'])} ({s['planned_credits']} cr)")
+    if s.get("burn_redo"):
+        parts.append("burn " + ",".join(f"{u.rsplit('-', 1)[-1]}={v}" for u, v in s["burn_redo"].items()))
+    counts = s.get("reconciliation") or {}
+    if counts:
+        parts.append(f"resolved {counts.get(RESOLVED, 0)} persists {counts.get(PERSISTS, 0)} "
+                     f"new {counts.get(NEW, 0)} unverified {counts.get(UNVERIFIED, 0)}")
     if s["unresolved"]:
         parts.append(f"unresolved {s['unresolved']}")
+    if s.get("voice_mapping_bugs"):
+        parts.append("VOICE MAPPING BUG " + ",".join(s["voice_mapping_bugs"]))
     return "; ".join(parts)
 
 
 def unresolved(record: dict[str, Any] | None) -> list[dict[str, Any]]:
-    """Findings left for the record after the round (record-only, unlocated / skipped paid, and -- when the second
-    review still rejected -- everything the round acted on, marked UNVERIFIED_AFTER_FIX)."""
+    """Distinct findings left after the round.  With a second review reconciled: PERSISTS + NEW.  Without one
+    (no actionable fix / disabled / second review not of a new cut): record-only and not-redone paid findings, and
+    -- when a second verdict exists but could not be reconciled -- everything acted on, UNVERIFIED_AFTER_FIX."""
     record = record if isinstance(record, dict) else {}
+    rec = record.get("reconciliation")
+    if isinstance(rec, dict) and rec.get("second_findings") is not None:
+        rows = [r for r in rec.get("rows") or [] if r.get("status") == PERSISTS] + list(rec.get("new") or [])
+        return [{**{k: r.get(k) for k in ("kind", "class", "unit_id", "window", "source", "severity")
+                    if r.get(k) is not None}, "state": r["status"]} for r in rows]
     redone = {r.get("unit_id") for r in (record.get("paid") or {}).get("selected") or []}
     second = (record.get("second_review") or {}).get("verdict")
     out = []
@@ -545,17 +946,27 @@ def checkpoint_lines(record: dict[str, Any] | None) -> list[str]:
         return []
     s = summary(record)
     lines = ["## Final fix round (owner policy 2026-11-20: never wait on quality)", "",
-             f"* status **{s['status']}** — first review {s['first_verdict'] or '—'}, "
-             f"second review {s['second_verdict'] or '—'}",
+             f"* status **{s['status']}** — first review {s['first_verdict'] or '—'} ({s['findings']} distinct "
+             f"findings), second review {s['second_verdict'] or '—'}",
              f"* free S7 fixes: {', '.join(s['free_fixes']) or 'none'}",
              f"* paid S6 redo: {', '.join(s['units_redone']) or 'none'} (planned {s['planned_credits']} credits, "
              f"cap {(record.get('paid') or {}).get('budget_cap', '—')})"]
     for row in (record.get("paid") or {}).get("skipped") or []:
         lines.append(f"  * not redone `{row.get('unit_id') or '—'}` {row.get('kind')}: {row.get('reason')}")
+    for uid, row in ((record.get("paid") or {}).get("burn_checks") or {}).items():
+        lines.append(f"  * burned-text redo `{uid}`: {row.get('status')} after {row.get('retries', 0)} retr"
+                     f"{'y' if row.get('retries') == 1 else 'ies'} (kept take burned frames "
+                     f"{row.get('kept_burned_frames', '—')})")
+    counts = s.get("reconciliation") or {}
+    if counts:
+        lines.append(f"* after the round: resolved {counts.get(RESOLVED, 0)}, persists {counts.get(PERSISTS, 0)}, "
+                     f"new {counts.get(NEW, 0)}, unverified {counts.get(UNVERIFIED, 0)}")
     rest = record.get("unresolved") or unresolved(record)
     if rest:
         lines.append(f"* unresolved findings ({len(rest)}): " + ", ".join(
             f"{r.get('kind')}{('@' + r['unit_id']) if r.get('unit_id') else ''} [{r.get('state')}]" for r in rest[:12]))
+    if s.get("voice_mapping_bugs"):
+        lines.append(f"* speaker / voice MAPPING BUG in the voice contract: {', '.join(s['voice_mapping_bugs'])}")
     lines.append("")
     return lines
 

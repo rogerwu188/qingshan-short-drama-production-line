@@ -1212,9 +1212,23 @@ Owner: 「不要等我了，我自己看不过来」 — episodes never stop and
     @Image1 bytes perturbed like a burn retry), S6 is reopened (`REOPENED_FINAL_FIX`), and the redo goes through
     every existing gate (budget ledger + episode cap, D-11, paid order, durable store, stale-binding guard, Q2).
     The prompt change gets an engine receipt `prompt_batch_finalization/<unit>.final_fix.json` only when it is
-    an approved prompt plus exactly that sentence.  A final-fix take is never burn-retried again.
+    an approved prompt plus exactly that sentence.  A BURNED_TEXT redo take (v2, 2026-11-20) is measured on landing
+    with the S6 detector (`h3_burn_retry.detect`, one sample with a hit is enough) and, while still burned, retried
+    up to `NALU_FINAL_FIX_BURN_RETRY_MAX` (default 2) times inside the round's remaining budget (cap − planned
+    redos − earlier retries, all units share it) and the episode headroom: the take is parked to
+    `video/_superseded_<run>_final_fix_burn<n>/`, the redo record gets `burn_retry` = n and the retry-indexed
+    clean-picture sentence (`final_fix_round.BURN_RETRY_SENTENCES`), and the submitter escalates the @Image1
+    perturbation (1 % then 2 % crop/scale jitter at JPEG quality 86 / 80, `perturb_start_frame_strong`).  The take
+    with the fewest burned frames is kept.  Other paid kinds keep exactly one take.
   * RECORD ONLY: pacing, story, length shortfall, voice collision, ASR / lip mismatch, look-alike cast,
-    letterbox, oversized mask, anything else.
+    letterbox, oversized mask, anything else.  A speaker / voice gender mismatch (`VOICE_GENDER_MISMATCH`) is
+    checked against the unit's `speaker_voice_contract` and the voice registry (`voice_check`: `MAPPING_BUG` /
+    `CONTRACT_OK` / `UNKNOWN`, plus any S7 V.O. line placed over the shot); a mapping bug is logged
+    (`FINAL_FIX_VOICE_MAPPING_BUG`) and named in the fleet note — H3 voices natively, so nothing re-voices it.
+  * Classification: wording that names model-burned text (烧字 / 烧进 / burned-in / model-burned "…" / text in the
+    picture / 字幕上叠 …) is BURNED_TEXT on every path (checklist, confirmed Gemini incl. class OTHER, reviewer
+    problems); face drift / identity swap / skin sheen wording wins over a record-only item.  Findings are deduped
+    (same kind, window ±1 s) across the paths before planning and counting.
 * **Budget**: planned paid spend ≤ `NALU_FINAL_FIX_BUDGET_CREDITS` (default 45) and ≤ the episode headroom
   (unknown headroom = no paid redo).  When they do not cover every redo: burned text, then costume / identity,
   then face drift, each by on-screen duration; a unit that does not fit is skipped (`BUDGET_CAP`).
@@ -1228,7 +1242,11 @@ Owner: 「不要等我了，我自己看不过来」 — episodes never stop and
   with class / unit, free actions, paid plan with skipped reasons, credits at start and spent, first / second
   review, unresolved findings); the first review's report / ledger / gates / checklist are copied to
   `final_qa/final_fix_round/first_review/` before the second review overwrites them.  The S8 details, the
-  checkpoint and the fleet status (`final_fix_round` + a note suffix) carry its summary.  Statuses:
+  checkpoint and the fleet status (`final_fix_round` + a note suffix) carry its summary.  After the second review
+  every first finding is reconciled (`reconciliation`: RESOLVED / PERSISTS / UNVERIFIED, plus the second review's
+  NEW findings, counts by status); `unresolved` = PERSISTS + NEW (distinct).  A clipped tail carries its measured
+  cause (`tail_cause`: `CLIP_END_NO_ROOM` — the line runs to the take's last frame, no S7 cut can save it;
+  `NEXT_SHOT_SPEECH_AT_HEAD`; `NEXT_SPEECH_IN_TAKE`; `GUARD_APPLIED`).  Statuses:
   `NOT_NEEDED`, `NO_ACTIONABLE_FIX`, `DISABLED`, `S7_RERUN`, `S6_REDO_PENDING`, `DONE`.
 * **S8 engine approval**: after the round (or when the first review passed), S8 writes
   `runtime/pipeline_state/approvals/<EP>.APPROVED.json` itself — `approved_by: "engine_default_terms"`,
@@ -1238,4 +1256,7 @@ Owner: 「不要等我了，我自己看不过来」 — episodes never stop and
   PASS + deliverable); otherwise S8 stays `AWAITING_APPROVAL` with `S8_AUTO_APPROVE_NOT_ELIGIBLE`.
   `project.owner_review_required: true` in the runtime `qingshan.json` restores the old wait for `approve`.
 * **Log lines**: `FINAL_FIX_ROUND_START`, `FINAL_FIX_FREE_RECUT kind=…`, `FINAL_FIX_UNIT_REDO unit=… kind=…`,
-  `FINAL_FIX_ROUND_DONE verdict=…`, `S8_AUTO_APPROVED episode=… by=engine_default_terms`.
+  `FINAL_FIX_BURN_RETRY unit=… retry=n/2`, `FINAL_FIX_BURN_RESOLVED|UNRESOLVED unit=…`,
+  `FINAL_FIX_VOICE_MAPPING_BUG unit=…`, `FINAL_FIX_ROUND_DONE verdict=… resolved= persists= new= unverified=`,
+  `S6_BURN_DETECTOR_FAIL_OPEN` (once per run: burned text is not being measured on this device),
+  `S8_AUTO_APPROVED episode=… by=engine_default_terms`.
