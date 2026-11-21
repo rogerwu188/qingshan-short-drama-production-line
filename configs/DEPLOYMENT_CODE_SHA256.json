@@ -477,7 +477,7 @@
     },
     {
       "path": "lines/nalu/docs/PIPELINE_RUNBOOK.md",
-      "sha256": "a4bb4e16ba37a44773b3c71ae9a2dab027e44ee8b8c448d83950c4e045562070"
+      "sha256": "0cde3bf797d3dafc449154857205c6fb3f300c6e882c9b88f8c09e629388ca10"
     },
     {
       "path": "lines/nalu/docs/PORT_PARITY_REPORT.md",
@@ -681,7 +681,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "4182c30f098782f22f04a6e4b1b0db103c16a0bb93ff7329cbd423db43f3e74a"
+      "sha256": "bc42d9d8aee76c065d031035f45c99b912262b274ff1926506b207d8b26bb276"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -733,7 +733,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/final_fix_round.py",
-      "sha256": "6b876aec67d49b537e5e7bf769760c6a5ddd60acc180eca6b383fd4473bc7fa0"
+      "sha256": "a4af851cef91412a73c66459dac3d3b968f8802e6a1598b6dbfeee7e4260bfb2"
     },
     {
       "path": "lines/nalu/runtime/tools/final_qa_evidence_bundle.py",
@@ -813,7 +813,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "460bccd9db93a6b63b87df1ead78f522dbd1e9eed61cd38acd789d147f831197"
+      "sha256": "feea0f92fd48ecf1116ed8e49cb1f34e0841508347fd50faa454b8f22771322e"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -5249,7 +5249,7 @@
     },
     {
       "path": "tools/h3_burn_retry.py",
-      "sha256": "5d966459fe6ce737292a47915a9b72de5af456f2ccafd3616266a68fcc6ab6b1"
+      "sha256": "124b82fd0c395a444a6fc1ffa1708189f0b6ae42907c26281046a6016228eae7"
     },
     {
       "path": "tools/h3_compile_anchor_freshness.py",
@@ -6925,7 +6925,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "0bd18674748dd7e7ceb899bf069b0862a0892d5440467bdd5e24c33c9a31a89c"
+      "sha256": "e41d06a9aba9c285bac517ea62e01ee536546919cdbd2a0d5aa00aea0937a168"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",

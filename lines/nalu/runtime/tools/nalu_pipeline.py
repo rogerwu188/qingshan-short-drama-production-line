@@ -6040,20 +6040,27 @@ def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
     retry_max = _br.max_retries()
     state_path = _wave_state_path(ctx)
     out: list[dict[str, Any]] = []
-    # a final-fix redo take is that unit's one redo of the round (owner 2026-11-20): never burn-retried again
+    # a final-fix redo take is measured by the fix round's own loop (2026-11-20: a burned-text redo is detected and
+    # retried with an escalated perturbation inside NALU_FINAL_FIX_BUDGET_CREDITS), never by the S6 retry counter
     final_fix_units = set(((read_json(final_fix_redo_path(ctx), {}) or {}).get("units") or {}))
     for uid in unit_ids:
         clip = ctx.p.video_media / f"{uid}.mp4"
-        if not clip.is_file() or uid in final_fix_units:
+        if not clip.is_file():
             continue
         clip_sha = sha256_file(clip)
         if _tail_is_current(ctx, uid, clip_sha):
+            continue
+        if uid in final_fix_units:
+            fix_row = s6_final_fix_burn_check(ctx, uid, clip, clip_sha)
+            if fix_row:
+                out.append(fix_row)
             continue
         state = read_json(state_path, {}) or {"schema": "nalu.s6_wave_state.v1", "waves": []}
         rec = dict((state.get(_br.STATE_KEY) or {}).get(uid) or {})
         if clip_sha in (rec.get("checks") or {}):
             continue  # this exact take was already measured and decided
         det = _br.detect(clip)
+        _s6_burn_note_fail_open(ctx, uid, det)
         attempts = list(rec.get("attempts") or [])
         check = {k: det.get(k) for k in ("status", "frames_sampled", "burned_frames", "longest_run", "elapsed_ms",
                                          "error") if det.get(k) is not None}
@@ -6133,6 +6140,134 @@ def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
         state.setdefault(_br.STATE_KEY, {})[uid] = rec
         write_json(state_path, state)
         out.append(row)
+    return out
+
+
+def _s6_burn_note_fail_open(ctx: Ctx, uid: str, det: dict[str, Any]) -> None:
+    """Say once per run when the burned-text detector cannot measure (OCR / OpenCV missing): a clean first take
+    leaves no record at all, so without this line "no S6_BURN_* in the log" cannot tell CLEAN from not measured
+    (E18 2026-11-20 investigation)."""
+    if det.get("status") != "FAIL_OPEN" or getattr(ctx, "_s6_burn_fail_open_said", False):
+        return
+    try:
+        ctx._s6_burn_fail_open_said = True
+    except Exception:  # noqa: BLE001 - a frozen ctx: say it every time
+        pass
+    ctx.say(f"S6_BURN_DETECTOR_FAIL_OPEN unit={uid} error={str(det.get('error') or '')[:160]} "
+            "(burned text is NOT being measured on this device)")
+
+
+def s6_final_fix_burn_check(ctx: Ctx, uid: str, clip: Path, clip_sha: str) -> dict[str, Any] | None:
+    """Burned-text detection + escalated retry of a final-fix redo take (owner 2026-11-20; E18 device 1101: three
+    of four burned-text redos burned the same line again and the round never looked).
+
+    Only for units the round redid for BURNED_TEXT.  The same local OCR as S6 (h3_burn_retry.detect; one sample
+    with a hit is enough here -- the reviewer already confirmed the burn) runs on the landed redo take.  Still
+    burned, with retries left (NALU_FINAL_FIX_BURN_RETRY_MAX, at most 2) and both the round's remaining budget
+    (NALU_FINAL_FIX_BUDGET_CREDITS minus the planned redos minus earlier retries) and the episode headroom covering
+    one more take: the take is parked to ``video/_superseded_<run>_final_fix_burn<n>/`` and the redo record gets
+    ``burn_retry`` = n and the retry-indexed clean-picture sentence (final_fix_round.BURN_RETRY_SENTENCES); the
+    recompile carries both, and the submitter perturbs @Image1 more strongly (1-2 % crop/scale jitter + a new JPEG
+    quality, h3_burn_retry.perturb_start_frame_strong).  Otherwise the redo take with the fewest burned frames is
+    kept.  Records live in ``reports/<EP>_FINAL_FIX_REDO.json``.  Never blocks; the detector fails open."""
+    import final_fix_round as _ffr
+    import h3_burn_retry as _br
+    path = final_fix_redo_path(ctx)
+    state = read_json(path, {}) or {}
+    rec = dict((state.get("units") or {}).get(uid) or {})
+    if "BURNED_TEXT" not in (rec.get("kinds") or [rec.get("kind")]):
+        return None  # a costume / face / sheen redo is that unit's one take of the round
+    checks = dict(rec.get("burn_checks") or {})
+    if clip_sha in checks or clip_sha == rec.get("parked_clip_sha256"):
+        return None
+    det = _br.detect(clip, min_consecutive=1)
+    _s6_burn_note_fail_open(ctx, uid, det)
+    retries = list(rec.get("burn_retries") or [])
+    checks[clip_sha] = {**{k: det.get(k) for k in ("status", "frames_sampled", "burned_frames", "longest_run",
+                                                   "elapsed_ms", "error") if det.get(k) is not None},
+                        "at": now(), "retry": len(retries), "hits": (det.get("hits") or [])[:6]}
+    takes = list(rec.get("burn_takes") or [])
+    takes.append({"sha256": clip_sha, "retry": len(retries), "burned_frames": int(det.get("burned_frames") or 0),
+                  "status": det.get("status"), "path": str(clip)})
+    retry_max = _ffr.burn_retry_max()
+    cost, budget_left, headroom = 0, None, None
+    if det.get("status") == "BURNED" and len(retries) < retry_max:
+        seconds = next((float(t.get("duration_seconds") or 0) for t in
+                        (read_json(ctx.p.video_transaction, {}) or {}).get("tasks") or []
+                        if str(t.get("unit_id") or t.get("task_key")) == uid), 0.0) or 6.0
+        cost = video_task_credits(episode_video_model(ctx.episode), seconds, 1, episode_video_resolution(ctx.episode))
+        budget_left = _ffr.round_budget_left(read_json(final_fix_record_path(ctx), {}) or {}, state)
+        try:
+            verdict = ctx.budget_check(0, label="final_fix_burn_retry_headroom").get("budget_verdict") or {}
+            headroom = None if verdict.get("headroom_credits") is None else int(verdict["headroom_credits"])
+        except Exception as exc:  # noqa: BLE001 - unknown headroom: no retry
+            ctx.say(f"   final fix burn retry: budget headroom unavailable ({type(exc).__name__})")
+    decision = _ffr.plan_burn_retry(rec, det, retry_max=retry_max, budget_left=budget_left, headroom=headroom,
+                                    cost=cost)
+    frames = f"{det.get('burned_frames')}/{det.get('frames_sampled')}"
+    row: dict[str, Any] = {"unit_id": uid, "clip_sha256": clip_sha, "final_fix": True,
+                           "detection": checks[clip_sha], **decision}
+    if decision["action"] == "RETRY":
+        n = int(decision["retry"])
+        park = ctx.p.video_media / f"_superseded_{ctx.run_id}_final_fix_burn{n}"
+        park.mkdir(parents=True, exist_ok=True)
+        os.replace(clip, park / clip.name)
+        takes[-1]["path"] = str(park / clip.name)
+        rows, chars = _final_fix_wardrobe(ctx, uid) if "COSTUME_IDENTITY" in (rec.get("kinds") or []) else ([], [])
+        sentence = _ffr.redo_sentence(rec.get("kinds") or [rec.get("kind")], wardrobe_rows=rows,
+                                      character_ids=chars, burn_retry=n)
+        retries.append({"retry": n, "failed_clip_sha256": clip_sha, "burned_frames": det.get("burned_frames"),
+                        "parked_clip": str(park / clip.name), "cost": decision.get("cost"),
+                        "budget_left_before": budget_left, "previous_sentence": rec.get("sentence"),
+                        "sentence": sentence, "run_id": ctx.run_id, "recorded_at": now(), "recorded_by": TOOL_ID})
+        rec.update(burn_retry=n, burn_retries=retries, sentence=sentence, status="BURN_RETRY_PENDING",
+                   burn_status="RETRY_PENDING")
+        row["parked_clip"] = str(park / clip.name)
+        ctx.say(f"FINAL_FIX_BURN_RETRY unit={uid} frames={frames} retry={n}/{retry_max} cost={decision.get('cost')} "
+                f"budget_left={budget_left}")
+    elif decision["action"] == "KEEP":
+        rec.update(burn_status="RESOLVED" if det.get("status") == "CLEAN" else "KEPT_DETECTOR_FAIL_OPEN",
+                   kept_take_sha256=clip_sha, kept_take_burned_frames=0, status="LANDED")
+        ctx.say(f"FINAL_FIX_BURN_RESOLVED unit={uid} retry={len(retries)}/{retry_max} frames={frames}"
+                + ("" if det.get("status") == "CLEAN" else f" (detector {det.get('status')})"))
+    else:
+        best = _br.best_take(takes) or takes[-1]
+        if best.get("sha256") != clip_sha and best.get("path") and Path(best["path"]).is_file():
+            park = ctx.p.video_media / f"_superseded_{ctx.run_id}_final_fix_burn_final"
+            park.mkdir(parents=True, exist_ok=True)
+            os.replace(clip, park / clip.name)
+            takes[-1]["path"] = str(park / clip.name)
+            os.replace(best["path"], clip)
+            row["restored_take"] = {"sha256": best["sha256"], "from": best["path"], "retry": best.get("retry")}
+            for take in takes:
+                if take.get("sha256") == best["sha256"]:
+                    take["path"] = str(clip)
+        rec.update(burn_status="UNRESOLVED", burn_unresolved_reason=decision["reason"],
+                   kept_take_sha256=best["sha256"], kept_take_burned_frames=best.get("burned_frames"),
+                   kept_take_retry=best.get("retry"), status="LANDED")
+        checks.setdefault(best["sha256"], {})["kept_as_best"] = True
+        ctx.say(f"FINAL_FIX_BURN_UNRESOLVED unit={uid} retry={len(retries)}/{retry_max} reason={decision['reason']} "
+                f"kept_take={str(best['sha256'])[:12]} burned_frames={best.get('burned_frames')}")
+        row["kept_take_sha256"] = best["sha256"]
+    rec.update(burn_checks=checks, burn_takes=takes, updated_at=now())
+    state = read_json(path, {}) or {}
+    state.setdefault("units", {})[uid] = rec
+    write_json(path, state)
+    return row
+
+
+def final_fix_burn_summary(redo_state: dict[str, Any] | None) -> dict[str, Any]:
+    """unit -> {status, retries, kept_burned_frames, reason} of the round's burned-text redos (for the record)."""
+    out = {}
+    for uid, rec in ((redo_state or {}).get("units") or {}).items():
+        if not isinstance(rec, dict) or "BURNED_TEXT" not in (rec.get("kinds") or [rec.get("kind")]):
+            continue
+        out[str(uid)] = {"status": rec.get("burn_status") or "NOT_MEASURED",
+                         "retries": len(rec.get("burn_retries") or []),
+                         "retry_credits": sum(float(r.get("cost") or 0) for r in rec.get("burn_retries") or []),
+                         **({"kept_burned_frames": rec["kept_take_burned_frames"]}
+                            if rec.get("kept_take_burned_frames") is not None else {}),
+                         **({"reason": rec["burn_unresolved_reason"]} if rec.get("burn_unresolved_reason") else {})}
     return out
 
 
@@ -6231,7 +6366,21 @@ def s6_burn_retry_note_posted(ctx: Ctx, posted: list[str]) -> list[str]:
         ctx.say(f"S6_BURN_RETRY_SUBMITTED unit={uid} retry={attempts[-1].get('retry')}/{_br.max_retries()}")
     if noted:
         write_json(path, state)
-    return noted
+    fix_path = final_fix_redo_path(ctx)
+    fix_state = read_json(fix_path, {}) or {}
+    fix_noted = []
+    for uid in posted:
+        rec = (fix_state.get("units") or {}).get(uid) or {}
+        retries = rec.get("burn_retries") or []
+        if rec.get("status") != "BURN_RETRY_PENDING" or not retries or retries[-1].get("submitted_at"):
+            continue
+        retries[-1]["submitted_at"] = now()
+        rec["status"] = "BURN_RETRY_SUBMITTED"
+        fix_noted.append(uid)
+        ctx.say(f"FINAL_FIX_BURN_RETRY_SUBMITTED unit={uid} retry={retries[-1].get('retry')}")
+    if fix_noted:
+        write_json(fix_path, fix_state)
+    return noted + fix_noted
 
 
 def s6_burn_retry_finalization_receipts(ctx: Ctx, unbound: list[str], fin_report: dict[str, Any],
@@ -10353,6 +10502,83 @@ def _final_fix_credits(ctx: Any) -> float | None:
         return None
 
 
+def final_fix_voice_check(ctx: Any, uid: str, window: list[float] | None = None) -> dict[str, Any]:
+    """Speaker / voice gender mismatch at ``uid`` (E18 2026-11-20 P1): is the unit's speaker_voice_contract mapping
+    wrong (final_fix_round.voice_assignment_check against the voice registry), or does a V.O. line placed by S7
+    (``<EP>_voice_over_placement.json``) sound over the shot?  Read-only; the fix round never re-voices H3 native
+    audio, so a MAPPING_BUG is reported (record + KB + fleet note), not auto-fixed."""
+    import final_fix_round as _ffr
+    task = next((t for t in (read_json(ctx.p.video_transaction, {}) or {}).get("tasks") or []
+                 if str(t.get("unit_id") or "") == uid), None) or {}
+    machine = task.get("machine_contract") or {}
+    contract = task.get("speaker_voice_contract") or machine.get("speaker_voice_contract") or {}
+    entities = task.get("character_entities") or machine.get("character_entities") or []
+    registry_rows: list[dict[str, Any]] = []
+    try:
+        scope = getattr(ctx.p, "scope", None) or {}
+        reg_path = scope.get("voice_registry") if isinstance(scope, dict) else None
+        reg_path = reg_path or os.environ.get("QINGSHAN_VOICE_REGISTRY")
+        if reg_path:
+            registry_rows = list((read_json(Path(str(reg_path)), {}) or {}).get("major_roles") or [])
+    except Exception:  # noqa: BLE001 - no registry: the check says UNKNOWN
+        registry_rows = []
+    out = _ffr.voice_assignment_check(contract.get("bindings") or [], registry_rows, entities)
+    out["unit_id"] = uid
+    if not task:
+        out["status"] = "NO_TASK"
+    if window:
+        placement = read_json(voice_over_placement_path(ctx), {}) or {}
+        hits = [{k: r.get(k) for k in ("shot_id", "line_index", "character_id", "start", "end")}
+                for r in placement.get("rows") or []
+                if _ffr._near([float(r.get("start") or 0), float(r.get("end") or 0)], window, 0.5)]
+        if hits:
+            out["voice_over_lines"] = hits
+            out["cause_hint"] = "VOICE_OVER_PLACED_OVER_THIS_SHOT"
+    return out
+
+
+def _final_fix_annotate(ctx: Any, mapped: list[dict[str, Any]], segments: list[dict[str, Any]]) -> None:
+    """In place: voice checks on speaker / voice gender findings and the measured cause of clipped line tails
+    (tools/performance_cut rows of ``<EP>_PERFORMANCE_CUT.json``).  Best-effort, read-only."""
+    import final_fix_round as _ffr
+    perf = None
+    order = [str(s.get("unit_id")) for s in segments or []]
+    for f in mapped:
+        uid = f.get("unit_id")
+        try:
+            if f.get("kind") == "VOICE_GENDER_MISMATCH" and uid:
+                f["voice_check"] = final_fix_voice_check(ctx, str(uid), f.get("window"))
+                if f["voice_check"].get("status") == "MAPPING_BUG":
+                    ctx.say(f"FINAL_FIX_VOICE_MAPPING_BUG unit={uid} "
+                            + ",".join(str(b.get("problem")) for b in f["voice_check"].get("bugs") or []))
+            elif f.get("kind") == "DIALOGUE_TAIL_GUARD" and uid:
+                if perf is None:
+                    perf = {str(r.get("unit_id")): r for r in (read_json(
+                        ctx.p.assembly / f"{ctx.episode}_PERFORMANCE_CUT.json", {}) or {}).get("units") or []}
+                pos = order.index(str(uid)) if str(uid) in order else -1
+                nxt = perf.get(order[pos + 1]) if 0 <= pos < len(order) - 1 else None
+                f["tail_cause"] = _ffr.tail_cut_cause(perf.get(str(uid)), nxt)
+        except Exception as exc:  # noqa: BLE001 - annotation never blocks the round
+            f["annotation_error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+
+
+def final_fix_review_findings(ctx: Any, report_path: str, cand_sha: str,
+                              segments: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
+    """The confirmed, mapped, deduped and annotated findings of one final review (None when its report is not
+    readable).  A must-check list bound to another cut is ignored."""
+    import final_fix_round as _ffr
+    if not report_path or not Path(report_path).is_file():
+        return None
+    report = read_json(Path(report_path), {}) or {}
+    checklist_path = Path(report_path).parent / f"{ctx.episode}_QA_DEFECT_CHECKLIST.json"
+    checklist = read_json(checklist_path, {}) if checklist_path.is_file() else {}
+    if isinstance(checklist, dict) and (checklist.get("bindings") or {}).get("final_video_sha256") not in (None, cand_sha):
+        checklist = {}  # a must-check list of another cut is not a finding of this one
+    mapped = _ffr.dedupe(_ffr.map_findings(_ffr.collect_findings(report, checklist), segments))
+    _final_fix_annotate(ctx, mapped, segments)
+    return mapped
+
+
 def s7_final_fix_round(ctx: Any, res: Any, final_audience: dict[str, Any], review_rejected: bool) -> dict[str, Any]:
     """The S7 hook after the independent final review (PASS or REJECT_RECUT).  Returns {action, record} where action
     is PROCEED (continue to final QA / release exactly as before), S7_RERUN (free fixes applied: re-run S7 now) or
@@ -10369,15 +10595,29 @@ def s7_final_fix_round(ctx: Any, res: Any, final_audience: dict[str, Any], revie
     def done(rec: dict[str, Any], note: str | None = None) -> dict[str, Any]:
         spent_now = _final_fix_credits(ctx)
         start = rec.get("credits_at_start")
+        segments_now = (read_json(p.assembly / f"{ctx.episode}_release_timeline.json", {}) or {}).get("segments") or []
+        # the second review of a NEW cut is reconciled against the first (2026-11-20 E18: 23 of 30 "unresolved"
+        # were first-round findings never checked against the second review, counted twice)
+        second = None if note else final_fix_review_findings(ctx, report_path, cand_sha, segments_now)
         rec.update(status="DONE", finished_at=now(),
                    second_review={"verdict": verdict, "final_video_sha256": cand_sha, "report": report_path or None,
-                                  **({"note": note} if note else {})},
+                                  **({"note": note} if note else {}),
+                                  **({"findings": second} if second is not None else {})},
                    credits_spent=(round(spent_now - float(start), 3)
                                   if spent_now is not None and start is not None else None))
+        burn = final_fix_burn_summary(read_json(final_fix_redo_path(ctx), {}) or {})
+        if burn:
+            rec.setdefault("paid", {})["burn_checks"] = burn
+        # dedupe again: a record started by an engine without the dedupe (an episode in flight) still reconciles 1:1
+        rec["findings"] = _ffr.dedupe(rec.get("findings") or [])
+        rec["reconciliation"] = _ffr.reconcile(rec["findings"], second)
         rec["unresolved"] = _ffr.unresolved(rec)
         _ffr.write_record(path, rec)
+        counts = rec["reconciliation"]["counts"]
         ctx.say(f"FINAL_FIX_ROUND_DONE verdict={verdict} episode={ctx.episode} "
                 f"units_redone={','.join(_ffr.summary(rec)['units_redone']) or '-'} "
+                f"resolved={counts.get(_ffr.RESOLVED, 0)} persists={counts.get(_ffr.PERSISTS, 0)} "
+                f"new={counts.get(_ffr.NEW, 0)} unverified={counts.get(_ffr.UNVERIFIED, 0)} "
                 f"unresolved={len(rec['unresolved'])}" + (f" ({note})" if note else ""))
         return {"action": "PROCEED", "record": str(path), **_ffr.summary(rec)}
 
@@ -10400,13 +10640,10 @@ def s7_final_fix_round(ctx: Any, res: Any, final_audience: dict[str, Any], revie
     if _ffr.rounds() == 0:
         _ffr.write_record(path, {**base, "status": "DISABLED"})
         return {"action": "PROCEED", "record": str(path), "status": "DISABLED"}
-    report = read_json(Path(report_path), {}) if report_path else {}
-    checklist_path = Path(report_path).parent / f"{ctx.episode}_QA_DEFECT_CHECKLIST.json" if report_path else None
-    checklist = read_json(checklist_path, {}) if checklist_path and checklist_path.is_file() else {}
-    if isinstance(checklist, dict) and (checklist.get("bindings") or {}).get("final_video_sha256") not in (None, cand_sha):
-        checklist = {}  # a must-check list of another cut is not a finding of this one
     segments = (read_json(p.assembly / f"{ctx.episode}_release_timeline.json", {}) or {}).get("segments") or []
-    mapped = _ffr.map_findings(_ffr.collect_findings(report, checklist), segments)
+    # one finding per defect: the checklist path and the reviewer-problem path often name the same one (E18: 15
+    # problems counted as 30) -- deduped before planning and counting
+    mapped = final_fix_review_findings(ctx, report_path, cand_sha, segments) or []
     base["findings"] = mapped
     if not _ffr.triggered(review_rejected, mapped):
         rec = {**base, "status": "NOT_NEEDED", "note": "first review PASS without a confirmed must-check defect"}
