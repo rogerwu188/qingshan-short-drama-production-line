@@ -1215,6 +1215,15 @@ def written_off_retry_open(path: Path, row: dict[str, Any]) -> bool:
     return True
 
 
+def lost_response_retry_open(path: Path, row: dict[str, Any]) -> bool:
+    """tools/hopsapi_usage.auto_retry_open: ONE new attempt per auto-reconciled lost HopsAPI create."""
+    try:
+        import hopsapi_usage  # noqa: PLC0415
+    except ImportError:  # imported as tools.<module>
+        from tools import hopsapi_usage  # noqa: PLC0415
+    return hopsapi_usage.auto_retry_open(path, row)
+
+
 def prior_bound(task: dict[str, Any], transaction_dir: Path) -> dict[str, Any] | None:
     path = transaction_path(transaction_dir, task)
     if not path.is_file():
@@ -1252,7 +1261,14 @@ def prior_bound(task: dict[str, Any], transaction_dir: Path) -> dict[str, Any] |
             return None
         raise RuntimeError(f"{task['task_key']} blocked by transaction state {WRITTEN_OFF_STATE} "
                            "(the one new attempt after a write-off is already used)")
-    if row.get("state") not in {"VERIFIED_ZERO_RETRYABLE", "VERIFIED_ZERO_NO_REMOTE_TASK", "WRITTEN_OFF_UNATTRIBUTABLE_RETRYABLE"}:
+    if row.get("state") in {"VERIFIED_ZERO_NO_REMOTE_TASK", "WRITTEN_OFF_UNATTRIBUTABLE_RETRYABLE"}:
+        # Settled by the lost-response reconciliation (ruling A): ONE new attempt per lost transaction; a resubmit
+        # that lost its response again is written off (counted) but never resubmitted by itself.
+        if lost_response_retry_open(path, row):
+            return None
+        raise RuntimeError(f"{task['task_key']} blocked by transaction state {row.get('state')} "
+                           "(the one automatic new attempt after a lost response is already used)")
+    if row.get("state") != "VERIFIED_ZERO_RETRYABLE":
         raise RuntimeError(f"{task['task_key']} blocked by transaction state {row.get('state')}")
     return None
 
