@@ -74,7 +74,7 @@ MAX_OUTPUT_TOKENS = 8192
 MAX_UPLOAD_BYTES = 14_500_000       # raw bytes: base64 inflates by 4/3 and the request limit is 20 MB
 HTTP_TIMEOUT_S = 600
 CLASSES = ("QA-BURNED-TEXT", "QA-DIALOGUE-TAIL-CUT", "QA-OVERSIZED-MASK", "QA-LOOKALIKE-CAST", "QA-SUBTITLE-WRAP",
-           "QA-BGM-DISCONTINUOUS", "QA-SKIN-SHEEN-DRIFT", "LETTERBOX", "LOOK-DRIFT", "OTHER")
+           "QA-BGM-DISCONTINUOUS", "QA-SKIN-SHEEN-DRIFT", "QA-EDIT-FRAGMENT", "LETTERBOX", "LOOK-DRIFT", "OTHER")
 SEVERITIES = ("P0", "P1", "P2", "P3")
 
 
@@ -177,6 +177,7 @@ ITEM_TEXT = {
     "QA-SUBTITLE-WRAP": "我方字幕排版：标点（！？。）或一两个字单独占一行、超过两行、我方字幕和画面里其它文字重叠压字。",
     "QA-BGM-DISCONTINUOUS": "背景音乐突兀：音乐只响一两个镜头就停，或在切镜处生硬起停、没有淡入淡出。",
     "QA-SKIN-SHEEN-DRIFT": "皮肤/头发质感突变：相邻镜头间人物脸突然油光、出汗、高光反光，头发变湿，或皮肤纹理突然过锐（场景没有雨水、汗水、眼泪的理由）。",
+    "QA-EDIT-FRAGMENT": "剪辑碎片：不到约 1.2 秒的碎镜头；画面里是正在说话的角色却一句没说就切走；一句话没说完就切走；整体切得太快。",
     "LETTERBOX": "画幅：竖屏 9:16 成片里混入横版镜头（上下黑边）或左右黑边。",
     "LOOK-DRIFT": "同一角色前后造型不一致（胡子、发型、服装、配饰在同一场里变了）。",
     "OTHER": "其它任何观众会注意到的问题（口型对不上、穿帮、重复台词、跳帧、节奏拖沓等）。",
@@ -197,13 +198,37 @@ def _compact_suspects(pack_summary: dict[str, Any], measurements: dict[str, Any]
         if cut is not None and round(cut, 1) not in seen:
             seen.add(round(cut, 1))
             out["tail"].append({"at": round(cut, 2), "why": f"台词结束到切点只有 {row.get('gap_seconds')}s"})
+    # S7 edit measurement (s7_edit_invariants.measure_cut): clipped tails / cuts inside a line -> sound pass,
+    # fragments / speaker-not-speaking shots -> craft pass (as ``fragment``)
+    edit = measurements.get("s7_edit") or {}
+    for row in edit.get("tail_gaps") or []:
+        cut = _num(row.get("next_cut"))
+        if cut is not None and round(cut, 1) not in seen:
+            seen.add(round(cut, 1))
+            out["tail"].append({"at": round(cut, 2), "why": f"S7 实测：台词结束 {row.get('gap_seconds')}s 后就切"})
+    for row in edit.get("mid_line_cuts") or []:
+        cut = _num(row.get("at"))
+        if cut is not None and round(cut, 1) not in seen:
+            seen.add(round(cut, 1))
+            out["tail"].append({"at": round(cut, 2), "why": "S7 实测：切点落在一句台词中间"})
+    frag_seen: set[float] = set()
+    for key, why in (("fragments", "碎镜头"), ("speaker_not_speaking", "说话角色在画面里却没说话")):
+        for row in edit.get(key) or []:
+            a, b = _num(row.get("start")), _num(row.get("end"))
+            if a is None or b is None or round(a, 1) in frag_seen:
+                continue
+            frag_seen.add(round(a, 1))
+            out.setdefault("fragment", []).append({"window": [round(a, 2), round(b, 2)],
+                                                   "why": f"S7 实测：{why} {row.get('seconds')}s"})
     for row in pack_summary.get("bgm_suspects") or []:
         out["bgm"].append({"window": row.get("window"), "why": ",".join(row.get("reasons") or [])})
     for row in pack_summary.get("letterbox_shots") or []:
         out["letterbox"].append({"window": row.get("window"),
                                  "why": f"{row.get('kind')} content aspect {row.get('content_aspect')}"})
     ids = 0
-    for key in ("tail", "bgm", "letterbox"):
+    for key in ("tail", "bgm", "letterbox", "fragment"):
+        if key not in out:
+            continue
         out[key] = out[key][:20]
         for row in out[key]:
             ids += 1

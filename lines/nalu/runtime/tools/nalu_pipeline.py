@@ -10421,6 +10421,8 @@ def s7_unit_recut(ctx: Ctx, res: StageResult) -> tuple[Path | None, list[str]]:
     report = p.assembly / f"{ctx.episode}_UNIT_RECUT.json"
     out_dir = p.video_media / "_recut"
     overlay = p.video_media / "_stabilized"
+    authored = plan
+    plan, invariants = s7_recut_plan_invariants(ctx, res, plan)
     argv: list[Any] = [VENV, RT_TOOLS / "unit_recut.py", "--plan", plan, "--source-dir", p.video_media,
                        "--out-dir", out_dir, "--report", report]
     if overlay.is_dir():
@@ -10429,6 +10431,7 @@ def s7_unit_recut(ctx: Ctx, res: StageResult) -> tuple[Path | None, list[str]]:
     res.steps.append(step)
     payload = read_json(report, {}) or {}
     res.details["unit_recut"] = {"plan": str(plan), "plan_sha256": sha256_file(plan), "report": str(report),
+                                 "authored_plan": str(authored), "edit_invariants": invariants,
                                  "status": payload.get("status"), "applied": payload.get("applied") or [],
                                  "problems": payload.get("problems") or [], "out_dir": str(out_dir),
                                  "overlay_dir": str(overlay) if overlay.is_dir() else None}
@@ -10437,6 +10440,65 @@ def s7_unit_recut(ctx: Ctx, res: StageResult) -> tuple[Path | None, list[str]]:
         return None, ["UNIT_RECUT_FAILED:" + ";".join(str(x) for x in (payload.get("problems") or [])[:5])]
     res.receipts.append(str(report))
     return report, []
+
+
+def s7_recut_plan_invariants(ctx: Ctx, res: StageResult, plan: Path) -> tuple[Path, dict[str, Any]]:
+    """S7 edit invariants on the unit re-cut plan (owner 2026-11-21, device 1101 E21; tools/s7_edit_invariants):
+    the authored / final-fix plan's visible cuts are moved out of speech, fragments under the minimum shot and
+    speaker-who-does-not-speak shots are merged into a neighbour's picture (the sound never moves).  Writes
+    ``<EP>_UNIT_RECUT_PLAN.edit_invariants.json`` beside the authored plan (which is never touched) and returns it
+    with a summary; an unchanged plan, or any error, returns the authored plan itself.  Free; never blocks."""
+    p = ctx.p
+    summary: dict[str, Any] = {"status": "UNCHANGED"}
+    try:
+        import s7_edit_invariants as _inv
+        payload = read_json(plan, {}) or {}
+        units = payload.get("units") or {}
+        if not isinstance(units, dict) or not units:
+            return plan, {"status": "EMPTY_PLAN"}
+        if (res.details.get("dialogue_tail_trim") or {}).get("report"):
+            asr = read_json(p.assembly / f"{ctx.episode}_unit_asr_untrimmed.json", {}) or {}
+        else:
+            try:
+                asr = transcribe_units(ctx, p.video_media, ctx.episode, words=True)
+            except Exception:  # noqa: BLE001 - no ASR: the minimum-shot merge still runs
+                asr = read_json(p.assembly / f"{ctx.episode}_unit_asr.json", {}) or {}
+        used = sorted({str(seg[k][0]) for row in units.values() if isinstance(row, dict)
+                       for seg in row.get("segments") or [] for k in ("video", "audio")
+                       if isinstance(seg, dict) and isinstance(seg.get(k), list) and seg[k]})
+        overlay = p.video_media / "_stabilized"
+        clip_seconds = {}
+        for uid in used:
+            clip = overlay / f"{uid}.mp4" if (overlay / f"{uid}.mp4").is_file() else p.video_media / f"{uid}.mp4"
+            if clip.is_file():
+                clip_seconds[uid] = _probe_seconds(clip)
+        clip_seconds = {k: v for k, v in clip_seconds.items() if v}
+        words = {uid: _inv.speech_words(asr.get(uid) or []) for uid in used}
+        speaking = s7_speaking_units(ctx)
+        out_units, rows = {}, []
+        for uid, row in units.items():
+            if not isinstance(row, dict) or not row.get("segments"):
+                out_units[uid] = row
+                continue
+            got = _inv.sanitize_recut(str(uid), list(row["segments"]), words_by_unit=words,
+                                      clip_seconds=clip_seconds, speaking_units=speaking)
+            out_units[uid] = {**row, "segments": got["segments"]} if got["changed"] else row
+            if got["actions"] or got["problems"]:
+                rows.append({"unit_id": uid, "actions": got["actions"], "problems": got["problems"]})
+        summary = {"status": "APPLIED" if any(r["actions"] for r in rows) else "UNCHANGED", "units": rows,
+                   "min_shot_seconds": _inv.min_shot_seconds(), "asr_units": sorted(u for u in used if asr.get(u))}
+        if summary["status"] != "APPLIED":
+            return plan, summary
+        out = p.assembly / f"{ctx.episode}_UNIT_RECUT_PLAN.edit_invariants.json"
+        write_json(out, {**payload, "units": out_units, "edit_invariants": {
+            "schema": _inv.SCHEMA, "authored_plan": str(plan), "authored_plan_sha256": sha256_file(plan),
+            "units": rows}})
+        for r in rows:
+            for a in r["actions"]:
+                ctx.say(f"S7_EDIT_INVARIANT unit={r['unit_id']} action={a.get('action')}")
+        return out, summary
+    except Exception as exc:  # noqa: BLE001 - an editing polish, never a blocker
+        return plan, {"status": f"SKIPPED_ERROR:{type(exc).__name__}:{str(exc)[:160]}"}
 
 
 def _park_superseded(*paths: Path) -> list[str]:
@@ -10932,10 +10994,43 @@ def _final_fix_cut_windows(ctx: Any) -> dict[str, dict[str, float]]:
     return out
 
 
+def s7_speaking_units(ctx: Any) -> set[str]:
+    """Units carrying an on-screen scripted line (a speaker on screen): the performance cut's SPEAKING rows when it
+    ran, else the contract's dialogue units (V.O.-only speakers excluded) through the grouping plan."""
+    perf = read_json(ctx.p.assembly / f"{ctx.episode}_PERFORMANCE_CUT.json", {}) or {}
+    rows = perf.get("units") or []
+    if rows:
+        return {str(r.get("unit_id")) for r in rows if r.get("kind") == "SPEAKING"}
+    try:
+        import performance_cut as _perf  # noqa: PLC0415 - engine tools dir is on sys.path at S7
+        lines_by_shot, voice_only = _perf._unit_lines(read_json(ctx.p.contract, {}) or {},
+                                                      read_json(ctx.p.grouping_plan, {}) or {})
+    except Exception:  # noqa: BLE001 - no contract: nobody is known to speak
+        return set()
+    out = set()
+    for unit in (read_json(ctx.p.grouping_plan, {}) or {}).get("units") or []:
+        if any(str(ln.get("speaker_id") or "") not in voice_only
+               for sid in unit.get("editorial_shot_ids") or [] for ln in lines_by_shot.get(str(sid), [])):
+            out.add(str(unit.get("unit_id")))
+    return out
+
+
+def s7_source_unit_asr(ctx: Any) -> dict[str, Any]:
+    """Unit ASR in SOURCE seconds of the original unit clips, word timestamps when the S7 tail pass kept them
+    (``<EP>_unit_asr_untrimmed.json``), else the captions' unit ASR (segments).  {} when S7 never transcribed."""
+    for name in (f"{ctx.episode}_unit_asr_untrimmed.json", f"{ctx.episode}_unit_asr.json"):
+        data = read_json(ctx.p.assembly / name, {}) or {}
+        if isinstance(data, dict) and data:
+            return data
+    return {}
+
+
 def final_fix_static_recut(ctx: Any, units: list[str], timeline_order: list[str]) -> list[dict[str, Any]]:
     """Add one unit_recut entry per over-long static unit to ``<EP>_UNIT_RECUT_PLAN.json`` (free; FREE_S7
     STATIC_SHOT_SPLIT).  Units the authored plan already re-cuts are left alone.  The authored plan, when there is
-    one, is kept beside it as ``<EP>_UNIT_RECUT_PLAN.pre_final_fix.json``."""
+    one, is kept beside it as ``<EP>_UNIT_RECUT_PLAN.pre_final_fix.json``.  The split respects the S7 edit
+    invariants (final_fix_round.static_shot_segments): cuts at line boundaries only, no piece under the minimum shot,
+    cutaways only from silent neighbours' speech-free frames."""
     import final_fix_round as _ffr
     import unit_recut as _ur
     plan_path = ctx.p.assembly / f"{ctx.episode}_UNIT_RECUT_PLAN.json"
@@ -10944,6 +11039,8 @@ def final_fix_static_recut(ctx: Any, units: list[str], timeline_order: list[str]
         return [{"kind": "STATIC_SHOT_SPLIT", "status": "SKIPPED_FOREIGN_PLAN_SCHEMA", "units": units}]
     windows = _final_fix_cut_windows(ctx)
     seconds: dict[str, float | None] = {}
+    asr = s7_source_unit_asr(ctx)
+    speaking = s7_speaking_units(ctx)
 
     def clip_seconds(uid: str) -> float | None:
         if uid not in seconds:
@@ -10968,8 +11065,10 @@ def final_fix_static_recut(ctx: Any, units: list[str], timeline_order: list[str]
             if not nwin or not total or nb in (plan.get("units") or {}):
                 continue
             unused = [(0.0, nwin["in"])] + [(nwin["in"] + nwin["duration"], float(total) - 0.05)]
-            neighbours.append({"unit_id": nb, "unused": [(a, b) for a, b in unused if b - a > 0]})
-        got = _ffr.static_shot_segments(uid, (win["in"], win["in"] + win["duration"]), neighbours=neighbours)
+            neighbours.append({"unit_id": nb, "unused": [(a, b) for a, b in unused if b - a > 0],
+                               "speaking": nb in speaking, "speech": asr.get(nb) or []})
+        got = _ffr.static_shot_segments(uid, (win["in"], win["in"] + win["duration"]), neighbours=neighbours,
+                                        speech=asr.get(uid) or [], speaking=uid in speaking)
         if got.get("status") != "PLANNED":
             actions.append({"kind": "STATIC_SHOT_SPLIT", "unit_id": uid, "status": got.get("status")})
             continue
@@ -12260,6 +12359,7 @@ def _stage_s7_pass(ctx: Ctx) -> StageResult:
     import sys
     sys.path.insert(0, str(ENGINE / "tools"))
     from measured_edit_policy import active_for, get_policy_params
+    import s7_edit_invariants as _s7_inv
 
     constraints_file = None
     if active_for(ctx.episode, line="nalu"):
@@ -12275,8 +12375,11 @@ def _stage_s7_pass(ctx: Ctx) -> StageResult:
             "--grouping-plan", p.grouping_plan,
             "--out-constraints", constraints_file,
             "--out-evidence-dir", evidence_dir,
-            "--lead-seconds", str(params.get("lead_seconds", 0.08)),
-            "--trail-seconds", str(params.get("trail_seconds", 0.12)),
+            # S7 edit invariant 1 (owner 2026-11-21, E21 lines cut off): the measured interval is built from S6 QA
+            # SEGMENT ends, which run early on the final syllable -- never less than the sentence-end tail after
+            # them, never less than the head lead before the first word
+            "--lead-seconds", str(max(float(params.get("lead_seconds", 0.08)), _s7_inv.HEAD_LEAD_SECONDS)),
+            "--trail-seconds", str(max(float(params.get("trail_seconds", 0.12)), _s7_inv.SENTENCE_TAIL_SECONDS)),
         ]
 
         log_path = LOG_ROOT / ctx.episode / "s7_build_measured_edit_constraints.log"

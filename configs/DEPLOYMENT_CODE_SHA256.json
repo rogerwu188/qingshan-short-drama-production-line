@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2538,
+  "file_count": 2540,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -713,7 +713,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/final_audience_review.py",
-      "sha256": "03e5d4e8aed97cf6fd82bc1f916a9490b86861c317a12b9d4b37775a56bbc392"
+      "sha256": "c240608083ebccd3e64cd831ef21ab53f3874014f515ebad149e01714fb1d5ed"
     },
     {
       "path": "lines/nalu/runtime/tools/final_cut_audio_bed.py",
@@ -733,7 +733,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/final_fix_round.py",
-      "sha256": "81794f219325fa89687b0cbe97b0ada1e408d068cba4864c5a30c12dd40f6179"
+      "sha256": "95243e8fce45b2dca9277e5018bc75bef32a9095b0f1a6906adf13657e0d0b81"
     },
     {
       "path": "lines/nalu/runtime/tools/final_qa_evidence_bundle.py",
@@ -741,11 +741,11 @@
     },
     {
       "path": "lines/nalu/runtime/tools/gemini_review_passes.py",
-      "sha256": "f0f061fa66e77088648b099278b15e83900e781f42e62e59b30c40b0c23fe334"
+      "sha256": "327784b562ce161aa41cb13a32457abb5cd98280384c03ad7a93c15c30931d6d"
     },
     {
       "path": "lines/nalu/runtime/tools/gemini_video_review.py",
-      "sha256": "a38fd0fc03d4f663231a02c0154eda0ce5ecd98c635a6c87bc26ebd7d2ba6ae0"
+      "sha256": "59bf18c20f475e43e016cd463ec40947a0d9f2aeb7096e76920340189d3b0838"
     },
     {
       "path": "lines/nalu/runtime/tools/generate_period_look.py",
@@ -793,11 +793,11 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_craft_standard.py",
-      "sha256": "66b208c9ed67cadf0022dab28b8207929aabc307bb4721033ace014aaf29201c"
+      "sha256": "6b8b11fe83630d9eebf1391211df2d9e0fceb5afeaa319f8d22f0145459dbd4f"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_knowledge_events.py",
-      "sha256": "d7170ec18c990f20b422e9cb0f98f6262e6285da426cea9c04690e1d18d7a8e8"
+      "sha256": "5ec2a9610671fcaa904a3ed6a7d4da9c5e5acdc32c973d85b037be0f4745d2ca"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_media_tools.py",
@@ -813,7 +813,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "a61f0407801ba9fd92126cb4daee26ab4578804e13192f3b71787036cc302104"
+      "sha256": "c7000a2accec10359d1332a1e00637f8b415454427399478f5685f7a8fb809ee"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -829,7 +829,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_qa_defect_checklist.py",
-      "sha256": "770b5c480523147d06170fd73926c46b85f4f10fab0ac03bce61d348999c44e5"
+      "sha256": "b30c844858c2c03665123717b15c1f0a63f40ab69006b1331ad985001d419f3b"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_selective_bgm.py",
@@ -1041,7 +1041,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "1e6e19f8018ea66da20916742afb1ec67bed2f74d6b1add22057727e7bd244be"
+      "sha256": "b299056c910663d9f65c80c17c0794fbeeb5c41f2bb6ae7582ec67e11837a6b7"
     },
     {
       "path": "skills/nalu-claude-code/scripts/collective_provision.py",
@@ -4245,11 +4245,11 @@
     },
     {
       "path": "tools/dialogue_tail_guard.py",
-      "sha256": "cff8649630e14333212c5257957e900362d2da8fb5fcf2543235f2a02aee4f9c"
+      "sha256": "9b577b7a96c4af82d4f5eb63305b6e25d442718d7236f405ebf48acf8bdeaa55"
     },
     {
       "path": "tools/dialogue_tail_trim.py",
-      "sha256": "b5ef86b85299506152d28a33ee4a6f89f46c981c4fefbaef70f63bacf374932b"
+      "sha256": "b0296c0d797b07c3bb37c3aac7954b70e9ce42fe4bba737a4d8ec031cf4042e4"
     },
     {
       "path": "tools/dialogue_voice_metrics.py",
@@ -5589,7 +5589,7 @@
     },
     {
       "path": "tools/measured_edit_constraints.py",
-      "sha256": "1f6213ba1e6349160e1dc5e9bb96b380b2738be92730be23856bb5c4293f3b80"
+      "sha256": "d36b096769226955ce790b01dd202c52d250a44919fc317380062a6e4038f7e9"
     },
     {
       "path": "tools/measured_edit_policy.py",
@@ -5781,7 +5781,7 @@
     },
     {
       "path": "tools/performance_cut.py",
-      "sha256": "eece245c9c879e42b42c81353b6a0d4ea0861b9338c788840e842a7d7018f8ea"
+      "sha256": "61ca753138bf6b70f3b65485154ef71844e3440b3e59780e43358fdb448b70bc"
     },
     {
       "path": "tools/performance_tempo_gate.py",
@@ -6642,6 +6642,10 @@
     {
       "path": "tools/s7_audio_smoothing.py",
       "sha256": "ce1ac86755b02d4e7241d7c947a70555eb9f5eaf874081b1f07fa297de9cc338"
+    },
+    {
+      "path": "tools/s7_edit_invariants.py",
+      "sha256": "e54edeff61b5d4f375723e856bf342dd926d7f07c986b49ba89a97bb25166cc3"
     },
     {
       "path": "tools/scene_authority_lock.py",
@@ -7749,7 +7753,7 @@
     },
     {
       "path": "tools/tests/test_dialogue_tail_guard.py",
-      "sha256": "cde8c0272549234eda4473af2b6f568dafcf05e5bbf823f68926cbcc4ef74866"
+      "sha256": "7bdfc9eeb230e2af30904077b0572087032777f5028efe1b95e48acca0081f73"
     },
     {
       "path": "tools/tests/test_dialogue_tail_trim.py",
@@ -8457,7 +8461,7 @@
     },
     {
       "path": "tools/tests/test_measured_edit_yields_to_performance_cut.py",
-      "sha256": "4e793d28574206588b26a645c7c97928cff3e952f290a2b07f5494a8e8540cef"
+      "sha256": "78045143f4fda875d97aa05f79f3b4fd60560a04eacddc0e1bc1acc5c90cf415"
     },
     {
       "path": "tools/tests/test_mechanical_default_gate.py",
@@ -8529,7 +8533,7 @@
     },
     {
       "path": "tools/tests/test_nalu_character_distinctness_and_qa_defects.py",
-      "sha256": "d4e582fd5cab82f824f159cd709f2d0fd88e2258dbde7eea5a3c1a5ebf110b3f"
+      "sha256": "9e775f4d3e7dae015fbb3f153182e0d5ef77d83e4fdfa65dd6868d16203e143a"
     },
     {
       "path": "tools/tests/test_nalu_claude_code_skill.py",
@@ -8565,7 +8569,7 @@
     },
     {
       "path": "tools/tests/test_nalu_final_fix_round.py",
-      "sha256": "f11fd4ab007e8247106ee5684c687ef3d966b3a3fef197e67c98b05f0024605e"
+      "sha256": "c0e3367f8dacfa81236567aa53334a1ac6d803e2f178efe3f20505dd924bc62f"
     },
     {
       "path": "tools/tests/test_nalu_final_fix_round_v2.py",
@@ -9194,6 +9198,10 @@
     {
       "path": "tools/tests/test_s7_audio_smoothing.py",
       "sha256": "4153b2c97c4d821c2bbc4ba0c634a04463248c71713a3c354fa2a74d75f9573f"
+    },
+    {
+      "path": "tools/tests/test_s7_edit_invariants.py",
+      "sha256": "4468b4af07d10f97ec1596d09d9609b19303e29d2fb05fb67070d23a6f6c8584"
     },
     {
       "path": "tools/tests/test_s7_reentry_keeps_order_bound_candidate.py",
