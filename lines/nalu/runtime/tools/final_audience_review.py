@@ -921,7 +921,8 @@ def qa_defect_measurements(episode: str, *, shots: list[dict[str, Any]], asr: An
         skin_sheen_dir=Path(p.preprod) / "real_final_frames", keyframes_dir=Path(p.preprod) / "keyframes",
         release_timeline_path=assembly / f"{episode}_release_timeline.json",
         performance_cut_path=assembly / f"{episode}_PERFORMANCE_CUT.json",
-        unit_recut_path=assembly / f"{episode}_UNIT_RECUT.json")
+        unit_recut_path=assembly / f"{episode}_UNIT_RECUT.json",
+        stabilize_summary_path=assembly / f"{episode}_CLIP_STABILIZE.json")
 
 
 def build_av_evidence_pack(episode: str, *, video: Path, video_sha: str, shots: list[dict[str, Any]], asr: Any,

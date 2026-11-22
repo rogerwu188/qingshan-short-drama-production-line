@@ -19,6 +19,16 @@ Two modes, chosen per clip from the measured camera path (camera_motion_metrics.
              brew ffmpeg-full binary when present).
   NONE       the clip is already locked-off; copied through untouched.
 
+Background-only tracking (2026-11-21, KO E05 on device ...0080, "the person AND the background move together"):
+the camera path used to be fitted to features over the WHOLE frame, so on a medium / close shot the tracker locked
+onto the actor; LOCK_OFF then pinned the swaying actor and moved the whole set with him.  Synthetic proof: a still
+textured set with an actor swaying 18 px -> the old pass output a set moving 40 px peak to peak; on the huayuan E04
+clips 8 of 11 "stabilised" copies measured a set coupled to the actor (Pearson 0.65-0.94) whose raw take was still.
+Now the path is measured on the set only (people masked: camera_motion_metrics.background_mask), a clip whose set is
+still (tools/h3_camera_wobble excursion < 0.8 % of the width) or cannot be measured passes through untouched
+(SET_ALREADY_STILL / BACKGROUND_NOT_MEASURABLE), and an output whose set moves more than the source's is discarded
+(REGRESSION_GUARD ..._set_...).  ``--whole-frame`` restores the old tracking.
+
 Audio is copied bit-exact (``-c:a copy``); the video stream is re-encoded with libx264 at --crf (default 16)
 and the source fps.  Nothing is written over the source clip; outputs go to --out-dir/<name>.mp4 plus a
 provenance JSON per clip recording mode, measured path extent, crop %, source and output sha256, and the
@@ -196,14 +206,49 @@ def crop_cuts_face(region: tuple[int, int, int, int], faces: list[dict[str, Any]
 
 
 # --------------------------------------------------------------------------- stabilise one clip
+def _wobble_detector():
+    try:
+        engine_tools = Path(__file__).resolve().parents[4] / "tools"
+        if str(engine_tools) not in sys.path:
+            sys.path.insert(0, str(engine_tools))
+        import h3_camera_wobble as _wob  # noqa: PLC0415
+        return _wob
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def background_excursion(path: Path) -> dict[str, Any]:
+    """The SET's own motion in a clip (tools/h3_camera_wobble.detect, people masked out): status + excursion %."""
+    wob = _wobble_detector()
+    if wob is None:
+        return {"status": "FAIL_OPEN", "error": "h3_camera_wobble unavailable"}
+    return wob.summary(wob.detect(path))
+
+
+def _set_still(row: dict[str, Any] | None) -> bool:
+    """The set's own motion stays under the wobble excursion floor (a measured CLEAN take)."""
+    wob = _wobble_detector()
+    if not row or wob is None or row.get("status") not in ("CLEAN", "WOBBLE"):
+        return False
+    return float(row.get("excursion_pct") or 0.0) < wob.EXCURSION_MIN_PCT
+
+
 def stabilize_clip(src: Path, out_dir: Path, *, max_crop: float = 0.20, smooth_seconds: float = 1.0,
                    out_size: tuple[int, int] = (720, 1280), crf: int = 16, force_mode: str | None = None,
-                   face_guard: bool = True, work_width: int = 384) -> dict[str, Any]:
+                   face_guard: bool = True, work_width: int = 384, background_only: bool = True,
+                   wobble_repair: bool = False) -> dict[str, Any]:
+    """Background-only by default (2026-11-21, KO E05 on device ...0080: the whole-frame tracker locked onto the
+    swaying actor, and LOCK_OFF pinned the actor and moved the whole set with him).  The camera path is measured on
+    the SET (people masked out, camera_motion_metrics.background_mask); a clip whose set is already still -- or
+    shows too little set to measure -- passes through untouched; after the render, a clip whose set moves MORE than
+    in the source (h3_camera_wobble excursion) is discarded like any other regression.  ``wobble_repair`` (an S6
+    wobble the retry did not clear): the median-speed LOCKED_OFF shortcut is skipped -- a back-and-forth wobble has a
+    near-zero median speed -- and the S7 caller caps the crop at 5 %."""
     out_dir.mkdir(parents=True, exist_ok=True)
     dst = out_dir / src.name
     prov_path = out_dir / f"{src.stem}.stabilize.json"
     params = {"max_crop": max_crop, "smooth_seconds": smooth_seconds, "out_size": list(out_size), "crf": crf,
-              "face_guard": face_guard}
+              "face_guard": face_guard, "background_only": background_only, "wobble_repair": wobble_repair}
     if prov_path.is_file() and dst.is_file():
         # idempotent re-entry (S7 re-run after a repair): same source bytes, same parameters, output intact -> reuse
         try:
@@ -213,7 +258,9 @@ def stabilize_clip(src: Path, out_dir: Path, *, max_crop: float = 0.20, smooth_s
         if (prior.get("source_sha256") == sha256_file(src) and prior.get("params") == params
                 and prior.get("output_sha256") == sha256_file(dst)):
             return dict(prior, reused=True)
-    tf = cmm.frame_transforms(src, work_width=work_width)
+    mask, mask_note = (cmm.background_mask(src, work_width=work_width) if background_only
+                       else (None, {"status": "WHOLE_FRAME_REQUESTED"}))
+    tf = cmm.frame_transforms(src, work_width=work_width, feature_mask=mask)
     before = cmm.summarise(src, tf)
     fps, width, height, frames = tf["fps"], tf["width"], tf["height"], tf["frames"]
     path = cumulative_path(tf["deltas"])
@@ -240,8 +287,14 @@ def stabilize_clip(src: Path, out_dir: Path, *, max_crop: float = 0.20, smooth_s
     reasons: list[str] = []
     mode = force_mode
     if mode is None:
-        if before.get("locked_off"):
+        if background_only and mask is None:
+            # the set cannot be told apart from the people: never let the actor's motion steer the frame
+            mode = "NONE"; reasons.append(f"BACKGROUND_NOT_MEASURABLE_{mask_note.get('status')}")
+        elif before.get("locked_off") and not wobble_repair:
             mode = "NONE"; reasons.append("ALREADY_LOCKED_OFF")
+        elif background_only and _set_still(set_source := background_excursion(src)):
+            # the people move, the set does not: nothing for a stabiliser to cancel
+            mode = "NONE"; reasons.append(f"SET_ALREADY_STILL_{set_source.get('excursion_pct')}PCT")
         elif max(crop_x, crop_y) <= max_crop:
             mode = "LOCK_OFF"
             if faces and crop_cuts_face(fit_aspect(lock_region, width, height, *out_size), faces, lock_corr):
@@ -304,22 +357,30 @@ def stabilize_clip(src: Path, out_dir: Path, *, max_crop: float = 0.20, smooth_s
                    "-c:v", "libx264", "-preset", "slow", "-crf", str(crf), "-pix_fmt", "yuv420p", "-r", f"{fps:g}",
                    "-c:a", "copy", "-movflags", "+faststart", str(dst)]   # no -shortest: it dropped the last AAC packet (E12: 229→228)
             subprocess.run(cmd, check=True)
-    after_tf = cmm.frame_transforms(dst, work_width=work_width)
+    after_mask = cmm.background_mask(dst, work_width=work_width)[0] if background_only else None
+    after_tf = cmm.frame_transforms(dst, work_width=work_width, feature_mask=after_mask)
     after = cmm.summarise(dst, after_tf)
+    set_before = set_after = None
+    if mode != "NONE" and background_only:
+        set_before, set_after = background_excursion(src), background_excursion(dst)
+    set_worse = bool(set_before and set_after and set_after.get("excursion_pct") is not None
+                     and float(set_after["excursion_pct"]) > max(0.5, 1.2 * float(set_before.get("excursion_pct") or 0)))
     if mode != "NONE" and force_mode is None and (
             float(after.get("reversals_per_s") or 0) > float(before.get("reversals_per_s") or 0)
-            or (after.get("unstable") and not before.get("unstable"))):
+            or (after.get("unstable") and not before.get("unstable")) or set_worse):
         # regression guard: a "repair" that measures worse than the source is discarded, source passes through
-        reasons.append(f"REGRESSION_GUARD_rev_{before.get('reversals_per_s')}_to_{after.get('reversals_per_s')}")
+        reasons.append(f"REGRESSION_GUARD_rev_{before.get('reversals_per_s')}_to_{after.get('reversals_per_s')}"
+                       + (f"_set_{set_before.get('excursion_pct')}_to_{set_after.get('excursion_pct')}pct"
+                          if set_worse else ""))
         mode = "NONE"
         passthrough()
-        after = cmm.summarise(dst, cmm.frame_transforms(dst, work_width=work_width))
+        after = cmm.summarise(dst, cmm.frame_transforms(dst, work_width=work_width, feature_mask=after_mask))
         crop = {"x_pct": 0.0, "y_pct": 0.0, "region": [0, 0, width, height]}
     prov = {
         "schema": SCHEMA, "recorded_at": now(), "source": str(src), "source_sha256": sha256_file(src),
         "output": str(dst), "output_sha256": sha256_file(dst), "mode": mode, "reasons": reasons,
-        "params": {"max_crop": max_crop, "smooth_seconds": smooth_seconds, "out_size": list(out_size), "crf": crf,
-                   "face_guard": face_guard},
+        "params": params, "feature_region": tf.get("feature_region"), "background_mask": mask_note,
+        **({"set_motion": {"before": set_before, "after": set_after}} if set_before is not None else {}),
         "lock_off_crop_needed": {"x_pct": round(100 * crop_x, 2), "y_pct": round(100 * crop_y, 2)},
         "crop_applied": crop, "faces_sampled": len(faces),
         "audio": "copied bit-exact (-c:a copy)",
@@ -361,6 +422,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--crf", type=int, default=16)
     ap.add_argument("--force-mode", choices=["LOCK_OFF", "SMOOTH", "NONE"])
     ap.add_argument("--no-face-guard", action="store_true")
+    ap.add_argument("--wobble", action="store_true",
+                    help="repair an S6 camera wobble: skip the locked-off shortcut (pass a small --max-crop)")
+    ap.add_argument("--whole-frame", action="store_true",
+                    help="track the whole frame (pre-2026-11-21; the tracker can lock onto the actor)")
     ap.add_argument("--summary", type=Path, help="write a batch summary JSON here")
     ap.add_argument("--workers", type=int, default=1, help="stabilise clips in N processes (independent clips)")
     args = ap.parse_args(argv)
@@ -379,7 +444,8 @@ def main(argv: list[str] | None = None) -> int:
         ap.error("no clips")
     results, failures = [], []
     kw = dict(max_crop=args.max_crop, smooth_seconds=args.smooth_seconds, out_size=(w, h), crf=args.crf,
-              force_mode=args.force_mode, face_guard=not args.no_face_guard)
+              force_mode=args.force_mode, face_guard=not args.no_face_guard,
+              background_only=not args.whole_frame, wobble_repair=args.wobble)
 
     def _report(clip: Path, prov: dict[str, Any] | None, exc: BaseException | None) -> None:
         if prov is not None:

@@ -242,7 +242,8 @@ class BudgetTest(unittest.TestCase):
         self.assertGreater(a, c)
         b0 = mp.estimate_pass(MODEL, PRICES, pid="B", duration=100, fps=1, res="HIGH", prompt_chars=0)
         b2 = mp.estimate_pass(MODEL, PRICES, pid="B", duration=100, fps=1, res="HIGH", prompt_chars=0, images=2)
-        self.assertAlmostEqual(b2 - b0, 2 * mp.IMAGE_TOKENS["HIGH"] * PRICES[MODEL][0] / 1e6, places=3)
+        # each estimate is rounded to 3 decimals, so the difference may be off by up to 0.001
+        self.assertAlmostEqual(b2 - b0, 2 * mp.IMAGE_TOKENS["HIGH"] * PRICES[MODEL][0] / 1e6, delta=0.0011)
 
     def test_over_budget_episode_skips_without_a_call(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -74,7 +74,8 @@ MAX_OUTPUT_TOKENS = 8192
 MAX_UPLOAD_BYTES = 14_500_000       # raw bytes: base64 inflates by 4/3 and the request limit is 20 MB
 HTTP_TIMEOUT_S = 600
 CLASSES = ("QA-BURNED-TEXT", "QA-DIALOGUE-TAIL-CUT", "QA-OVERSIZED-MASK", "QA-LOOKALIKE-CAST", "QA-SUBTITLE-WRAP",
-           "QA-BGM-DISCONTINUOUS", "QA-SKIN-SHEEN-DRIFT", "QA-EDIT-FRAGMENT", "LETTERBOX", "LOOK-DRIFT", "OTHER")
+           "QA-BGM-DISCONTINUOUS", "QA-SKIN-SHEEN-DRIFT", "QA-EDIT-FRAGMENT", "QA-CAMERA-WOBBLE", "LETTERBOX",
+           "LOOK-DRIFT", "OTHER")
 SEVERITIES = ("P0", "P1", "P2", "P3")
 
 
@@ -178,6 +179,7 @@ ITEM_TEXT = {
     "QA-BGM-DISCONTINUOUS": "背景音乐突兀：音乐只响一两个镜头就停，或在切镜处生硬起停、没有淡入淡出。",
     "QA-SKIN-SHEEN-DRIFT": "皮肤/头发质感突变：相邻镜头间人物脸突然油光、出汗、高光反光，头发变湿，或皮肤纹理突然过锐（场景没有雨水、汗水、眼泪的理由）。",
     "QA-EDIT-FRAGMENT": "剪辑碎片：不到约 1.2 秒的碎镜头；画面里是正在说话的角色却一句没说就切走；一句话没说完就切走；整体切得太快。",
+    "QA-CAMERA-WOBBLE": "镜头随人晃动：固定机位里人物做小动作时整个画面（墙、门框、家具、身后布景）跟着一起晃/移/颠，或画面果冻式扭曲；盯住背景里的直线看它相对画框动没动。平滑有动机的运镜不算。",
     "LETTERBOX": "画幅：竖屏 9:16 成片里混入横版镜头（上下黑边）或左右黑边。",
     "LOOK-DRIFT": "同一角色前后造型不一致（胡子、发型、服装、配饰在同一场里变了）。",
     "OTHER": "其它任何观众会注意到的问题（口型对不上、穿帮、重复台词、跳帧、节奏拖沓等）。",
@@ -487,6 +489,10 @@ def _run_multipass(record: dict[str, Any], finish: Callable[..., dict[str, Any]]
                                     sum(len(v) for v in suspects.values()))
     if sheen:
         suspects = {**suspects, "skin_sheen": sheen}
+    wobble = _mp.camera_wobble_suspects(measurements.get("camera_wobble"), context,
+                                        sum(len(v) for v in suspects.values()))
+    if wobble:  # S6-measured set motion on locked-off units (tools/h3_camera_wobble, 2026-11-21)
+        suspects = {**suspects, "camera_wobble": wobble}
     if not context.get("cuts"):
         context = {**context, "cuts": [{"start": round(float(r["start_seconds"]), 1),
                                         "end": round(float(r["end_seconds"]), 1)}

@@ -649,6 +649,36 @@ def record_s6_reference_sheet_leak(rt: Path, *, episode: str, unit_id: str, dete
         return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}", "events": []}
 
 
+S6_CAMERA_WOBBLE_TYPE = "QA_DEFECT:QA-CAMERA-WOBBLE"
+
+
+def record_s6_camera_wobble(rt: Path, *, episode: str, unit_id: str, detection: dict[str, Any] | None = None,
+                            clip_sha256: str | None = None) -> dict[str, Any]:
+    """S6 measured that a landed take of a locked-off unit moves the SET with the actor (tools/h3_camera_wobble, KO
+    E05 on device ...0080 2026-11-21: "the person AND the background move together"): one FAILURE_OBSERVATION
+    ``QA_DEFECT:QA-CAMERA-WOBBLE`` -- a MODEL_CONSTRAINT lesson of global scope (picture-level, the same in every
+    language), deduped per take.  Evidence: the measured numbers only.  Best-effort, never raises."""
+    try:
+        det = detection if isinstance(detection, dict) else {}
+        evidence = {"cluster_key": f"{S6_CAMERA_WOBBLE_TYPE}|{SCOPE_GLOBAL}", "item": "QA-CAMERA-WOBBLE",
+                    "failure_code": "CAMERA_WOBBLE", "detail_category": SCOPE_GLOBAL,
+                    "lesson_route": "MODEL_CONSTRAINT", "kb_scope": SCOPE_GLOBAL,
+                    "scope_decision": {"scope": SCOPE_GLOBAL, "basis": "KIND",
+                                       "reason": "the video model moved the whole frame with the actor on a locked-off "
+                                                 "shot: picture-level, language-independent"},
+                    "detector": "h3_camera_wobble.detect",
+                    "detail": {k: det.get(k) for k in ("severity", "reasons", "excursion_pct", "jitter_pct",
+                                                       "reversals_per_s", "coupling") if det.get(k) is not None}}
+        event = emit(rt, episode=episode, stage="S6", failure_type=S6_CAMERA_WOBBLE_TYPE,
+                     symptom="H3 take of a locked-off unit moves the background with the actor (whole-frame wobble); "
+                             "retried once with the locked-off tripod sentence",
+                     evidence=evidence, unit_ids=[unit_id],
+                     dedupe_key=f"{episode}:{S6_CAMERA_WOBBLE_TYPE}:{unit_id}:{clip_sha256 or 'NO_SHA'}")
+        return {"status": "OK", "events": [event]}
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}", "events": []}
+
+
 def record_lookalike_cast(rt: Path, *, episode: str, report_path: str | None) -> dict[str, Any]:
     """The S3 cross-character similarity (``<EP>_CHARACTER_DISTINCTNESS.json``): one ``QA_DEFECT|QA-LOOKALIKE-CAST``
     event per too-similar pair (character ids and the cosine only), so the knowledge base and the next episode's
@@ -690,7 +720,7 @@ FINAL_REVIEW_ROUTES = {
                                          "HOOK", "EMOTION", "ACTING_MONOTONY")},
     **{k: "MODEL_CONSTRAINT" for k in ("BURNED_TEXT", "FACE_DRIFT", "SKIN_SHEEN", "COSTUME_IDENTITY", "LOOKALIKE",
                                        "VOICE", "ASR_MISMATCH", "HAND_ARTIFACT", "AI_ARTIFACT", "CONTINUITY",
-                                       "VOICE_GENDER_MISMATCH", "REFERENCE_SHEET_LEAK")},
+                                       "VOICE_GENDER_MISMATCH", "REFERENCE_SHEET_LEAK", "CAMERA_WOBBLE")},
     **{k: "ENGINE" for k in ("SUBTITLE_WRAP", "BGM_FADES", "AUDIO_SMOOTHING", "DIALOGUE_TAIL_GUARD", "LETTERBOX",
                              "MASK", "SFX", "SUBTITLE_READABILITY", "EDIT_FRAGMENT")},
 }
@@ -720,9 +750,12 @@ GLOBAL_KINDS = frozenset({"BURNED_TEXT", "FACE_DRIFT", "SKIN_SHEEN", "COSTUME_ID
                           # monotony (talking without business, one stock gesture) is direction, never language
                           "VOICE_GENDER_MISMATCH", "ACTING_MONOTONY",
                           # 2026-11-21 (JA-01 E04): H3 drew the identity sheet as the picture -- a model fault
-                          "REFERENCE_SHEET_LEAK"})
+                          "REFERENCE_SHEET_LEAK",
+                          # 2026-11-21 (KO E05): the set moving with the actor on a locked-off shot
+                          "CAMERA_WOBBLE"})
 LANGUAGE_ITEMS = frozenset({"QA-SUBTITLE-WRAP"})
-GLOBAL_ITEMS = frozenset({"QA-BURNED-TEXT", "QA-REFERENCE-SHEET-LEAK", "QA-SKIN-SHEEN-DRIFT", "QA-LOOKALIKE-CAST", "QA-OVERSIZED-MASK", "QA-BGM-DISCONTINUOUS",
+GLOBAL_ITEMS = frozenset({"QA-BURNED-TEXT", "QA-REFERENCE-SHEET-LEAK", "QA-CAMERA-WOBBLE",
+                          "QA-SKIN-SHEEN-DRIFT", "QA-LOOKALIKE-CAST", "QA-OVERSIZED-MASK", "QA-BGM-DISCONTINUOUS",
                           "QA-DIALOGUE-TAIL-CUT", "LETTERBOX", "LOOK-DRIFT"})
 #: text signals (lower-case substrings).  Language: what is SAID or WRITTEN in that language.
 LANGUAGE_SIGNALS = (

@@ -2908,6 +2908,126 @@ def s3_distinctness_embedder() -> tuple[Callable[[Path], list[list[float]]], Cal
     return (lambda path: [list(backend.embed(Path(path)))]), gate._cosine  # noqa: SLF001 -- engine's own metric
 
 
+def s3_s6_started(ctx: Ctx) -> bool:
+    """The episode's S6 already ran (wave state or a landed unit clip): its cards are on screen and stay."""
+    try:
+        if _wave_state_path(ctx).is_file():
+            return True
+        media = ctx.p.video_media
+        return media.is_dir() and any(media.glob("*.mp4"))
+    except Exception:  # noqa: BLE001 - unknown: treat as started (never re-design blindly)
+        return True
+
+
+def s3_screen_time(ctx: Ctx) -> dict[str, float]:
+    """character id -> seconds on screen in this episode (shot durations of the editorial manifest's cast, else the
+    generation contract's), the speaker's lines counted again: who the episode is about."""
+    out: dict[str, float] = {}
+    try:
+        source = read_json(ctx.p.editorial, {}) or read_json(ctx.p.contract, {}) or {}
+        for shot in source.get("shots") or []:
+            if not isinstance(shot, dict):
+                continue
+            spec = shot.get("prompt_spec") or {}
+            seconds = float(shot.get("duration_seconds") or shot.get("duration") or 1.0)
+            for row in spec.get("cast") or shot.get("cast") or []:
+                cid = str((row or {}).get("character_id") or "") if isinstance(row, dict) else ""
+                if cid:
+                    out[cid] = out.get(cid, 0.0) + seconds
+            for line in spec.get("dialogue") or shot.get("dialogue") or []:
+                cid = str((line or {}).get("speaker_id") or (line or {}).get("character_id") or "") \
+                    if isinstance(line, dict) else ""
+                if cid:
+                    out[cid] = out.get(cid, 0.0) + seconds
+    except Exception:  # noqa: BLE001 - no data: equal screen time
+        return {}
+    return {k: round(v, 2) for k, v in out.items()}
+
+
+def _operator_sourced(asset: Any) -> bool:
+    """A library card made from an operator photo (``source_reference`` set anywhere / an operator-source rule)."""
+    if isinstance(asset, dict):
+        if asset.get("source_reference"):
+            return True
+        if str(asset.get("identity_rule") or asset.get("reference_role") or "").startswith("OPERATOR_SOURCE"):
+            return True
+        return any(_operator_sourced(v) for v in asset.values())
+    if isinstance(asset, list):
+        return any(_operator_sourced(v) for v in asset)
+    return False
+
+
+def s3_locked_card_redesignable(ctx: Ctx, cid: str, library: dict[str, Any]) -> bool:
+    """A character LOCKED in an earlier episode whose card S3 may re-design once for distinctness (2026-11-21, KO
+    E05): a text-to-image card (no operator photo in the library entry or runtime/character_sources), not re-designed
+    before, with its authored card prompt still on disk.  Never anime (cast distinctness is a review answer there)."""
+    try:
+        if ctx_render_style(ctx) == "anime" or str(os.environ.get("NALU_S3_DISTINCT_LOCKED_REDESIGN", "1")).strip() \
+                in ("0", "off", "false"):
+            return False
+        asset = (((library.get("assets") or {}).get("characters") or {}).get(cid))
+        if not isinstance(asset, dict) or asset.get("status") != "LOCKED" or asset.get("distinctness_regeneration"):
+            return False
+        if _operator_sourced(asset):
+            return False
+        sources = Path(str((ctx.p.scope or {}).get("character_sources") or ""))
+        if sources.is_dir() and any(sources.glob(f"{cid}__*")):
+            return False
+        return s3_card_prompt_source(ctx, cid) is not None
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def s3_card_prompt_source(ctx: Ctx, cid: str) -> Path | None:
+    """The authored base-card prompt of a character from the earliest episode that wrote one."""
+    root = ctx.p.rt_pre.parent
+    found = sorted(root.glob(f"E*/prompts/E*-{cid}.txt"), key=lambda q: (episode_index(q.parent.parent.name), q.name))
+    return found[0] if found else None
+
+
+def s3_unlock_locked_card(ctx: Ctx, action: dict[str, Any]) -> dict[str, Any]:
+    """Re-design one LOCKED card for distinctness: its authored prompt is copied into this episode's prompt dir
+    (the regeneration block is appended by bootstrap_identity_cards from the policy file) and its series-library
+    entry is set to ``SUPERSEDED_DISTINCTNESS_PENDING_REGENERATION`` with the old lock kept under
+    ``superseded_locks`` -- the documented 换代重做 path: S3 plans it like a new card, identity QA locks the new card,
+    and every later episode reuses the new one.  The card is marked ``distinctness_regeneration`` so it is never
+    re-designed again.  Never raises."""
+    import character_distinctness as _cd
+    cid = str(action.get("subject_id") or "")
+    try:
+        if not getattr(ctx, "paid_enabled", False):
+            return {"status": "NEEDS_PAID_RUN"}
+        source = s3_card_prompt_source(ctx, cid)
+        if source is None:
+            return {"status": "CARD_PROMPT_MISSING"}
+        lib_path = Path((getattr(ctx.p, "scope", None) or {}).get("asset_library") or ASSET_LIBRARY)
+        library = read_json(lib_path, {}) or {}
+        asset = (((library.get("assets") or {}).get("characters") or {}).get(cid))
+        if not isinstance(asset, dict) or asset.get("status") != "LOCKED":
+            return {"status": "NOT_LOCKED"}
+        target = ctx.p.prompt_dir / f"{ctx.episode}-{cid}.txt"
+        if not target.is_file():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+        snapshot = {k: copy.deepcopy(asset.get(k)) for k in ("status", "version", "qa", "lock", "artifacts")
+                    if k in asset}
+        asset.setdefault("superseded_locks", []).append({**snapshot, "superseded_at": now(),
+                                                         "superseded_by": TOOL_ID,
+                                                         "reason": "CHARACTER_DISTINCTNESS_REDESIGN"})
+        asset["status"] = _cd.LOCKED_SUPERSEDED_STATUS
+        asset["distinctness_regeneration"] = {
+            "episode": ctx.episode, "against": list(action.get("against") or []),
+            "cosine_before": action.get("cosine_before"), "threshold": action.get("threshold"),
+            "screen_time": action.get("screen_time"), "kept": action.get("kept"), "at": now()}
+        write_json(lib_path, library)
+        ctx.say(f"   S3 distinctness: re-designing LOCKED card {cid} (vs {','.join(action.get('against') or [])}, "
+                f"cosine {action.get('cosine_before')}, screen {action.get('screen_time')}s vs "
+                f"{action.get('kept_screen_time')}s kept) once; later episodes reuse the new card")
+        return {"status": "UNLOCKED", "library": str(lib_path), "prompt": str(target), "prompt_source": str(source)}
+    except Exception as exc:  # noqa: BLE001 - advisory
+        return {"status": "ERROR", "error": f"{type(exc).__name__}: {str(exc)[:160]}"}
+
+
 def s3_character_distinctness(ctx: Ctx, res: StageResult, plan_rows: list[dict[str, Any]], *,
                               library: dict[str, Any] | None = None,
                               embedder: Any = "default") -> dict[str, Any]:
@@ -2952,11 +3072,17 @@ def s3_character_distinctness(ctx: Ctx, res: StageResult, plan_rows: list[dict[s
                         and a.get("canonical_identity_reference") and Path(str(a.get("path") or "")).is_file()), None)
             if ref and cid in cast:
                 plates[cid] = Path(str(ref["path"]))
+        locked_regenerable: set[str] = set()
         for cid in plates:
             if cid not in order:
                 order.append(cid)
+            if cid not in {str(r["id"]) for r in base_rows} and s3_locked_card_redesignable(ctx, cid, locked):
+                locked_regenerable.add(cid)
         if len(plates) < 2:
             return {"status": "NOT_ENOUGH_CHARACTERS", "characters": sorted(plates)}
+        s6_started = s3_s6_started(ctx)
+        if s6_started:  # never re-design a card the episode's video already shows
+            locked_regenerable = set()
         pair = s3_distinctness_embedder() if embedder == "default" else embedder
         if pair is None:
             report = {"schema": _cd.SCHEMA, "status": "INSIGHTFACE_UNAVAILABLE", "authority": _cd.AUTHORITY}
@@ -2972,13 +3098,31 @@ def s3_character_distinctness(ctx: Ctx, res: StageResult, plan_rows: list[dict[s
                 unmeasured[cid] = f"{type(exc).__name__}:{str(exc)[:80]}"
         policy = _cd.load_policy(p.prompt_dir)
         report = _cd.evaluate(embeddings, order=[c for c in order if c in plates], cast=cast, policy=policy,
-                              regenerable=regenerable, cosine=cosine, unmeasured=unmeasured)
+                              regenerable=regenerable, cosine=cosine, unmeasured=unmeasured,
+                              locked_regenerable=locked_regenerable, screen_time=s3_screen_time(ctx))
         report["plates"] = {cid: str(path) for cid, path in plates.items()}
+        report["locked_regenerable"] = sorted(locked_regenerable)
+        if s6_started:
+            report["locked_regeneration_deferred"] = "S6_STARTED: a card shown in this episode's video is kept"
         if report["regenerate"] and not getattr(ctx, "paid_enabled", False):
             # no paid image route this run (dry / paid disabled): never park a plate that cannot be replaced
             report["regenerate_not_applied"] = report["regenerate"]
             report["regenerate"] = []
             report["status"] = "ADVISORY_REGENERATION_NEEDS_PAID_RUN"
+        unlocked: list[dict[str, Any]] = []
+        for action in [a for a in report["regenerate"] if a.get("unlock_locked")]:
+            outcome = s3_unlock_locked_card(ctx, action)
+            unlocked.append({"subject_id": action["subject_id"], **outcome})
+            if outcome.get("status") != "UNLOCKED":
+                report["regenerate"].remove(action)
+                report["advisories"].append({"a": action["subject_id"], "b": (action.get("against") or [None])[0],
+                                             "cosine": action.get("cosine_before"),
+                                             "reason": f"LOCKED_CARD_NOT_REDESIGNED:{outcome.get('status')}"})
+        if unlocked:
+            report["locked_unlocks"] = unlocked
+            report["unlocked_locked"] = [u["subject_id"] for u in unlocked if u.get("status") == "UNLOCKED"]
+            if not report["regenerate"]:
+                report["status"] = "ADVISORY"
         if report["regenerate"]:
             report["applied"] = _cd.apply_regenerations(report, prompt_dir=p.prompt_dir,
                                                         plates_dir=p.identity_harvest_dir, episode=ctx.episode,
@@ -3154,6 +3298,8 @@ def stage_s3(ctx: Ctx) -> StageResult:
                 distinct = s3_character_distinctness(ctx, res, rows)
                 round_rec["character_distinctness"] = {k: distinct.get(k) for k in ("status", "regenerate",
                                                                                    "advisories", "report_path")}
+                if distinct.get("unlocked_locked"):  # a re-designed LOCKED card is planned like a new one
+                    already = locked_subjects(load_cross_episode_library(ctx.p.scope))
                 if distinct.get("regenerate"):
                     continue
             if deferred:
@@ -3287,6 +3433,8 @@ def stage_s3(ctx: Ctx) -> StageResult:
         distinct = s3_character_distinctness(ctx, res, rows)
         round_rec["character_distinctness"] = {k: distinct.get(k) for k in ("status", "regenerate", "advisories",
                                                                            "report_path")}
+        if distinct.get("unlocked_locked"):
+            already = locked_subjects(load_cross_episode_library(ctx.p.scope))
         if distinct.get("regenerate"):
             continue
         if not deferred:
@@ -6419,35 +6567,57 @@ def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
         # "clean" only because H3 drew the reference sheet instead of text) -- retried like burned text
         det = _br.combine_sheet_leak(det, s6_sheet_leak_check(ctx, uid, clip))
         attempts = list(rec.get("attempts") or [])
+        # camera wobble (KO E05 2026-11-21): a locked-off unit whose take moves the set with the actor -- measured
+        # only when the take carries no burned text (burned text is retried first, with its own sentence)
+        wob = s6_camera_wobble_check(ctx, uid, clip) if det.get("status") != "BURNED" else None
+        wobble = bool(wob and wob.get("status") == "WOBBLE")
         check = {k: det.get(k) for k in ("status", "frames_sampled", "burned_frames", "longest_run", "elapsed_ms",
                                          "error", _br.SHEET_LEAK_FLAG, "sheet_leak") if det.get(k) is not None}
         check.update(at=now(), retry=len(attempts), hits=(det.get("hits") or [])[:6])
-        if det.get("status") != "BURNED" and not attempts:
+        if wob is not None:
+            check[_br.WOBBLE_FLAG] = _wob_summary(wob)
+        if det.get("status") != "BURNED" and not attempts and not wobble:
             continue  # clean first take: nothing to record
         rec.setdefault("checks", {})[clip_sha] = check
         takes = list(rec.get("takes") or [])
         takes.append({"sha256": clip_sha, "retry": len(attempts), "burned_frames": int(det.get("burned_frames") or 0),
                       "status": det.get("status"), "path": str(clip),
-                      **({_br.SHEET_LEAK_FLAG: True} if det.get(_br.SHEET_LEAK_FLAG) else {})})
-        decision: dict[str, Any]
-        if det.get("status") == "BURNED" and retry_max > 0 and len(attempts) < retry_max:
+                      **({_br.SHEET_LEAK_FLAG: True} if det.get(_br.SHEET_LEAK_FLAG) else {}),
+                      **({_br.WOBBLE_FLAG: True, "wobble_pct": float((wob.get("metrics") or {}).get("excursion_pct")
+                                                                      or 0.0)} if wobble else {})})
+
+        def retry_terms() -> tuple[int, int | None, bool]:
             seconds = next((float(t.get("duration_seconds") or 0) for t in
                             (read_json(ctx.p.video_transaction, {}) or {}).get("tasks") or []
                             if str(t.get("unit_id") or t.get("task_key")) == uid), 0.0) or 6.0
-            cost = video_task_credits(episode_video_model(ctx.episode), seconds, 1, episode_video_resolution(ctx.episode))
-            headroom = None
+            cost_ = video_task_credits(episode_video_model(ctx.episode), seconds, 1,
+                                       episode_video_resolution(ctx.episode))
+            headroom_ = None
             try:
                 verdict = ctx.budget_check(0, label="s6_burn_retry_headroom").get("budget_verdict") or {}
-                headroom = verdict.get("headroom_credits")
+                headroom_ = verdict.get("headroom_credits")
             except Exception as exc:  # noqa: BLE001 - unknown headroom: no retry
                 ctx.say(f"   S6 burn retry: budget headroom unavailable ({type(exc).__name__})")
             try:
-                accepted = uid in _owner_accepted_clips(ctx, {uid: {}})
+                accepted_ = uid in _owner_accepted_clips(ctx, {uid: {}})
             except Exception:  # noqa: BLE001 - no readable orders: nothing accepted
-                accepted = False
-            decision = _br.plan(rec, det, retry_max=retry_max,
-                                headroom=None if headroom is None else int(headroom), cost=cost,
+                accepted_ = False
+            return cost_, None if headroom_ is None else int(headroom_), accepted_
+
+        decision: dict[str, Any]
+        if det.get("status") == "BURNED" and retry_max > 0 and len(attempts) < retry_max:
+            cost, headroom, accepted = retry_terms()
+            decision = _br.plan(rec, det, retry_max=retry_max, headroom=headroom, cost=cost,
                                 owner_accepted=accepted)
+        elif det.get("status") != "BURNED" and wobble:
+            import h3_camera_wobble as _wobm  # noqa: PLC0415 - engine tools/, like h3_burn_retry
+            wob_max = _wobm.max_retries()
+            if wob_max > 0 and len(attempts) < retry_max:
+                cost, headroom, accepted = retry_terms()
+            else:
+                cost, headroom, accepted = 0, 0, False
+            decision = _wobm.plan(rec, wob, retry_max=wob_max, total_max=retry_max, headroom=headroom, cost=cost,
+                                  owner_accepted=accepted)
         else:
             decision = _br.plan(rec, det, retry_max=retry_max, headroom=0, cost=0)
         frames = f"{det.get('burned_frames')}/{det.get('frames_sampled')}"
@@ -6459,6 +6629,11 @@ def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
         if det.get(_br.SHEET_LEAK_FLAG):  # global MODEL_CONSTRAINT lesson (best-effort, never into the stage)
             row["kb"] = kb_events("record_s6_reference_sheet_leak", episode=ctx.episode, unit_id=uid,
                                   detection=det.get("sheet_leak") or {}, clip_sha256=clip_sha)
+        if wobble:
+            ctx.say(f"S6_CAMERA_WOBBLE unit={uid} {_wob_summary(wob)} retry={len(attempts)}/{retry_max} -> "
+                    f"{decision['action']} ({decision['reason']})")
+            row["kb"] = kb_events("record_s6_camera_wobble", episode=ctx.episode, unit_id=uid,
+                                  detection=_wob_summary(wob), clip_sha256=clip_sha)
         if decision["action"] == "RETRY":
             n = int(decision["retry"])
             park = ctx.p.video_media / f"_superseded_{ctx.run_id}_burn_retry{n}"
@@ -6469,12 +6644,15 @@ def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
                              "parked_clip": str(park / clip.name), "cost": decision.get("cost"),
                              # the retry after a sheet leak sends the sheets as front-view crops + the sheet sentence
                              **({_br.SHEET_LEAK_FLAG: True} if det.get(_br.SHEET_LEAK_FLAG) else {}),
+                             # the retry after a camera wobble carries the locked-off sentence
+                             **({_br.WOBBLE_FLAG: True, "wobble": _wob_summary(wob)}
+                                if wobble and det.get("status") != "BURNED" else {}),
                              "run_id": ctx.run_id, "recorded_at": now(), "recorded_by": TOOL_ID})
             rec.update(status="RETRY_PENDING", attempts=attempts)
             row["parked_clip"] = str(park / clip.name)
         elif decision["action"] == "KEEP":
             rec.update(status="RESOLVED" if det.get("status") == "CLEAN" else "KEPT_DETECTOR_FAIL_OPEN",
-                       resolved_take_sha256=clip_sha, **{_br.UNRESOLVED_FLAG: False})
+                       resolved_take_sha256=clip_sha, **{_br.UNRESOLVED_FLAG: False, "camera_wobble_unresolved": False})
             ctx.say(f"S6_BURN_RESOLVED unit={uid} retry={len(attempts)}/{retry_max} frames={frames}"
                     + ("" if det.get("status") == "CLEAN" else f" (detector {det.get('status')})"))
         else:
@@ -6493,10 +6671,16 @@ def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
             # where the kept take's text sits: in our subtitle band it would stack under our caption (JA-01 E04
             # VU-004) -- S7 moves that caption above it and the final fix round gets the unit (2026-11-21)
             band = _br.residual_text_band(((rec.get("checks") or {}).get(best["sha256"]) or {}).get("hits"))
+            kept_check = (rec.get("checks") or {}).get(best["sha256"]) or {}
+            wobble_path = det.get("status") != "BURNED" and wobble
+            burned_left = (not wobble_path) or int(best.get("burned_frames") or 0) > 0 \
+                or bool(best.get(_br.SHEET_LEAK_FLAG))
             rec.update(status="UNRESOLVED", unresolved_reason=decision["reason"], kept_take_sha256=best["sha256"],
                        kept_take_burned_frames=best.get("burned_frames"), kept_take_retry=best.get("retry"),
                        kept_take_sheet_leak=bool(best.get(_br.SHEET_LEAK_FLAG)), residual_text_band=band,
-                       **{_br.UNRESOLVED_FLAG: True})
+                       camera_wobble_unresolved=bool(best.get(_br.WOBBLE_FLAG)),
+                       kept_take_wobble=kept_check.get(_br.WOBBLE_FLAG) if best.get(_br.WOBBLE_FLAG) else None,
+                       **{_br.UNRESOLVED_FLAG: burned_left})
             rec.setdefault("checks", {})[best["sha256"]] = {**(rec["checks"].get(best["sha256"]) or {}),
                                                             "kept_as_best": True}
             ctx.say(f"S6_BURN_UNRESOLVED unit={uid} retry={len(attempts)}/{retry_max} reason={decision['reason']} "
@@ -6512,6 +6696,29 @@ def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
         write_json(state_path, state)
         out.append(row)
     return out
+
+
+def _wob_summary(det: dict[str, Any] | None) -> dict[str, Any]:
+    import h3_camera_wobble as _wobm  # noqa: PLC0415
+    return _wobm.summary(det)
+
+
+def s6_camera_wobble_check(ctx: Ctx, uid: str, clip: Path) -> dict[str, Any] | None:
+    """Camera-wobble check of a landed take (tools/h3_camera_wobble.detect, free, advisory; KO E05 on device ...0080
+    2026-11-21: "the person AND the background move together").  Only for a unit whose compiled camera plans are
+    all locked off (a deliberate move is authored); None for any other unit, when NALU_S6_WOBBLE_CHECK=off, or on
+    any error (fail-open)."""
+    if str(os.environ.get("NALU_S6_WOBBLE_CHECK") or "").strip().lower() in ("off", "0", "false"):
+        return None
+    try:
+        import h3_camera_wobble as _wobm  # noqa: PLC0415 - engine tools/, like h3_burn_retry
+        task = next((t for t in (read_json(ctx.p.video_transaction, {}) or {}).get("tasks") or []
+                     if str(t.get("unit_id") or t.get("task_key")) == uid), None)
+        if _wobm.static_plan(task) is not True:
+            return None
+        return _wobm.detect(clip, plan_static=True)
+    except Exception as exc:  # noqa: BLE001 - advisory: never blocks
+        return {"status": "FAIL_OPEN", "error": f"{type(exc).__name__}: {str(exc)[:160]}"}
 
 
 def s6_sheet_leak_check(ctx: Ctx, uid: str, clip: Path) -> dict[str, Any] | None:
@@ -10248,25 +10455,52 @@ def s7_camera_stabilize(ctx: Ctx, res: StageResult) -> Path | None:
     res.details["commands"]["camera_motion_metrics_before"] = q(metrics_argv)
     if step["exit_code"] != 0 or not before.get("rows"):
         return None
-    # stabilise: dialogue units that are not locked off (action units keep their authored moves)
+    # stabilise: dialogue units that are not locked off (action units keep their authored moves).  Both the metrics
+    # and the stabiliser track the SET, people masked out (2026-11-21, KO E05: the whole-frame tracker locked onto a
+    # swaying actor and the stabilised clip moved the background with him)
     targets = [str(r["unit_id"]) for r in before["rows"]
                if "error" not in r and r.get("dialogue_unit") and not r.get("locked_off")]
+    # ... plus units whose kept S6 take still wobbles (h3_camera_wobble): MILD ones only, crop <= 5 %
+    wobble_targets = [uid for uid in s7_wobble_stabilize_units(ctx) if uid not in targets]
     detail["stabilize_targets"] = targets
-    if not targets:
+    if wobble_targets:
+        detail["wobble_stabilize_targets"] = wobble_targets
+    if not targets and not wobble_targets:
         detail["status"] = "NOTHING_TO_STABILIZE"
         return None
     probe = next((r for r in before["rows"] if r.get("width") and r.get("height")), {})
     out_size = f"{probe.get('width')}x{probe.get('height')}" if probe else None
-    stab_argv: list[Any] = [VENV, RT_TOOLS / "clip_lockoff_stabilize.py", "--clips-dir", p.video_media,
-                            "--out-dir", out_dir, "--max-crop", 0.20, "--summary", summary, "--workers", workers]
-    if out_size:
-        stab_argv += ["--out-size", out_size]
-    for uid in targets:
-        stab_argv += ["--only", uid]
-    res.details["commands"]["clip_lockoff_stabilize"] = q(stab_argv)
-    stab_step = ctx.run(stab_argv, name="s7_clip_lockoff_stabilize")
-    res.steps.append(stab_step)
-    payload = read_json(summary, {}) or {}
+    import h3_camera_wobble as _wobm  # noqa: PLC0415 - engine tools/
+    payload: dict[str, Any] = {}
+    for label, units, crop, path in (("clip_lockoff_stabilize", targets, 0.20, summary),
+                                     ("clip_wobble_stabilize", wobble_targets, _wobm.STABILIZE_MAX_CROP,
+                                      summary.with_name(f"{ctx.episode}_CLIP_STABILIZE_WOBBLE.json"))):
+        if not units:
+            continue
+        stab_argv: list[Any] = [VENV, RT_TOOLS / "clip_lockoff_stabilize.py", "--clips-dir", p.video_media,
+                                "--out-dir", out_dir, "--max-crop", crop, "--summary", path, "--workers", workers]
+        if out_size:
+            stab_argv += ["--out-size", out_size]
+        for uid in units:
+            stab_argv += ["--only", uid]
+        if label == "clip_wobble_stabilize":
+            stab_argv.append("--wobble")
+        res.details["commands"][label] = q(stab_argv)
+        stab_step = ctx.run(stab_argv, name=f"s7_{label}")
+        res.steps.append(stab_step)
+        part = read_json(path, {}) or {}
+        if not payload:
+            payload = part
+        elif part:
+            payload["results"] = list(payload.get("results") or []) + list(part.get("results") or [])
+            payload["failed"] = list(payload.get("failed") or []) + list(part.get("failed") or [])
+            for key in ("modes",):
+                payload[key] = {m: int((payload.get(key) or {}).get(m) or 0) + int((part.get(key) or {}).get(m) or 0)
+                                for m in ("LOCK_OFF", "SMOOTH", "NONE")}
+            for key in ("processed", "locked_off_before", "locked_off_after", "unstable_before", "unstable_after"):
+                payload[key] = int(payload.get(key) or 0) + int(part.get(key) or 0)
+    if payload and wobble_targets:
+        write_json(summary, payload)  # one summary for the builder (--stabilized-clips)
     detail.update({"summary": str(summary), "out_dir": str(out_dir), "modes": payload.get("modes"),
                    "locked_off_before": payload.get("locked_off_before"), "locked_off_after": payload.get("locked_off_after"),
                    "unstable_before": payload.get("unstable_before"), "unstable_after": payload.get("unstable_after"),
@@ -10279,6 +10513,28 @@ def s7_camera_stabilize(ctx: Ctx, res: StageResult) -> Path | None:
     detail["changed_units"] = [Path(str(r.get("source"))).stem for r in changed]
     res.receipts.append(str(summary))
     return summary
+
+
+def s7_wobble_stabilize_units(ctx: Ctx) -> list[str]:
+    """Units whose kept S6 take still moves the set with the actor (``s6_burn_retry`` camera_wobble_unresolved) and
+    whose wobble is MILD (h3_camera_wobble: excursion fits a <= 5 % lock-off crop), for the free S7 lock-off pass.
+    A unit redone since (clip sha != kept take) is left out."""
+    out = []
+    try:
+        state = read_json(_wave_state_path(ctx), {}) or {}
+        for uid, rec in (state.get("s6_burn_retry") or {}).items():
+            if not isinstance(rec, dict) or not rec.get("camera_wobble_unresolved"):
+                continue
+            kept = rec.get("kept_take_wobble") if isinstance(rec.get("kept_take_wobble"), dict) else {}
+            if kept.get("severity") != "MILD":
+                continue
+            clip = ctx.p.video_media / f"{uid}.mp4"
+            if rec.get("kept_take_sha256") and clip.is_file() and sha256_file(clip) != rec["kept_take_sha256"]:
+                continue
+            out.append(str(uid))
+    except Exception:  # noqa: BLE001 - advisory
+        return []
+    return sorted(out)
 
 
 def s7_camera_motion_gate(ctx: Ctx, res: StageResult) -> dict[str, Any] | None:

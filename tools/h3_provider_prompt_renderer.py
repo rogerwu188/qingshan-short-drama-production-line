@@ -394,7 +394,9 @@ SINGLE_DIRECTION_CLAUSE_COMBAT = ("execute the declared move once, in one direct
 
 def _combat_plan(plan: dict[str, Any] | None) -> bool:
     return bool((plan or {}).get("combat_execution_required"))
-TRIPOD_CLAUSE = "The camera is on a tripod for the whole take"
+#: KO E05 2026-11-21 (camera wobble: the set moved with the actor): a locked plan also states the stillness of the set
+TRIPOD_CLAUSE = ("The camera is on a tripod for the whole take: the background and the frame stay perfectly still and "
+                 "only the people move")
 NO_SPEECH_BEAT_CLAUSE = "No speech in this beat: {who} keeps the mouth closed, no voice, no murmur, no breath words."
 # E14 2026-11-16 (fleet 1037, VU-001): a silent shot whose scripted action IS a mouth action ("opens her mouth in a
 # large yawn") was also told "every visible person keeps the mouth closed for the entire clip" -- two instructions
@@ -1448,7 +1450,9 @@ def _with_burn_retry(unit: dict[str, Any], plan: dict[str, Any], text: str,
     uid = str(plan["unit_id"])
     # after a reference-sheet leak (h3_reference_sheet_guard, 2026-11-21) the sheet variant of the retry sentence
     sheet = bool(unit.get("h3_reference_sheet_crop"))
-    varied = _br.apply_retry_sentence(text, index, sheet)
+    # after a camera wobble (tools/h3_camera_wobble, KO E05 2026-11-21) the locked-off variant of the retry sentence
+    wobble = bool(unit.get("h3_camera_wobble_retry")) and not sheet
+    varied = _br.apply_retry_sentence(text, index, sheet, wobble)
     failures = [*validate_provider_prompt_boundary(varied, source_id=uid, model_family="MINIMAX_H3")["failures"],
                 *validate_h3_provider_text_boundary(varied, source_id=uid)["failures"]]
     if len(varied) > _PROVIDER_RUNE_LIMIT:
@@ -1457,8 +1461,9 @@ def _with_burn_retry(unit: dict[str, Any], plan: dict[str, Any], text: str,
         return _with_final_fix(unit, plan, text, {
             **receipt, "h3_burn_retry": {"retry": index, "sentence": "SKIPPED", "failures": failures[:6]}})
     return _with_final_fix(unit, plan, varied, {
-        **receipt, "h3_burn_retry": {"retry": index, "sentence": _br.retry_sentence(index, sheet),
-                                     **({"reference_sheet_crop": True} if sheet else {})},
+        **receipt, "h3_burn_retry": {"retry": index, "sentence": _br.retry_sentence(index, sheet, wobble),
+                                     **({"reference_sheet_crop": True} if sheet else {}),
+                                     **({"camera_wobble": True} if wobble else {})},
         "prompt_budget": measure_prompt(varied, source_id=uid, model_family="MINIMAX_H3")})
 
 

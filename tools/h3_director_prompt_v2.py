@@ -155,6 +155,13 @@ _ECHO_FILLER = {"visible", "subtle", "motion", "consistent", "with", "and", "the
 #: the frame.  The V1 renderer states its anti-text rule first (E12 K031/K143); V2 must start with "References:", so
 #: the rule is named in full here and repeated right after the dialogue literal (SPOKEN_NOT_WRITTEN_*).
 NEVER_V2 = "captions, subtitles, letters or logos on screen; a second copy of anyone"
+#: KO E05 on device ...0080 (2026-11-21): "the camera shakes along with a character's small movements -- the person AND
+#: the background move together".  A locked-off plan states the stillness of the SET, not only of the camera position;
+#: a deliberate move keeps its wording and is told to stay steady.  Plain sentences (no all-caps label H3 could voice).
+LOCKED_OFF_STILL = "The set behind the people stays perfectly still; only the people move, never the frame."
+STEADY_MOVE = ("Apart from that one move the camera is steady: the frame never shakes, sways or bobs with a "
+               "person's movement.")
+FRAME_WOBBLE_NEVER = "the frame moving with a person"
 #: CAMERA_GRAMMAR_V1 (stamped) units; unstamped units stay byte-identical
 NEVER_V2_STAMPED = ("captions, subtitles, speech bubbles or any written words, letters or numbers on screen; logos or "
                     "watermarks; a second copy of anyone")  # keeps the scope-gate marker "captions, subtitles"
@@ -880,6 +887,10 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         raise ValueError(f"{uid}:H3_CAMERA_LOCK_STRICT_ON_MOVING_CAMERA")
     camera_lock = strict_camera_lock_applies(unit, stamped=stamped,
                                              locked_single_take=all_locked and v1.ONE_TAKE in camera)
+    if stamped and all_locked:  # the set stays still, only the people move (KO E05 2026-11-21: camera wobble)
+        camera += "\n" + LOCKED_OFF_STILL
+    elif stamped and "handheld" not in camera.lower():  # a deliberate move stays explicit and steady
+        camera += "\n" + STEADY_MOVE
     if camera_lock:  # an ordinary sentence, never an all-caps label H3 could voice (owner 2026-11-01, lab E12)
         camera += "\n" + CAMERA_LOCK_TRIPOD
     # engine redo after an objective Q2 push-in FAIL (q2_auto_redo, owner 2026-10-29): state the measured problem
@@ -1130,6 +1141,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         negatives.extend(scrub(v) for v in wuxia.get("negative_constraints_en") or [] if scrub(v))
     if stamped and v1.skin_finish_applies(unit, plan, anime=anime, has_people=bool(subjects)):
         negatives.append(SKIN_FINISH_NEVER)  # live-action skin / hair finish (line owner 2026-11-20, KO E01)
+    if stamped and all_locked:  # KO E05 2026-11-21: the set never moves with the actor
+        negatives.append(FRAME_WOBBLE_NEVER)
     negatives.append("music")
     if stamped and v1.anime_finish_applies(unit, plan, anime=anime, has_people=bool(subjects)):
         negatives.append(ANIME_FINISH_NEVER)  # anime skin / hair finish (line owner 2026-11-20, JA-01 E01)

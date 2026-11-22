@@ -1260,3 +1260,42 @@ Owner: 「不要等我了，我自己看不过来」 — episodes never stop and
   `FINAL_FIX_VOICE_MAPPING_BUG unit=…`, `FINAL_FIX_ROUND_DONE verdict=… resolved= persists= new= unverified=`,
   `S6_BURN_DETECTOR_FAIL_OPEN` (once per run: burned text is not being measured on this device),
   `S8_AUTO_APPROVED episode=… by=engine_default_terms`.
+
+## Camera wobble, look-alike cast, detailed Gemini review (line owner 2026-11-21, KO E05 on device …0080)
+
+"The camera shakes along with a character's small movements — the person AND the background move together."
+
+* **Cause found in our own S7 stabiliser.** `clip_lockoff_stabilize.py` fitted the camera path to features over the
+  whole frame; on medium / close shots the tracker locked onto the swaying actor and LOCK_OFF pinned the actor and
+  moved the set with him.  Synthetic proof: a still set + an actor swaying 18 px → output set moving 40 px; on local
+  huayuan E04 clips 8 of 11 "stabilised" copies measured a set coupled to the actor (Pearson 0.65–0.94) whose raw
+  take was still.  Now `camera_motion_metrics` and the stabiliser track the SET only (people masked out:
+  `camera_motion_metrics.background_mask`); a clip whose set is still passes through (`SET_ALREADY_STILL`), one whose
+  set cannot be measured too (`BACKGROUND_NOT_MEASURABLE`), and an output whose set moves more than the source's is
+  discarded (`REGRESSION_GUARD_…_set_…`).  `--whole-frame` restores the old tracking.
+* **S6 check** (`tools/h3_camera_wobble.py`, free, ~1 s/clip): on units whose camera plans are all locked off, the
+  set's motion (dense flow outside face-derived head/torso boxes) is measured; WOBBLE = excursion ≥ 0.8 % of the
+  width and coupled to the actor (Pearson ≥ 0.45) / back-and-forth / jitter.  One retry through the burned-text
+  retry record (`s6_burn_retry`, attempt flag `camera_wobble`, task field `h3_camera_wobble_retry` → the locked-off
+  retry sentence + perturbed @Image1; total S6 retries stay ≤ `NALU_S6_BURN_RETRY_MAX`); `NALU_S6_WOBBLE_RETRY_MAX`
+  (default 1, 0 = measure only), `NALU_S6_WOBBLE_CHECK=off`.  A wobble that survives keeps the smaller take
+  (`camera_wobble_unresolved`); MILD ones get the S7 lock-off pass capped at a 5 % crop; the rest join the final fix
+  round as QA-CAMERA-WOBBLE (paid CAMERA_WOBBLE redo, ranked right after burned text / reference sheet) and the KB
+  (`QA_DEFECT:QA-CAMERA-WOBBLE`, MODEL_CONSTRAINT, global).
+* **Prompt**: DIRECTOR_PROMPT_V2 locked units add "The set behind the people stays perfectly still; only the people
+  move, never the frame." and the Never item "the frame moving with a person"; a deliberate move keeps its wording
+  plus a steady-camera sentence; the V1 tripod clause names the still set.
+* **Look-alike cast**: every pair is scored; same sex + overlapping age band uses 0.32 (else 0.38).  When a pair has
+  no episode-new card, a LOCKED text-to-image card is re-designed once — the member with less screen time (the lead
+  keeps his card), at most 2 per episode, never after the episode's S6 started; the series-library entry becomes
+  `SUPERSEDED_DISTINCTNESS_PENDING_REGENERATION` (old lock under `superseded_locks`), the card prompt is copied from
+  the first episode that wrote it, and the regeneration block names explicit differentiating traits (face shape,
+  hair, glasses / facial hair, build, age look).  Briefs without concrete facial traits get a trait plan in S2.
+  `NALU_S3_DISTINCT_LOCKED_REDESIGN=0` disables the locked re-design.
+* **Gemini passes A / B** answer `shot_log` as a per-shot checklist (`fail`: the classes that shot failed, [] = all
+  passed); a failed class without its finding becomes a P3 `from_checklist` finding.  Pass B adds `cast_compare` for
+  every same-sex pair; "not distinct" without a finding becomes a P2 QA-LOOKALIKE-CAST with both characters' times.
+  S6 wobble units are pass-A suspects.  Calibration (2026-11-21, 3.2 credits, a 27 s cut of 3 raw + 3 wrongly
+  stabilised huayuan clips): the schema was followed (6/6 rows), but Gemini at 2 fps did not see a 1–1.5 % set
+  wobble by itself and confirmed / dismissed it according to the suspects it was given — the S6 measurement is the
+  authority for mild wobble, Gemini a reviewer of it.  Budget unchanged (≤ 8 credits / episode).

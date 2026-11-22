@@ -27,6 +27,11 @@ so their prompts, fingerprints and request bytes are unchanged.
 
 Env: ``NALU_S6_BURN_RETRY_MAX`` (default 2; 0 disables detection-triggered retries).
 
+Camera wobble (KO E05 on device ...0080, 2026-11-21): a locked-off unit whose take moves the set with the actor
+(tools/h3_camera_wobble.detect) is retried once through this same record (attempt flag ``camera_wobble``) with the
+locked-off sentence (:data:`WOBBLE_RETRY_SENTENCES`); the total S6 retries of a unit stay capped by this module's
+maximum.
+
 Reference-sheet leaks (JA-01 E04 VU-007, 2026-11-21): a take that shows the unit's multi-view identity sheet as its
 picture (tools/h3_reference_sheet_guard.detect_leak) is retried like burned text, with the SHEET retry sentence
 (:data:`SHEET_RETRY_SENTENCES`) and the identity sheets sent as their front-view crop; a take is never CLEAN while the
@@ -74,6 +79,17 @@ SHEET_RETRY_SENTENCES = {
     2: ("Every frame is a single live moment of the scene itself, not a reference board: each person appears exactly "
         "once, with no side or back view copies, no close-up inset and no caption or lettering anywhere."),
 }
+#: retry index -> the sentence of a retry after a CAMERA WOBBLE (tools/h3_camera_wobble.py, KO E05 2026-11-21: the
+#: set moved with the actor on a locked-off unit); no all-caps label, no digits; also keeps the picture free of writing
+WOBBLE_RETRY_SENTENCES = {
+    1: ("The camera is locked off on a tripod for the whole clip: the background, the walls and the edges of the "
+        "frame stay perfectly still; only the people move, and no nod, gesture or step ever moves the frame. No "
+        "writing appears anywhere in the picture."),
+    2: ("Every frame is shot from one fixed tripod position: the set behind the people never shifts, sways or "
+        "warps, the frame never chases a movement, and only the people themselves move. No caption or lettering "
+        "appears anywhere."),
+}
+WOBBLE_FLAG = "camera_wobble"
 #: our subtitle band (fractions of the frame height): an H3 text box centred here stacks under our caption
 SUBTITLE_BAND = (0.55, 0.95)
 SHEET_LEAK_FLAG = "reference_sheet_leak"
@@ -96,17 +112,17 @@ def retry_index(payload: dict[str, Any] | None) -> int:
     return value if value > 0 else 0
 
 
-def retry_sentence(index: int, sheet: bool = False) -> str:
+def retry_sentence(index: int, sheet: bool = False, wobble: bool = False) -> str:
     if index <= 0:
         return ""
-    table = SHEET_RETRY_SENTENCES if sheet else RETRY_SENTENCES
+    table = SHEET_RETRY_SENTENCES if sheet else WOBBLE_RETRY_SENTENCES if wobble else RETRY_SENTENCES
     return table.get(index) or table[max(table)]
 
 
-def apply_retry_sentence(text: str, index: int, sheet: bool = False) -> str:
-    """``text`` with the retry sentence (the sheet variant after a reference-sheet leak) as its last line (trailing
-    newlines kept); unchanged for index 0."""
-    sentence = retry_sentence(index, sheet)
+def apply_retry_sentence(text: str, index: int, sheet: bool = False, wobble: bool = False) -> str:
+    """``text`` with the retry sentence (the sheet variant after a reference-sheet leak, the locked-off variant
+    after a camera wobble) as its last line (trailing newlines kept); unchanged for index 0."""
+    sentence = retry_sentence(index, sheet, wobble)
     if not sentence or sentence in text:
         return text
     core = text.rstrip("\n")
@@ -116,7 +132,7 @@ def apply_retry_sentence(text: str, index: int, sheet: bool = False) -> str:
 def strip_retry_sentence(text: str) -> tuple[str, int]:
     """(``text`` without an engine retry sentence, the retry index found or 0) -- the exact inverse of
     :func:`apply_retry_sentence`, used to prove a changed prompt differs from a reviewed one only by it."""
-    for table in (RETRY_SENTENCES, SHEET_RETRY_SENTENCES):
+    for table in (RETRY_SENTENCES, SHEET_RETRY_SENTENCES, WOBBLE_RETRY_SENTENCES):
         for index, sentence in table.items():
             marker = "\n" + sentence
             if marker in text:
@@ -128,6 +144,12 @@ def sheet_retry(record: dict[str, Any] | None) -> bool:
     """A unit's ``s6_burn_retry`` record asks for the sheet retry (its latest attempt followed a sheet leak)."""
     attempts = list((record or {}).get("attempts") or [])
     return bool(attempts and attempts[-1].get(SHEET_LEAK_FLAG))
+
+
+def wobble_retry(record: dict[str, Any] | None) -> bool:
+    """A unit's ``s6_burn_retry`` record asks for the locked-off retry (its latest attempt followed a camera wobble)."""
+    attempts = list((record or {}).get("attempts") or [])
+    return bool(attempts and attempts[-1].get(WOBBLE_FLAG))
 
 
 def combine_sheet_leak(detection: dict[str, Any], leak: dict[str, Any] | None) -> dict[str, Any]:
@@ -343,11 +365,12 @@ def plan(row: dict[str, Any] | None, detection: dict[str, Any], *, retry_max: in
 
 
 def best_take(takes: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """The take with the fewest burned frames; on a tie the latest (it carries the strongest prompt)."""
+    """The take with the fewest burned frames, then the least camera wobble (``wobble_pct``, the set's excursion);
+    on a tie the latest (it carries the strongest prompt)."""
     rows = [t for t in takes if t.get("path")]
     if not rows:
         return None
-    return min(reversed(rows), key=lambda t: int(t.get("burned_frames") or 0))
+    return min(reversed(rows), key=lambda t: (int(t.get("burned_frames") or 0), float(t.get("wobble_pct") or 0.0)))
 
 
 def main(argv: list[str] | None = None) -> int:

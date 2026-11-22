@@ -1834,6 +1834,23 @@ def s6_sheet_retry_units(out_dir: Path, episode: str) -> set[str]:
     return out
 
 
+def s6_wobble_retry_units(out_dir: Path, episode: str) -> set[str]:
+    """Units whose latest S6 retry followed a CAMERA WOBBLE (tools/h3_camera_wobble, KO E05 2026-11-21: the set moved
+    with the actor on a locked-off unit): the task carries ``h3_camera_wobble_retry`` -- the locked-off retry
+    sentence.  Read from the S6 wave state, which is never removed."""
+    path = out_dir / "reports" / f"{episode}_S6_WAVE_STATE.json"
+    try:
+        state = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, ValueError):
+        return set()
+    out = set()
+    for uid, row in (state.get("s6_burn_retry") or {}).items():
+        attempts = (row or {}).get("attempts") or []
+        if attempts and isinstance(attempts[-1], dict) and attempts[-1].get("camera_wobble"):
+            out.add(str(uid))
+    return out
+
+
 def final_fix_redo_fields(out_dir: Path, episode: str) -> dict[str, dict[str, Any]]:
     """unit -> ``h3_final_fix`` {round, kind, kinds, sentence} of units the final fix round (owner 2026-11-20,
     final_fix_round.py) parked for one paid redo.  Read from ``reports/<EP>_FINAL_FIX_REDO.json``, which is never
@@ -3384,6 +3401,7 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
     redo_findings = q2_redo_prompt_findings(out_dir, episode, contract)
     burn_retries = s6_burn_retry_indices(out_dir, episode)
     sheet_retries = s6_sheet_retry_units(out_dir, episode)
+    wobble_retries = s6_wobble_retry_units(out_dir, episode)
     final_fixes = final_fix_redo_fields(out_dir, episode)
     # K075 is an episode-wide judgement (a face shown once keeps the plate everywhere), so it reads the
     # full editorial manifest, never the wave subset.
@@ -3728,6 +3746,8 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             task["h3_burn_retry"] = int(burn_retries[uid])
             if uid in sheet_retries:  # ... after a reference-sheet leak: sheet sentence + front-view crop of sheets
                 task["h3_reference_sheet_crop"] = True
+            elif uid in wobble_retries:  # ... after a camera wobble: the locked-off sentence
+                task["h3_camera_wobble_retry"] = True
         if final_fixes.get(uid):  # final fix round redo (final_fix_round.py): the redo sentence + perturbed @Image1
             task["h3_final_fix"] = dict(final_fixes[uid])
         task["dialogue_lines"] = lines
