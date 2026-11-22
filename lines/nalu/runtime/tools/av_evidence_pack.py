@@ -262,6 +262,48 @@ def classify_box(t: float, text: str, score: float, geom: tuple[float, float, fl
     return "SCENE_TEXT"
 
 
+#: the caption band where a burned copy of a line can stack with ours (h3_burn_retry.SUBTITLE_BAND, a bit lower)
+STACK_BAND_Y = (0.55, 0.97)
+STACK_MIN_GAP = 0.02            # two rows at least this far apart vertically (one row split in two boxes is not two)
+STACK_MERGE_GAP_S = 0.6
+STACK_MIN_READS = 2
+
+
+def stacked_rows(boxes: list[tuple[Any, str, float]], width: int, height: int) -> dict[str, Any] | None:
+    """One frame's OCR boxes -> the most similar pair of caption-band rows saying the same line (JA-01 E07 VU-004
+    2026-11-22: H3's burned 「言わないでくださいまし！」 under our copy of it), else None."""
+    import subtitle_text_match as _stm  # noqa: PLC0415 -- same directory
+    rows = []
+    for box, text, score in boxes or []:
+        if score < OCR_LOW_SCORE:
+            continue
+        x0, y0, x1, y1 = box_geometry(box, width, height)
+        yc = (y0 + y1) / 2
+        if STACK_BAND_Y[0] <= yc <= STACK_BAND_Y[1]:
+            rows.append((yc, str(text)))
+    return _stm.stacked_duplicate(rows, min_gap=STACK_MIN_GAP) if len(rows) >= 2 else None
+
+
+def stacked_runs(hits: list[tuple[float, dict[str, Any]]]) -> list[dict[str, Any]]:
+    """Per-frame stacked-duplicate hits -> runs {start, end, reads, texts, similarity} of >= STACK_MIN_READS reads."""
+    out: list[dict[str, Any]] = []
+    for t, hit in sorted(hits, key=lambda h: h[0]):
+        if out and t - out[-1]["_last"] <= STACK_MERGE_GAP_S:
+            run = out[-1]
+            run["_last"] = t
+            run["reads"] += 1
+            run["similarity"] = max(run["similarity"], hit["similarity"])
+            continue
+        out.append({"start": round(t, 2), "_last": t, "reads": 1, "texts": hit["texts"],
+                    "ys": hit["ys"], "similarity": hit["similarity"]})
+    rows = []
+    for run in out:
+        if run["reads"] >= STACK_MIN_READS:
+            last = run.pop("_last")
+            rows.append({**run, "end": round(last + 1.0 / SCAN_FPS, 2)})
+    return rows
+
+
 def lone_row_pixels(gray: Any, caption_rows: list[tuple[float, float, float, float]]) -> dict[str, Any] | None:
     """Under a ONE-row caption: bright stroke pixels in the next row slot narrower than LONE_ROW_MAX_GLYPHS glyphs
     (a lone 「！」 / one-character row that OCR does not read)."""
@@ -693,6 +735,7 @@ def build(video: Path, *, shots: list[dict[str, Any]] | None = None, asr: Any = 
             errors.setdefault("lookalike_cast", "INSIGHTFACE_UNAVAILABLE")
 
     burned_hits: list[tuple[float, str, float, float]] = []
+    stacked_hits: list[tuple[float, dict[str, Any]]] = []
     lone_hits: list[float] = []
     bands_by_t: list[tuple[float, dict[str, float]]] = []
     faces: list[dict[str, Any]] = []
@@ -708,6 +751,12 @@ def build(video: Path, *, shots: list[dict[str, Any]] | None = None, asr: Any = 
                     boxes = ocr_fn(frame)
                 except Exception:  # noqa: BLE001
                     boxes = []
+                try:
+                    stack = stacked_rows(boxes, width, height)
+                except Exception:  # noqa: BLE001
+                    stack = None
+                if stack:
+                    stacked_hits.append((t, stack))
                 caption_rows = []
                 for box, text, score in boxes:
                     geom = box_geometry(box, width, height)
@@ -750,6 +799,10 @@ def build(video: Path, *, shots: list[dict[str, Any]] | None = None, asr: Any = 
         pack["burned_text"] = {"method": "RapidOCR 4 fps; ours = caption band and caption glyph height; burned = "
                                          "glyphs >= 3.9 % of the frame height elsewhere",
                                "runs": runs[:60], "garbled": [r for r in runs if r.get("garbled")][:12]}
+        pack["stacked_subtitles"] = {"method": f"RapidOCR {SCAN_FPS:g} fps; two caption-band rows (y "
+                                               f"{STACK_BAND_Y[0]}-{STACK_BAND_Y[1]}) >= {STACK_MIN_GAP} apart saying "
+                                               "the same line (subtitle_text_match >= 0.6) in >= 2 reads",
+                                     "runs": stacked_runs(stacked_hits)[:30]}
     # subtitle wrap: the ASS check (reused from the must-check list) + pixel lone rows
     try:
         import nalu_qa_defect_checklist as _qa  # noqa: PLC0415
@@ -816,6 +869,10 @@ def summary(pack: dict[str, Any]) -> dict[str, Any]:
     if "runs" in bt:
         out["burned_text_runs"] = [{"window": win(r), "text": (r.get("texts") or [""])[0].lstrip(LOWCONF_MARK)[:12],
                                     **({"garbled": True} if r.get("garbled") else {})} for r in bt["runs"][:40]]
+    st = pack.get("stacked_subtitles") or {}
+    if st.get("runs"):
+        out["stacked_subtitle_runs"] = [{"window": win(r), "texts": [str(x)[:24] for x in r.get("texts") or []],
+                                         "similarity": r.get("similarity")} for r in st["runs"][:20]]
     dt = pack.get("dialogue_tail") or {}
     if "suspects" in dt:
         out["tail_cut_suspects"] = [{"cut": r["cut"], "gap_s": r["gap_s"], "level_db": r["level_at_cut_db"]}

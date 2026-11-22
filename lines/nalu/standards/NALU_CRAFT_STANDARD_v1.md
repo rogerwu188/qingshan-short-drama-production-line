@@ -388,7 +388,10 @@ C-14 默认LOCKED，推近只给最大的爽点。C-15 插入镜只拍证据，�
 | 第一冲突秒数 | `pacing.hook.at_seconds` 与第一个转折 | ≤ 3 s | S-01 |
 | 转折数 / 每分钟转折 | `pacing.beat_sheet` + `beat_role: PAYOFF` | ≥ max(4, ⌊D/25⌋) | S-02 |
 | 转折最大间隔 | 0、各转折、结尾悬念之间 | ≤ 30 s | S-02 |
-| 纯对白占比 | 说话镜无 MOMENTUM/CONTACT/POSSESSION/INTEGRITY 动作的秒数 / D | ≤ 60 % | S-04 / S-08 |
+| 说话头像占比 | 分镜里说话镜只有说话人（blocking 无抓/推/递/摔/跑等动作）的秒数 / D；不读 state 标签 | ≤ 60 % | S-04 / S-08 |
+| 视觉动作占比 | 动作、道具特写、环境建立、转场、运动镜头、边说边做的秒数 / D | ≥ 30 % | S-03 / S-04 |
+| 无台词视觉节拍 | 无台词的动作 / 特写 / 建立 / 转场镜头数 | ≥ max(3, ⌈D/30⌉) | S-03 |
+| 场次与地点 | 每 2 分钟场次数；`prompt_spec.space.location` 个数（或时间跳转） | ≥ 3 场 / 2 分钟，≥ 2 个地点 | S-04 / C-09 |
 | 最长台词 | 句数、语言单位（zh 28 字 / en 20 词 / ja 44 字 / ko 36 音节） | ≤ 2 句 | S-08 |
 | 同一人连说 | 无打断、无动作的连续台词 | ≤ 12 s | S-03 |
 | 无动作场 | 整场没有任何状态改变的身体动作 | 0 | S-04 / C-09 |
@@ -396,7 +399,8 @@ C-14 默认LOCKED，推近只给最大的爽点。C-15 插入镜只拍证据，�
 | 结尾悬念 | `pacing.cliffhanger`（最后一镜或最后 8 s，open_question） | 有 | S-06 |
 | 改编事件数 | `adaptation_plan.plot_events`（按事件取材，不按章节） | ≥ 所需转折数 | S-02 / S-04 |
 
-- 只对合同写了 `"pacing_policy": "SHORT_DRAMA_PACING_V1"` 的集生效（新派单起写；进行中的旧集只记录数字）。
+- 所有合同默认生效（2026-11-22 JA-01 E07：合同缺这个键就只记录、从不改稿）；只有明确写 `"pacing_policy": "OFF"` 才关闭；
+  已经跑过付费阶段（S4 起）又没写这个键的在制集只记录数字。`pacing_scene_plan`（顶层）与 `pacing.scene_plan` 都认。
 - 不合格 → S1 报 `SCRIPT_PACING_REVISE:round=n/2`，由编剧（Codex）自己改稿重跑，**最多两轮**，之后自动放行并记录差距；
   不问线主、不付费、不新增硬伤（`NALU_SCRIPT_PACING=off` 关闭改稿要求）。
 - 数字记在流水线状态 `stages.S1.details.script_pacing`，并作为 `script_pacing` 放进终审请求的 `craft_standard_request`

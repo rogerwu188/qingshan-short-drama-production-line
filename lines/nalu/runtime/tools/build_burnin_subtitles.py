@@ -33,10 +33,13 @@ Without the flag every caption is built exactly as before.
 are captioned at the placement's start/end (the mixed-in S4 wav), never ASR-assigned; every other
 caption is built exactly as before.
 
---avoid-bands (2026-11-21, JA-01 E04 VU-004): <EP>_S6_RESIDUAL_BURN_BANDS.json {units: {uid: {y0, y1}}} -- units whose
-kept S6 take still carries H3-burned text in our subtitle band (S6 retries UNRESOLVED).  A caption of such a unit that
-would overlap the burned line is drawn just ABOVE it (never above mid-frame; else below it), so the two never stack
-into a doubled line; the report row records ``moved_clear_of_burned_text``.  Every other caption is unchanged.
+--avoid-bands (2026-11-21, JA-01 E04 VU-004): <EP>_S6_RESIDUAL_BURN_BANDS.json {units: {uid: {y0, y1, texts?}}} -- units
+whose kept S6 take still carries H3-burned text in our subtitle band (S6 retries UNRESOLVED).  A caption of such a unit
+that would overlap the burned line is drawn just ABOVE it (never above mid-frame; else below it), so the two never
+stack; the report row records ``moved_clear_of_burned_text``.  When the burned line's OCR text (``texts``) IS the cue's
+line (fuzzy >= 0.6, subtitle_text_match; JA-01 E07 VU-004 2026-11-22: moved above it, the viewer still read the same
+line twice) the cue is suppressed instead (``suppressed_duplicate_cues`` in the report).  Every other caption is
+unchanged.
 
   build --episode EP --project <agentcut project> --asr <per-unit asr json> --contract <generation contract>
         --grouping <grouping plan> --source <picture_native.mp4> --out-ass <.ass> --out-video <subbed.mp4>
@@ -441,6 +444,42 @@ def avoid_rects(bands: dict, clips: list[dict], width: int, height: int
     return out
 
 
+def burned_band_texts(path: Path | None) -> dict[str, list[str]]:
+    """{unit id: OCR texts of the burned line} from ``<EP>_S6_RESIDUAL_BURN_BANDS.json`` (units[uid].texts)."""
+    if not path or not Path(path).is_file():
+        return {}
+    try:
+        units = (json.loads(Path(path).read_text(encoding="utf-8")) or {}).get("units") or {}
+    except (OSError, ValueError):
+        return {}
+    return {str(uid): [str(t) for t in (row.get("texts") or []) if str(t).strip()]
+            for uid, row in units.items() if isinstance(row, dict) and row.get("texts")}
+
+
+def suppress_already_burned(events: list, report: list, burned: dict[str, list[str]],
+                            threshold: float | None = None) -> tuple[list, list, list[dict]]:
+    """(events, report rows, suppressed rows): a cue of a unit whose burned line says the same thing (the cue's text
+    or, for a sequential piece, its whole line) is dropped -- the picture already shows it.  ``events`` and
+    ``report`` are index-aligned (as built).  Pure."""
+    if not burned:
+        return events, report, []
+    import subtitle_text_match as _stm
+    limit = _stm.DUPLICATE_THRESHOLD if threshold is None else float(threshold)
+    keep_e, keep_r, gone = [], [], []
+    for ev, row in zip(events, report):
+        reads = burned.get(str(row.get("unit_id") or ""))
+        if reads:
+            score, read = max(_stm.best_match(row.get("text"), reads), _stm.best_match(row.get("line_text"), reads))
+            if score >= limit:
+                gone.append({"unit_id": row.get("unit_id"), "shot_id": row.get("shot_id"), "text": row.get("text"),
+                             "start": row.get("start"), "end": row.get("end"), "burned_text": read,
+                             "similarity": score, "reason": "LINE_ALREADY_BURNED_IN_PICTURE"})
+                continue
+        keep_e.append(ev)
+        keep_r.append(row)
+    return keep_e, keep_r, gone
+
+
 def caption_y_above(default_y: int, cap_h: int, start: float, end: float,
                     rects: list[tuple[float, float, tuple[int, int, int, int]]], height: int, gap: int = 8,
                     bottom_margin: int = 24, top_limit: float = 0.5) -> int:
@@ -587,6 +626,11 @@ def main() -> int:
                        "text": d["text"], "start": round(s, 3), "end": round(e, 3),
                        "timing_basis": "VOICE_OVER_PLACEMENT", "presence": "VOICE_OVER",
                        "timing_verification": "PLACED_FROM_S4_WAV_DURATION"})
+    # JA-01 E07 VU-004 (2026-11-22): the unit's kept S6 take still shows H3's burned copy of the line in our band.
+    # When the burned text IS the cue's line (fuzzy >= 0.6, subtitle_text_match) the line is already on screen: our
+    # cue is suppressed for that window (free) instead of being drawn above it as a second copy.  A burned read that
+    # does not match (garbled / other text) keeps the cue, moved clear by --avoid-bands.
+    events, report, suppressed = suppress_already_burned(events, report, burned_band_texts(a.avoid_bands))
     # no overlaps: clamp each caption's end to the next start
     events.sort(key=lambda x: x[0])
     report.sort(key=lambda row: row["start"])
@@ -679,6 +723,7 @@ def main() -> int:
            "text_source": "generation contract dialogue_units (verbatim)", "timing_source": str(a.asr),
            "unit_recut": str(a.unit_recut) if a.unit_recut else None, "unit_recut_dropped_lines": recut_dropped,
            "unmapped_dialogue_lines": unmapped_lines,
+           **({"suppressed_duplicate_cues": suppressed} if suppressed else {}),
            **({"avoid_bands": str(a.avoid_bands), "avoid_rects": [{"start": s0, "end": e0, "y": r[1], "h": r[3]}
                                                                  for s0, e0, r in avoid]} if avoid else {}),
            "font": font_name, "font_file": font_file, "font_source": font_source,

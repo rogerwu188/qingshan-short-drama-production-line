@@ -8,8 +8,13 @@
     "schema": {"const": "qingshan.generation_contract.v3"},
     "episode": {"pattern": "^E[0-9]+$"},
     "pacing_policy": {
-      "enum": ["SHORT_DRAMA_PACING_V1"],
-      "description": "可选（线主 2026-11-22，从下一集派单起写）：S1 免费测量剧本节奏（lines/nalu/runtime/tools/script_pacing_check.py）；不合格时编剧自己改稿，最多两轮后自动放行。缺省 = 只记录，不要求改稿。"
+      "enum": ["SHORT_DRAMA_PACING_V1", "OFF"],
+      "description": "默认 SHORT_DRAMA_PACING_V1（2026-11-22 起所有合同缺省即生效；JA-01 E07 缺这个键时只记录、从不改稿）：S1 免费测量剧本节奏（lines/nalu/runtime/tools/script_pacing_check.py）；不合格时编剧自己改稿，最多两轮后自动放行。只有明确写 OFF 才关闭；已过付费阶段、靠默认的在制集只记录。"
+    },
+    "pacing_scene_plan": {
+      "type": "array",
+      "description": "兼容别名：同 pacing.scene_plan（检查会合并两者）；新合同写在 pacing.scene_plan。",
+      "items": {"type": "object", "required": ["scene_id"]}
     },
     "adaptation_plan": {
       "type": "object",
@@ -150,8 +155,8 @@
         },
         "scene_plan": {
           "type": "array",
-          "description": "可选（SHORT_DRAMA_PACING_V1）：每场 {scene_id, objective, conflict, physical_action}",
-          "items": {"type": "object", "required": ["scene_id"]}
+          "description": "SHORT_DRAMA_PACING_V1（默认）：每场 {scene_id, objective, conflict, physical_action}；写在 pacing 里（顶层 pacing_scene_plan 也认）",
+          "items": {"type": "object", "required": ["scene_id"], "properties": {"scene_id": {"type": "string"}, "objective": {"type": "string"}, "conflict": {"type": "string"}, "physical_action": {"type": "string"}}}
         },
         "cliffhanger": {
           "type": "object",

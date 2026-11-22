@@ -152,7 +152,7 @@ class E04RoutingTest(unittest.TestCase):
         self.assertEqual([ffr.severity_of(v) for v in ("P0", "p2", "critical", "Major", "low", None, "P1 严重")],
                          ["P0", "P2", "P0", "P1", "P3", "P1", "P1"])
 
-    def test_s6_unresolved_units_join_the_round_but_never_trigger_it(self):
+    def test_s6_unresolved_units_join_the_round(self):
         checklist = {"items": {}, "s6_burn_unresolved": [
             {"unit_id": "E04-VU-004", "retries": 2, "reason": "RETRY_MAX_REACHED", "residual_in_subtitle_band": True},
             {"unit_id": "E04-VU-007", "retries": 2, "reason": "RETRY_MAX_REACHED", "sheet_leak": True},
@@ -164,7 +164,10 @@ class E04RoutingTest(unittest.TestCase):
                          ("REFERENCE_SHEET_LEAK", "P0"))
         self.assertEqual(rows["E04-VU-011"]["severity"], "P2")
         self.assertEqual(rows["E04-VU-004"]["window"], [10.0, 13.5])
-        self.assertFalse(ffr.triggered(False, mapped))
+        # 2026-11-22 (JA-01 E07 VU-004): burned text stacking with our caption is a measured visible defect -> a
+        # trigger on its own; a sheet leak / out-of-band text alone still is not
+        self.assertTrue(ffr.triggered(False, mapped))
+        self.assertFalse(ffr.triggered(False, [f for f in mapped if f["unit_id"] != "E04-VU-004"]))
         # with a confirmed review finding the S6 rows dedupe with it (same unit window)
         both = ffr.dedupe(e04_findings() + mapped)
         vu004 = [f for f in both if f.get("unit_id") == "E04-VU-004"]

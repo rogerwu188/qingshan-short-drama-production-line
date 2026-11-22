@@ -629,6 +629,9 @@ def _measured_findings(measurements: dict[str, Any]) -> list[dict[str, Any]]:
     for row in pack.get("burned_text_runs") or []:
         out.append({"item_id": "QA-BURNED-TEXT", "window": row.get("window"), "source": "AV_PACK_OCR",
                     "detail": "GARBLED" if row.get("garbled") else "BURNED_TEXT_RUN"})
+    for row in pack.get("stacked_subtitle_runs") or []:  # JA-01 E07 VU-004: the same line twice on screen
+        out.append({"item_id": "QA-BURNED-TEXT", "window": row.get("window"), "source": "AV_PACK_OCR",
+                    "detail": "STACKED_DUPLICATE_SUBTITLE " + " / ".join(row.get("texts") or [])})
     for row in pack.get("tail_cut_suspects") or []:
         out.append({"item_id": "QA-DIALOGUE-TAIL-CUT", "at_seconds": row.get("cut"), "source": "AV_PACK_AUDIO",
                     "detail": f"gap {row.get('gap_s')} s, {row.get('level_db')} dB at the cut"})
@@ -737,6 +740,10 @@ def build_record(parsed: dict[str, Any], measurements: dict[str, Any], *, episod
             **({"video_review": video} if video else {}),
             **({"s6_burn_unresolved": ((measurements or {}).get("s6_burn_unresolved") or {}).get("units")}
                if ((measurements or {}).get("s6_burn_unresolved") or {}).get("units") else {}),
+            # two stacked caption rows saying the same line in the final cut (post-S7 OCR, JA-01 E07 VU-004):
+            # BURNED_TEXT findings (and a trigger) of the final fix round
+            **({"stacked_subtitles": ((measurements or {}).get("av_evidence_pack") or {}).get("stacked_subtitle_runs")}
+               if ((measurements or {}).get("av_evidence_pack") or {}).get("stacked_subtitle_runs") else {}),
             # the post-S7 edit measurement: findings (and, at S7's own cuts, a trigger) of the final fix round
             **({"s7_edit_measure": (measurements or {}).get("s7_edit")}
                if ((measurements or {}).get("s7_edit") or {}).get("counts") else {}),

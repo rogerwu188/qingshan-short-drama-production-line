@@ -13,20 +13,33 @@ cumulative ``target_seconds``) -- no model, no network, no paid call:
   beats_per_minute         plot turns (``pacing.beat_sheet`` rows + shots with ``prompt_spec.beat_role: PAYOFF``)
   first_conflict_at        min(``pacing.hook.at_seconds``, first turn)              target <= 3 s
   max_turn_gap_seconds     largest gap between 0, the turns and the cliffhanger    target <= 30 s
-  dialogue_only_ratio      seconds of speaking shots without a physical action (MOMENTUM / CONTACT / POSSESSION /
-                           INTEGRITY state change) / episode seconds                                    <= 0.60
+  dialogue_only_ratio      seconds of TALKING-HEAD shots / episode seconds                             <= 0.60
+  visual_action_ratio      seconds of shots that show something other than a speaking face (action, insert,
+                           establishing, transition, a moving silent shot, a line spoken while grabbing / shoving /
+                           handing over ...) / episode seconds                                          >= 0.30
+  visual_beat_count        silent visual beats (action / insert / establishing / transition / movement)
+                                                                                  >= max(3, ceil(D / 30))
+  scene changes            scenes per 2 minutes >= 3 and >= 2 locations (or a time change)
   longest_line             sentences and spoken units of the longest line (<= 2 sentences, language cap)
   monologue runs           one speaker's back-to-back lines > 12 s without an interjection or action
-  scenes_without_action    scenes where no shot changes a physical state (talk-only scenes)
-  scene_plan               ``pacing.scene_plan`` {scene_id, objective, conflict, physical_action} per scene
+  scenes_without_action    scenes where no shot shows a physical action (talk-only scenes)
+  scene_plan               ``pacing.scene_plan`` {scene_id, objective, conflict, physical_action} per scene (the
+                           top-level ``pacing_scene_plan`` / ``pacing_<key>`` spelling is accepted too)
+
+The visual numbers are MEASURED from the storyboard (each shot's dialogue, blocking / primary action text, camera
+motion family, shot scale, cast and props), never from the writer's own ``state_delta_dimensions`` labels (JA-01 E07
+on device 1485, 2026-11-22: every speaking shot was labelled MOMENTUM/CONTACT, dialogue_only_ratio measured 0.00 and
+the owner saw "almost everything is characters talking, the scene barely changes, no other action shots").
   ending                   ``pacing.cliffhanger`` {shot_id, open_question} on the last beat of the episode
   adaptation               ``adaptation_plan`` {source_chapters, plot_events[], cut[]}: the episode's source
                            budget is plot events, not chapters (>= the required turn count)
 
-Activation (do not break in-flight episodes): the check only asks for revisions when the contract declares
-``"pacing_policy": "SHORT_DRAMA_PACING_V1"`` -- the dispatch template / contract §2.0 tell the writer to set it from
-the next episode's dispatch on.  Every other contract gets the same metrics as an ADVISORY record (never blocks).
-``NALU_SCRIPT_PACING=off`` turns the revision request off everywhere (metrics are still recorded).
+Activation: SHORT_DRAMA_PACING_V1 is the DEFAULT policy of every contract (2026-11-22, E07: the contract carried no
+``pacing_policy`` key, the check stayed ADVISORY and SCRIPT_PACING_REVISE never fired).  A contract opts out only
+explicitly (``"pacing_policy": "OFF"`` / ``"NONE"`` / ``"LEGACY"``).  An episode already past a paid stage (S4+ in
+its pipeline state) whose contract does not declare the policy is grandfathered (ADVISORY): a re-run of S1 never
+sends a paid episode back to the writer.  ``NALU_SCRIPT_PACING=off`` turns the revision request off everywhere
+(metrics are still recorded).
 
 Revision loop (``decide``): a failing check asks the writer (Codex) to revise the script; each distinct failing
 contract sha is one round.  Rounds 1..MAX_REVISIONS return REVISE (S1 reports ``SCRIPT_PACING_REVISE:*`` and the
@@ -84,7 +97,136 @@ TARGETS = {
     "max_sentences_per_line": 2,
     "monologue_run_max_seconds": 12.0,
     "cliffhanger_window_seconds": 8.0,   # the cliffhanger shot starts inside the last 8 s (or is the last shot)
+    "visual_action_ratio_min": 0.30,     # >= 30 % of screen time shows action / non-talking visual storytelling
+    "visual_beat_every_seconds": 30.0,   # silent visual beats >= max(MIN, ceil(D / 30))
+    "min_visual_beats": 3,
+    "scenes_per_2min_min": 3.0,          # >= 3 scenes per 2 minutes ...
+    "min_locations": 2,                  # ... over >= 2 locations (or a time change between scenes)
 }
+
+# --------------------------------------------------------------------------- storyboard (visual) classification
+#: a line spoken WHILE one of these happens is not a talking head (grab / shove / strike / hand over / break / run
+#: ...); a step, a turn of the head, a raised arm or a lean is still a talking head.  zh / ja share the Han verbs.
+STRONG_ACTION_WORDS = (
+    # zh
+    "抓", "夺", "抢", "推搡", "推倒", "推开", "猛推", "一把推", "撞", "扇", "掌掴", "打了", "打向", "击", "踢", "踹", "砸",
+    "摔", "扔", "甩开", "甩手", "拽", "拉住", "扯", "撕", "掐", "揪", "按住", "扑", "冲向", "冲进", "冲出", "冲上",
+    "奔", "跑", "逃", "追", "跪", "抱住", "拥抱", "吻", "拔出", "拔刀", "拔剑", "刺", "砍", "挥拳", "挥刀", "挥剑",
+    "递", "接过", "塞给", "塞进", "掏出", "夺过", "举起", "倒下", "跌倒", "摔倒", "翻倒", "掀", "破门", "摔门", "撞门",
+    "关上门", "拦住", "挡住", "泼", "泼向", "砸碎", "打碎", "撕碎", "扔下", "丢下", "拖走", "拖着", "架住", "勒住",
+    "掐住", "捂住", "捏碎", "扼", "摁", "拍桌", "掀桌", "踩", "跳", "翻身", "爬",
+    # ja (kana / kanji forms not covered above)
+    "掴", "つかむ", "つかみ", "押し倒", "突き飛ば", "殴", "叩", "蹴", "投げ", "駆け", "走り", "逃げ", "抱きし", "抱き寄",
+    "倒れ", "奪", "渡す", "手渡", "破り", "引っ張", "振り払", "斬", "切りつけ", "飛びかか",
+    # ko
+    "붙잡", "움켜", "밀치", "밀어", "때리", "뺨을", "걷어차", "던지", "달려", "뛰어", "도망", "끌어안", "무릎을 꿇",
+    "넘어지", "빼앗", "건네", "찢", "부수", "내리치", "휘두르",
+)
+_STRONG_EN = re.compile(
+    r"\b(grab|grabs|grabbed|seize|seizes|seized|snatch|snatches|snatched|shove|shoves|shoved|push(?:es|ed)? (?:him|her|them|"
+    r"it|away|past|open)|punch(?:es|ed)?|slap(?:s|ped)?|strike|strikes|struck|hit|hits|kick(?:s|ed)?|throw(?:s|n)?|threw|"
+    r"hurl(?:s|ed)?|smash(?:es|ed)?|break(?:s)?|broke|tear(?:s)?|tore|rip(?:s|ped)?|run(?:s)?|ran|rush(?:es|ed)?|"
+    r"chase(?:s|d)?|flee(?:s)?|fled|kneel(?:s)?|knelt|hug(?:s|ged)?|embrace(?:s|d)?|kiss(?:es|ed)?|draws? (?:a|the|his|"
+    r"her) (?:sword|knife|gun|blade)|hand(?:s|ed)? (?:over|him|her|them)|yank(?:s|ed)?|drag(?:s|ged)?|slam(?:s|med)?|"
+    r"collapse(?:s|d)?|stab(?:s|bed)?|lunge(?:s|d)?|burst(?:s)? (?:in|into|through)|tackle(?:s|d)?|"
+    r"pin(?:s|ned)? (?:him|her|them)|fall(?:s)?|fell|jump(?:s|ed)?|climb(?:s|ed)?)\b", re.IGNORECASE)
+#: camera words inside an action text are not an action ("镜头推近" is not a shove)
+_CAMERA_WORDS = re.compile(r"镜头[^，。；,;]*|推近|推镜|拉远|拉镜|推进|拉开距离|push[- ]in|pull[- ]out|dolly", re.IGNORECASE)
+#: a moving camera family gives a SILENT shot visual motion (PUSH_IN / LOCKED do not -- static_design_gate R7)
+MOVING_CAMERA = frozenset({"ARC", "TRACK", "CRANE", "HANDHELD", "ORBIT", "PAN", "TILT", "DOLLY", "FOLLOW", "WHIP_PAN",
+                           "STEADICAM"})
+WIDE_SCALES = frozenset({"WIDE", "EXTREME_WIDE", "ESTABLISHING", "FULL", "LONG", "EXTREME_LONG", "MASTER"})
+INSERT_SCALES = frozenset({"INSERT", "EXTREME_CLOSE", "EXTREME_CLOSE_UP", "ECU", "DETAIL", "MACRO"})
+#: shot kinds counted as action / non-talking visual storytelling (screen time share and beats)
+VISUAL_KINDS = frozenset({"ACTION", "MOVEMENT", "INSERT", "ESTABLISHING", "TRANSITION", "TALK_WITH_ACTION"})
+SILENT_VISUAL_KINDS = frozenset({"ACTION", "MOVEMENT", "INSERT", "ESTABLISHING", "TRANSITION"})
+#: kinds that put a physical action on screen (a scene without one is talk-only)
+PHYSICAL_KINDS = frozenset({"ACTION", "TALK_WITH_ACTION"})
+
+
+def _body_verbs() -> tuple[str, ...]:
+    try:
+        import nalu_prompt_rules as _npr  # noqa: PLC0415 -- same directory; the static design gate's lexicon
+        return tuple(_npr.BODY_VERBS)
+    except Exception:  # noqa: BLE001 -- the lexicon is optional
+        return ()
+
+
+_BODY_VERBS: tuple[str, ...] | None = None
+
+
+def action_text(shot: dict[str, Any]) -> str:
+    """The storyboard's description of what physically happens in the shot (blocking / primary action / frame
+    content), camera wording removed."""
+    spec = shot.get("prompt_spec") if isinstance(shot.get("prompt_spec"), dict) else {}
+    act = spec.get("action") if isinstance(spec.get("action"), dict) else {}
+    parts = [shot.get("blocking"), act.get("primary_action"), act.get("secondary_action"),
+             shot.get("action") if isinstance(shot.get("action"), str) else None]
+    if not any(_clean(x) for x in parts):
+        parts.append(shot.get("frame_content"))
+    return _CAMERA_WORDS.sub(" ", " ".join(_clean(x) for x in parts if _clean(x)))
+
+
+def strong_action(text: str) -> bool:
+    return bool(text) and (any(w in text for w in STRONG_ACTION_WORDS) or bool(_STRONG_EN.search(text)))
+
+
+def body_motion(text: str) -> bool:
+    global _BODY_VERBS
+    if _BODY_VERBS is None:
+        _BODY_VERBS = _body_verbs()
+    return bool(text) and any(v in text for v in _BODY_VERBS)
+
+
+def _camera(shot: dict[str, Any]) -> tuple[str, str]:
+    spec = shot.get("prompt_spec") if isinstance(shot.get("prompt_spec"), dict) else {}
+    plan = spec.get("camera_plan") if isinstance(spec.get("camera_plan"), dict) else \
+        shot.get("camera_plan") if isinstance(shot.get("camera_plan"), dict) else {}
+    family = _clean(plan.get("motion_family")).upper()
+    scale = _clean(plan.get("shot_scale") or shot.get("shot_size")).upper()
+    return family, scale
+
+
+def shot_kind(shot: dict[str, Any], speaking: bool) -> str:
+    """What the viewer SEES in one storyboard shot -- from its structure, never from its state labels:
+
+    TALKING_HEAD       a line is spoken and nothing but the speaking (gesturing / stepping) characters is shown
+    TALK_WITH_ACTION   a line is spoken while something is grabbed, struck, handed over, broken, run from ...
+    ACTION             no line; a body action happens (strong verb, or the static gate's body-level motion verbs)
+    MOVEMENT           no line; the camera itself travels (ARC / TRACK / CRANE / HANDHELD ...)
+    INSERT             no line; a close detail of a prop / object (insert scale, or props without cast)
+    ESTABLISHING       no line; a wide view of the place, or a shot without characters
+    TRANSITION         a declared transition shot (beat_role / shot_function TRANSITION)
+    STATIC_REACTION    no line, locked camera, a face reacting without a body action"""
+    spec = shot.get("prompt_spec") if isinstance(shot.get("prompt_spec"), dict) else {}
+    text = action_text(shot)
+    family, scale = _camera(shot)
+    if speaking:
+        return "TALK_WITH_ACTION" if strong_action(text) else "TALKING_HEAD"
+    role = _clean(spec.get("beat_role") or shot.get("shot_function") or spec.get("shot_function")).upper()
+    if role == "TRANSITION":
+        return "TRANSITION"
+    cast = [c for c in spec.get("cast") or [] if isinstance(c, dict)]
+    props = [x for x in spec.get("props") or [] if x]
+    if not cast:
+        return "INSERT" if props and scale not in WIDE_SCALES else "ESTABLISHING"
+    if scale in INSERT_SCALES and props:
+        return "INSERT"
+    if strong_action(text) or body_motion(text):
+        return "ACTION"
+    if family in MOVING_CAMERA:
+        return "MOVEMENT"
+    if scale in WIDE_SCALES:
+        return "ESTABLISHING"
+    return "STATIC_REACTION"
+
+
+def _location(shot: dict[str, Any]) -> tuple[str, str]:
+    spec = shot.get("prompt_spec") if isinstance(shot.get("prompt_spec"), dict) else {}
+    space = spec.get("space") if isinstance(spec.get("space"), dict) else {}
+    state = spec.get("scene_state") if isinstance(spec.get("scene_state"), dict) else {}
+    return (_clean(space.get("location") or shot.get("location_id") or shot.get("location")),
+            _clean(state.get("time") or shot.get("time_of_day")))
 
 _SENTENCE_END = re.compile(r"[。！？!?…]+|\.(?:\s+|$)")
 _OPEN_END = re.compile(r"[？?…—―-]\s*[」』\"'”’]?\s*$")
@@ -110,8 +252,49 @@ def enabled(environ: dict[str, str] | None = None) -> bool:
     return _clean(env.get(ENV_SWITCH)).lower() not in ("off", "0", "false", "no")
 
 
-def policy_active(contract: dict[str, Any]) -> bool:
-    return _clean((contract or {}).get("pacing_policy")).upper() == POLICY
+#: explicit opt-out values of ``pacing_policy`` (anything else, or no key at all, is SHORT_DRAMA_PACING_V1)
+OPT_OUT_VALUES = frozenset({"OFF", "NONE", "LEGACY", "OPT_OUT", "DISABLED", "FALSE", "0"})
+
+
+def policy_basis(contract: dict[str, Any]) -> str:
+    """DECLARED (the contract names the policy), OPT_OUT (it explicitly switched it off) or DEFAULT (no key)."""
+    raw = (contract or {}).get("pacing_policy")
+    if raw is False:
+        return "OPT_OUT"
+    value = _clean(raw).upper()
+    if not value:
+        return "DEFAULT"
+    if value in OPT_OUT_VALUES:
+        return "OPT_OUT"
+    return "DECLARED" if value == POLICY else "DEFAULT"
+
+
+def policy_active(contract: dict[str, Any], *, in_flight: bool = False) -> bool:
+    """The policy applies to the contract: declared, or by default -- except an explicit opt-out, and except a
+    contract that relies on the default while its episode is already past a paid stage (``in_flight``)."""
+    basis = policy_basis(contract)
+    if basis == "OPT_OUT":
+        return False
+    return basis == "DECLARED" or not in_flight
+
+
+def pacing_block(contract: dict[str, Any]) -> dict[str, Any]:
+    """``pacing`` with the top-level ``pacing_<key>`` spellings folded in (E07: Codex wrote ``pacing_scene_plan`` at
+    the contract top level next to ``pacing.hook`` / ``pacing.beat_sheet``; the check read only ``pacing.scene_plan``
+    and reported SCENE_PLAN_MISSING for every scene).  A key inside ``pacing`` wins; list keys are merged."""
+    contract = contract if isinstance(contract, dict) else {}
+    pacing = dict(contract.get("pacing")) if isinstance(contract.get("pacing"), dict) else {}
+    for key in ("hook", "beat_sheet", "scene_plan", "cliffhanger"):
+        alias = contract.get(f"pacing_{key}")
+        if alias in (None, "", [], {}):
+            continue
+        if isinstance(alias, list) and isinstance(pacing.get(key), list):
+            seen = {json.dumps(x, ensure_ascii=False, sort_keys=True) for x in pacing[key]}
+            pacing[key] = list(pacing[key]) + [x for x in alias
+                                               if json.dumps(x, ensure_ascii=False, sort_keys=True) not in seen]
+        elif pacing.get(key) in (None, "", [], {}):
+            pacing[key] = alias
+    return pacing
 
 
 def contract_language(contract: dict[str, Any], language: str | None = None) -> str:
@@ -158,7 +341,7 @@ def timeline(contract: dict[str, Any], language: str) -> list[dict[str, Any]]:
         role = spec.get("role_semantic_disambiguation") if isinstance(spec.get("role_semantic_disambiguation"),
                                                                        dict) else {}
         lines = []
-        for row in _rows(spec.get("dialogue")):
+        for row in _rows(spec.get("dialogue") if spec.get("dialogue") not in (None, "", []) else shot.get("dialogue")):
             speaker, words = split_line(row, language)
             units = _lang.speech_units(words, language)
             if units:
@@ -166,12 +349,19 @@ def timeline(contract: dict[str, Any], language: str) -> list[dict[str, Any]]:
                               "open_end": bool(_OPEN_END.search(words))})
         dims = {_clean(d).upper() for d in shot.get("state_delta_dimensions") or []}
         speaker = _clean(role.get("dialogue_speaker_id")) or (lines[0]["speaker"] if lines else "")
+        kind = shot_kind(shot, bool(lines))
+        location, time_of_day = _location(shot)
         out.append({"index": index, "shot_id": _clean(shot.get("shot_id")) or f"SHOT-{index + 1}",
                     "scene_id": _clean(shot.get("scene_id")) or "SCENE", "start": round(cursor, 3),
                     "end": round(cursor + seconds, 3), "seconds": seconds, "lines": lines,
-                    "speaker": speaker if lines else "",
-                    "physical": bool(dims & PHYSICAL_DIMENSIONS),
-                    "speaking_action": bool(dims & SPEAKING_ACTION_DIMENSIONS),
+                    "speaker": speaker if lines else "", "kind": kind,
+                    "location": location, "time_of_day": time_of_day,
+                    # measured from the storyboard (shot_kind), not from the writer's state labels
+                    "physical": kind in PHYSICAL_KINDS,
+                    "speaking_action": kind == "TALK_WITH_ACTION",
+                    # the writer's own labels, kept only to show how far they drift from the storyboard
+                    "declared_physical": bool(dims & PHYSICAL_DIMENSIONS),
+                    "declared_speaking_action": bool(dims & SPEAKING_ACTION_DIMENSIONS),
                     "beat_role": _clean(spec.get("beat_role")).upper()})
         cursor += seconds
     return out
@@ -196,7 +386,7 @@ def measure(contract: dict[str, Any], language: str | None = None) -> dict[str, 
     lang = contract_language(contract, language)
     rows = timeline(contract, lang)
     duration = round(sum(r["seconds"] for r in rows), 3)
-    pacing = contract.get("pacing") if isinstance(contract.get("pacing"), dict) else {}
+    pacing = pacing_block(contract)
 
     turns: list[dict[str, Any]] = []
     unknown_types: list[str] = []
@@ -249,6 +439,20 @@ def measure(contract: dict[str, Any], language: str | None = None) -> dict[str, 
     speaking = [r for r in rows if r["lines"]]
     talk_only = [r for r in speaking if not r["speaking_action"]]
     dialogue_only_seconds = round(sum(r["seconds"] for r in talk_only), 3)
+    declared_talk_only = round(sum(r["seconds"] for r in speaking if not r["declared_speaking_action"]), 3)
+    kinds: dict[str, dict[str, float]] = {}
+    for r in rows:
+        k = kinds.setdefault(r["kind"], {"shots": 0, "seconds": 0.0})
+        k["shots"] += 1
+        k["seconds"] = round(k["seconds"] + r["seconds"], 3)
+    visual_seconds = round(sum(r["seconds"] for r in rows if r["kind"] in VISUAL_KINDS), 3)
+    visual_beats = [{"shot_id": r["shot_id"], "kind": r["kind"], "at": r["start"]} for r in rows
+                    if r["kind"] in SILENT_VISUAL_KINDS]
+    required_visual_beats = max(TARGETS["min_visual_beats"],
+                                math.ceil(duration / TARGETS["visual_beat_every_seconds"])) if duration else \
+        TARGETS["min_visual_beats"]
+    locations = sorted({r["location"] for r in rows if r["location"]})
+    times_of_day = sorted({r["time_of_day"] for r in rows if r["time_of_day"]})
     speech_seconds = round(sum(min(r["seconds"], sum(ln["units"] for ln in r["lines"]) /
                                    _lang.profile(lang).rate) for r in speaking), 3)
 
@@ -310,6 +514,15 @@ def measure(contract: dict[str, Any], language: str | None = None) -> dict[str, 
         "max_turn_gap_seconds": round(max_gap, 3), "max_turn_gap_window": gap_at,
         "dialogue_only_seconds": dialogue_only_seconds,
         "dialogue_only_ratio": round(dialogue_only_seconds / duration, 3) if duration else 0.0,
+        "dialogue_only_ratio_declared": round(declared_talk_only / duration, 3) if duration else 0.0,
+        "talking_head_ratio": round(dialogue_only_seconds / duration, 3) if duration else 0.0,
+        "visual_action_seconds": visual_seconds,
+        "visual_action_ratio": round(visual_seconds / duration, 3) if duration else 0.0,
+        "visual_beat_count": len(visual_beats), "required_visual_beats": required_visual_beats,
+        "visual_beats": visual_beats[:16], "shot_kinds": kinds,
+        "location_count": len(locations) if locations else None, "locations": locations[:8],
+        "time_change": len(times_of_day) > 1,
+        "scenes_per_2min": round(len(scenes) * 120.0 / duration, 2) if duration else 0.0,
         "speech_share_ref": round(speech_seconds / duration, 3) if duration else 0.0,
         "longest_line": longest, "line_unit_cap": cap, "long_lines": long_lines[:12],
         "long_line_count": len(long_lines), "monologue_runs": monologues[:8],
@@ -328,7 +541,14 @@ FIXES = {
     "FIRST_CONFLICT_LATE": "open mid-conflict: the first shot is already the insult / reveal / danger (<= 3 s)",
     "TOO_FEW_TURNS": "pull more plot events into the episode (cut filler, merge scenes, take the next chapters)",
     "TURN_GAP_TOO_LONG": "add an escalation / reversal / reveal inside the longest gap (one turn per 20-30 s)",
-    "DIALOGUE_ONLY_TOO_HIGH": "turn exposition lines into visible action and reaction shots",
+    "DIALOGUE_ONLY_TOO_HIGH": "turn exposition lines into visible action and reaction shots (measured from the "
+                              "storyboard: a line spoken with only a gesture or a step is a talking head)",
+    "VISUAL_ACTION_TOO_LOW": "give >= 30 % of the screen time to action / insert / establishing / transition shots "
+                             "or lines spoken while something physical happens (grab, shove, hand over, break, run)",
+    "VISUAL_BEATS_TOO_FEW": "add silent visual beats: an action shot, a prop insert, an establishing view of the new "
+                            "place, a transition (one every ~30 s)",
+    "SCENE_STATIC": "move the story through places: >= 3 scenes per 2 minutes over >= 2 locations (or a clear "
+                    "time jump); cut a talk scene into a walk-and-talk / a new place",
     "LINE_TOO_LONG": "at most 2 short sentences per line; split or cut the rest",
     "BACK_TO_BACK_MONOLOGUE": "break the run with an interjection, a physical action or a reaction",
     "SCENE_TALK_ONLY": "give the scene a physical action that changes something (grab, shove, hand over, leave)",
@@ -340,9 +560,13 @@ FIXES = {
 
 
 def evaluate(contract: dict[str, Any], language: str | None = None,
-             environ: dict[str, str] | None = None) -> dict[str, Any]:
-    """{status PASS|FAIL, active, failures [codes], warnings, fixes, metrics}.  ``active`` = the contract opted in
-    (``pacing_policy``) and the switch is on; an inactive report is ADVISORY whatever its numbers."""
+             environ: dict[str, str] | None = None, *, in_flight: bool = False,
+             source_texts: list[str] | None = None) -> dict[str, Any]:
+    """{status PASS|FAIL, active, failures [codes], warnings, fixes, metrics}.  ``active`` = the policy applies
+    (declared, or by default -- :func:`policy_active`) and the switch is on; an inactive report is ADVISORY whatever
+    its numbers.  ``in_flight``: the episode is past a paid stage (a default-policy contract is then grandfathered).
+    ``source_texts``: the adapted source chapters -- their action sentences are suggested as beats to dramatise when
+    the script is short of visual action."""
     m = measure(contract, language)
     t = TARGETS
     failures: list[str] = []
@@ -357,6 +581,21 @@ def evaluate(contract: dict[str, Any], language: str | None = None,
         failures.append(f"TURN_GAP_TOO_LONG:{m['max_turn_gap_seconds']:.1f}s@{w[0]:.0f}-{w[1]:.0f}")
     if m["dialogue_only_ratio"] > t["dialogue_only_ratio_max"]:
         failures.append(f"DIALOGUE_ONLY_TOO_HIGH:{m['dialogue_only_ratio']:.2f}")
+    if m["duration_seconds"] and m["visual_action_ratio"] < t["visual_action_ratio_min"]:
+        failures.append(f"VISUAL_ACTION_TOO_LOW:{m['visual_action_ratio']:.2f}<{t['visual_action_ratio_min']:.2f}")
+    if m["duration_seconds"] and m["visual_beat_count"] < m["required_visual_beats"]:
+        failures.append(f"VISUAL_BEATS_TOO_FEW:{m['visual_beat_count']}<{m['required_visual_beats']}")
+    if m["duration_seconds"]:
+        few_scenes = m["scenes_per_2min"] < t["scenes_per_2min_min"]
+        one_place = (m["location_count"] is not None and m["location_count"] < t["min_locations"]
+                     and not m["time_change"])
+        if few_scenes or one_place:
+            failures.append(f"SCENE_STATIC:scenes={m['scene_count']}({m['scenes_per_2min']:.1f}/2min),"
+                            f"locations={m['location_count'] if m['location_count'] is not None else '?'}")
+    if m["dialogue_only_ratio_declared"] + 0.25 < m["dialogue_only_ratio"]:
+        # the writer's state labels claim far more action than the storyboard shows (E07: 0.00 declared)
+        warnings.append(f"DECLARED_ACTION_NOT_IN_STORYBOARD:{m['dialogue_only_ratio_declared']:.2f}"
+                        f"<{m['dialogue_only_ratio']:.2f}")
     if m["long_line_count"]:
         failures.append(f"LINE_TOO_LONG:{m['long_line_count']}")
     if m["monologue_runs"]:
@@ -374,12 +613,76 @@ def evaluate(contract: dict[str, Any], language: str | None = None,
         failures.append(f"ADAPTATION_TOO_THIN:{ad['plot_event_count']}<{m['required_turns']}")
     if ad["declared"] and ad["source_chapter_count"] <= 1 and ad["plot_event_count"] < m["required_turns"] + 2:
         warnings.append("SINGLE_CHAPTER_EPISODE")
-    active = policy_active(contract) and enabled(environ)
+    basis = policy_basis(contract)
+    # no shots = no script to revise (an unreadable / missing contract is other gates' business)
+    active = policy_active(contract, in_flight=in_flight) and enabled(environ) and bool(m["shot_count"])
     codes = sorted({c.split(":", 1)[0] for c in failures})
-    return {"schema": SCHEMA, "policy": POLICY, "active": active,
+    suggestions = []
+    if source_texts and {"VISUAL_ACTION_TOO_LOW", "VISUAL_BEATS_TOO_FEW", "SCENE_TALK_ONLY", "DIALOGUE_ONLY_TOO_HIGH",
+                         "SCENE_STATIC"} & set(codes):
+        suggestions = source_action_beats(source_texts, m["language"])
+    fixes = {c: FIXES[c] for c in codes if c in FIXES}
+    if suggestions:
+        fixes["SOURCE_ACTION_BEATS"] = ("dramatise these physical moments of the source chapters as action / insert "
+                                        "shots instead of telling them in dialogue: " + " | ".join(suggestions))
+    return {"schema": SCHEMA, "policy": POLICY, "active": active, "policy_basis": basis,
+            **({"grandfathered": "IN_FLIGHT_PAST_PAID_STAGE"} if in_flight and basis == "DEFAULT" else {}),
             "authority": "WRITER_REVISION_LOOP" if active else "ADVISORY_NOT_A_GATE",
             "status": "PASS" if not failures else "FAIL", "failures": failures, "warnings": warnings,
-            "fixes": {c: FIXES[c] for c in codes if c in FIXES}, "targets": dict(TARGETS), "metrics": m}
+            "fixes": fixes, "source_action_beats": suggestions, "targets": dict(TARGETS), "metrics": m}
+
+
+# --------------------------------------------------------------------------- source action beats
+_SOURCE_SENTENCE = re.compile(r"[^。！？!?…\n]+[。！？!?…]*")
+
+
+def source_action_beats(texts: list[str], language: str | None = None, limit: int = 6) -> list[str]:
+    """Up to ``limit`` short source sentences that describe a physical action (the strong-action lexicon), in
+    source order, deduplicated -- concrete beats the writer can show instead of narrate.  Dialogue sentences (quoted)
+    are skipped.  Pure; never raises."""
+    out: list[str] = []
+    seen: set[str] = set()
+    try:
+        for text in texts or []:
+            for raw in _SOURCE_SENTENCE.findall(str(text or "")):
+                sentence = re.sub(r"\s+", " ", raw).strip(" 　#*>-")
+                if len(sentence) < 6 or sentence[:1] in "「『“\"'" or "：「" in sentence:
+                    continue
+                if not strong_action(sentence):
+                    continue
+                short = sentence if len(sentence) <= 70 else sentence[:69] + "…"
+                if short in seen:
+                    continue
+                seen.add(short)
+                out.append(short)
+                if len(out) >= limit:
+                    return out
+    except Exception:  # noqa: BLE001 -- a suggestion must never break the check
+        return out
+    return out
+
+
+def source_texts_for(contract: dict[str, Any], runtime_root: Path | None) -> list[str]:
+    """The adapted source chapters' text: the contract's ``source_text`` file, plus ``adaptation_plan.source_chapters``
+    under ``<runtime>/sources/<work>/<canonical_reading_script>/chNNNN.md`` (SOURCE_INDEX.json).  [] when none."""
+    out: list[str] = []
+    try:
+        declared = _clean((contract or {}).get("source_text"))
+        if declared and Path(declared).is_file():
+            out.append(Path(declared).read_text(encoding="utf-8", errors="replace"))
+        chapters = measure(contract)["adaptation"]["source_chapters"]
+        if not chapters or runtime_root is None:
+            return out
+        for index in sorted(Path(runtime_root, "sources").glob("*/SOURCE_INDEX.json")):
+            meta = _read(index)
+            folder = index.parent / _clean(meta.get("canonical_reading_script") or "as_delivered")
+            files = [folder / f"ch{c:04d}.md" for c in chapters]
+            if any(f.is_file() for f in files):
+                out.extend(f.read_text(encoding="utf-8", errors="replace") for f in files if f.is_file())
+                break
+    except Exception:  # noqa: BLE001
+        return out
+    return out
 
 
 # --------------------------------------------------------------------------- revision loop
@@ -463,7 +766,12 @@ def summary(report: dict[str, Any], decision: dict[str, Any] | None = None) -> d
             "metrics": {k: m.get(k) for k in (
                 "duration_seconds", "turn_count", "required_turns", "beats_per_minute", "first_conflict_at",
                 "max_turn_gap_seconds", "max_turn_gap_window", "dialogue_only_ratio", "speech_share_ref",
-                "longest_line", "long_line_count", "scenes_without_action", "scene_count")},
+                "longest_line", "long_line_count", "scenes_without_action", "scene_count",
+                "dialogue_only_ratio_declared", "visual_action_ratio", "visual_beat_count", "required_visual_beats",
+                "location_count", "scenes_per_2min", "time_change")},
+            "policy_basis": report.get("policy_basis"),
+            **({"grandfathered": report["grandfathered"]} if report.get("grandfathered") else {}),
+            "source_action_beats": list(report.get("source_action_beats") or [])[:6],
             "ending_unresolved": (m.get("ending") or {}).get("unresolved"),
             "turns": [{"at": t.get("at"), "type": t.get("type")} for t in m.get("turns") or []][:12],
             "adaptation": m.get("adaptation")}

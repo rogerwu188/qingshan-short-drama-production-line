@@ -63,7 +63,19 @@ and two stacked identical subtitle lines (H3 burned the line under ours), yet th
   kind order, then by the defect's on-screen seconds (:func:`plan_paid`): a P0 is redone before anything else that
   competes for the budget;
 * S6 burned-text / sheet-leak retries that stayed UNRESOLVED (``s6_burn_unresolved`` of the must-check list) join the
-  round as findings of their unit (source S6_UNRESOLVED; never a trigger on their own).
+  round as findings of their unit (source S6_UNRESOLVED; never a trigger on their own -- except, from v5, burned
+  text in our subtitle band that stacks with our caption).
+
+v5 (2026-11-22, JA-01 E07 on device 1485: H3 burned 「言わないでくださいまし！」 into VU-004, S6 retries stayed
+UNRESOLVED, S7 drew our copy of the line just above it, the final review flagged only another burn and the round did
+not redo VU-004):
+
+* the S6 rows no longer depend on the must-check list file alone: nalu_pipeline reads them from the S6 wave state when
+  the list is missing, bound to another cut or written without them (as S8 already did);
+* an in-band burned line that IS the cue's line is suppressed in S7 (build_burnin_subtitles, free) and joins as P2;
+  any other in-band burned text stacks with our caption: P1 and a TRIGGER of the round on its own;
+* the post-S7 OCR of the final cut's caption band (av_evidence_pack ``stacked_subtitle_runs``: two rows saying the
+  same line) joins as BURNED_TEXT P1 at its window, a trigger too (:func:`stacked_subtitle_findings`).
 
 v4 (2026-11-21, KO E05 on device ...0080: "the camera shakes along with a character's small movements -- the person
 AND the background move together"):
@@ -532,6 +544,7 @@ def collect_findings(report: dict[str, Any] | None, checklist: dict[str, Any] | 
         out.append({"source": "REVIEW_HARD_FAIL", "item": None, "text": "identity colour mismatch (hard fail)",
                     "kind_hint": "COSTUME_IDENTITY"})
     out.extend(s6_unresolved_findings(checklist.get("s6_burn_unresolved")))
+    out.extend(stacked_subtitle_findings(checklist.get("stacked_subtitles")))
     out.extend(edit_measure_findings(checklist.get("s7_edit_measure")))
     out.extend(s6_unresolved_findings(checklist.get("s6_wobble_unresolved")))
     return out
@@ -539,6 +552,27 @@ def collect_findings(report: dict[str, Any] | None, checklist: dict[str, Any] | 
 
 S6_SOURCE = "S6_UNRESOLVED"
 EDIT_SOURCE = "S7_EDIT_MEASURE"
+STACKED_SOURCE = "S7_STACKED_SUBTITLE"
+
+
+def stacked_subtitle_findings(rows: Any) -> list[dict[str, Any]]:
+    """The post-S7 measurement of the final cut's caption band (av_evidence_pack OCR, kept by the must-check list as
+    ``stacked_subtitles``): two stacked rows saying the same line at once -- H3's burned copy and ours (JA-01 E07
+    VU-004 2026-11-22) -> BURNED_TEXT P1 at that window, a trigger of the round (measured, not opinion)."""
+    out = []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        w = row.get("window") or [row.get("start"), row.get("end")]
+        a, b = (_num(w[0]), _num(w[1])) if isinstance(w, (list, tuple)) and len(w) == 2 else (None, None)
+        if a is None:
+            continue
+        texts = " / ".join(str(t) for t in (row.get("texts") or [])[:2])
+        out.append({"source": STACKED_SOURCE, "item": "QA-BURNED-TEXT", "kind_hint": "BURNED_TEXT", "severity": "P1",
+                    "trigger": True, "window": [round(a, 3), round(b if b is not None else a, 3)],
+                    "text": f"S7 measured: two stacked identical subtitle lines on screen ({texts}; similarity "
+                            f"{row.get('similarity')}) -- model-burned line under ours"})
+    return out
 
 
 def edit_measure_findings(measure: Any) -> list[dict[str, Any]]:
@@ -579,7 +613,8 @@ def edit_measure_findings(measure: Any) -> list[dict[str, Any]]:
 def s6_unresolved_findings(rows: Any) -> list[dict[str, Any]]:
     """S6 retries that did not clear the unit (``s6_burn_unresolved`` of the must-check list, from the S6 wave state):
     the kept take still shows the identity sheet (REFERENCE_SHEET_LEAK, P0) or model-burned text -- in our subtitle
-    band P1 (it stacks under our caption, E04 VU-004), elsewhere P2.  Findings of their unit, never a trigger alone."""
+    band P1 (it stacks under our caption, E04 VU-004) and a trigger (E07 VU-004), elsewhere -- or when S7 suppressed
+    our copy because the burned line is the cue's line (``duplicate_suppressed``) -- P2.  Findings of their unit."""
     out = []
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, dict) or not row.get("unit_id"):
@@ -594,12 +629,21 @@ def s6_unresolved_findings(rows: Any) -> list[dict[str, Any]]:
             continue
         sheet = bool(row.get("sheet_leak"))
         in_band = bool(row.get("residual_in_subtitle_band"))
+        # JA-01 E07 VU-004 (2026-11-22): the burned line IS the cue's line -> S7 suppressed our copy, the viewer reads
+        # it once (P2, a redo only if the budget is left); any other in-band text stacks next to our caption (P1, and
+        # a trigger of the round on its own: the round must not depend on a reviewer noticing it)
+        suppressed = bool(row.get("duplicate_suppressed"))
+        stacks = in_band and not suppressed and not sheet
         out.append({"source": S6_SOURCE, "item": "QA-REFERENCE-SHEET-LEAK" if sheet else "QA-BURNED-TEXT",
-                    "unit_id": str(row["unit_id"]), "severity": "P0" if sheet else "P1" if in_band else "P2",
+                    "unit_id": str(row["unit_id"]),
+                    "severity": "P0" if sheet else "P1" if stacks else "P2",
                     "kind_hint": "REFERENCE_SHEET_LEAK" if sheet else "BURNED_TEXT",
+                    **({"trigger": True} if stacks else {}),
                     "text": ("S6: the kept take still shows the identity reference sheet" if sheet else
                              "S6: the kept take still carries model-burned text"
-                             + (" in the subtitle band" if in_band else ""))
+                             + (" in the subtitle band" if in_band else "")
+                             + (" (the burned line is the cue's line: our copy was suppressed in S7)"
+                                if suppressed else " (it stacks with our caption)" if stacks else ""))
                     + f" after {int(row.get('retries') or 0)} retries ({row.get('reason') or 'unresolved'})"})
     return out
 
@@ -663,7 +707,7 @@ def map_findings(findings: list[dict[str, Any]], segments: list[dict[str, Any]])
 CONFIRMED_SOURCES = ("QA_CHECKLIST_REVIEWER", "GEMINI_CONFIRMED")
 #: which copy of a duplicated finding is kept (confirmed must-check first, so the trigger rule is unchanged)
 SOURCE_RANK = {"QA_CHECKLIST_REVIEWER": 0, "GEMINI_CONFIRMED": 1, "REVIEW_HARD_FAIL": 2, "REVIEW_PROBLEM": 3,
-               S6_SOURCE: 4, EDIT_SOURCE: 5}
+               S6_SOURCE: 4, STACKED_SOURCE: 5, EDIT_SOURCE: 6}
 DEDUPE_S = 1.0
 _SEVERITY_RANK = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 #: a confirmed finding without a severity (must-check DEFECT, hard fail) ranks as P1
@@ -795,9 +839,13 @@ def reconcile(first: list[dict[str, Any]], second: list[dict[str, Any]] | None) 
 def triggered(rejected: bool, mapped: list[dict[str, Any]]) -> bool:
     """A REJECT_RECUT verdict, or a PASS with a confirmed must-check DEFECT (reviewer DEFECT / confirmed Gemini
     finding), or a post-S7 edit measurement at a cut S7 made (a fragment / silent speaker / clipped line the free
-    re-edit can fix).  A PASS whose report merely lists problems is not a trigger."""
+    re-edit can fix), or a MEASURED visible duplicate line (JA-01 E07 VU-004 2026-11-22: an S6-UNRESOLVED burned line
+    stacking with our caption, two stacked identical caption rows in the final cut -- ``trigger``).  A PASS whose
+    report merely lists problems is not a trigger."""
     return bool(rejected) or any(f.get("source") in CONFIRMED_SOURCES
-                                 or (f.get("source") == EDIT_SOURCE and f.get("s7_cut")) for f in mapped)
+                                 or (f.get("source") == EDIT_SOURCE and f.get("s7_cut"))
+                                 or (f.get("source") in (S6_SOURCE, STACKED_SOURCE) and f.get("trigger"))
+                                 for f in mapped)
 
 
 def actionable(mapped: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -1918,14 +1918,38 @@ def script_length_check(ctx: Ctx) -> dict[str, Any]:
                        "before any paid stage -- merge or cut shots, keep the plot (free)"}
 
 
+#: stages whose start means money was spent on the episode: a default-policy pacing revision never reopens it
+PACING_PAID_STAGES = ("S4", "S5", "S6", "S7", "S8")
+
+
+def s1_pacing_in_flight(p: Any) -> bool:
+    """The episode already ran a paid stage (S4+ has a recorded status other than a dry run) -- its script is
+    grandfathered under the default SHORT_DRAMA_PACING_V1 (a contract that declares the policy is not)."""
+    state_path = getattr(p, "state", None)
+    if not state_path:
+        return False
+    stages = (read_json(Path(state_path), {}) or {}).get("stages") or {}
+    for name in PACING_PAID_STAGES:
+        status = str((stages.get(name) or {}).get("status") or "").upper()
+        # any recorded run of a paid stage (PASS, BLOCKED after a partial spend, REMOTE_WAIT ...) counts; a dry
+        # plan or a stage that never ran does not
+        if status and not status.startswith("DRY") and status not in (NOT_RUN, ROUTE_MISSING, "NOT_STARTED",
+                                                                      "PENDING"):
+            return True
+    return False
+
+
 def s1_script_pacing(ctx: Ctx, p: Any, *, others_ok: bool) -> tuple[dict[str, Any], list[str]]:
-    """SHORT_DRAMA_PACING_V1 at S1: (episode-record row, blockers).  Blockers only for an opted-in contract in a
-    revision round (script_pacing_check.decide); the report and the round ledger sit beside the other S1 logs and
-    the series source coverage is updated once the script is admitted.  Never raises: any error = no blocker."""
+    """SHORT_DRAMA_PACING_V1 at S1: (episode-record row, blockers).  The policy is the default of every contract
+    (an explicit ``pacing_policy: OFF`` opts out; a default-policy episode already past a paid stage is
+    grandfathered).  Blockers only in a revision round (script_pacing_check.decide); the report and the round
+    ledger sit beside the other S1 logs and the series source coverage is updated once the script is admitted.
+    Never raises: any error = no blocker."""
     try:
         import script_pacing_check as _pace  # noqa: PLC0415 -- same directory
         contract = read_json(p.contract, {}) or {}
-        report = _pace.evaluate(contract, ctx_language(ctx))
+        report = _pace.evaluate(contract, ctx_language(ctx), in_flight=s1_pacing_in_flight(p),
+                                source_texts=_pace.source_texts_for(contract, RUNTIME))
         report_path = p.logs / f"{ctx.run_id}_script_pacing.json"
         write_json(report_path, report)
         decision = _pace.decide(report, _pace.contract_sha(contract), p.logs / "SCRIPT_PACING_ROUNDS.json",
@@ -2090,9 +2114,9 @@ def stage_s1(ctx: Ctx) -> StageResult:
     dialogue_register_ok = str(dialogue_register.get("status") or "") in {"PASS", "NOT_ACTIVE"}
     status = PASS if (writer_handoff_ok and gate10_ok and entity_ok and static_ok and structure_ok and continuity_ok and scope_ok and selfcheck_ok and dialogue_register_ok) else BLOCKED
     # SHORT_DRAMA_PACING_V1 (line owner 2026-11-22 「剧情推进太慢……一集基本就是人物在念台词」): free, deterministic
-    # script pacing metrics on every contract; a contract that opted in (``pacing_policy``, written from the next
-    # dispatch on) and fails is sent back to the writer for at most MAX_REVISIONS revisions, then admitted with the
-    # gaps recorded.  A round is only counted when every other S1 gate passed.  Never raises.
+    # script pacing metrics on every contract; the policy is the DEFAULT (E07 2026-11-22: no ``pacing_policy`` key ->
+    # advisory -> no revision), a failing script is sent back to the writer for at most MAX_REVISIONS revisions,
+    # then admitted with the gaps recorded.  A round is only counted when every other S1 gate passed.  Never raises.
     script_pacing, pacing_blockers = s1_script_pacing(
         ctx, p, others_ok=(status == PASS and not (writer_capability.get("blocks_stage") or [])))
     if pacing_blockers and status == PASS:
@@ -6710,6 +6734,8 @@ def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
             # VU-004) -- S7 moves that caption above it and the final fix round gets the unit (2026-11-21)
             band = _br.residual_text_band(((rec.get("checks") or {}).get(best["sha256"]) or {}).get("hits"))
             kept_check = (rec.get("checks") or {}).get(best["sha256"]) or {}
+            if band:  # what the burned line says: S7 suppresses our cue when it is the same line (E07 VU-004)
+                band = {**band, "texts": _br.residual_band_texts(kept_check.get("hits"))}
             wobble_path = det.get("status") != "BURNED" and wobble
             burned_left = (not wobble_path) or int(best.get("burned_frames") or 0) > 0 \
                 or bool(best.get(_br.SHEET_LEAK_FLAG))
@@ -6788,7 +6814,11 @@ def s7_residual_burn_bands(ctx: Ctx) -> Path | None:
             clip = ctx.p.video_media / f"{uid}.mp4"
             if rec.get("kept_take_sha256") and clip.is_file() and sha256_file(clip) != rec["kept_take_sha256"]:
                 continue  # the unit was redone since: the band belongs to a superseded take
-            units[str(uid)] = {"y0": float(band["y0"]), "y1": float(band["y1"])}
+            # the OCR text of the burned line (JA-01 E07 VU-004 2026-11-22): build_burnin_subtitles suppresses our
+            # cue when it is the same line (it is already on screen) instead of stacking a second copy above it
+            texts = list(band.get("texts") or []) or _br.residual_band_texts(
+                (((rec.get("checks") or {}).get(rec.get("kept_take_sha256")) or {}).get("hits")))
+            units[str(uid)] = {"y0": float(band["y0"]), "y1": float(band["y1"]), **({"texts": texts} if texts else {})}
     if not units:
         return None
     path = ctx.p.assembly / f"{ctx.episode}_S6_RESIDUAL_BURN_BANDS.json"
@@ -11559,6 +11589,42 @@ def _final_fix_annotate(ctx: Any, mapped: list[dict[str, Any]], segments: list[d
             f["annotation_error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
 
 
+def final_fix_s6_rows(ctx: Any, checklist: dict[str, Any]) -> dict[str, Any]:
+    """The must-check list with its S6 UNRESOLVED rows made reliable (JA-01 E07 VU-004 2026-11-22: the S6 burn of
+    VU-004 stayed UNRESOLVED in our subtitle band, S7 moved our caption above it, yet the final fix round never redid
+    the unit).  The rows used to reach the round only through ``<EP>_QA_DEFECT_CHECKLIST.json``, which is missing
+    when the reviewer's must-check block was not requested or failed, and dropped whole when it is bound to another
+    cut -- S8 already fell back to the S6 wave state, the round did not.  Now: rows missing from the list are read
+    from the wave state (only units whose kept take is still the unit's clip), and each in-band row is marked
+    ``duplicate_suppressed`` when S7 suppressed our copy of the line (``<EP>_BURNIN_SUBTITLES.json``
+    ``suppressed_duplicate_cues``).  Read-only, never raises."""
+    out = dict(checklist or {})
+    try:
+        import nalu_qa_defect_checklist as _qa
+        def superseded(row: dict[str, Any]) -> bool:  # the unit was redone since: the row is of an older take
+            clip = ctx.p.video_media / f"{row.get('unit_id')}.mp4"
+            return bool(row.get("kept_take_sha256") and clip.is_file() and sha256_file(clip) != row["kept_take_sha256"])
+
+        rows = [dict(r) for r in (out.get("s6_burn_unresolved") or []) if isinstance(r, dict) and not superseded(r)]
+        state = read_json(_wave_state_path(ctx), {}) or {}
+        have = {str(r.get("unit_id")) for r in rows}
+        for row in ((_qa.measure_s6_burn_unresolved(state) or {}).get("units") or []):
+            if str(row.get("unit_id")) in have or superseded(row):
+                continue
+            rows.append({**row, "source_fallback": "S6_WAVE_STATE"})
+        burnin = read_json(ctx.p.assembly / f"{ctx.episode}_BURNIN_SUBTITLES.json", {}) or {}
+        suppressed = {str(r.get("unit_id")) for r in burnin.get("suppressed_duplicate_cues") or []
+                      if isinstance(r, dict)}
+        for row in rows:
+            if str(row.get("unit_id")) in suppressed:
+                row["duplicate_suppressed"] = True
+        if rows or out.get("s6_burn_unresolved"):
+            out["s6_burn_unresolved"] = rows
+    except Exception as exc:  # noqa: BLE001 - the list as it was
+        out.setdefault("s6_rows_error", f"{type(exc).__name__}: {str(exc)[:160]}")
+    return out
+
+
 def final_fix_review_findings(ctx: Any, report_path: str, cand_sha: str,
                               segments: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
     """The confirmed, mapped, deduped and annotated findings of one final review (None when its report is not
@@ -11571,6 +11637,7 @@ def final_fix_review_findings(ctx: Any, report_path: str, cand_sha: str,
     checklist = read_json(checklist_path, {}) if checklist_path.is_file() else {}
     if isinstance(checklist, dict) and (checklist.get("bindings") or {}).get("final_video_sha256") not in (None, cand_sha):
         checklist = {}  # a must-check list of another cut is not a finding of this one
+    checklist = final_fix_s6_rows(ctx, checklist if isinstance(checklist, dict) else {})
     mapped = _ffr.dedupe(_ffr.map_findings(_ffr.collect_findings(report, checklist), segments))
     _final_fix_annotate(ctx, mapped, segments)
     return mapped
