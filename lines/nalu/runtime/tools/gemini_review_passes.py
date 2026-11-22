@@ -8,8 +8,9 @@ round and the knowledge base already read (ids G1.. / S1.., ``item``, ``start``/
 
   A  PICTURE / AI ARTEFACTS   720x1280, no audio, fps 2, media_resolution HIGH (~264 tokens / frame instead of 66):
                               faces, eyes, teeth, hands, skin turning glossy / oily / plastic between shots, wet hair,
-                              body / limb morphing, objects popping, flicker, background warping, physics, burned-in
-                              text, blur boxes, letterbox.  Local OCR leads + letterbox suspects to confirm.
+                              body / limb morphing, objects popping, flicker, the set moving with the actor on a
+                              locked-off shot (QA-CAMERA-WOBBLE, 2026-11-21), physics, burned-in text, blur boxes,
+                              letterbox.  Local OCR leads + letterbox / skin-sheen / wobble suspects to confirm.
   B  IDENTITY / CONTINUITY    720x1280, no audio, fps 2 (degraded first to 1), HIGH, plus the episode's identity
                               cards as inline images labelled 角色A/B.. (names never sent) and the scene list (scene id
                               + time windows + who is in it): each character vs their card; inside a scene costume
@@ -22,6 +23,12 @@ round and the knowledge base already read (ids G1.. / S1.., ``item``, ``start``/
                               of NALU_CRAFT_STANDARD_v1 (pacing first): beat delivered, shot grammar, pacing per
                               beat, 3-second hook, ending hook, clarity of who / what / why, emotional beat, subtitle
                               readability.
+
+Per-shot checklist (2026-11-21, line owner: "the Gemini final review should be more detailed"): passes A and B
+answer ``shot_log`` as one row per measured shot with the classes that shot FAILED (``fail``: [] = every class of
+the pass checked and passed), so coverage is systematic rather than free-form; a failed class without its finding
+becomes a P3 ``from_checklist`` finding.  Pass B also compares every same-sex pair of characters (``cast_compare``);
+a pair judged not distinct without a QA-LOOKALIKE-CAST finding becomes a P2 one with both characters' times.
 
 Budget: ``NALU_GEMINI_REVIEW_MAX_CREDITS`` (default 8.0) per episode, split across the passes.  Every pass is
 estimated before anything is sent; while the total is over the cap the lowest-priority pass that can still step
@@ -75,9 +82,9 @@ CALL_TIMEOUT_S = 600.0
 #: per pass: label, audio kept, upload scale, ladder of (fps, media resolution) from preferred to cheapest,
 #: expected answer + thinking tokens (benchmark 2026-11-20 mean x ~1.3, so the estimate errs high)
 PASSES: dict[str, dict[str, Any]] = {
-    "A": {"name": "PICTURE_AI_ARTEFACTS", "audio": False, "scale": (720, 1280), "expected_out": 3200,
+    "A": {"name": "PICTURE_AI_ARTEFACTS", "audio": False, "scale": (720, 1280), "expected_out": 3700,
           "ladder": ((2.0, "HIGH"), (1.5, "HIGH"), (1.0, "HIGH"), (2.0, "LOW"), (1.0, "LOW"))},
-    "B": {"name": "IDENTITY_CONTINUITY", "audio": False, "scale": (720, 1280), "expected_out": 4500,
+    "B": {"name": "IDENTITY_CONTINUITY", "audio": False, "scale": (720, 1280), "expected_out": 4900,
           # dynamic thinking spent 0 tokens on B once (empty card comparison); thinkingLevel "high" ran to the
           # 16k output cap (truncated JSON, 6.9 credits) -- a fixed budget bounds it
           "thinking_budget": 3072,
@@ -98,7 +105,13 @@ CLASS_TEXT: dict[str, tuple[str, str]] = {
                                  "或头发突然变湿/变油亮（和前后镜头对比）。"),
     "QA-BODY-MORPH": ("A", "身体/四肢变形：肢体扭曲、多出或缺少肢体、身体比例突变、衣服与身体融在一起。"),
     "QA-OBJECT-POP": ("A", "物体凭空出现/消失/变形（道具、家具、饰品在同一镜头内跳变）。"),
-    "QA-FLICKER": ("A", "时间闪烁：画面或局部纹理闪动/抖动、背景扭曲蠕动、首尾帧闪一下。"),
+    "QA-FLICKER": ("A", "时间闪烁：画面或局部纹理闪动/抖动、首尾帧闪一下。（背景跟着人物整体晃动/果冻扭曲报 QA-CAMERA-WOBBLE。）"),
+    # 2026-11-21 (KO E05 on device ...0080): "the camera shakes along with a character's small movements -- the person
+    # AND the background move together"
+    "QA-CAMERA-WOBBLE": ("A", "镜头随人晃动：本该固定的机位里，人物做小动作（点头、抬手、转身、半步）时整个画面——墙、门框、窗框、"
+                              "家具、人物身后的布景——跟着一起平移/摇晃/上下颠/缩放，像手持跟拍；或画面像果冻一样扭曲（直线变弯、"
+                              "背景局部蠕动）。判断方法：盯住背景里一条固定的直线或物体（门框、墙角、桌沿）看它相对画框边缘有没有动。"
+                              "平滑、单一方向、有动机的运镜不算。每个镜头单独列，写出背景里哪个参照物在动、跟谁的什么动作一起动。"),
     "QA-PHYSICS": ("A", "物理错误：物体悬空、穿模、不合理的运动或重力、液体/布料行为异常。"),
     "QA-BURNED-TEXT": ("A", "画面里视频模型自己烧进去的文字：大号台词字、第二行字幕、乱码字、字幕上下多出的单个大字（片头剧名卡和片尾卡不算）。"
                             "底部出现上下两行相同或几乎相同的字幕（同一句台词叠了两遍）也是这一类：那是模型烧进画面的台词压在我方字幕下面，"
@@ -121,7 +134,9 @@ CLASS_TEXT: dict[str, tuple[str, str]] = {
     "QA-PROP-CONTINUITY": ("B", "同一场内道具不连续：道具位置、数量、状态前后跳变。"),
     "QA-LIGHTING-CONTINUITY": ("B", "同一场内光线不连续：主光方向、色温、昼夜前后镜头不一致。"),
     "QA-POSITION-CONTINUITY": ("B", "同一场内人物站位/左右关系前后跳变（不是走位造成的）。"),
-    "QA-LOOKALIKE-CAST": ("B", "两个不同角色长着几乎同一张脸（脸型、五官一样，只靠衣服区分）。"),
+    "QA-LOOKALIKE-CAST": ("B", "两个不同角色看起来像同一个人：对照身份卡，脸型、五官、发型发色、年龄感、眼镜/胡子、体型都差不多，"
+                               "观众只能靠衣服或站位分清（尤其是同性别、同年龄段、轮流说话的两个人）。start/end 写其中一人出镜的时间，"
+                               "evidence 写另一人出镜的时间点和两人相同的特征；同时在 cast_compare 里给结论。"),
     # C -- sound
     "QA-LIPSYNC": ("C", "口型不同步：说话时嘴不动、嘴动没声音、口型明显超前或滞后。"),
     "QA-VOICE-INCONSISTENT": ("C", "同一角色前后声音不一致（音色、年龄感明显变了），或声音与角色性别/年龄不符。"),
@@ -139,7 +154,8 @@ CLASS_TEXT: dict[str, tuple[str, str]] = {
     "CRAFT-SHOT-GRAMMAR": ("D", "镜头语法：对白时静止长镜头不切、连续同景别、跳切、越轴/视线方向混乱、缺反应镜、无动机运镜、单调重复。"),
     # 2026-11-21 (device 1101 E21): "1-2 s shots where the character says nothing before it cuts away"
     "QA-EDIT-FRAGMENT": ("D", "剪辑碎片：不到约 1.2 秒的碎镜头；画面里是正在说话的角色却一句没说就切走（1-2 秒的空镜头）；"
-                              "一句话没说完就切到别的镜头；整体切得太快。写出每处时间点。"),
+                              "一句话没说完就切到别的镜头（台词被剪断）；整体切得太快（参考实测镜长中位数，低于约 2 秒就是太快）。"
+                              "写出每处时间点。"),
     "CRAFT-PACING": ("D", "节奏：某个节拍拖沓或过快（无台词镜头超过约 4 秒、平均镜长过长、爽点间隔超过 25 秒）。"),
     "CRAFT-OPENING-HOOK": ("D", "开头钩子：前 3 秒没有冲突/揭示/危险，或以空镜、建立镜开场。"),
     "CRAFT-ENDING-HOOK": ("D", "结尾钩子：最后 2-3 秒没有落在揭示或威胁上（解决了、抒情、淡出、无悬念）。"),
@@ -352,11 +368,13 @@ def build_pass_prompt(pid: str, *, duration: float, context: dict[str, Any] | No
     role = {
         "A": "画面与 AI 生成瑕疵专审：只看画面（不需要声音），逐镜头、逐秒盯细节，特别是脸、眼、牙、手、皮肤质感，"
              "并把每个镜头和前一个镜头对比（同一角色皮肤是否突然变油亮/塑料感、头发是否突然变湿），画面里有没有多余的字，"
-             "画面是不是变成了角色设定图/三视图（同一角色多个副本、大脸特写小窗）。",
+             "画面是不是变成了角色设定图/三视图（同一角色多个副本、大脸特写小窗），"
+             "以及固定机位镜头里背景是否跟着人物的小动作一起晃（盯住门框、墙角等直线看它相对画框动没动）。",
         "B": "身份与连贯性专审：对照下面附的角色身份卡（图片按顺序是 " +
              "、".join(c["label"] for c in context.get("cards") or [] if c.get("_sent")) +
              "），检查每个镜头里每个角色是否就是卡上的人；在每一场内部检查服装颜色、发型、配饰、道具、光线方向和色温、"
-             "人物站位是否前后一致；不同角色是否长得几乎一样。没有身份卡的角色（配角）按他在本集第一次出场的样子作为基准。",
+             "人物站位是否前后一致；不同角色是否长得几乎一样——把本集所有同性别角色两两对比（脸型、五官、发型发色、年龄感、"
+             "眼镜/胡子、体型），只靠衣服才能分清的就是 QA-LOOKALIKE-CAST。没有身份卡的角色（配角）按他在本集第一次出场的样子作为基准。",
         "C": "声音专审：认真听完整条音轨并看口型。逐句检查口型同步、每个角色前后声音是否一致且符合性别年龄、说话人是否对、"
              "句尾是否被切或没有自然停顿、相邻台词响度是否跳变、背景音乐起停是否生硬、音效是否缺失或突兀、音频瑕疵。",
         "D": "导演/剪辑专审：按分镜表逐镜头判断它有没有交代它的剧情节拍，镜头语法是否成立，每个节拍的节奏，"
@@ -414,9 +432,13 @@ def build_pass_prompt(pid: str, *, duration: float, context: dict[str, Any] | No
                   _json({k: _clip_suspects(v, window) for k, v in own.items()})]
     extra = ""
     if pid == "A":
-        extra = ('"shot_log":[{"start":0.0,"end":0.0,"note":"≤20字：这一镜里的人脸/手/皮肤与上一镜相比"}],')
+        extra = ('"shot_log":[{"shot":1,"start":0.0,"end":0.0,"fail":["<本清单里这一镜没通过的类别>"],'
+                 '"note":"≤20字：这一镜里的人脸/手/皮肤/背景与上一镜相比"}],')
     if pid == "B":
-        extra = ('"shot_log":[{"start":0.0,"end":0.0,"who":["角色A"],"note":"≤20字：服装/发型/配饰/光线与本场上一镜相比"}],')
+        extra = ('"shot_log":[{"shot":1,"start":0.0,"end":0.0,"who":["角色A"],"fail":["<本清单里这一镜没通过的类别>"],'
+                 '"note":"≤20字：脸与身份卡、服装/发型/配饰/光线与本场上一镜相比"}],'
+                 '"cast_compare":[{"a":"角色A","b":"角色B","distinct":true,"a_at":[0.0],"b_at":[0.0],'
+                 '"note":"≤30字：两人不同在哪 / 哪些特征一样"}],')
     if pid == "C":
         extra = ('"line_log":[{"start":0.0,"end":0.0,"speaker":"角色A|男|女|旁白","tail":"ok|clipped|no_pause",'
                  '"lipsync":"ok|off|offscreen","level":"ok|jump"}],')
@@ -426,7 +448,10 @@ def build_pass_prompt(pid: str, *, duration: float, context: dict[str, Any] | No
     lines += ["", "只输出 JSON：", ANSWER_SHAPE +
               ('"suspect_checks":[{"id":"S1","decision":"CONFIRMED|DISMISSED|UNSURE","reason":""}],' if own else "") +
               extra + '"verdict":"PASS|REJECT_RECUT"}',
-              ("shot_log 每个镜头一行，先逐镜头写完再汇总 findings。" if pid in ("A", "B") else
+              ("shot_log 是逐镜头清单：每个镜头一行（按实测切点，一个不漏），对本清单每个类别逐项检查，fail 写这一镜没通过的"
+               "类别，全部通过就写 []；先逐镜头写完再汇总 findings，fail 里出现的类别必须在 findings 里有对应条目。"
+               + ("cast_compare 把本集同性别角色两两各列一行（distinct=false 表示看起来像同一个人，必须同时报 "
+                  "QA-LOOKALIKE-CAST）。" if pid == "B" else "") if pid in ("A", "B") else
                "line_log 每句台词一行，先逐句听完再汇总 findings。" if pid == "C" else ""),
               "severity：P0 必须返工 / P1 严重 / P2 一般 / P3 轻微。scope_hint：换成任何对白语言都会出现的问题（画面、剪辑、"
               "节奏、身份、服装、音乐）写 global；只和这种对白语言有关的（台词用词、口型、配音音色、字幕文字/断行）写 language。"]
@@ -616,13 +641,78 @@ def parse_pass(text: str, *, pid: str, duration: float | None, offset: float = 0
            "verdict": verdict if verdict in ("PASS", "REJECT_RECUT") else None}
     if pid == "D" and isinstance(data.get("craft_summary"), dict):
         out["craft_summary"] = data["craft_summary"]
-    for log, keys in (("shot_log", ("who", "note")), ("line_log", ("speaker", "tail", "lipsync", "level"))):
+    if pid == "B" and isinstance(data.get("cast_compare"), list):
+        out["cast_compare"] = [cast_compare_row(r, offset) for r in data["cast_compare"][:30] if isinstance(r, dict)]
+    for log, keys in (("shot_log", ("shot", "who", "fail", "note")),
+                      ("line_log", ("speaker", "tail", "lipsync", "level"))):
         if isinstance(data.get(log), list):
             out[f"{log}_rows"] = len(data[log])
             out[log] = [{"start": round((_num(r.get("start")) or 0.0) + offset, 1),
                          "end": round((_num(r.get("end")) or 0.0) + offset, 1),
-                         **{k: (str(r.get(k))[:60] if k == "note" else r.get(k)) for k in keys if r.get(k) is not None}}
+                         **{k: (str(r.get(k))[:60] if k == "note" else _fail_list(r.get(k), pid) if k == "fail"
+                                else r.get(k)) for k in keys if r.get(k) is not None}}
                         for r in data[log][:LOG_MAX_ROWS] if isinstance(r, dict)]
+    return out
+
+
+def _fail_list(value: Any, pid: str) -> list[str]:
+    """The failed classes of one per-shot checklist row: known classes of this pass only, upper-cased, deduped."""
+    raw = value if isinstance(value, list) else [value] if isinstance(value, str) and value else []
+    allowed = set(pass_classes(pid))
+    out = []
+    for v in raw:
+        cls = LEGACY_IDS.get(str(v).strip().upper(), str(v).strip().upper())
+        if cls in allowed and cls != "OTHER" and cls not in out:
+            out.append(cls)
+    return out
+
+
+def cast_compare_row(row: dict[str, Any], offset: float = 0.0) -> dict[str, Any]:
+    """One pass-B pairwise cast comparison: labels, distinct (bool | None), the two characters' on-screen times."""
+    distinct = row.get("distinct")
+    if isinstance(distinct, str):
+        distinct = {"true": True, "false": False}.get(distinct.strip().lower())
+    times = {k: [round(float(t) + offset, 1) for t in (row.get(k) or []) if _num(t) is not None][:6]
+             for k in ("a_at", "b_at")}
+    return {"a": str(row.get("a") or "")[:12], "b": str(row.get("b") or "")[:12],
+            "distinct": distinct if isinstance(distinct, bool) else None, **times,
+            "note": str(row.get("note") or "")[:80]}
+
+
+def promote_shot_checklist(log: list[dict[str, Any]], findings: list[dict[str, Any]], pid: str) -> list[dict[str, Any]]:
+    """A class a per-shot checklist row marks failed that the pass did not also list as a finding (overlapping the
+    shot +-1 s) becomes a P3 finding marked ``from_checklist`` -- the per-shot rows make the coverage systematic,
+    so a fail is never silently dropped."""
+    out: list[dict[str, Any]] = []
+    for row in log:
+        s, e = float(row.get("start") or 0.0), float(row.get("end") or 0.0)
+        for cls in row.get("fail") or []:
+            if any(f["item"] == cls and f["start"] - 1.0 <= e and s <= f["end"] + 1.0 for f in findings + out):
+                continue
+            out.append({"item": cls, "start": round(s, 1), "end": round(max(s, e), 1), "severity": "P3",
+                        "description": f"shot_log: shot {row.get('shot')} fail {cls}"
+                                       + (f" ({row.get('note')})" if row.get("note") else ""),
+                        "evidence": "", "scope_hint": "language" if cls in LANGUAGE_CLASSES else "global",
+                        "pass": pid, "from_checklist": True})
+    return out
+
+
+def promote_cast_compare(rows: list[dict[str, Any]], findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A pass-B pair judged NOT distinct with no QA-LOOKALIKE-CAST finding becomes a P2 finding at the first
+    on-screen time of either character, the other's times in the evidence."""
+    out: list[dict[str, Any]] = []
+    if any(f["item"] == "QA-LOOKALIKE-CAST" for f in findings):
+        return out
+    for row in rows:
+        if row.get("distinct") is not False:
+            continue
+        times = (row.get("a_at") or []) + (row.get("b_at") or [])
+        at = min(times) if times else 0.0
+        out.append({"item": "QA-LOOKALIKE-CAST", "start": at, "end": at, "severity": "P2",
+                    "description": f"cast_compare: {row.get('a')} and {row.get('b')} look like the same person"
+                                   + (f" ({row.get('note')})" if row.get("note") else ""),
+                    "evidence": f"{row.get('a')} at {row.get('a_at')} s; {row.get('b')} at {row.get('b_at')} s",
+                    "scope_hint": "global", "pass": "B", "from_cast_compare": True})
     return out
 
 
@@ -716,10 +806,30 @@ def skin_sheen_suspects(measured: dict[str, Any] | None, context: dict[str, Any]
     return out
 
 
+def camera_wobble_suspects(measured: dict[str, Any] | None, context: dict[str, Any],
+                           start_id: int) -> list[dict[str, Any]]:
+    """S6 camera-wobble units (``measurements.camera_wobble.measured``, tools/h3_camera_wobble) as pass-A suspects with
+    their on-screen window; ids continue after ``start_id``."""
+    windows = {short_unit(r.get("unit")): (r.get("start"), r.get("end")) for r in context.get("shots") or []}
+    out, seen = [], set()
+    for row in ((measured or {}).get("measured") or [])[:20]:
+        uid = short_unit(row.get("unit_id"))
+        if uid in seen:
+            continue
+        seen.add(uid)
+        win = windows.get(uid)
+        out.append({"unit": uid, **({"window": list(win)} if win and win[0] is not None else {}),
+                    "why": f"S6 实测：背景随人物移动 {row.get('excursion_pct')}% 画宽"
+                           + (f"，与人物动作相关 {row.get('coupling')}" if row.get("coupling") is not None else ""),
+                    "id": f"S{start_id + len(out) + 1}"})
+    return out
+
+
 def split_suspects(suspects: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, list[dict[str, Any]]]]:
     """The S-ids each pass must answer: sound suspects (line tails, music) -> C; letterbox shots -> A; measured edit
     fragments / silent-speaker shots (s7_edit_invariants.measure_cut) -> D."""
-    return {"A": {"letterbox": suspects.get("letterbox") or [], "skin_sheen": suspects.get("skin_sheen") or []},
+    return {"A": {"letterbox": suspects.get("letterbox") or [], "skin_sheen": suspects.get("skin_sheen") or [],
+                  "camera_wobble": suspects.get("camera_wobble") or []},
             "B": {}, "C": {"tail": suspects.get("tail") or [], "bgm": suspects.get("bgm") or []},
             "D": {"fragment": suspects.get("fragment") or []} if suspects.get("fragment") else {}}
 
@@ -860,6 +970,10 @@ def run_passes(*, video: Path, duration: float, model: str, prices: dict[str, tu
                 continue
             found += parsed["findings"]
             found += promote_line_log(parsed.get("line_log") or [], parsed["findings"])
+            found += promote_shot_checklist(parsed.get("shot_log") or [], parsed["findings"], p)
+            if parsed.get("cast_compare"):
+                found += promote_cast_compare(parsed["cast_compare"], found)
+                rec["cast_compare"] = ((rec.get("cast_compare") or []) + parsed["cast_compare"])[:30]
             for log in ("shot_log", "line_log"):
                 if parsed.get(log) is not None:
                     rec[f"{log}_rows"] = (rec.get(f"{log}_rows") or 0) + parsed[f"{log}_rows"]

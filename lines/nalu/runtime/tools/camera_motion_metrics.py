@@ -86,9 +86,28 @@ def now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def background_mask(path: Path, *, work_width: int = 384) -> tuple[Any, dict[str, Any]]:
+    """(uint8 feature mask at work size or None, note): where the camera tracker may take features -- the set, not
+    the people (tools/h3_camera_wobble.background_feature_mask: face-derived head + torso regions, else a central
+    column, are excluded).  2026-11-21 (KO E05 on device ...0080): with whole-frame features the tracker locked onto
+    a swaying actor, the lock-off "stabilisation" pinned the actor and moved the whole set with him ("the person AND
+    the background move together"); on the huayuan E04 clips 8 of 11 stabilised copies measured a background
+    coupled to the subject (Pearson 0.65-0.94) whose raw take was still.  None = whole frame (old behaviour)."""
+    try:
+        engine_tools = Path(__file__).resolve().parents[4] / "tools"
+        if str(engine_tools) not in sys.path:
+            sys.path.insert(0, str(engine_tools))
+        import h3_camera_wobble as _wob  # noqa: PLC0415
+        return _wob.background_feature_mask(path, work_width=work_width)
+    except Exception as exc:  # noqa: BLE001 - no helper: whole frame
+        return None, {"status": "FAIL_OPEN", "error": f"{type(exc).__name__}: {str(exc)[:120]}"}
+
+
 def frame_transforms(path: Path, *, work_width: int = 384, min_inliers: int = 12,
-                     max_corners: int = 600) -> dict[str, Any]:
-    """Per-frame similarity deltas (native pixel units) and clip facts."""
+                     max_corners: int = 600, feature_mask: Any = None) -> dict[str, Any]:
+    """Per-frame similarity deltas (native pixel units) and clip facts.  ``feature_mask`` (uint8 at work size, 255 =
+    usable): features (and the phase-correlation fallback) come only from the masked-in region -- the background
+    (:func:`background_mask`); None = the whole frame."""
     cap = cv2.VideoCapture(str(path))
     if not cap.isOpened():
         raise RuntimeError(f"cannot open {path}")
@@ -115,7 +134,9 @@ def frame_transforms(path: Path, *, work_width: int = 384, min_inliers: int = 12
         dth = 0.0
         inliers = 0
         fallback = False
-        pts = cv2.goodFeaturesToTrack(prev, maxCorners=max_corners, qualityLevel=0.01, minDistance=7, blockSize=7)
+        mask = feature_mask if feature_mask is not None and getattr(feature_mask, "shape", None) == prev.shape else None
+        pts = cv2.goodFeaturesToTrack(prev, maxCorners=max_corners, qualityLevel=0.01, minDistance=7, blockSize=7,
+                                      mask=mask)
         if pts is not None and len(pts) >= min_inliers:
             nxt, status, _err = cv2.calcOpticalFlowPyrLK(prev, grey, pts, None, winSize=(21, 21), maxLevel=3,
                                                          criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01))
@@ -143,7 +164,11 @@ def frame_transforms(path: Path, *, work_width: int = 384, min_inliers: int = 12
         else:
             fallback = True
         if fallback:
-            (sx, sy), _resp = cv2.phaseCorrelate(np.float32(prev), np.float32(grey))
+            a_img, b_img = np.float32(prev), np.float32(grey)
+            if mask is not None:
+                weight = np.float32(mask > 0)
+                a_img, b_img = a_img * weight, b_img * weight
+            (sx, sy), _resp = cv2.phaseCorrelate(a_img, b_img)
             dx, dy = float(sx) / scale, float(sy) / scale
             ds = 0.0
             dth = 0.0
@@ -152,7 +177,8 @@ def frame_transforms(path: Path, *, work_width: int = 384, min_inliers: int = 12
         prev = grey
     cap.release()
     return {"fps": fps, "width": width, "height": height, "frames": frames, "work_width": work_width,
-            "fallback_frames": fallbacks, "deltas": rows}
+            "fallback_frames": fallbacks, "deltas": rows, "feature_region": "BACKGROUND" if feature_mask is not None
+            else "WHOLE_FRAME"}
 
 
 def _smooth(values: list[float], window: int) -> list[float]:
@@ -280,11 +306,16 @@ def _measure_one(path: str, kw: dict[str, Any]) -> dict[str, Any]:
 
 def measure_clip(path: Path, **kw: Any) -> dict[str, Any]:
     internal_cuts = kw.pop("internal_cuts", None)
-    tf = frame_transforms(path, work_width=kw.pop("work_width", 384), min_inliers=kw.pop("min_inliers", 12))
+    work_width = kw.pop("work_width", 384)
+    mask, mask_note = (background_mask(path, work_width=work_width) if kw.pop("background_only", True)
+                       else (None, {"status": "WHOLE_FRAME_REQUESTED"}))
+    tf = frame_transforms(path, work_width=work_width, min_inliers=kw.pop("min_inliers", 12), feature_mask=mask)
     tf = mask_internal_cuts(tf, internal_cuts)
     row = summarise(path, tf, **kw)
     if tf.get("internal_cuts_masked"):
         row["internal_cuts_masked"] = tf["internal_cuts_masked"]
+    row["feature_region"] = tf.get("feature_region")
+    row["background_mask"] = mask_note
     row["sha256"] = sha256_file(path)
     return row
 
@@ -347,6 +378,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--internal-cuts", type=Path,
                     help="JSON {unit_id: [cut_s, ...]} (or a nalu.unit_recut_report.v1): authored picture cuts inside "
                          "derived clips are masked so a shot change is not counted as a camera reversal")
+    ap.add_argument("--whole-frame", action="store_true",
+                    help="track features over the whole frame (pre-2026-11-21 behaviour); default: background only")
     ap.add_argument("--workers", type=int, default=1,
                     help="measure clips in N processes (clips are independent; 53 E12 units ≈ 33 s with 8)")
     args = ap.parse_args(argv)
@@ -382,7 +415,8 @@ def main(argv: list[str] | None = None) -> int:
                                 else unit_has_dialogue(unit))
 
     kw = dict(work_width=args.work_width, min_inliers=args.min_inliers, smooth_frames=args.smooth_frames,
-              prominence_pct=args.prominence_pct, prominence_zoom_pct=args.prominence_zoom_pct)
+              prominence_pct=args.prominence_pct, prominence_zoom_pct=args.prominence_zoom_pct,
+              background_only=not args.whole_frame)
     cuts_by_unit: dict[str, list[float]] = {}
     if args.internal_cuts and args.internal_cuts.is_file():
         payload = json.loads(args.internal_cuts.read_text(encoding="utf-8"))
@@ -423,7 +457,8 @@ def main(argv: list[str] | None = None) -> int:
     summary["dialogue_units_locked_off"] = sum(1 for r in rows if r.get("dialogue_unit") and r.get("locked_off"))
     payload = {"schema": SCHEMA, "recorded_at": now(), "label": args.label, "thresholds": THRESHOLDS,
                "method": {"work_width": args.work_width, "min_inliers": args.min_inliers, "smooth_frames": args.smooth_frames,
-                          "prominence_pct": args.prominence_pct, "prominence_zoom_pct": args.prominence_zoom_pct},
+                          "prominence_pct": args.prominence_pct, "prominence_zoom_pct": args.prominence_zoom_pct,
+                          "feature_region": "WHOLE_FRAME" if args.whole_frame else "BACKGROUND"},
                "summary": summary, "rows": rows}
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

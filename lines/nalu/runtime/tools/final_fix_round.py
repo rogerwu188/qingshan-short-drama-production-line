@@ -65,6 +65,14 @@ and two stacked identical subtitle lines (H3 burned the line under ours), yet th
 * S6 burned-text / sheet-leak retries that stayed UNRESOLVED (``s6_burn_unresolved`` of the must-check list) join the
   round as findings of their unit (source S6_UNRESOLVED; never a trigger on their own).
 
+v4 (2026-11-21, KO E05 on device ...0080: "the camera shakes along with a character's small movements -- the person
+AND the background move together"):
+
+* CAMERA_WOBBLE (QA-CAMERA-WOBBLE, or wording "background moves with the actor" / 镜头晃 / 背景跟着动 under any item)
+  is a paid redo carrying the steady-camera sentence, ranked right after the P0 classes (burned text, reference
+  sheet); an S6 wobble retry that stayed unresolved and was not stabilised in S7 (``s6_wobble_unresolved``) joins
+  the round as a P2 finding of its unit.
+
 Pure functions (no I/O except :func:`write_record`); nalu_pipeline wires them into S7 / S6 / S8.
 """
 from __future__ import annotations
@@ -92,7 +100,7 @@ RECORD = "RECORD_ONLY"
 
 FREE_KINDS = ("STATIC_SHOT_SPLIT", "AUDIO_SMOOTHING", "BGM_FADES", "SUBTITLE_WRAP", "DIALOGUE_TAIL_GUARD",
               "EDIT_FRAGMENT")
-PAID_KINDS = ("BURNED_TEXT", "REFERENCE_SHEET_LEAK", "COSTUME_IDENTITY", "FACE_DRIFT", "SKIN_SHEEN", "HAND_ARTIFACT", "VOICE_GENDER_MISMATCH")
+PAID_KINDS = ("BURNED_TEXT", "REFERENCE_SHEET_LEAK", "CAMERA_WOBBLE", "COSTUME_IDENTITY", "FACE_DRIFT", "SKIN_SHEEN", "HAND_ARTIFACT", "VOICE_GENDER_MISMATCH")
 #: owner order when the round's budget does not cover every paid redo
 PAID_PRIORITY = {kind: rank for rank, kind in enumerate(PAID_KINDS)}
 
@@ -100,6 +108,9 @@ PAID_PRIORITY = {kind: rank for rank, kind in enumerate(PAID_KINDS)}
 ITEM_KIND = {
     "QA-BURNED-TEXT": "BURNED_TEXT",
     "QA-REFERENCE-SHEET-LEAK": "REFERENCE_SHEET_LEAK",
+    # 2026-11-21 (KO E05, device ...0080): the set moves with the actor on a locked-off shot -> one paid redo with the
+    # locked-off sentence (below the P0 classes)
+    "QA-CAMERA-WOBBLE": "CAMERA_WOBBLE",
     "QA-DIALOGUE-TAIL-CUT": "DIALOGUE_TAIL_GUARD",
     "QA-EDIT-FRAGMENT": "EDIT_FRAGMENT",
     "QA-SUBTITLE-WRAP": "SUBTITLE_WRAP",
@@ -146,6 +157,10 @@ KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
                      "burned subtitle", "on-screen text", "onscreen text", "stray text", "garbled text",
                      "stray caption", "second subtitle", "text overlay", "stray glyph", "烧进", "烧录", "烧入",
                      "画面里的字", "画面文字", "乱码", "多余字幕", "多出一行字", "模型字幕", "字幕重影")),
+    ("CAMERA_WOBBLE", ("camera wobble", "camera shake", "camera shakes", "frame shakes", "frame wobbles",
+                       "background moves with", "background shifts with", "background sways", "jello", "rolling shutter",
+                       "whole frame moves", "镜头晃", "镜头抖", "画面晃", "画面抖", "背景跟着", "背景也跟着",
+                       "背景一起动", "背景晃", "果冻")),
     ("COSTUME_IDENTITY", ("costume", "wardrobe", "outfit", "clothing", "clothes", "garment", "identity colo",
                           "colour mismatch", "color mismatch", "changes colo", "different colo", "服装", "衣服",
                           "换装", "服色", "衣色", "戏服", "颜色不一致", "颜色变")),
@@ -222,6 +237,9 @@ SENTENCES = {
     "VOICE_GENDER_MISMATCH": ("Every line is spoken in the speaker's own voice from their audio reference: a woman "
                               "speaks with a woman's voice and a man with a man's voice; nobody borrows another "
                               "person's voice."),
+    "CAMERA_WOBBLE": ("The camera never shakes, sways or warps: the background and the edges of the frame stay "
+                      "solid and still unless the camera makes its one declared move, and no nod, gesture or step "
+                      "of a person ever moves the frame."),
     "SKIN_SHEEN": ("Every face keeps natural matte skin and dry hair from the first frame to the last: no oily, glossy "
                    "or sweaty sheen, no wet-looking strands and no harsh over-sharpened skin texture."),
 }
@@ -310,6 +328,14 @@ _SHEEN_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
     r"skin (?:sheen|shine|looks (?:oily|greasy|wet|plastic|waxy))", r"(?:wet|damp)[- ](?:looking )?hair",
     r"油(?:光|亮|腻)", r"(?:皮肤|脸上|额头)(?:发亮|反光|油)", r"满脸(?:油|汗)", r"汗津津", r"(?:头发|发丝)(?:湿|潮)",
 ))
+#: the set / whole frame moving with the actor (KO E05 2026-11-21) beyond KEYWORDS -- whatever the item says
+_WOBBLE_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
+    r"(?:background|set|frame|picture|whole (?:frame|image))\b.{0,30}\b(?:moves?|moving|shifts?|sways?|shakes?|"
+    r"wobbles?|jitters?|drifts?)\b.{0,20}\b(?:with|along with|together with)\b",
+    r"(?:camera|frame) (?:shake|wobble|jitter|sway)", r"jello|rubber[- ]?sheet|whole[- ]frame warp",
+    r"(?:背景|画面|整个画面|镜头)[^。；;]{0,8}(?:跟着|随着|一起)[^。；;]{0,6}(?:动|晃|抖|移|摇)",
+    r"(?:镜头|画面)(?:在)?(?:晃|抖|摇晃|抖动)", r"果冻(?:效应|感)?",
+))
 #: a character reference / model sheet drawn AS the picture (JA-01 E04 VU-007 2026-11-21: H3 copied the multi-view
 #: identity sheet -- bust, big face close-up, front / side / back full bodies -- over the background; reviewed as
 #: CRAFT-SHOT-GRAMMAR "对白中突兀切入角色设定三视图静态立绘" and "重复人物叠影和设定卡式静态构图")
@@ -396,6 +422,8 @@ def strong_kind(text: str) -> str | None:
         return "FACE_DRIFT"
     if _matches(_SHEEN_PATTERNS, text):
         return "SKIN_SHEEN"
+    if _matches(_WOBBLE_PATTERNS, text):
+        return "CAMERA_WOBBLE"
     return None
 
 
@@ -505,6 +533,7 @@ def collect_findings(report: dict[str, Any] | None, checklist: dict[str, Any] | 
                     "kind_hint": "COSTUME_IDENTITY"})
     out.extend(s6_unresolved_findings(checklist.get("s6_burn_unresolved")))
     out.extend(edit_measure_findings(checklist.get("s7_edit_measure")))
+    out.extend(s6_unresolved_findings(checklist.get("s6_wobble_unresolved")))
     return out
 
 
@@ -554,6 +583,14 @@ def s6_unresolved_findings(rows: Any) -> list[dict[str, Any]]:
     out = []
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, dict) or not row.get("unit_id"):
+            continue
+        if row.get("camera_wobble") and not row.get("burned_text"):
+            # the kept take of a locked-off unit still moves the set with the actor (S6 wobble retry exhausted)
+            out.append({"source": S6_SOURCE, "item": "QA-CAMERA-WOBBLE", "unit_id": str(row["unit_id"]),
+                        "severity": "P2", "kind_hint": "CAMERA_WOBBLE",
+                        "text": "S6: the kept take still moves the background with the actor (camera wobble, "
+                                f"{row.get('severity') or 'measured'}) after {int(row.get('retries') or 0)} retries "
+                                f"({row.get('reason') or 'unresolved'})"})
             continue
         sheet = bool(row.get("sheet_leak"))
         in_band = bool(row.get("residual_in_subtitle_band"))

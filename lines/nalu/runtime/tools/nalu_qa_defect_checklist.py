@@ -14,6 +14,8 @@ The independent final reviewer is asked SPECIFICALLY, with timestamps, about six
                           wet, or skin texture turning crunchy and over-sharpened from one shot to the next
   QA-EDIT-FRAGMENT        (2026-11-21, device 1101 E21) a shot under ~1.2 s, a speaking character on screen who says
                           nothing before the cut, a line cut before it finishes, cuts far too fast
+  QA-CAMERA-WOBBLE        (2026-11-21, KO E05 on device …0080) on a locked-off shot the whole frame / the set moves
+                          with a character's small movements (fake handheld, jelly warp)
 
 Where the engine can measure something for free, the reviewer gets the measurement (``measure``): OCR hits from the
 S7 burned-text scan / verify, the gap between each line's ASR end and the next cut, the cover-band area per burned
@@ -101,6 +103,17 @@ ITEMS: dict[str, dict[str, Any]] = {
                     "the measured fragments, speaker-not-speaking shots, lines ending < 0.15 s before a cut and "
                     "cuts inside a line (free; s7_cut true = a cut the S7 editor made).",
         "s7_fixable": True, "fix_owner": "S7", "craft_item": "C-08"},
+    # 2026-11-21 (KO E05 on device ...0080): "the camera shakes along with a character's small movements -- the
+    # person AND the background move together"
+    "QA-CAMERA-WOBBLE": {
+        "title_zh": "固定机位镜头里背景/整个画面跟着人物的小动作一起晃（假手持、果冻变形）",
+        "question": "In a shot whose camera should be still, does the WHOLE frame -- walls, door frames, furniture, the "
+                    "set behind the people -- move, sway, bob or warp together with a character's small movement (a "
+                    "nod, a gesture, a half step), or does the picture wobble like jelly (straight lines bending)?  "
+                    "Watch a fixed line of the set against the frame edge.  A smooth, one-direction authored move is "
+                    "not this defect.  Give each timestamp.  measurements.camera_wobble lists units whose landed "
+                    "take moved the set with the actor (S6, free; people masked out).",
+        "s7_fixable": False, "fix_owner": "S6", "craft_item": "C-12"},
 }
 ITEM_IDS = tuple(ITEMS)
 
@@ -332,6 +345,37 @@ def measure_s6_burn_unresolved(state: Any) -> dict[str, Any]:
     return {"source": "S6 wave state s6_burn_retry (read only)", "units": rows} if rows else {}
 
 
+def measure_camera_wobble(state: Any, stabilize: Any = None) -> dict[str, Any]:
+    """Units whose S6 take of a locked-off unit moved the SET with the actor (tools/h3_camera_wobble, 2026-11-21):
+    every measured wobble (``s6_burn_retry`` checks), and the units whose KEPT take still wobbles
+    (``camera_wobble_unresolved``) with whether S7 stabilised it (``<EP>_CLIP_STABILIZE.json`` applied a LOCK_OFF /
+    SMOOTH output).  Read only; {} when none."""
+    stabilised = set()
+    for row in ((stabilize or {}).get("results") or []) if isinstance(stabilize, dict) else []:
+        if isinstance(row, dict) and row.get("mode") in ("LOCK_OFF", "SMOOTH"):
+            stabilised.add(Path(str(row.get("source") or "")).stem)
+    measured, unresolved = [], []
+    for uid, rec in sorted(((state or {}).get("s6_burn_retry") or {}).items()):
+        if not isinstance(rec, dict):
+            continue
+        for sha, check in (rec.get("checks") or {}).items():
+            wob = (check or {}).get("camera_wobble") if isinstance(check, dict) else None
+            if isinstance(wob, dict) and wob.get("status") == "WOBBLE":
+                measured.append({"unit_id": uid, "take_sha256": sha, **{k: wob.get(k) for k in (
+                    "severity", "reasons", "excursion_pct", "coupling", "reversals_per_s") if wob.get(k) is not None}})
+        if rec.get("camera_wobble_unresolved"):
+            kept = rec.get("kept_take_wobble") if isinstance(rec.get("kept_take_wobble"), dict) else {}
+            unresolved.append({"unit_id": uid, "camera_wobble": True, "reason": rec.get("unresolved_reason"),
+                               "retries": len(rec.get("attempts") or []), "severity": kept.get("severity"),
+                               "excursion_pct": kept.get("excursion_pct"),
+                               "s7_stabilized": uid in stabilised,
+                               **({"burned_text": True} if rec.get("burned_text_unresolved") else {})})
+    if not measured and not unresolved:
+        return {}
+    return {"source": "S6 wave state s6_burn_retry camera_wobble + S7 CLIP_STABILIZE (read only)",
+            "measured": measured[:40], "unresolved": unresolved[:40]}
+
+
 def measure_skin_sheen(tails_dir: Any) -> dict[str, Any]:
     """Units whose landed clip drifted toward an oily / glossy / over-sharpened face (S6 ``<unit>.skin_sheen.json``
     beside the real final frames, tools/tail_frame_normalize.sheen_drift).  Only the take currently on the assembly
@@ -414,7 +458,8 @@ def measure(*, shots: list[dict[str, Any]], asr: Any = None, scan_path: Any = No
             ass_path: Any = None, distinctness_path: Any = None, bgm_plan_path: Any = None,
             audio_bed_path: Any = None, s6_wave_state_path: Any = None,
             skin_sheen_dir: Any = None, keyframes_dir: Any = None, release_timeline_path: Any = None,
-            performance_cut_path: Any = None, unit_recut_path: Any = None) -> dict[str, Any]:
+            performance_cut_path: Any = None, unit_recut_path: Any = None,
+            stabilize_summary_path: Any = None) -> dict[str, Any]:
     """All free measurements, each best-effort ({} when its input is missing).  Never raises."""
     out: dict[str, Any] = {}
     steps = (
@@ -430,6 +475,7 @@ def measure(*, shots: list[dict[str, Any]], asr: Any = None, scan_path: Any = No
         ("identity_swap_risk", lambda: measure_identity_swap_risk(keyframes_dir)),
         ("s7_edit", lambda: measure_s7_edit(asr, shots, _read(release_timeline_path), _read(performance_cut_path),
                                             _read(unit_recut_path))),
+        ("camera_wobble", lambda: measure_camera_wobble(_read(s6_wave_state_path), _read(stabilize_summary_path))),
     )
     for key, fn in steps:
         try:
@@ -446,7 +492,8 @@ MEASUREMENT_ITEM = {"burned_text": "QA-BURNED-TEXT", "masks": "QA-OVERSIZED-MASK
                     "dialogue_tail": "QA-DIALOGUE-TAIL-CUT", "subtitle_wrap": "QA-SUBTITLE-WRAP",
                     "lookalike_cast": "QA-LOOKALIKE-CAST", "bgm": "QA-BGM-DISCONTINUOUS",
                     "s6_burn_unresolved": "QA-BURNED-TEXT", "skin_sheen": "QA-SKIN-SHEEN-DRIFT",
-                    "identity_swap_risk": "QA-LOOKALIKE-CAST", "s7_edit": "QA-EDIT-FRAGMENT"}
+                    "identity_swap_risk": "QA-LOOKALIKE-CAST", "s7_edit": "QA-EDIT-FRAGMENT",
+                    "camera_wobble": "QA-CAMERA-WOBBLE"}
 
 
 def reviewer_request(measurements: dict[str, Any]) -> dict[str, Any]:
@@ -573,6 +620,10 @@ def _measured_findings(measurements: dict[str, Any]) -> list[dict[str, Any]]:
     for row in edit.get("mid_line_cuts") or []:
         out.append({"item_id": "QA-EDIT-FRAGMENT", "at_seconds": row.get("at"), "source": "MEASURED",
                     "detail": "cut inside a line" + (" (S7 cut)" if row.get("s7_cut") else "")})
+    for row in (measurements.get("camera_wobble") or {}).get("measured") or []:
+        out.append({"item_id": "QA-CAMERA-WOBBLE", "source": "S6_CAMERA_WOBBLE", "unit_id": row.get("unit_id"),
+                    "detail": f"{row.get('unit_id')}: set moved {row.get('excursion_pct')} % of the width with the "
+                              f"actor ({','.join(row.get('reasons') or [])})"})
     # the local A/V evidence pack (av_evidence_pack.py, video-native final review 2026-11-19)
     pack = measurements.get("av_evidence_pack") or {}
     for row in pack.get("burned_text_runs") or []:
@@ -648,7 +699,7 @@ def routing(item_id: str, *, maskable: bool = True) -> str:
     del maskable  # kept for callers: burned text is now fixed by an S6 redo, not by a cover
     if item_id == "QA-LOOKALIKE-CAST":
         return "KNOWLEDGE_BASE_AND_NEXT_EPISODE_IDENTITY_DESIGN"
-    if item_id in ("QA-BURNED-TEXT", "QA-SKIN-SHEEN-DRIFT"):
+    if item_id in ("QA-BURNED-TEXT", "QA-SKIN-SHEEN-DRIFT", "QA-CAMERA-WOBBLE"):
         return "S6_UNIT_REDO_FINAL_FIX_ROUND"
     if item_id == "QA-OVERSIZED-MASK":
         return "RECORDED"
@@ -689,6 +740,11 @@ def build_record(parsed: dict[str, Any], measurements: dict[str, Any], *, episod
             # the post-S7 edit measurement: findings (and, at S7's own cuts, a trigger) of the final fix round
             **({"s7_edit_measure": (measurements or {}).get("s7_edit")}
                if ((measurements or {}).get("s7_edit") or {}).get("counts") else {}),
+            # kept S6 takes that still wobble and were NOT stabilised in S7: findings of the final fix round
+            **({"s6_wobble_unresolved": [r for r in (((measurements or {}).get("camera_wobble") or {}).get(
+                "unresolved") or []) if not r.get("s7_stabilized")]}
+               if [r for r in (((measurements or {}).get("camera_wobble") or {}).get("unresolved") or [])
+                   if not r.get("s7_stabilized")] else {}),
             **({"letterbox_measured": ((measurements or {}).get("av_evidence_pack") or {}).get("letterbox_shots")}
                if ((measurements or {}).get("av_evidence_pack") or {}).get("letterbox_shots") else {}),
             "auto_recut": {"status": "FINAL_FIX_ROUND", "note": (

@@ -169,7 +169,8 @@ def reviewer_prompt(episode: str, request: Path, answers: Path, process_id: str,
    QA-DIALOGUE-TAIL-CUT 台词尾音被切或句末无停顿、QA-OVERSIZED-MASK 遮挡/模糊框过大、QA-LOOKALIKE-CAST 两个角色长得一样、
    QA-SUBTITLE-WRAP 字幕换行不当（如「！」单独一行）、QA-BGM-DISCONTINUOUS 配乐只响一两个镜头就停或在切点生硬起停、
    QA-SKIN-SHEEN-DRIFT 相邻镜头间人物皮肤突然油光/出汗、头发变湿或质感过锐（场景里没有雨水、汗水、眼泪的理由）、
-   QA-EDIT-FRAGMENT 剪辑碎片（不到约 1.2 秒的碎镜头、说话的角色一句没说就切走、台词没说完就切、切得太快）。
+   QA-EDIT-FRAGMENT 剪辑碎片（不到约 1.2 秒的碎镜头、说话的角色一句没说就切走、台词没说完就切、切得太快）、
+   QA-CAMERA-WOBBLE 固定机位镜头里背景/整个画面跟着人物小动作一起晃（盯住门框墙角等直线看它相对画框动没动）。
    `measurements` 里是免费量出来的线索（OCR、尾音距切点、遮挡面积、身份牌相似度、字幕分行、配乐段、S6 皮肤油光/锐化漂移的单元、
    `s7_edit` 碎镜头/不说话的说话人镜头/尾音距切点不足 0.15 s/切在台词中间），逐个用眼睛/听感核实；
    确认的缺陷同时按严重度写进 problems。这一块只记录不拦片。
@@ -194,13 +195,15 @@ def gemini_step(gemini: Path | None) -> str:
    0.25 s 一帧，皮肤/手/脸放大到原分辨率）看画面、量音频，自己判断。确认的：写进 problems（带严重度）和 `qa_defect_checklist`
    对应 QA-* 条目的 DEFECT findings（不属于必查清单的类别只写 problems）。不成立的：说明理由。
    `mode` 是 `multipass` 时，发现来自四个专审（每条的 `pass`）：A 画面/AI 瑕疵（QA-FACE-ARTIFACT 脸眼牙、QA-HAND-ARTIFACT 手指、
-   QA-SKIN-SHEEN-DRIFT 皮肤油光/头发变湿、QA-BODY-MORPH、QA-OBJECT-POP、QA-FLICKER、QA-PHYSICS、烧字、遮罩、黑边）、
-   B 身份与场内连贯（QA-IDENTITY-MISMATCH 对照身份卡、LOOK-DRIFT 服装发型配饰、QA-PROP/LIGHTING/POSITION-CONTINUITY、同脸）、
+   QA-SKIN-SHEEN-DRIFT 皮肤油光/头发变湿、QA-CAMERA-WOBBLE 背景随人晃、QA-BODY-MORPH、QA-OBJECT-POP、QA-FLICKER、QA-PHYSICS、
+   烧字、遮罩、黑边）、
+   B 身份与场内连贯（QA-IDENTITY-MISMATCH 对照身份卡、LOOK-DRIFT 服装发型配饰、QA-PROP/LIGHTING/POSITION-CONTINUITY、
+   QA-LOOKALIKE-CAST 两个角色看起来是同一个人，见 `cast_compare`）、
    C 声音（QA-LIPSYNC、QA-VOICE-INCONSISTENT、QA-WRONG-SPEAKER、QA-VOICE-GENDER 女角色男声/男角色女声、尾音、QA-LOUDNESS-JUMP、
    配乐、QA-SFX、QA-AUDIO-ARTIFACT）、
    D 导演/剪辑（QA-EDIT-FRAGMENT 碎镜头/不说话就切走、CRAFT-PACING、CRAFT-SHOT-GRAMMAR、CRAFT-BEAT-MISSED、CRAFT-CLARITY、CRAFT-OPENING-HOOK、CRAFT-ENDING-HOOK、
    CRAFT-EMOTION、CRAFT-ACTING-MONOTONY、CRAFT-SUBTITLE-READABILITY）。全部都要核对；确认后引擎这样处理（你只管判断真假）：烧字、身份/服装、
-   脸与皮肤漂移、手、声音性别不对 → 付费重做该单元；声音类 → 免费 S7 重混/重剪；导演/剪辑类 → 记录并进知识库。
+   脸与皮肤漂移、背景随人晃、手、声音性别不对 → 付费重做该单元；声音类 → 免费 S7 重混/重剪；导演/剪辑类 → 记录并进知识库。
    你自己也必查这两条（Gemini 没报也要看）：**声音性别**——每个说话镜头，画面里开口的人是女性/男性，听到的声音是不是同性别
    （女角色配男声是硬伤，写 problems，带时间点和是谁）；**表演单调**——人物说话时有没有具体的小动作（整理袖口、握住桌沿、移开视线再看回、
    上前半步、抱臂、碰项链、歪头、轻呼一口气），还是干站着念台词、或多个镜头反复同一个手势（如双手向两侧摊开），听的人是不是僵住不动；

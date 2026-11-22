@@ -627,6 +627,9 @@ def provider_prompt_unit(task: dict[str, Any]) -> dict[str, Any]:
     # S6 retry after a reference-sheet leak (h3_reference_sheet_guard, 2026-11-21): the sheet retry sentence
     if task.get("h3_reference_sheet_crop") or machine.get("h3_reference_sheet_crop"):
         prompt_unit["h3_reference_sheet_crop"] = True
+    # S6 retry after a camera wobble (h3_camera_wobble, 2026-11-21): the locked-off retry sentence
+    if task.get("h3_camera_wobble_retry") or machine.get("h3_camera_wobble_retry"):
+        prompt_unit["h3_camera_wobble_retry"] = True
     # final fix round redo (final_fix_round.py, owner 2026-11-20): {kind(s), sentence}; absent on every other task
     if isinstance(task.get("h3_final_fix") or machine.get("h3_final_fix"), dict):
         prompt_unit["h3_final_fix"] = dict(task.get("h3_final_fix") or machine.get("h3_final_fix"))

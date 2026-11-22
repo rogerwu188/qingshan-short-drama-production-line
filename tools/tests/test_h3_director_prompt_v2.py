@@ -140,7 +140,7 @@ class DirectorPromptV2Shape(unittest.TestCase):
                       text)
         self.assertEqual(receipt["status"], "PASS")
         self.assertEqual(receipt["h3_prompt_style"], "DIRECTOR_PROMPT_V2")
-        self.assertTrue(1000 < len(text) < 3600, len(text))  # +identity lock sentence (2026-11-20)
+        self.assertTrue(1000 < len(text) < 3750, len(text))  # +identity lock (2026-11-20), +set stillness (2026-11-21)
 
     def test_dialogue_listener_sound_and_never(self):
         text, _ = render()
@@ -155,8 +155,10 @@ class DirectorPromptV2Shape(unittest.TestCase):
         self.assertIn("Never: captions, subtitles, speech bubbles or any written words, letters or numbers on screen; "
                       "logos or watermarks; a second copy of anyone; "
                       "anyone else in frame; oily, glossy or sweaty skin sheen, wet-looking hair or over-sharpened "
-                      "skin texture; music; zooming in, pushing in, dollying in, moving closer to the "
-                      "face, tightening the frame.", text)  # default strict camera lock (locked, single take)
+                      "skin texture; the frame moving with a person; music; zooming in, pushing in, dollying in, "
+                      "moving closer to the face, tightening the frame.", text)  # default strict camera lock
+        # locked plan: the set stays still, only the people move (KO E05 2026-11-21, camera wobble)
+        self.assertIn("\nThe set behind the people stays perfectly still; only the people move, never the frame.\n", text)
         self.assertIn("Key prop: gray long table.", text)
         self.assertIn("Time: dusk; clear weather.", text)
 
