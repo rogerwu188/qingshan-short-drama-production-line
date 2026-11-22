@@ -1918,6 +1918,33 @@ def script_length_check(ctx: Ctx) -> dict[str, Any]:
                        "before any paid stage -- merge or cut shots, keep the plot (free)"}
 
 
+def s1_script_pacing(ctx: Ctx, p: Any, *, others_ok: bool) -> tuple[dict[str, Any], list[str]]:
+    """SHORT_DRAMA_PACING_V1 at S1: (episode-record row, blockers).  Blockers only for an opted-in contract in a
+    revision round (script_pacing_check.decide); the report and the round ledger sit beside the other S1 logs and
+    the series source coverage is updated once the script is admitted.  Never raises: any error = no blocker."""
+    try:
+        import script_pacing_check as _pace  # noqa: PLC0415 -- same directory
+        contract = read_json(p.contract, {}) or {}
+        report = _pace.evaluate(contract, ctx_language(ctx))
+        report_path = p.logs / f"{ctx.run_id}_script_pacing.json"
+        write_json(report_path, report)
+        decision = _pace.decide(report, _pace.contract_sha(contract), p.logs / "SCRIPT_PACING_ROUNDS.json",
+                                record=others_ok)
+        if not others_ok and decision.get("blocks"):
+            decision = {**decision, "decision": "PENDING_OTHER_S1_GATES", "blocks": False}
+        row = {**_pace.summary(report, decision), "report": str(report_path), "fixes": report.get("fixes") or {}}
+        if decision.get("decision") == "REVISE":
+            row["writer_instruction"] = ("revise the episode's own layers (narrative canonical -> four layers) "
+                                         "for the failures above, then rerun S1; free, no owner decision")
+        if others_ok and decision.get("decision") != "REVISE":
+            cov = _pace.record_coverage(RUNTIME, ctx.episode, contract)
+            if cov:
+                row["source_coverage"] = {k: cov.get(k) for k in ("last_chapter", "next_chapter", "skipped_chapters")}
+        return row, _pace.blocker_codes(report, decision)
+    except Exception as exc:  # noqa: BLE001 -- a pacing measurement must never break S1
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}"}, []
+
+
 def stage_s1(ctx: Ctx) -> StageResult:
     p = ctx.p
     _record_line_upgrade(ctx, "line_upgrade_preflight", "preflight")  # advisory read side
@@ -2062,6 +2089,14 @@ def stage_s1(ctx: Ctx) -> StageResult:
         dialogue_register["exit_code"] = register_step["exit_code"]
     dialogue_register_ok = str(dialogue_register.get("status") or "") in {"PASS", "NOT_ACTIVE"}
     status = PASS if (writer_handoff_ok and gate10_ok and entity_ok and static_ok and structure_ok and continuity_ok and scope_ok and selfcheck_ok and dialogue_register_ok) else BLOCKED
+    # SHORT_DRAMA_PACING_V1 (line owner 2026-11-22 「剧情推进太慢……一集基本就是人物在念台词」): free, deterministic
+    # script pacing metrics on every contract; a contract that opted in (``pacing_policy``, written from the next
+    # dispatch on) and fails is sent back to the writer for at most MAX_REVISIONS revisions, then admitted with the
+    # gaps recorded.  A round is only counted when every other S1 gate passed.  Never raises.
+    script_pacing, pacing_blockers = s1_script_pacing(
+        ctx, p, others_ok=(status == PASS and not (writer_capability.get("blocks_stage") or [])))
+    if pacing_blockers and status == PASS:
+        status = BLOCKED
     # Line owner 2026-11-01: under WRITER_CAPABILITY_V1 the writing PROCEDURE is required — a missing or unanswered
     # script review / Rule 8 answer / arc ledger / adaptation disposition keeps the script from being marked complete
     # for paid preparation.  LEGACY episodes return no blocks, so E01-E13 are untouched; opinion never blocks.
@@ -2106,6 +2141,9 @@ def stage_s1(ctx: Ctx) -> StageResult:
         res.blockers = list(getattr(res, "blockers", []) or []) + dialogue_register_blockers(dialogue_register)
     if capability_blocks:
         res.blockers = list(getattr(res, "blockers", []) or []) + [f"WRITER_CAPABILITY_STEP_OWED:{code}" for code in capability_blocks]
+    res.details["script_pacing"] = script_pacing
+    if pacing_blockers:
+        res.blockers = list(getattr(res, "blockers", []) or []) + pacing_blockers
     res.details["layers"] = {"source": ctx.p.layers_source, "paths": {k: str(v) for k, v in p.layers().items()}}
     if not scope_ok:
         res.blockers = list(getattr(res, "blockers", []) or []) + [f"PROJECT_SCOPE_FAIL:{code}" for code in scope_check["failures"]]

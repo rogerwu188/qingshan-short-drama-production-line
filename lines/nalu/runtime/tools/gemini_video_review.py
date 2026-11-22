@@ -501,6 +501,11 @@ def _run_multipass(record: dict[str, Any], finish: Callable[..., dict[str, Any]]
                                        and _num(r.get("end_seconds")) is not None]}
     engine = Path(env.get("NALU_ENGINE_ROOT") or Path(__file__).resolve().parents[4]).expanduser()
     pacing = ((request.get("craft_standard_request") or {}).get("measured_pacing") or None)
+    script_plan = (request.get("craft_standard_request") or {}).get("script_pacing")
+    if isinstance(script_plan, dict) and script_plan:  # SHORT_DRAMA_PACING_V1: the script's planned pacing for pass D
+        pacing = {**(pacing if isinstance(pacing, dict) else {}), "script_plan": {
+            k: script_plan.get(k) for k in ("status", "failures", "metrics", "ending_unresolved", "turns")
+            if script_plan.get(k) is not None}}
     result = _mp.run_passes(
         video=video, duration=duration, model=model, prices=PRICES, cap=cap, key=key,
         base_url=env.get("HOPSAPI_BASE_URL") or DEFAULT_BASE_URL, post=post, context=context, leads=_leads(pack),

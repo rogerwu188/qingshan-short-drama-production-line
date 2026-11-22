@@ -737,7 +737,10 @@ def next_episode_id(episode: str) -> str:
 
 NEXT_EPISODE_BRIEF = """本集由引擎在上一集出片后自动接续（线主 + 老板 2026-11-10：下一集的派单与叙事正典交给你写，不再由编排代理写）。先写派单，再生产：
 1. 读上一集派单 `{prev}`，以及上一集 {ep} 的叙事正典与剧本层的结尾、`{status}` 最近几条。
-2. 按上一集派单的条款写 `{brief}`：`order_text` 里的集号与上限改成 {nxt}，章节范围从上一集结束处接上；生产简报里的
+2. 按上一集派单的条款写 `{brief}`：`order_text` 里的集号与上限改成 {nxt}；起始章节取
+   `{coverage_cmd}` 的 `next_chapter`（没有记录时从上一集派单的结束章接上），派单写**改编预算**（按剧情事件，不按章节：
+   本集覆盖 ≥ max(4, ⌊时长/25⌋) 个剧情事件，需要几章取几章，通常 2–5 章；授权删减/合并/压缩/调序/补衔接动作，只保留关键剧情事实和人物真相）
+   和一行 `pacing_policy: SHORT_DRAMA_PACING_V1`（合同 §2.0 第 5 条：冷开场冲突 ≤3 秒、每 20–30 秒一次转折、结尾悬念、每场有身体动作）；生产简报里的
    `episode_display_number`（片头片尾与 X2C 发行用的「本剧第几集」）必须是 **{display}**，不得沿用上一集的值；剧名、风格、单集时长
    （`target_seconds`）、X2C 分类与简介、语言、预算上限等其它条款逐字沿用，不自行改动。
 3. 原著已经改编完，或已达到线主在派单里指定的总集数：不生产，写 `{done}`（一行说明），在 `{status}` 记一行「SERIES_DONE」，
@@ -776,7 +779,9 @@ def start_next_episode(episode: str) -> dict[str, Any]:
         display = int(re.sub(r"\D", "", nxt) or 0)
     brief = NEXT_EPISODE_BRIEF.format(display=display,
         prev=prev, ep=episode, nxt=nxt, brief=briefs / f"{nxt}_DISPATCH.md", done=runtime / "series" / "SERIES_DONE",
-        status=runtime / "series" / "STATUS.md", skill=engine / "skills" / "nalu-claude-code" / "SKILL.md")
+        status=runtime / "series" / "STATUS.md", skill=engine / "skills" / "nalu-claude-code" / "SKILL.md",
+        coverage_cmd=(f"{_engine_python(engine)} {engine / 'lines/nalu/runtime/tools/script_pacing_check.py'} coverage "
+                      f"--runtime-root {runtime}"))
     out = start(nxt, brief)
     if out.get("status") == "STARTED":
         note(f"{nxt} 由引擎自动启动（Codex 写派单与叙事正典后生产），上一集 {episode}")
@@ -1239,6 +1244,24 @@ def _hours_since(stamp: Any) -> float:
     return (datetime.now(timezone.utc) - then).total_seconds() / 3600
 
 
+PACING_REVISE_MESSAGE = ("S1 的 SCRIPT_PACING_REVISE 不是阻塞，是给你的免费改稿要求（SHORT_DRAMA_PACING_V1，合同 §2.0 第 5 条）："
+                         "读 runtime/pipeline_state/<EP>.json 的 stages.S1.details.script_pacing（failures 与 fixes），"
+                         "改本集叙事正典和四层剧本（压缩/合并/删场、加转折、把说明台词改成动作与反应、结尾停在悬念上），"
+                         "然后重跑 S1→S3；最多两轮，之后引擎自动放行。不要问线主，不要报 BLOCKED。")
+
+
+def pacing_revision_pending(episode: str, session: dict[str, Any]) -> str:
+    """The pacing revision round ('round=1/2') S1 is waiting on that the session was not yet resumed for, or ''."""
+    try:
+        state = read_json(roots()[1] / "runtime" / "pipeline_state" / f"{episode}.json")
+        blockers = ((state.get("stages") or {}).get("S1") or {}).get("blockers") or []
+    except Exception:  # noqa: BLE001
+        return ""
+    rnd = next((str(b).split("SCRIPT_PACING_REVISE:", 1)[1] for b in blockers
+                if str(b).startswith("SCRIPT_PACING_REVISE:round=")), "")
+    return rnd if rnd and rnd not in (session.get("pacing_revise_resumed") or []) else ""
+
+
 def tick(system: bool = False) -> dict[str, Any]:
     _, runtime = roots()
     did: list[str] = []
@@ -1332,6 +1355,19 @@ def tick(system: bool = False) -> dict[str, Any]:
             return res
         else:
             reason = f"NO_STATUS_AFTER_{MAX_NO_STATUS_RESUMES}_RESUMES"
+    elif state == "BLOCKED" and pacing_revision_pending(ep, session):
+        # SHORT_DRAMA_PACING_V1: a pacing revision request is the writer's own free work, never a maintainer fix;
+        # a session that stopped on it is resumed once per revision round (the loop itself ends after
+        # script_pacing_check.MAX_REVISIONS rounds, so this cannot repeat forever)
+        rnd = pacing_revision_pending(ep, session)
+        out = resume(ep, PACING_REVISE_MESSAGE)
+        session = read_json(d / "session.json")
+        session["pacing_revise_resumed"] = sorted(set(session.get("pacing_revise_resumed") or []) | {rnd})
+        write_json(d / "session.json", session)
+        did.append(f"resume_pacing_revision:{rnd}:{out.get('status')}")
+        if out.get("status") == "STARTED":
+            return res
+        reason = f"RESUME_FAILED:{out.get('reason') or out.get('status')}"
     elif state == "WAITING_REMOTE":
         # remote work (S6 rendering, H3 queue, zero-cost provider outage) is followed here for free; Codex is woken
         # only when the stage needs judgement (paid_run_status.tick_decision; device …1144 E08/E09 cost study)

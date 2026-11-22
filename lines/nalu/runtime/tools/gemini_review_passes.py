@@ -424,7 +424,12 @@ def build_pass_prompt(pid: str, *, duration: float, context: dict[str, Any] | No
         if craft:
             lines += ["", "成片标准 v1 要点（节奏优先）：", _json(craft)]
         if measured_pacing:
-            lines += ["", "成片上量出来的节奏数据（直接用）：", _json(measured_pacing)]
+            cut = {k: v for k, v in measured_pacing.items() if k != "script_plan"}
+            if cut:
+                lines += ["", "成片上量出来的节奏数据（直接用）：", _json(cut)]
+            if measured_pacing.get("script_plan"):  # SHORT_DRAMA_PACING_V1 (S1, free)
+                lines += ["", "剧本阶段计划的节奏（S1 对剧本合同的测量，是计划不是成片；剧本里就慢的问题写清是剧本节奏问题）：",
+                          _json(measured_pacing["script_plan"])]
     own = {k: v for k, v in suspects.items() if v}
     if own:
         lines += ["", "本地测量的可疑点，必须逐个用耳朵/眼睛核实并在 suspect_checks 里给结论（CONFIRMED 确有其事 / "

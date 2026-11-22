@@ -7,6 +7,20 @@
   "properties": {
     "schema": {"const": "qingshan.generation_contract.v3"},
     "episode": {"pattern": "^E[0-9]+$"},
+    "pacing_policy": {
+      "enum": ["SHORT_DRAMA_PACING_V1"],
+      "description": "可选（线主 2026-11-22，从下一集派单起写）：S1 免费测量剧本节奏（lines/nalu/runtime/tools/script_pacing_check.py）；不合格时编剧自己改稿，最多两轮后自动放行。缺省 = 只记录，不要求改稿。"
+    },
+    "adaptation_plan": {
+      "type": "object",
+      "description": "可选（SHORT_DRAMA_PACING_V1）：本集改编预算按剧情事件算，不按章节算。source_chapters = 本集用到的原著章节号；plot_events = 本集覆盖的剧情事件（≥ 所需转折数）；cut = 删掉/合并/压缩的内容。S1 记入 series/SOURCE_COVERAGE.json。",
+      "properties": {
+        "source_chapters": {"type": "array", "items": {"type": "integer", "minimum": 0}},
+        "plot_events": {"type": "array"},
+        "cut": {"type": "array"}
+      },
+      "additionalProperties": true
+    },
     "camera_grammar_policy": {
       "enum": ["CAMERA_GRAMMAR_V1", "LEGACY_FORCED_MOTION"],
       "description": "CAMERA_GRAMMAR_V1 (configs/CAMERA_GRAMMAR_V1.json): motivated camera motion and film grammar as writer guidance (no blocking check). storyclaw finalize stamps it when absent."
@@ -128,6 +142,21 @@
             "at_seconds": {"type": "number", "minimum": 0, "maximum": 5},
             "line_or_shot_id": {"type": "string", "minLength": 1}
           }
+        },
+        "beat_sheet": {
+          "type": "array",
+          "description": "可选（SHORT_DRAMA_PACING_V1）：爽点/转折表。每行 {shot_id, type, setup_shot_id?, intensity?}；type ∈ HUMILIATION_PAYBACK | IDENTITY_REVEAL | POWER_SHIFT | SECRET_REVEALED | THREAT_ESCALATION | CONFRONTATION | ROMANTIC_SPIKE | REVERSAL | DISCOVERY",
+          "items": {"type": "object", "required": ["type"]}
+        },
+        "scene_plan": {
+          "type": "array",
+          "description": "可选（SHORT_DRAMA_PACING_V1）：每场 {scene_id, objective, conflict, physical_action}",
+          "items": {"type": "object", "required": ["scene_id"]}
+        },
+        "cliffhanger": {
+          "type": "object",
+          "description": "可选（SHORT_DRAMA_PACING_V1）：结尾悬念 {shot_id（最后一镜或最后 8 秒内）, open_question}",
+          "properties": {"shot_id": {"type": "string"}, "open_question": {"type": "string"}}
         },
         "dialogue_density": {
           "type": "object",
