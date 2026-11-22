@@ -2,6 +2,18 @@
   "schema": "qingshan.generation_contract.v3",
   "episode": "E<NN>",
   "version": "v<V>",
+  "pacing_policy": "SHORT_DRAMA_PACING_V1",
+  "adaptation_plan": {
+    "source_chapters": [0],
+    "plot_events": [{"event": "<一句话剧情事件>", "chapter": 0, "shot_id": "E<NN>-S01-01"}],
+    "cut": ["<删/并/压了什么>"]
+  },
+  "pacing": {
+    "hook": {"type": "shock", "at_seconds": 0.5, "line_or_shot_id": "E<NN>-S01-01"},
+    "beat_sheet": [{"shot_id": "E<NN>-S01-01", "type": "CONFRONTATION", "setup_shot_id": "E<NN>-S01-01"}],
+    "scene_plan": [{"scene_id": "E<NN>-S01", "objective": "<本场目标>", "conflict": "<本场冲突>", "physical_action": "<看得见的身体动作：抓/推/递/摔/冲出去>"}],
+    "cliffhanger": {"shot_id": "E<NN>-S0N-NN", "open_question": "<观众带走的问题>"}
+  },
   "visual_culture_contract": {
     "schema": "qingshan.visual_culture_contract.v1",
     "status": "LOCKED",

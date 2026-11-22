@@ -26,12 +26,22 @@ for _p in (ROOT / "lines" / "nalu" / "runtime" / "tools", ROOT / "skills" / "nal
 import script_pacing_check as sp  # noqa: E402
 
 
-def shot(sid: str, scene: str, seconds: float, dialogue: str = "", dims=("POSTURE",), beat_role: str = "") -> dict:
-    spec = {"shot_id": sid, "dialogue": dialogue}
+CAST = [{"character": "林岚", "character_id": "CHAR-LIN"}, {"character": "周默", "character_id": "CHAR-ZHOU"}]
+
+
+def shot(sid: str, scene: str, seconds: float, dialogue: str = "", dims=("POSTURE",), beat_role: str = "",
+         blocking: str = "", cast=None, location: str = "", family: str = "LOCKED", scale: str = "MEDIUM",
+         props=None) -> dict:
+    spec = {"shot_id": sid, "dialogue": dialogue, "cast": list(CAST if cast is None else cast),
+            "camera_plan": {"motion_family": family, "shot_scale": scale}}
+    if props:
+        spec["props"] = list(props)
+    if location:
+        spec["space"] = {"location": location}
     if beat_role:
         spec["beat_role"] = beat_role
     return {"shot_id": sid, "scene_id": scene, "target_seconds": seconds, "state_delta_dimensions": list(dims),
-            "prompt_spec": spec}
+            "blocking": blocking, "prompt_spec": spec}
 
 
 def slow_contract(lang: str = "zh") -> dict:
@@ -48,7 +58,8 @@ def slow_contract(lang: str = "zh") -> dict:
     for i in range(24):
         scene = "E02-S01" if i < 12 else "E02-S02"
         shots.append(shot(f"E02-S0{1 if i < 12 else 2}-{i + 1:02d}", scene, 4.8, lines[i % 4],
-                          dims=("POSTURE",) if i % 3 else ("POSITION",)))
+                          dims=("POSTURE",) if i % 3 else ("POSITION",), blocking="林岚站在桌边，抬起右手。",
+                          location="LOC-HOUSE"))
         t += 4.8
     return {"schema": "qingshan.generation_contract.v3", "episode": "E02", "dialogue_language": lang,
             "pacing_policy": sp.POLICY, "pacing": {"hook": {"type": "dialogue", "at_seconds": 4.5}},
@@ -62,25 +73,32 @@ def punchy_contract(lang: str = "zh") -> dict:
     en = ["Lin: Where is the money?", "Zhou: Spent.", "Lin: On whom?", "Zhou: Your sister.",
           "Lin: Say that again.", "Zhou: Did you lock the door—"]
     lines = zh if lang == "zh" else en
+    grab = "林岚一把抓住周默的手腕。" if lang == "zh" else "Lin grabs Zhou's wrist."
+    snatch = "周默夺过账本塞进怀里。" if lang == "zh" else "Zhou snatches the ledger and runs to the door."
     shots, beat_sheet, scene_plan = [], [], []
     n = 0
     for s in range(5):
         scene = f"E03-S0{s + 1}"
+        location = ("LOC-OFFICE", "LOC-STREET", "LOC-CAR")[s % 3]
         scene_plan.append({"scene_id": scene, "objective": "get the ledger", "conflict": "he hides it",
                            "physical_action": "she grabs it"})
         for k in range(6):
             n += 1
             sid = f"{scene}-{k + 1:02d}"
             if k in (1, 4):
-                shots.append(shot(sid, scene, 3.5, lines[n % len(lines)], dims=("CONTACT",)))
+                shots.append(shot(sid, scene, 3.5, lines[n % len(lines)], dims=("CONTACT",), blocking=grab,
+                                  location=location))
             elif k == 2:
-                shots.append(shot(sid, scene, 4.0, "", dims=("POSSESSION",), beat_role="PAYOFF"))
+                shots.append(shot(sid, scene, 4.0, "", dims=("POSSESSION",), beat_role="PAYOFF", blocking=snatch,
+                                  location=location, family="HANDHELD"))
                 beat_sheet.append({"shot_id": sid, "type": sp.TURN_TYPES[s % len(sp.TURN_TYPES)],
                                    "setup_shot_id": f"{scene}-01"})
             elif k == 3:
-                shots.append(shot(sid, scene, 3.0, "", dims=("POSTURE",), beat_role="REACTION"))
+                shots.append(shot(sid, scene, 3.0, "", dims=("POSTURE",), beat_role="REACTION", cast=[],
+                                  props=["ledger"], scale="INSERT", location=location))
             else:
-                shots.append(shot(sid, scene, 4.0, lines[n % len(lines)], dims=("POSTURE",)))
+                shots.append(shot(sid, scene, 4.0, lines[n % len(lines)], dims=("POSTURE",),
+                                  blocking="林岚盯着他。" if lang == "zh" else "Lin stares at him.", location=location))
     shots[-1]["prompt_spec"]["dialogue"] = lines[-1]
     return {"schema": "qingshan.generation_contract.v3", "episode": "E03", "dialogue_language": lang,
             "pacing_policy": sp.POLICY,
@@ -130,7 +148,7 @@ class MetricsTest(unittest.TestCase):
         c = punchy_contract("zh")
         for s in c["shots"]:
             if s["scene_id"] == "E03-S02":
-                s["state_delta_dimensions"] = ["POSTURE"]
+                s["blocking"] = "林岚抬头看他。"  # gestures only: the scene shows no physical action
         c["pacing"]["beat_sheet"].append({"shot_id": c["shots"][0]["shot_id"], "type": "VIBES"})
         report = sp.evaluate(c)
         self.assertIn("SCENE_TALK_ONLY:E03-S02", report["failures"])
@@ -154,11 +172,109 @@ class MetricsTest(unittest.TestCase):
 
     def test_inactive_contract_is_advisory(self) -> None:
         c = slow_contract()
-        del c["pacing_policy"]
+        c["pacing_policy"] = "OFF"                                         # explicit opt-out only
         report = sp.evaluate(c)
         self.assertFalse(report["active"])
-        self.assertEqual(report["authority"], "ADVISORY_NOT_A_GATE")
+        self.assertEqual((report["authority"], report["policy_basis"]), ("ADVISORY_NOT_A_GATE", "OPT_OUT"))
         self.assertFalse(sp.evaluate(slow_contract(), environ={sp.ENV_SWITCH: "off"})["active"])
+
+    def test_policy_is_the_default_without_a_key(self) -> None:
+        """E07 (device 1485, 2026-11-22): the contract had no pacing_policy key -> advisory -> no revision."""
+        c = slow_contract()
+        del c["pacing_policy"]
+        report = sp.evaluate(c)
+        self.assertTrue(report["active"])
+        self.assertEqual((report["policy_basis"], report["authority"]), ("DEFAULT", "WRITER_REVISION_LOOP"))
+        for off in ("off", "NONE", "legacy", False):
+            self.assertFalse(sp.evaluate({**c, "pacing_policy": off})["active"], off)
+        # an episode already past a paid stage is grandfathered under the default, never under a declared policy
+        grand = sp.evaluate(c, in_flight=True)
+        self.assertFalse(grand["active"])
+        self.assertEqual(grand["grandfathered"], "IN_FLIGHT_PAST_PAID_STAGE")
+        self.assertTrue(sp.evaluate(slow_contract(), in_flight=True)["active"])
+        self.assertFalse(sp.evaluate({"shots": []})["active"])              # nothing to revise
+
+    def test_top_level_pacing_scene_plan_is_read(self) -> None:
+        """E07: Codex wrote pacing_scene_plan at the top level; the check reported SCENE_PLAN_MISSING:4."""
+        c = punchy_contract("zh")
+        c["pacing_scene_plan"] = c["pacing"].pop("scene_plan")
+        report = sp.evaluate(c)
+        self.assertEqual(report["metrics"]["scene_plan_missing"], [], report["failures"])
+        self.assertEqual(report["status"], "PASS", report["failures"])
+        c2 = punchy_contract("zh")
+        c2["pacing_cliffhanger"] = c2["pacing"].pop("cliffhanger")
+        c2["pacing"]["scene_plan"] = c2["pacing"]["scene_plan"][:2]
+        c2["pacing_scene_plan"] = punchy_contract("zh")["pacing"]["scene_plan"]   # lists merged, no duplicates
+        self.assertEqual(len(sp.pacing_block(c2)["scene_plan"]), 5)
+        self.assertTrue(sp.measure(c2)["ending"]["unresolved"])
+
+    def test_self_declared_action_labels_do_not_count(self) -> None:
+        """E07: every speaking shot labelled MOMENTUM/CONTACT -> dialogue_only_ratio 0.00 while the cut was
+        'almost everything is characters talking, the scene barely changes'.  The storyboard decides."""
+        shots = []
+        for i in range(28):
+            scene = f"E07-S0{1 + i // 7}"
+            shots.append(shot(f"{scene}-{i:02d}", scene, 5.0, f"林岚：第{i}句。", dims=("MOMENTUM", "CONTACT"),
+                              blocking="林岚身体前倾，右臂抬至腰侧。", location="LOC-HALL"))
+        c = {"shots": shots, "dialogue_language": "zh"}
+        m = sp.measure(c)
+        self.assertEqual(m["dialogue_only_ratio_declared"], 0.0)
+        self.assertEqual(m["dialogue_only_ratio"], 1.0)
+        self.assertEqual(m["visual_action_ratio"], 0.0)
+        self.assertEqual(m["shot_kinds"]["TALKING_HEAD"]["shots"], 28)
+        self.assertEqual(m["location_count"], 1)
+        report = sp.evaluate(c)
+        codes = {f.split(":", 1)[0] for f in report["failures"]}
+        for code in ("DIALOGUE_ONLY_TOO_HIGH", "VISUAL_ACTION_TOO_LOW", "VISUAL_BEATS_TOO_FEW", "SCENE_STATIC",
+                     "SCENE_TALK_ONLY"):
+            self.assertIn(code, codes, report["failures"])
+            self.assertIn(code, report["fixes"])
+        self.assertTrue(any(w.startswith("DECLARED_ACTION_NOT_IN_STORYBOARD") for w in report["warnings"]))
+
+    def test_shot_kinds_from_the_storyboard(self) -> None:
+        kind = sp.shot_kind
+        self.assertEqual(kind(shot("a", "s", 3, blocking="林岚一把推开周默。"), True), "TALK_WITH_ACTION")
+        self.assertEqual(kind(shot("a", "s", 3, blocking="Lin hands over the letter."), True), "TALK_WITH_ACTION")
+        self.assertEqual(kind(shot("a", "s", 3, blocking="林岚向前跨出一步，镜头推近。"), True), "TALKING_HEAD")
+        self.assertEqual(kind(shot("a", "s", 3, blocking="林岚转身走向门口。"), False), "ACTION")
+        self.assertEqual(kind(shot("a", "s", 3, cast=[], props=["信"]), False), "INSERT")
+        self.assertEqual(kind(shot("a", "s", 3, cast=[]), False), "ESTABLISHING")
+        self.assertEqual(kind(shot("a", "s", 3, scale="WIDE"), False), "ESTABLISHING")
+        self.assertEqual(kind(shot("a", "s", 3, family="TRACK"), False), "MOVEMENT")
+        self.assertEqual(kind(shot("a", "s", 3, beat_role="TRANSITION"), False), "TRANSITION")
+        self.assertEqual(kind(shot("a", "s", 3, blocking="林岚望着他。"), False), "STATIC_REACTION")
+
+    def test_scene_changes(self) -> None:
+        c = punchy_contract("zh")
+        for s in c["shots"]:
+            s["prompt_spec"]["space"] = {"location": "LOC-OFFICE"}
+        self.assertTrue(any(f.startswith("SCENE_STATIC") for f in sp.evaluate(c)["failures"]))
+        for i, s in enumerate(c["shots"]):                          # one place, but night falls: a time change
+            s["prompt_spec"]["scene_state"] = {"time": "day" if i < 15 else "night"}
+        self.assertFalse(any(f.startswith("SCENE_STATIC") for f in sp.evaluate(c)["failures"]))
+        two = {"shots": [shot(f"x{i}", "S1" if i < 20 else "S2", 6.0, "", blocking="林岚奔跑。",
+                              location=f"L{i // 20}") for i in range(23)]}
+        self.assertTrue(any(f.startswith("SCENE_STATIC:scenes=2") for f in sp.evaluate(two)["failures"]))
+
+    def test_source_action_beats_are_suggested(self) -> None:
+        source = ("林岚走进院子。「你来做什么？」周默问。她一把夺过他手里的账本，转身冲出门去。\n"
+                  "夜里下起了雨。周默摔碎了茶杯。")
+        beats = sp.source_action_beats([source], "zh")
+        self.assertEqual(beats, ["她一把夺过他手里的账本，转身冲出门去。", "周默摔碎了茶杯。"])
+        shots = [shot(f"x{i}", "S1", 5.0, "林岚：说。", blocking="林岚站着。") for i in range(20)]
+        report = sp.evaluate({"shots": shots}, source_texts=[source])
+        self.assertEqual(report["source_action_beats"], beats)
+        self.assertIn("账本", report["fixes"]["SOURCE_ACTION_BEATS"])
+        self.assertEqual(sp.evaluate(punchy_contract(), source_texts=[source])["source_action_beats"], [])
+        rt = Path(tempfile.mkdtemp())
+        work = rt / "sources" / "书" / "as_delivered"
+        work.mkdir(parents=True)
+        (rt / "sources" / "书" / "SOURCE_INDEX.json").write_text(json.dumps({"canonical_reading_script":
+                                                                          "as_delivered"}), encoding="utf-8")
+        (work / "ch0029.md").write_text(source, encoding="utf-8")
+        texts = sp.source_texts_for({"adaptation_plan": {"source_chapters": [29, 30]}, "shots": shots}, rt)
+        self.assertEqual(texts, [source])
+        self.assertEqual(sp.source_texts_for({"shots": shots}, rt), [])
 
 
 class RevisionLoopTest(unittest.TestCase):
@@ -209,7 +325,7 @@ class RevisionLoopTest(unittest.TestCase):
 
     def test_advisory_never_blocks_or_records(self) -> None:
         c = slow_contract()
-        del c["pacing_policy"]
+        c["pacing_policy"] = "OFF"
         d = self.step(c)
         self.assertEqual((d["decision"], d["blocks"]), ("ADVISORY", False))
         self.assertFalse(self.rounds.exists())
@@ -276,12 +392,35 @@ class S1IntegrationTest(unittest.TestCase):
         self.assertEqual(row["metrics"]["turn_count"], 5)
         self.assertEqual(row["source_coverage"]["next_chapter"], 6)
 
-    def test_in_flight_contract_is_untouched(self) -> None:
+    def test_opted_out_contract_is_untouched(self) -> None:
         c = slow_contract()
-        del c["pacing_policy"]
+        c["pacing_policy"] = "OFF"
         row, blockers = self.run_s1(c)
         self.assertEqual((row["decision"], blockers), ("ADVISORY", []))
         self.assertEqual(row["status"], "FAIL")                             # metrics still recorded
+
+    def test_default_policy_revises_a_new_episode(self) -> None:
+        """E07: no pacing_policy key -> SCRIPT_PACING_REVISE now fires (round 1 of 2)."""
+        c = slow_contract()
+        del c["pacing_policy"]
+        row, blockers = self.run_s1(c)
+        self.assertEqual((row["decision"], row["policy_basis"]), ("REVISE", "DEFAULT"))
+        self.assertEqual(blockers[0], "SCRIPT_PACING_REVISE:round=1/2")
+
+    def test_default_policy_grandfathers_an_episode_past_a_paid_stage(self) -> None:
+        c = slow_contract()
+        del c["pacing_policy"]
+        state = self.tmp / "state.json"
+        state.write_text(json.dumps({"stages": {"S1": {"status": "PASS"}, "S5": {"status": "PASS"}}}), encoding="utf-8")
+        path = self.tmp / "contract.json"
+        path.write_text(json.dumps(c, ensure_ascii=False), encoding="utf-8")
+        p = SimpleNamespace(contract=path, logs=self.tmp / "logs", state=state)
+        with mock.patch.object(self.npl, "RUNTIME", self.tmp / "runtime"):
+            row, blockers = self.npl.s1_script_pacing(self.ctx, p, others_ok=True)
+        self.assertEqual((row["decision"], blockers, row["grandfathered"]), ("ADVISORY", [], "IN_FLIGHT_PAST_PAID_STAGE"))
+        state.write_text(json.dumps({"stages": {"S4": {"status": "DRY_PLANNED"}, "S5": {"status": "NOT_RUN"}}}),
+                         encoding="utf-8")
+        self.assertFalse(self.npl.s1_pacing_in_flight(p))
 
     def test_broken_contract_never_raises(self) -> None:
         path = self.tmp / "missing.json"
@@ -322,8 +461,15 @@ class TextsTest(unittest.TestCase):
         self.assertIn("按剧情事件取材", guide)
         schema = json.loads((ROOT / "agent_factory/claude_writer_v2/schemas/generation_contract.schema.json")
                             .read_text(encoding="utf-8"))
-        self.assertEqual(schema["properties"]["pacing_policy"]["enum"], [sp.POLICY])
+        self.assertEqual(schema["properties"]["pacing_policy"]["enum"][0], sp.POLICY)
+        self.assertIn("OFF", schema["properties"]["pacing_policy"]["enum"])
         self.assertIn("beat_sheet", schema["properties"]["pacing"]["properties"])
+        self.assertIn("pacing_scene_plan", schema["properties"])           # the E07 spelling is an accepted alias
+        template = json.loads((ROOT / "agent_factory/claude_writer_v2/templates/GENERATION_CONTRACT.template.json")
+                              .read_text(encoding="utf-8"))
+        self.assertEqual(template["pacing_policy"], sp.POLICY)
+        self.assertIn("scene_plan", template["pacing"])                     # normalised spelling: inside pacing
+        self.assertEqual(sp.policy_basis(template), "DECLARED")
 
     def test_next_episode_brief_formats(self) -> None:
         import codex_production as cp

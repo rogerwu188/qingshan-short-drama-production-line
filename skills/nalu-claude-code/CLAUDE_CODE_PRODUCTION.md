@@ -79,7 +79,8 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
    （英文剧 `--subtitle "EPISODE 01 · <episode title>" --language en`；日文剧 `--subtitle "第1話 · <話タイトル>" --language ja`
    （片尾写「つづく」）；韩文剧 `--subtitle "제1화 · <제목>" --language ko`（片尾写「다음 화에 계속」））。
 5. **改编压缩与爽剧节拍（SHORT_DRAMA_PACING_V1，线主 2026-11-22「剧情推进太慢……一集基本就是人物在念台词，一点都不刺激」）**。
-   派单里有 `pacing_policy: SHORT_DRAMA_PACING_V1`（新派单都有；进行中的旧集没有就不适用）时，合同顶层写 `"pacing_policy": "SHORT_DRAMA_PACING_V1"`，并按下面写：
+   SHORT_DRAMA_PACING_V1 是**所有合同的默认**（2026-11-22 JA-01 E07：合同没写这个键，检查只记录不改稿）；合同顶层照样写 `"pacing_policy": "SHORT_DRAMA_PACING_V1"`
+   （只有明确写 `"OFF"` 才关闭；已经跑过付费阶段、靠默认的在制集不受影响），并按下面写：
    - **按剧情事件取材，不按章节**：一集要覆盖 ≥ max(4, ⌊时长/25⌋) 个剧情事件（约每 25–30 秒一个大转折，115 秒约 4–6 个），
      从派单起始章往后需要几章就取几章（通常 2–5 章）；一章就能凑够的少见，凑不够就继续往后读。
      **授权你改写原著**：删掉过场、寒暄、重复说明和次要人物，合并场次，压缩时间，为了钩子调整顺序，补写衔接动作；
@@ -91,12 +92,14 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
      （爽点：受辱→回击、秘密曝光、权力翻转、打脸/当面对质、感情张力骤升、威胁升级），写进 `pacing.beat_sheet`：
      `[{"shot_id": "爽点镜", "type": "HUMILIATION_PAYBACK|IDENTITY_REVEAL|POWER_SHIFT|SECRET_REVEALED|THREAT_ESCALATION|CONFRONTATION|ROMANTIC_SPIKE|REVERSAL|DISCOVERY", "setup_shot_id": "铺垫镜"}]`，
      爽点镜同时写 `prompt_spec.beat_role: PAYOFF`；结尾停在悬念上：`pacing.cliffhanger` = `{"shot_id": "最后一镜（或最后 8 秒内）", "open_question": "观众带走的问题，一句话"}`，不解决、不抒情。
-   - **每场有目标、冲突和一个看得见的身体动作**，写进 `pacing.scene_plan`：`[{"scene_id", "objective", "conflict", "physical_action"}]`；
-     没有只是两个人站着说话的场——每场至少一镜有身体动作改变状态（`state_delta_dimensions` 含 MOMENTUM/CONTACT/POSSESSION/POSITION/INTEGRITY：抓、推、夺、递、摔、冲出去）。
-     说明性台词改成动作与反应（证据拍在桌上、对方脸色变），一句台词最多 2 个短句；不要同一人连说超过约 12 秒（中间插对方打断、动作或反应镜）；
-     纯对白镜（说话镜里没有 MOMENTUM/CONTACT/POSSESSION/INTEGRITY 动作）合计不超过全集时长的 60%。
+   - **每场有目标、冲突和一个看得见的身体动作**，写进 `pacing` 里的 `pacing.scene_plan`（顶层 `pacing_scene_plan` 也认）：`[{"scene_id", "objective", "conflict", "physical_action"}]`；
+     没有只是两个人站着说话的场——每场至少一镜的 blocking 写出动作（抓、推、夺、递、摔、冲出去、离开）。
+     **检查读分镜本身**（台词、blocking/primary_action、机位运动、景别、在场角色、道具），不信 `state_delta_dimensions` 标签：说话时只是抬手、前倾、跨一步，仍算说话头像。
+     说话头像镜合计 ≤ 全集 60%；动作/道具特写/环境建立/转场镜头或边说边做（抓、推、递、摔、跑）的镜头 ≥ 全集 30%；约每 30 秒至少一个无台词的视觉节拍；
+     每 2 分钟 ≥ 3 场、≥ 2 个地点（或明确的时间跳转）。说明性台词改成动作与反应（证据拍在桌上、对方脸色变；S1 报告会从本集原著章节里摘出可拍的动作句），
+     一句台词最多 2 个短句；不要同一人连说超过约 12 秒（中间插对方打断、动作或反应镜）。
    - **S1 免费自查与改稿**：S1 用 `lines/nalu/runtime/tools/script_pacing_check.py` 测这些数（每分钟转折数、第一冲突秒数、转折最大间隔、
-     纯对白占比、最长台词、无动作场、结尾悬念、改编事件数），报告在 `runtime/pipeline_state/<EP>.json` 的 `stages.S1.details.script_pacing`
+     说话头像占比、视觉动作占比、无台词视觉节拍、场次/地点变化、最长台词、无动作场、结尾悬念、改编事件数），报告在 `runtime/pipeline_state/<EP>.json` 的 `stages.S1.details.script_pacing`
      （`failures` + `fixes`）。不合格时 S1 报 `SCRIPT_PACING_REVISE:round=n/2`：**这不是阻塞，是给你的改稿要求**——改叙事正典和四层（不改门禁、不问线主、不报 BLOCKED），
      重跑 S1→S3；最多两轮，第二轮改完仍不合格引擎自动放行并记录差距。本地可先自测：`$P $T/script_pacing_check.py check --contract <合同>`（免费）。
      测得的节奏数据会交给终审的导演/剪辑专审作参考。

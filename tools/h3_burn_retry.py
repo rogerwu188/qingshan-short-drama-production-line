@@ -189,6 +189,25 @@ def residual_text_band(hits: list[dict[str, Any]] | None, band: tuple[float, flo
             "hits": len(ys)}
 
 
+def residual_band_texts(hits: list[dict[str, Any]] | None, band: tuple[float, float] = SUBTITLE_BAND,
+                        limit: int = 6) -> list[str]:
+    """The OCR texts of a kept take's burned hits inside our subtitle band (unique, in order) -- S7 compares them
+    with the unit's cues: a burned line that IS the cue's line suppresses our copy instead of stacking under it
+    (JA-01 E07 VU-004, 2026-11-22).  Pure."""
+    out: list[str] = []
+    for h in hits or []:
+        try:
+            y = float(h.get("y_centre"))
+        except (TypeError, ValueError):
+            continue
+        text = str(h.get("text") or "").strip()
+        if text and band[0] <= y <= band[1] and text not in out:
+            out.append(text)
+            if len(out) >= limit:
+                break
+    return out
+
+
 # ------------------------------------------------------------------------------------------- image perturbation
 def perturb_start_frame(data: bytes, index: int) -> tuple[bytes, dict[str, Any]]:
     """Retry ``index`` of the @Image1 bytes: one pixel +-1 level at a retry-indexed position, JPEG quality 92-index.

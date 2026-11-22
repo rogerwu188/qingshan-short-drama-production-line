@@ -130,9 +130,10 @@ cutting, merging and compressing the rest is required, not optional. Principles 
 
 ## Adaptation compression and short-drama pacing (SHORT_DRAMA_PACING_V1, line owner 2026-11-22)
 
-"The plot moves too slowly; an episode is basically characters reciting lines." When the dispatch carries
-`pacing_policy: SHORT_DRAMA_PACING_V1` (every new dispatch; episodes already in flight without it are unchanged),
-write `"pacing_policy": "SHORT_DRAMA_PACING_V1"` at the contract top level and:
+"The plot moves too slowly; an episode is basically characters reciting lines." SHORT_DRAMA_PACING_V1 is the
+DEFAULT for every contract (2026-11-22, JA-01 E07: a contract without the key stayed advisory and was never revised);
+write `"pacing_policy": "SHORT_DRAMA_PACING_V1"` at the contract top level anyway (only an explicit `"OFF"` opts out;
+an episode already past a paid stage that relies on the default is grandfathered) and:
 
 - **Budget the episode by plot events, not chapters.** Cover at least max(4, floor(D / 25)) plot events (one major
   turn every ~25–30 s; ~4–6 for a 115 s episode), pulling from as many source chapters as that needs (typically
@@ -148,15 +149,20 @@ write `"pacing_policy": "SHORT_DRAMA_PACING_V1"` at the contract top level and:
   HUMILIATION_PAYBACK|IDENTITY_REVEAL|POWER_SHIFT|SECRET_REVEALED|THREAT_ESCALATION|CONFRONTATION|ROMANTIC_SPIKE|
   REVERSAL|DISCOVERY, "setup_shot_id"}]`, payoff shots also `prompt_spec.beat_role: PAYOFF`). End on the
   cliffhanger itself: `pacing.cliffhanger` = `{"shot_id": <last shot or within the last 8 s>, "open_question"}`.
-- **Every scene has a visible objective, a conflict and a physical action** (`pacing.scene_plan`:
-  `[{"scene_id", "objective", "conflict", "physical_action"}]`); no scene is only two people talking — at least one
-  shot per scene changes a physical state (`state_delta_dimensions` MOMENTUM / CONTACT / POSSESSION / POSITION /
-  INTEGRITY). Turn exposition into visible action and reaction. At most 2 short sentences per line; no
-  back-to-back monologue over ~12 s; speaking shots without a MOMENTUM / CONTACT / POSSESSION / INTEGRITY action
-  stay under ~60 % of the episode.
+- **Every scene has a visible objective, a conflict and a physical action** (`pacing.scene_plan` inside `pacing`:
+  `[{"scene_id", "objective", "conflict", "physical_action"}]`; a top-level `pacing_scene_plan` is read too); no
+  scene is only two people talking — at least one shot per scene shows the action in its blocking (grab, shove,
+  strike, hand over, break, run, leave). The check reads the STORYBOARD (dialogue, blocking / primary action, camera
+  family, shot scale, cast, props), never the `state_delta_dimensions` labels: a line spoken with only a gesture, a
+  lean or a step is a talking head. Talking heads stay under ~60 % of the episode; >= 30 % of the screen time is
+  action / insert / establishing / transition shots or lines spoken during a physical action; at least one silent
+  visual beat every ~30 s; >= 3 scenes per 2 minutes over >= 2 locations (or a clear time jump). Turn exposition
+  into visible action and reaction (the S1 report suggests action sentences from the adapted chapters). At most 2
+  short sentences per line; no back-to-back monologue over ~12 s.
 - **Free S1 self-check and revision.** S1 measures these numbers (`lines/nalu/runtime/tools/script_pacing_check.py`:
-  turns per minute, seconds to first conflict, longest gap between turns, dialogue-only share, longest line, scenes
-  without action, open ending, adapted plot events). A failing script gets `SCRIPT_PACING_REVISE:round=n/2`: revise
+  turns per minute, seconds to first conflict, longest gap between turns, talking-head share, visual-action share,
+  silent visual beats, scene / location changes, longest line, scenes without action, open ending, adapted plot
+  events). A failing script gets `SCRIPT_PACING_REVISE:round=n/2`: revise
   your own layers and rerun S1 — no owner, no paid call. After two revisions the engine admits the script and records
   the gaps; the numbers also go to the final review's director pass as context.
 

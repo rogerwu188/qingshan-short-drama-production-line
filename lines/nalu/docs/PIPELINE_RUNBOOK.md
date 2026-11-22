@@ -1158,6 +1158,13 @@ MiniMax-H3 sometimes burns the spoken line into the clip as a caption (centred, 
 * **Unresolved**: still burned after the last retry (or no retry allowed): the take with the fewest burned
   frames stays at `video/<unit>.mp4`, the unit is marked `burned_text_unresolved` in `<EP>_S6_WAVE_STATE.json`
   `s6_burn_retry`, and the S8 checkpoint / QA defect checklist list it under `QA-BURNED-TEXT`.  Never blocks.
+* **Duplicate line (JA-01 E07 VU-004, 2026-11-22)**: an unresolved take whose burned text sits in our subtitle band
+  records the OCR text with the band (`residual_text_band.texts`).  S7 (`build_burnin_subtitles --avoid-bands`)
+  SUPPRESSES our cue when that text is the cue's line (fuzzy >= 0.6, `subtitle_text_match.py`; report
+  `suppressed_duplicate_cues`) -- the line is already on screen; otherwise the cue moves clear of the band and the
+  final fix round takes the unit as BURNED_TEXT P1 (a trigger on its own; rows are read from the wave state when the
+  must-check list lacks them).  The post-S7 evidence pack OCRs the final cut's caption band: two stacked rows saying
+  the same line (`stacked_subtitle_runs`) are a QA-BURNED-TEXT finding and a fix-round trigger.
 * **Log lines**: `S6_BURN_DETECTED unit=… frames=b/n retry=k/2 -> RETRY|KEEP_BEST (reason)`,
   `S6_BURN_RETRY_SUBMITTED unit=… retry=n/2`, `S6_BURN_RESOLVED unit=…`, `S6_BURN_UNRESOLVED unit=… reason=…`.
 * **Blur cover off by default**: `H3_BURNED_TEXT_COVER_V1` no longer turns on by episode number (the E12-E14
