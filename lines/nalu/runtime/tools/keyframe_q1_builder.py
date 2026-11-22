@@ -1080,6 +1080,46 @@ def binding_summary(episode: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def resolve_item_units(items: list[dict[str, Any]], exp: Any) -> tuple[dict[str, str], list[dict[str, Any]]]:
+    """Unit each review item's still is admitted for, by the CURRENT anchor plan.
+
+    A review item carries the ``unit_id`` its shot opened when the request was written.  When the
+    grouping is renumbered afterwards, that id names another unit: the admission of shot S04-03 was
+    written into ``q1/E24-VU-014/`` although VU-014 now opens on S04-01, and the video admission gate
+    failed Q1_ASSET_SHA_MISMATCH / SEMANTIC_ANCHOR_EVIDENCE_INVALID on every resume (fleet device 1101
+    E24 VU-014 / VU-018, 2026-11-22).  The plan on disk decides: a shot that opens a unit now is
+    admitted for that unit; an item whose claimed unit now opens on another shot is superseded and is
+    not materialised.  With no plan (or a shot the plan does not name) the item keeps its own unit id.
+
+    Returns ({item_id: unit_id}, superseded rows).
+    """
+    first_shot_of: dict[str, str] = {}
+    first_id = getattr(exp, "_unit_first_shot_id", None)
+    for uid, unit in sorted((getattr(exp, "units", None) or {}).items()):
+        try:
+            shot = str(first_id(unit) or "") if callable(first_id) else ""
+        except Exception:  # noqa: BLE001
+            shot = ""
+        if shot:
+            first_shot_of[str(uid)] = shot
+    unit_of_shot: dict[str, str] = {}
+    for uid, shot in first_shot_of.items():
+        unit_of_shot.setdefault(shot, uid)
+    resolved: dict[str, str] = {}
+    superseded: list[dict[str, Any]] = []
+    for item in items:
+        item_id = str(item.get("item_id") or "")
+        claimed = str((item.get("request_item") or {}).get("unit_id") or item_id)
+        if item_id in unit_of_shot:
+            resolved[item_id] = unit_of_shot[item_id]
+        elif first_shot_of.get(claimed) not in (None, item_id):
+            superseded.append({"item_id": item_id, "review_unit_id": claimed,
+                               "unit_now_opens_on": first_shot_of[claimed]})
+        else:
+            resolved[item_id] = claimed
+    return resolved, superseded
+
+
 def materialise(episode: str, submitted: dict[str, Any],
                 submitted_path: Path) -> dict[str, Any]:
     from visual_review_policy import advisory_questions, resolve_profile
@@ -1120,11 +1160,14 @@ def materialise(episode: str, submitted: dict[str, Any],
     # One manifest read for the whole batch (item 5): every item below binds
     # against this index, so the pass adds no per-item file read and no barrier.
     manifest_index = manifest_task_index(episode)
+    unit_by_item, superseded_items = resolve_item_units(submitted.get("items") or [], exp)
     for item in submitted.get("items") or []:
         item_id = item["item_id"]
         request_item = item.get("request_item") or {}
         expectations = request_item.get("expectations") or {}
-        unit_id = request_item.get("unit_id") or item_id
+        if str(item_id) not in unit_by_item:
+            continue  # its unit now opens on another shot: this still is no unit's start frame
+        unit_id = unit_by_item[str(item_id)]
         asset = keyframes.get(item_id)
         unit_dir = p.q1_dir / unit_id
         if asset is None or not asset.is_file():
@@ -1139,7 +1182,7 @@ def materialise(episode: str, submitted: dict[str, Any],
         # exist before a POST stay null with a reason, never invented.
         binding = provider_request_binding(episode, submitted, submitted_path=submitted_path,
                                            shot_id=request_item.get("shot_id") or item_id,
-                                           unit_id=request_item.get("unit_id") or item_id,
+                                           unit_id=unit_id,
                                            task_key=item_id, index=manifest_index)
         reference_media = request_item.get("reference_media") or {}
         if reference_media:
@@ -1385,6 +1428,8 @@ def materialise(episode: str, submitted: dict[str, Any],
         "video_submission_allowed_unit_ids": [row["unit_id"] for row in admitted],
         "rejected_unit_ids": [row["unit_id"] for row in rows if row not in admitted],
         "results": rows,
+        # review items whose unit id was renumbered since the request and no longer opens on that shot
+        "superseded_unit_binding_items": superseded_items,
         # The index states, once, how binding was judged for this episode:
         # UNENFORCED is reported as UNENFORCED, never folded into a PASS count.
         "provider_request_binding_summary": binding_summary(episode, rows),

@@ -7735,6 +7735,33 @@ def ensure_own_keyframe_admission(ctx: Ctx, unit_ids: list[str]) -> StageResult 
     return None
 
 
+def own_keyframes_q1_stale(ctx: Ctx) -> list[str]:
+    """Units that open on their OWN keyframe, have no clip yet, and whose Q1 admission is not about the
+    image now on disk: no result for the unit, or a result bound to other bytes.
+
+    Device 1101 E24 (2026-11-22): the units were renumbered after the S5 keyframe review, so
+    ``q1/E24-VU-014/admission_result.json`` held the admission of S04-03 while VU-014 opens on S04-01.
+    S5 short-circuited on the ALL_ADMITTED index, S6 only re-checked tail-sourced units, and preflight
+    failed SEMANTIC_ANCHOR_EVIDENCE_INVALID (Q1_ASSET_SHA_MISMATCH) on every resume.  A result Q1 wrote
+    for these exact bytes (admitted or not) is never touched here."""
+    plan = read_json(ctx.p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json", {}) or {}
+    derived = tail_sourced_units(ctx)
+    out = []
+    for unit in plan.get("units") or []:
+        uid = str(unit.get("unit_id") or "")
+        shots = unit.get("editorial_shot_ids") or []
+        if not uid or not shots or uid in derived or (ctx.p.video_media / f"{uid}.mp4").is_file():
+            continue
+        keyframe = ctx.p.keyframes / f"{shots[0]}-keyframe-v1.png"
+        # Q1 and the anchor plan read the highest keyframe version; only the plain v1 case is decided here
+        if not keyframe.is_file() or len(list(ctx.p.keyframes.glob(f"{shots[0]}-keyframe-v*.png"))) != 1:
+            continue
+        q1 = read_json(ctx.p.preprod_reports / "qa" / "q1" / uid / "admission_result.json", {}) or {}
+        if q1.get("asset_sha256") != sha256_file(keyframe):
+            out.append(uid)
+    return out
+
+
 def derived_units_pending_q1(ctx: Ctx) -> list[tuple[str, str]]:
     """(unit_id, first_shot_id) of derived units whose keyframe exists but has no ADMITTED Q1 result."""
     out = []
@@ -8150,11 +8177,15 @@ def stage_s6(ctx: Ctx) -> StageResult:
                     r5.details["own_keyframe_diagnosis"] = own_keyframe_diagnosis(ctx, still_missing)
                 return r5
             own_needed = own_keyframes_needed(ctx)
-        if own_needed and not ctx.dry:
+        # own keyframes whose Q1 admission names other bytes (units renumbered after the S5 review): same route
+        q1_stale = [] if ctx.dry else own_keyframes_q1_stale(ctx)
+        if q1_stale:
+            ctx.say("-- S6: Q1 admission is not about the own keyframe on disk, re-admitting: " + ", ".join(q1_stale))
+        if (own_needed or q1_stale) and not ctx.dry:
             # the image is on disk; what is left is its Q1 admission / start-frame receipt for these exact bytes
             # (a redo-switched unit).  S5's episode-wide Q1 reuses the newest review, which may not cover this
             # still, so the S6 loop asked S5 again and again and reported OWN_KEYFRAME_NOT_GENERATED.
-            r_own = ensure_own_keyframe_admission(ctx, own_needed)
+            r_own = ensure_own_keyframe_admission(ctx, sorted(set(own_needed) | set(q1_stale)))
             if r_own is not None:
                 r_own.details["own_keyframe_bound"] = own_bound
                 return r_own
