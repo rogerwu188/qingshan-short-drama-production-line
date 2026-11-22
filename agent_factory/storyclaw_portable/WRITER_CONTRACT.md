@@ -124,7 +124,41 @@ Readers imagine; viewers only see shots and hear lines. Test: with the novel clo
 each scene and why each shot is there. Dramatize narration, summaries, inner states and time spans (characters,
 dialogue, reactions) or carry them with one V.O./caption line; give every shot and insert a readable purpose; montage
 needs progression and a payoff; actions H3 renders badly (sword play, fights, spell effects) become results or
-reactions. Keep the source's plot, lines and jokes. Principles and examples: `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` §0.
+reactions. Keep the source's key plot facts, character truths and best lines; under SHORT_DRAMA_PACING_V1 (below)
+cutting, merging and compressing the rest is required, not optional. Principles and examples:
+`docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` §0.
+
+## Adaptation compression and short-drama pacing (SHORT_DRAMA_PACING_V1, line owner 2026-11-22)
+
+"The plot moves too slowly; an episode is basically characters reciting lines." When the dispatch carries
+`pacing_policy: SHORT_DRAMA_PACING_V1` (every new dispatch; episodes already in flight without it are unchanged),
+write `"pacing_policy": "SHORT_DRAMA_PACING_V1"` at the contract top level and:
+
+- **Budget the episode by plot events, not chapters.** Cover at least max(4, floor(D / 25)) plot events (one major
+  turn every ~25–30 s; ~4–6 for a 115 s episode), pulling from as many source chapters as that needs (typically
+  2–5). You are licensed to cut filler, greetings and repeated exposition, merge scenes, drop minor characters,
+  compress time, reorder for the hook and invent connective action; keep only the key plot facts and character
+  truths. Declare it in `adaptation_plan`: `{"source_chapters": [N, ...], "plot_events": [{"event", "chapter",
+  "shot_id"}], "cut": ["what was cut / merged / compressed"]}`; the manifest's `beat_disposition` still lists every
+  source beat (`dropped` / `merged` are valid dispositions). S1 records the chapters in
+  `<runtime>/series/SOURCE_COVERAGE.json`; the next episode starts at its `next_chapter`.
+- **Beat structure.** Cold-open conflict in the first 3 s (`pacing.hook.at_seconds` <= 3). An escalation, reversal
+  or reveal every ~20–30 s — humiliation then payback, a secret revealed, a power shift, a slap or confrontation, a
+  romantic-tension spike, a threat confirmed — listed in `pacing.beat_sheet` (`[{"shot_id", "type":
+  HUMILIATION_PAYBACK|IDENTITY_REVEAL|POWER_SHIFT|SECRET_REVEALED|THREAT_ESCALATION|CONFRONTATION|ROMANTIC_SPIKE|
+  REVERSAL|DISCOVERY, "setup_shot_id"}]`, payoff shots also `prompt_spec.beat_role: PAYOFF`). End on the
+  cliffhanger itself: `pacing.cliffhanger` = `{"shot_id": <last shot or within the last 8 s>, "open_question"}`.
+- **Every scene has a visible objective, a conflict and a physical action** (`pacing.scene_plan`:
+  `[{"scene_id", "objective", "conflict", "physical_action"}]`); no scene is only two people talking — at least one
+  shot per scene changes a physical state (`state_delta_dimensions` MOMENTUM / CONTACT / POSSESSION / POSITION /
+  INTEGRITY). Turn exposition into visible action and reaction. At most 2 short sentences per line; no
+  back-to-back monologue over ~12 s; speaking shots without a MOMENTUM / CONTACT / POSSESSION / INTEGRITY action
+  stay under ~60 % of the episode.
+- **Free S1 self-check and revision.** S1 measures these numbers (`lines/nalu/runtime/tools/script_pacing_check.py`:
+  turns per minute, seconds to first conflict, longest gap between turns, dialogue-only share, longest line, scenes
+  without action, open ending, adapted plot events). A failing script gets `SCRIPT_PACING_REVISE:round=n/2`: revise
+  your own layers and rerun S1 — no owner, no paid call. After two revisions the engine admits the script and records
+  the gaps; the numbers also go to the final review's director pass as context.
 
 ## Camera grammar (CAMERA_GRAMMAR_V1)
 

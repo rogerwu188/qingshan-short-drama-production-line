@@ -54,13 +54,13 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 位置，不跑 `storyclaw_writer_workflow.py begin/finalize`（那是 StoryClaw 私有项目的封缄路径，见 WRITER_CONTRACT.md `--writer codex`）。
 1. 先读：`agent_factory/claude_writer_v2/templates/NARRATIVE_CANONICAL.template.md`、`agent_factory/storyclaw_portable/WRITER_CONTRACT.md`
    （来源与 manifest 规则）、H3 改编指南 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md`（有就读）——**先读 §0：改编成观众看得懂的视频，不是逐句搬原著**（检验：关掉原著只看镜头和台词，每场能说出发生了什么；线主 2026-11-02）、派单里的 `SOURCE_SELECTION.md`
-   和本集章节（`sources/<作品>/<SOURCE_INDEX.json 的 canonical_reading_script>/chNNNN.md`）。只按原文改编，原文缺的不凭记忆补写。
+   和本集章节（`sources/<作品>/<SOURCE_INDEX.json 的 canonical_reading_script>/chNNNN.md`）。只按原文改编，原文缺的不凭记忆补写（指不编造原著没有的剧情事实；为了节奏的删减、合并、压缩、调序和衔接动作是改编，派单写了 `pacing_policy: SHORT_DRAMA_PACING_V1` 时必须做，见第 5 条）。
    开工提示末尾若有「本集导演经验」一节（集体知识库，2026-11-16）：写派单、正典、四层和每个镜头的 prompt_spec 前先读完，
    打开其中的 S1 知识简报（`<EP>_KNOWLEDGE_BRIEFING_SHORT.md`，见 §0.1）；导演规则照写（与线主派单冲突时以派单为准），「参考写法」只学结构与分寸，不抄内容、不沿用角色A/B。
    开工提示里的「NALU 成片标准 v1」一节（线主 2026-11-17）是写作自查清单：写四层和 prompt_spec 时逐条对照，爽点镜/反应镜填 `prompt_spec.beat_role`；
    要看某条全文用 `rg -n -A8 '^### <条目号>' lines/nalu/standards/NALU_CRAFT_STANDARD_v1.md`，不整份读。只评分、不拦片。
 2. `workflow/claude_writer_agent/scripts/<EP>_NARRATIVE_CANONICAL_v1.md`：只写事实、可表演的动作和**逐字台词**（「逐字」指正典是成片台词的唯一定稿，下游各层一字不差照正典用；**不是照抄原著**：台词要改成角色自己会说出口的话，与原著章节连续 8 个字以上相同会被 S1 台词门 `DIALOGUE_REGISTER_V1` 拦下，被拦就改台词后重跑 S1，这不是合同冲突，不必停下等裁定），按
-   `## <EP>-S01｜<LOC-ID>｜<时间>｜线A` 分场；不写机位、灯光、资产。一集 4–6 场、约 26–32 个镜头、镜头合计约 115–120 秒（S7 剪掉 H3 头尾多出的话后成片约 110 秒、约 1 分 50 秒，含片头片尾；线主 2026-10-27：每集约 2 分钟、留广告位，不超过 1 分 55 秒；2026-10-29 实验集 E08 剪裁吃掉 27 s）——靠多写镜头和剧情拉长，不靠拉长单个镜头（对白镜仍 4–5 秒）；台词决定时长（中文每 4 个汉字约 1 秒；
+   `## <EP>-S01｜<LOC-ID>｜<时间>｜线A` 分场；不写机位、灯光、资产。一集 4–6 场、约 26–32 个镜头、镜头合计约 115–120 秒（S7 剪掉 H3 头尾多出的话后成片约 110 秒、约 1 分 50 秒，含片头片尾；线主 2026-10-27：每集约 2 分钟、留广告位，不超过 1 分 55 秒；2026-10-29 实验集 E08 剪裁吃掉 27 s）——靠多写剧情事件拉长（第 5 条：按事件取材，不按章节），不靠拉长单个镜头或多写对白（对白镜仍 4–5 秒）；台词决定时长（中文每 4 个汉字约 1 秒；
    英文约每秒 2.5 个词；日文约每秒 6 字；韩文约每秒 5 个音节）。英文剧台词与旁白直接写英文；
    **日文剧 / 韩文剧**（派单 `dialogue_language` 为 `ja` / `ko`，2026-11-18）台词与旁白直接写日文 / 韩文，口语、短句：一句说出来约 3.5 s
    ≈ 日文 20–24 字（假名 + 汉字，按字数算）、韩文 16–20 个音节（空格不算）；成片标准 S-08 的单句上限约日文 18–22 字、韩文 14–18 个音节。
@@ -78,6 +78,28 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
    再 `$P $S/make_endcard.py --runtime-root $NALU_RUNTIME_ROOT --title <剧名> --subtitle "第N集 · <集名>" --language <dialogue_language>`
    （英文剧 `--subtitle "EPISODE 01 · <episode title>" --language en`；日文剧 `--subtitle "第1話 · <話タイトル>" --language ja`
    （片尾写「つづく」）；韩文剧 `--subtitle "제1화 · <제목>" --language ko`（片尾写「다음 화에 계속」））。
+5. **改编压缩与爽剧节拍（SHORT_DRAMA_PACING_V1，线主 2026-11-22「剧情推进太慢……一集基本就是人物在念台词，一点都不刺激」）**。
+   派单里有 `pacing_policy: SHORT_DRAMA_PACING_V1`（新派单都有；进行中的旧集没有就不适用）时，合同顶层写 `"pacing_policy": "SHORT_DRAMA_PACING_V1"`，并按下面写：
+   - **按剧情事件取材，不按章节**：一集要覆盖 ≥ max(4, ⌊时长/25⌋) 个剧情事件（约每 25–30 秒一个大转折，115 秒约 4–6 个），
+     从派单起始章往后需要几章就取几章（通常 2–5 章）；一章就能凑够的少见，凑不够就继续往后读。
+     **授权你改写原著**：删掉过场、寒暄、重复说明和次要人物，合并场次，压缩时间，为了钩子调整顺序，补写衔接动作；
+     只保留关键剧情事实和人物真相（谁对谁做了什么、秘密是什么、关系怎么变）。删掉的写进 `adaptation_plan.cut`。
+     合同顶层 `adaptation_plan`：`{"source_chapters": [本集用到的章节号], "plot_events": [{"event": "一句话", "chapter": N, "shot_id": "落点镜"}], "cut": ["删/并/压了什么"]}`；
+     manifest `beat_disposition` 照常逐拍申报（删的拍写 `dropped`、并的写 `merged`）。S1 把章节记进 `$NALU_RUNTIME_ROOT/series/SOURCE_COVERAGE.json`，下一集从 `next_chapter` 接着取
+     （`$P $T/script_pacing_check.py coverage` 查看）。
+   - **节拍结构**：第一镜 0–3 秒就是冲突（羞辱、对峙、揭示、危险正在发生，`pacing.hook.at_seconds` ≤ 3）；之后每 20–30 秒一次升级/反转/揭示
+     （爽点：受辱→回击、秘密曝光、权力翻转、打脸/当面对质、感情张力骤升、威胁升级），写进 `pacing.beat_sheet`：
+     `[{"shot_id": "爽点镜", "type": "HUMILIATION_PAYBACK|IDENTITY_REVEAL|POWER_SHIFT|SECRET_REVEALED|THREAT_ESCALATION|CONFRONTATION|ROMANTIC_SPIKE|REVERSAL|DISCOVERY", "setup_shot_id": "铺垫镜"}]`，
+     爽点镜同时写 `prompt_spec.beat_role: PAYOFF`；结尾停在悬念上：`pacing.cliffhanger` = `{"shot_id": "最后一镜（或最后 8 秒内）", "open_question": "观众带走的问题，一句话"}`，不解决、不抒情。
+   - **每场有目标、冲突和一个看得见的身体动作**，写进 `pacing.scene_plan`：`[{"scene_id", "objective", "conflict", "physical_action"}]`；
+     没有只是两个人站着说话的场——每场至少一镜有身体动作改变状态（`state_delta_dimensions` 含 MOMENTUM/CONTACT/POSSESSION/POSITION/INTEGRITY：抓、推、夺、递、摔、冲出去）。
+     说明性台词改成动作与反应（证据拍在桌上、对方脸色变），一句台词最多 2 个短句；不要同一人连说超过约 12 秒（中间插对方打断、动作或反应镜）；
+     纯对白镜（说话镜里没有 MOMENTUM/CONTACT/POSSESSION/INTEGRITY 动作）合计不超过全集时长的 60%。
+   - **S1 免费自查与改稿**：S1 用 `lines/nalu/runtime/tools/script_pacing_check.py` 测这些数（每分钟转折数、第一冲突秒数、转折最大间隔、
+     纯对白占比、最长台词、无动作场、结尾悬念、改编事件数），报告在 `runtime/pipeline_state/<EP>.json` 的 `stages.S1.details.script_pacing`
+     （`failures` + `fixes`）。不合格时 S1 报 `SCRIPT_PACING_REVISE:round=n/2`：**这不是阻塞，是给你的改稿要求**——改叙事正典和四层（不改门禁、不问线主、不报 BLOCKED），
+     重跑 S1→S3；最多两轮，第二轮改完仍不合格引擎自动放行并记录差距。本地可先自测：`$P $T/script_pacing_check.py check --contract <合同>`（免费）。
+     测得的节奏数据会交给终审的导演/剪辑专审作参考。
 避开已知坑：首帧要看得见的道具别设计成「从怀里掏出」；古装灯写「无罩敞口油盏」；每个说话角色男女/音色要能区分；不写全黑画面。
 
 ## 2. 四层剧本（免费）
@@ -373,7 +395,7 @@ HopsAPI 图片任务成批以 `status 3 / code 424 "Provider error (request id: 
 4. 提示词变了 → 整批提示词重新审（prompt batch 回执），再按正常 S5 走（探针任务 → 整批）。旧的已绑定失败事务不动，新请求是新指纹，不会重复 POST。
 
 ## 8. 连续产剧：E02 及以后
-编排代理在上一集 `FINAL_CUT_READY` 后为下一集派单（章节范围与沿用的简报条款），再新开一个你的会话。每集都是独立会话，按本合同从 §2.0 开始，另外：
+编排代理在上一集 `FINAL_CUT_READY` 后为下一集派单（起始章节、改编预算与沿用的简报条款），再新开一个你的会话。起始章节取 `script_pacing_check.py coverage` 的 `next_chapter`（没有记录时接上一集派单的结束章），取多少章由本集剧情事件预算决定（§2.0 第 5 条）。每集都是独立会话，按本合同从 §2.0 开始，另外：
 - 叙事正典开头承接上一集结尾状态；读上一集的 `<EP-1>_GENERATION_CONTRACT_v1.json` 末镜 `completion_state`，本集首镜 `entry_state` 与之一致。
 - 角色沿用：已出现的角色用**同一个** `character_id` / 名字 / 服装文字（逐字复制上一集合同里的 `character_entities` 行与 `wardrobe_garments`），
   只给新角色起新 ID。复用角色的身份牌与配音在 `runtime/asset_library.json`、`runtime/voice_registry.json` 里是 LOCKED，S3/S4 会自动跳过，不要重做。

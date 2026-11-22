@@ -346,6 +346,24 @@ def _episode_render_style(episode: str) -> str:
     return _render_style.resolve_runtime(episode, contract=contract if isinstance(contract, dict) else None)
 
 
+def script_pacing_context(episode: str) -> dict[str, Any]:
+    """The S1 script pacing record (SHORT_DRAMA_PACING_V1, script_pacing_check.summary) from the episode's pipeline
+    state, for the director/edit review: what the SCRIPT planned (turns, first conflict, dialogue-only share, open
+    ending) next to what the cut measured.  {} when absent.  Never raises."""
+    try:
+        state = read_json(RUNTIME / "runtime" / "pipeline_state" / f"{episode}.json", {}) or {}
+        row = ((((state.get("stages") or {}).get("S1") or {}).get("details") or {}).get("script_pacing") or {})
+        if not isinstance(row, dict) or not row.get("metrics"):
+            return {}
+        return {"basis": "authored script (generation contract target_seconds), measured at S1 -- the PLAN, not the cut",
+                "use": "compare with measured_pacing: a gap already in the plan is a writer fix (fix_owner writer); "
+                       "one that only appears in the cut is an S7 / engine fix",
+                **{k: row.get(k) for k in ("policy", "active", "status", "decision", "failures", "metrics",
+                                            "ending_unresolved", "turns", "adaptation") if row.get(k) is not None}}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def prepare(*, episode: str, video: Path, metrics_path: Path, contact_sheet: Path,
             request_path: Path, asr_path: Path, detector_path: Path,
             technical_path: Path, subtitle_report_path: Path,
@@ -427,6 +445,9 @@ def prepare(*, episode: str, video: Path, metrics_path: Path, contact_sheet: Pat
             _craft.measure_pacing(shots, _asr, float(metrics.get("duration_seconds") or 0.0)), ENGINE)
     except Exception:  # noqa: BLE001
         craft_request = {}
+    script_pacing = script_pacing_context(episode)
+    if craft_request and script_pacing:
+        craft_request["script_pacing"] = script_pacing
 
     try:  # advisory: the must-check defect list + its free measurements; a failure only leaves the block out
         defect_request = (_qa_defects.reviewer_request(qa_defect_measurements(

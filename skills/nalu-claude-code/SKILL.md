@@ -115,7 +115,12 @@ $NALU_ENGINE_ROOT/.qingshan-venv/bin/python $NALU_ENGINE_ROOT/tools/intake_sourc
 ## 4. 派单：剧本交给 Codex 写（代理执行，免费）
 代理**不写**叙事正典、简报或四层剧本，只写一个很短的派单文件 `$NALU_RUNTIME_ROOT/briefs/<EP>_DISPATCH.md`（目录先建好：
 `mkdir -p $NALU_RUNTIME_ROOT/briefs $NALU_ENGINE_ROOT/workflow/claude_writer_agent/scripts`），内容：
-- 原著：`$NALU_RUNTIME_ROOT/sources/<作品>/`（`SOURCE_INDEX.json`、`SOURCE_SELECTION.md`）和本集改编的章节范围（E02 起接上一集结束处）。
+- 原著：`$NALU_RUNTIME_ROOT/sources/<作品>/`（`SOURCE_INDEX.json`、`SOURCE_SELECTION.md`）和本集的起始章节（E02 起取
+  `$NALU_ENGINE_ROOT/.qingshan-venv/bin/python $NALU_ENGINE_ROOT/lines/nalu/runtime/tools/script_pacing_check.py coverage` 的 `next_chapter`，没有记录时接上一集结束处）。
+- **改编预算（线主 2026-11-22：剧情推进太慢）**：按剧情事件，不按章节——本集覆盖 ≥ max(4, ⌊时长/25⌋) 个剧情事件（115 秒约 4–6 个），
+  从起始章往后需要几章就取几章（通常 2–5 章）；授权 Codex 删减过场和次要人物、合并场次、压缩时间、为钩子调序、补写衔接动作，只保留关键剧情事实和人物真相。
+  派单写一行 `pacing_policy: SHORT_DRAMA_PACING_V1`（Codex 合同 §2.0 第 5 条：冷开场冲突 ≤3 秒、每 20–30 秒一次升级/反转/揭示、结尾悬念、
+  每场有目标/冲突/身体动作、纯对白 ≤60%；S1 免费测量，不合格 Codex 自己改稿，最多两轮）。
 - 简报条款（Codex 逐字抄进 `<EP>_PRODUCTION_BRIEF.json`）：title、owner_id（没指定填 "owner"）、style、target_seconds、budget_cap（指定了才写）、
   genre（`publish_x2creel.py categories --lang <剧集语言>` 列出的显示名 name，逐字复制，见 §6）、dialogue_language / genre_lang（zh|en）、
   `authorization`：`order_text` =「默认授权：用户已提供 Giggle API key，按短剧工作流条款同意本项目每集付费生产，每集上限 <budget_cap> 积分」
@@ -204,7 +209,7 @@ $P $S/publish_x2creel.py status                           # 本地记录 + X2C �
 一集 `FINAL_CUT_READY` 后，`tick` 自己接续下一集（线主 + 老板 2026-11-10），直到原著改编完或达到线主指定的集数：
 1. 集间升级：`fleet_sync.scripted_update`（self_update → 磁盘 pin 跑 `setup_host.sh`）。
 2. 新开一个 Codex 会话（`start --episode <EP+1>`），附加说明让它先读上一集 `briefs/<EP>_DISPATCH.md`、按同样条款写
-   `briefs/<EP+1>_DISPATCH.md`（集号与上限改成本集，章节接上一集结束处），再按 §4 写叙事正典与简报并生产；原著做完或到了指定
+   `briefs/<EP+1>_DISPATCH.md`（集号与上限改成本集，起始章节取 `script_pacing_check.py coverage` 的 `next_chapter`，按 §4 写改编预算），再按 §4 写叙事正典与简报并生产；原著做完或到了指定
    集数就写 `series/SERIES_DONE` 并以 `SERIES_DONE` 结束。
 3. 失败（例如上一集没有派单文件）每小时最多重试一次，并以 `AGENT` / `NEXT_EPISODE_<原因>` 交给代理一次：代理按上面第 2 步的
    条款手动写派单后 `codex_production.py start --episode <EP+1> --brief $NALU_RUNTIME_ROOT/briefs/<EP+1>_DISPATCH.md`。

@@ -377,6 +377,33 @@ C-14 默认LOCKED，推近只给最大的爽点。C-15 插入镜只拍证据，�
 
 ---
 
+## 3b. 剧本阶段免费测量与改稿（SHORT_DRAMA_PACING_V1，线主 2026-11-22）
+
+线主：「剧情推进太慢……一集基本就是人物在念台词，一点都不刺激。」S 层的节奏问题大多在剧本里就定了（一章拍成一集、几乎全是对白），
+成片终审才发现已经花了钱。所以 S-01/S-02/S-04/S-06/S-08 在 S1 先对剧本合同做一次**免费、确定性**的测量
+（`lines/nalu/runtime/tools/script_pacing_check.py`，镜头时间线 = 累计 `target_seconds`）：
+
+| 指标 | 来源 | 目标 | 对应条目 |
+|---|---|---|---|
+| 第一冲突秒数 | `pacing.hook.at_seconds` 与第一个转折 | ≤ 3 s | S-01 |
+| 转折数 / 每分钟转折 | `pacing.beat_sheet` + `beat_role: PAYOFF` | ≥ max(4, ⌊D/25⌋) | S-02 |
+| 转折最大间隔 | 0、各转折、结尾悬念之间 | ≤ 30 s | S-02 |
+| 纯对白占比 | 说话镜无 MOMENTUM/CONTACT/POSSESSION/INTEGRITY 动作的秒数 / D | ≤ 60 % | S-04 / S-08 |
+| 最长台词 | 句数、语言单位（zh 28 字 / en 20 词 / ja 44 字 / ko 36 音节） | ≤ 2 句 | S-08 |
+| 同一人连说 | 无打断、无动作的连续台词 | ≤ 12 s | S-03 |
+| 无动作场 | 整场没有任何状态改变的身体动作 | 0 | S-04 / C-09 |
+| 场次计划 | `pacing.scene_plan` 每场 objective / conflict / physical_action | 齐全 | C-09 / C-10 |
+| 结尾悬念 | `pacing.cliffhanger`（最后一镜或最后 8 s，open_question） | 有 | S-06 |
+| 改编事件数 | `adaptation_plan.plot_events`（按事件取材，不按章节） | ≥ 所需转折数 | S-02 / S-04 |
+
+- 只对合同写了 `"pacing_policy": "SHORT_DRAMA_PACING_V1"` 的集生效（新派单起写；进行中的旧集只记录数字）。
+- 不合格 → S1 报 `SCRIPT_PACING_REVISE:round=n/2`，由编剧（Codex）自己改稿重跑，**最多两轮**，之后自动放行并记录差距；
+  不问线主、不付费、不新增硬伤（`NALU_SCRIPT_PACING=off` 关闭改稿要求）。
+- 数字记在流水线状态 `stages.S1.details.script_pacing`，并作为 `script_pacing` 放进终审请求的 `craft_standard_request`
+  和 Gemini 导演/剪辑专审（D）的上下文：终审对照「剧本计划的节奏」和「成片量出来的节奏」判断问题出在写作还是剪辑。
+  终审确认的 CRAFT-PACING / CRAFT-*-HOOK / CRAFT-BEAT-MISSED 照旧进知识库 `DIRECTING_GUIDANCE`（不涉及台词语言的默认 global，走快速通道）。
+- 改编进度记在 `$NALU_RUNTIME_ROOT/series/SOURCE_COVERAGE.json`（每集用到的章节、事件数、删减数），下一集从 `next_chapter` 接着取。
+
 ## 4. 与现有引擎的冲突和需要线主决定的点
 
 已核对 `performance_cut.py`、`build_video_unit_grouping_spec.provider_min_seconds`、`build_nalu_preproduction.project_provider_slots`、`post_generation_qa_runner` 的 static-hold 检查、`nalu_pipeline.script_length_check`、`nalu_selective_bgm` / `nalu_bgm_default`、`collective_learning/release_train` / `authoring`。**没有哪条和门禁正面矛盾**（v1 只评分）。以下几处需要知道：
