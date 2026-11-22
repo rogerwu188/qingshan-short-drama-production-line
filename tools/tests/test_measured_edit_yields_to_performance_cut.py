@@ -81,8 +81,12 @@ class YieldTests(unittest.TestCase):
         self.assertGreaterEqual(u1["after_out"] - u1["after_in"], need - 1e-6, "the unit keeps room for its V.O.")
         payload = {"units": [_row("U1", 3.72, 6.0), _row("U2", 0.12, 1.52)]}
         out, dropped = mec.yield_to_performance_cut(payload, perf)
-        self.assertEqual(dropped, ["U1"])
-        self.assertEqual([r["unit_id"] for r in out["units"]], ["U2"])
+        # U2's line is matched word by word with a tail guard: it follows the performance cut too (owner
+        # 2026-11-21, E21 lines cut off -- the measured out-point is the S6 segment end + 0.12 s)
+        self.assertEqual(dropped, ["U1", "U2"])
+        self.assertEqual(out["units"], [])
+        self.assertEqual([r["reason"] for r in out["yielded_to_performance_cut"]],
+                         ["NO_ON_SCREEN_SCRIPTED_LINE", "PERFORMANCE_CUT_WORD_TIMED_TAIL_GUARD"])
 
 
 class PipelineStepTests(unittest.TestCase):

@@ -91,7 +91,9 @@ class BeatTests(unittest.TestCase):
     def test_tail_cut_holds_the_beat_but_never_goes_below_the_guard(self):
         c = tg.tail_cut(2.0, 6.0, beat=0.5)
         self.assertAlmostEqual(c["cut"], 2.5)
-        c = tg.tail_cut(2.0, 6.0, beat=0.0)                  # even a zero beat keeps the guard
+        c = tg.tail_cut(2.0, 6.0, beat=0.0)                  # even a zero beat keeps the sentence-end guard
+        self.assertAlmostEqual(c["cut"], 2.0 + tg.SENTENCE_END_GUARD_SECONDS)
+        c = tg.tail_cut(2.0, 6.0, beat=0.0, sentence_end=False)
         self.assertAlmostEqual(c["cut"], 2.0 + tg.TAIL_GUARD_SECONDS)
         c = tg.tail_cut(2.0, 6.0, beat=0.5, next_speech_start=2.05)   # babble right after the line
         self.assertAlmostEqual(c["cut"], 2.0 + tg.TAIL_GUARD_SECONDS)
@@ -138,7 +140,8 @@ class PerformanceCutTests(unittest.TestCase):
         rep = self.plan([("U1", ["S1"]), ("U2", ["S2"])], {"S1": self.LINE}, {"U1": [seg_chars(0.5, self.LINE)]},
                         {"U1": 6.0, "U2": 4.0}, shots=shots)
         r = rep["units"][0]
-        self.assertAlmostEqual(r["after_out"], 2.74 + max(tg.REACTION_BEAT_SECONDS, tg.TAIL_GUARD_SECONDS), places=3)
+        self.assertAlmostEqual(r["after_out"], 2.74 + max(tg.REACTION_BEAT_SECONDS, tg.SENTENCE_END_GUARD_SECONDS),
+                               places=3)
 
     def test_min_length_hold_never_cuts_into_the_tail(self):
         rep = self.plan([("U1", ["S1"])], {"S1": "不练了"}, {"U1": [seg_chars(1.0, "不练了", 0.3)]}, {"U1": 6.0},

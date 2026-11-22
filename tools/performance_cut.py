@@ -43,9 +43,11 @@ from typing import Any
 try:
     from tools import lang_profile as _lang
     from tools import dialogue_tail_guard as _guard
+    from tools import s7_edit_invariants as _inv
 except ImportError:  # pragma: no cover - flat sys.path deployments
     import lang_profile as _lang
     import dialogue_tail_guard as _guard
+    import s7_edit_invariants as _inv
 
 SCHEMA = "nalu.performance_cut.v1"
 HEAD_LEAD = 0.15
@@ -73,6 +75,13 @@ VOICE_ONLY_MODE = "VOICE_ONLY_NO_PLATE"
 VO_LEAD_IN = 0.3            # tools/voice_over_narration.LEAD_IN_SECONDS
 VO_LINE_GAP = 0.25          # tools/voice_over_narration.LINE_GAP_SECONDS
 VO_SEPARATION = 0.2         # tools/voice_over_narration.MIN_SEPARATION_SECONDS
+
+
+
+def min_keep_seconds() -> float:
+    """MIN_KEEP_SECONDS, raised to the S7 minimum shot (tools/s7_edit_invariants, ``NALU_S7_MIN_SHOT_SECONDS``)."""
+    return max(MIN_KEEP_SECONDS, _inv.min_shot_seconds())
+
 
 REASONS = ("TRIM_TAIL_UNSCRIPTED", "TRIM_HEAD_UNSCRIPTED", "DROP_REPEAT", "SILENT_SPEECH_WINDOW", "MIN_LENGTH_HOLD",
            "TRIM_HEAD_TO_LINE", "TRIM_TAIL_TO_LINE",  # these two: plain [first word - lead, last word + pad]
@@ -365,10 +374,12 @@ def _speaking_row(row: dict[str, Any], script: list[str], first_has_line: bool, 
                kept_text="".join(h["tok"] if cjk_mode else h["tok"] + " " for h in heard[hit["first"]:hit["last"] + 1]).strip(),
                removed_head_text=("" if cjk_mode else " ").join(h["tok"] for h in before),
                removed_tail_text=("" if cjk_mode else " ").join(h["tok"] for h in after))
-    if cut_out - cut_in < MIN_KEEP_SECONDS:
+    keep = min_keep_seconds()
+    if cut_out - cut_in < keep:
         centre = (first["start"] + last["end"]) / 2.0
-        cut_in = max(0.0, min(float(original) - MIN_KEEP_SECONDS, centre - MIN_KEEP_SECONDS / 2.0))
-        cut_out = min(float(original), cut_in + MIN_KEEP_SECONDS)
+        cut_in = max(0.0, min(float(original) - keep, centre - keep / 2.0))
+        cut_in = min(cut_in, max(0.0, first["start"] - HEAD_LEAD))   # a hold never starts the shot mid-line
+        cut_out = min(float(original), cut_in + keep)
         if after or last_has_line:  # a min-length hold never cuts into the line's tail either
             cut_out = max(cut_out, min(float(original), tail["guard"]))
         reasons.append("MIN_LENGTH_HOLD")
@@ -463,8 +474,8 @@ def plan(contract: dict[str, Any], grouping: dict[str, Any], unit_asr: dict[str,
             continue
         a, b = clean_window(speech, original)
         reasons = ["SILENT_SPEECH_WINDOW"]
-        if b - a < MIN_KEEP_SECONDS:
-            a, b = clean_window(speech, original, MIN_KEEP_SECONDS)
+        if b - a < min_keep_seconds():
+            a, b = clean_window(speech, original, min_keep_seconds())
             reasons.append("MIN_LENGTH_HOLD")
         row.update(status="SPEECH_CUT", after_in=round(a, 3), after_out=round(b, 3), reasons=reasons,
                    clean_window_seconds=round(b - a, 3))
@@ -481,7 +492,7 @@ def plan(contract: dict[str, Any], grouping: dict[str, Any], unit_asr: dict[str,
         row["kept_seconds"] = round(row["after_out"] - row["after_in"], 3) if orig else None
         if "MIN_LENGTH_HOLD" in row["reasons"]:
             row["warnings"].append(
-                f"MIN_LENGTH_HOLD:{row['unit_id']}:kept {MIN_KEEP_SECONDS:g} s around the "
+                f"MIN_LENGTH_HOLD:{row['unit_id']}:kept {min_keep_seconds():g} s around the "
                 + ("line" if row.get("kind") == "SPEAKING" else "cleanest window")
                 + " -- unscripted speech may still be audible; consider a redo")
     before_total = round(sum(float(r["before_out"] or 0) - float(r["before_in"] or 0) for r in rows), 3)
@@ -679,7 +690,8 @@ def peak_candidates(report: dict[str, Any], contract: dict[str, Any], grouping: 
             bridge = 0.0
         if bridge > 0:
             length = max(length, bridge + BRIDGE_MARGIN_SECONDS)
-        length = max(length, MIN_KEEP_SECONDS)
+        # S7 edit invariant 2: never below the minimum shot; a reaction never below the reaction minimum
+        length = max(length, min_keep_seconds(), _inv.reaction_min_seconds() if role == "REACTION" else 0.0)
         current = float(row["after_out"]) - float(row["after_in"])
         if length >= current - MIN_CUT_SECONDS:
             continue
@@ -742,6 +754,26 @@ def apply_peak_windows(report: dict[str, Any], contract: dict[str, Any], groupin
                    reasons=[PEAK_WINDOW if win["signal"] == "PEAK" else HEAD_WINDOW],
                    beat_role=cand["role"], peak_window=win)
         summary["units"].append({**cand, "kept_seconds": round(win["end"] - win["start"], 3), **win})
+    # S7 edit invariant 3 (owner 2026-11-21 "cuts between shots are far too fast"): the median kept unit length stays
+    # at or above the pacing floor -- trims that leave a shot under the floor are skipped (shortest first) until it does
+    floor_s = _inv.median_floor_seconds()
+    skipped_floor = []
+    while saved and floor_s > 0:
+        kept = [float(r["after_out"]) - float(r["after_in"]) for r in report.get("units") or []
+                if r.get("original_seconds")]
+        med = _inv.median(kept)
+        short = [u for u in saved if float(rows[u]["after_out"]) - float(rows[u]["after_in"]) < floor_s - 1e-6]
+        if med is None or med >= floor_s - 1e-6 or not short:
+            break   # a trim that keeps the shot at / above the floor never lowers the pace below it on its own
+        uid = min(short, key=lambda u: (float(rows[u]["after_out"]) - float(rows[u]["after_in"]), u))
+        a, b, reasons = saved.pop(uid)
+        rows[uid].update(after_in=a, after_out=b, reasons=reasons)
+        rows[uid].pop("peak_window", None)
+        rows[uid].pop("beat_role", None)
+        summary["units"] = [u for u in summary["units"] if u["unit_id"] != uid]
+        skipped_floor.append(uid)
+    if skipped_floor:
+        summary["skipped_median_floor"] = {"units": skipped_floor, "median_floor_seconds": floor_s}
     speaking = {str(r["unit_id"]): r for r in report.get("units") or []
                 if r.get("kind") == "SPEAKING" and r.get("status") == "MATCHED"}
     ordered = report.get("units") or []

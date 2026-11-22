@@ -137,6 +137,9 @@ CLASS_TEXT: dict[str, tuple[str, str]] = {
     # D -- director / craft
     "CRAFT-BEAT-MISSED": ("D", "该镜头没有交代它的剧情节拍（对照分镜表），或节拍被拍成别的意思。"),
     "CRAFT-SHOT-GRAMMAR": ("D", "镜头语法：对白时静止长镜头不切、连续同景别、跳切、越轴/视线方向混乱、缺反应镜、无动机运镜、单调重复。"),
+    # 2026-11-21 (device 1101 E21): "1-2 s shots where the character says nothing before it cuts away"
+    "QA-EDIT-FRAGMENT": ("D", "剪辑碎片：不到约 1.2 秒的碎镜头；画面里是正在说话的角色却一句没说就切走（1-2 秒的空镜头）；"
+                              "一句话没说完就切到别的镜头；整体切得太快。写出每处时间点。"),
     "CRAFT-PACING": ("D", "节奏：某个节拍拖沓或过快（无台词镜头超过约 4 秒、平均镜长过长、爽点间隔超过 25 秒）。"),
     "CRAFT-OPENING-HOOK": ("D", "开头钩子：前 3 秒没有冲突/揭示/危险，或以空镜、建立镜开场。"),
     "CRAFT-ENDING-HOOK": ("D", "结尾钩子：最后 2-3 秒没有落在揭示或威胁上（解决了、抒情、淡出、无悬念）。"),
@@ -714,9 +717,11 @@ def skin_sheen_suspects(measured: dict[str, Any] | None, context: dict[str, Any]
 
 
 def split_suspects(suspects: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, list[dict[str, Any]]]]:
-    """The S-ids each pass must answer: sound suspects (line tails, music) -> C; letterbox shots -> A."""
+    """The S-ids each pass must answer: sound suspects (line tails, music) -> C; letterbox shots -> A; measured edit
+    fragments / silent-speaker shots (s7_edit_invariants.measure_cut) -> D."""
     return {"A": {"letterbox": suspects.get("letterbox") or [], "skin_sheen": suspects.get("skin_sheen") or []},
-            "B": {}, "C": {"tail": suspects.get("tail") or [], "bgm": suspects.get("bgm") or []}, "D": {}}
+            "B": {}, "C": {"tail": suspects.get("tail") or [], "bgm": suspects.get("bgm") or []},
+            "D": {"fragment": suspects.get("fragment") or []} if suspects.get("fragment") else {}}
 
 
 # ============================================================================================== run

@@ -202,6 +202,10 @@ def plan(contract: dict[str, Any], grouping: dict[str, Any], unit_asr: dict[str,
         # away -- the ASR end runs early on the final syllable, and the cap at the next segment start used to land
         # exactly on it
         g = _guard.guard(line_end, frames, line_start=float(hit.get("start") or 0.0), hop=ENERGY_HOP)
+        # the unit's last line ends a sentence (S7 edit invariant 1): >= SENTENCE_END_GUARD_SECONDS, yielding only
+        # to speech that starts sooner (never below the plain guard)
+        floor = min([line_end + _guard.SENTENCE_END_GUARD_SECONDS, *[x - 0.05 for x in later]])
+        g = {**g, "guard": round(max(g["guard"], floor), 3)}
         row["tail_guard"] = g
         tail_end = max(tail_end, g["guard"])
         kept = min(original, max(tail_end, MIN_UNIT_SECONDS, last_shot_start))

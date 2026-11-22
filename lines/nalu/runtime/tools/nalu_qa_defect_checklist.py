@@ -12,6 +12,8 @@ The independent final reviewer is asked SPECIFICALLY, with timestamps, about six
   QA-BGM-DISCONTINUOUS    music that plays for a shot or two and stops, or starts / stops abruptly at a cut
   QA-SKIN-SHEEN-DRIFT     (2026-11-20, KO E01 on device …0080) a face turning oily / glossy / sweaty, hair turning
                           wet, or skin texture turning crunchy and over-sharpened from one shot to the next
+  QA-EDIT-FRAGMENT        (2026-11-21, device 1101 E21) a shot under ~1.2 s, a speaking character on screen who says
+                          nothing before the cut, a line cut before it finishes, cuts far too fast
 
 Where the engine can measure something for free, the reviewer gets the measurement (``measure``): OCR hits from the
 S7 burned-text scan / verify, the gap between each line's ASR end and the next cut, the cover-band area per burned
@@ -91,6 +93,14 @@ ITEMS: dict[str, dict[str, Any]] = {
                     "timestamp.  measurements.skin_sheen lists units whose specular share / sharpness / contrast "
                     "drifted from the frame they opened on (S6, free).",
         "s7_fixable": False, "fix_owner": "S6", "craft_item": "C-12"},
+    "QA-EDIT-FRAGMENT": {
+        "title_zh": "剪辑碎片：1-2 秒的碎镜头、说话的角色一句没说就切走、台词没说完就切、切得太快",
+        "question": "Is there any shot shorter than about 1.2 s, a shot of a speaking character who says nothing "
+                    "before it cuts away (a 1-2 s silent fragment), a line cut before it finishes, or a stretch "
+                    "where the cuts come far too fast to follow?  Give each timestamp.  measurements.s7_edit lists "
+                    "the measured fragments, speaker-not-speaking shots, lines ending < 0.15 s before a cut and "
+                    "cuts inside a line (free; s7_cut true = a cut the S7 editor made).",
+        "s7_fixable": True, "fix_owner": "S7", "craft_item": "C-08"},
 }
 ITEM_IDS = tuple(ITEMS)
 
@@ -364,10 +374,47 @@ def measure_identity_swap_risk(keyframes_dir: Any) -> dict[str, Any]:
     return {"source": "S6 declared-cast start-frame check (read only)", "units": rows[:40]} if rows else {}
 
 
+def measure_s7_edit(asr: Any, shots: list[dict[str, Any]], timeline: Any = None, performance_cut: Any = None,
+                    recut: Any = None) -> dict[str, Any]:
+    """The S7 edit invariants measured on the delivered cut (tools/s7_edit_invariants.measure_cut): fragments under
+    the minimum shot, speaking-unit shots without their line, lines ending < 0.15 s before a cut, cuts inside a line.
+    ``timeline`` the release timeline (unit windows; its boundaries are S7's own cuts), ``performance_cut`` the S7
+    performance-cut report (which units are SPEAKING), ``recut`` the unit re-cut report (internal cuts)."""
+    try:
+        from tools import s7_edit_invariants as inv  # noqa: PLC0415
+    except ImportError:
+        import s7_edit_invariants as inv  # type: ignore  # noqa: PLC0415
+    lines = asr if isinstance(asr, list) else ((asr or {}).get("segments") or (asr or {}).get("windows") or []
+                                               if isinstance(asr, dict) else [])
+    if not shots:
+        return {}
+    timeline = timeline if isinstance(timeline, dict) else {}
+    segments = [r for r in timeline.get("segments") or [] if isinstance(r, dict)]
+    cuts = [float(r["output_end"]) for r in segments[:-1] if _num(r.get("output_end")) is not None]
+    recut_units = ((recut or {}).get("units") or {}) if isinstance(recut, dict) else {}
+    for r in segments:
+        row = recut_units.get(str(r.get("unit_id"))) or {}
+        if row.get("status") == "APPLIED" and _num(r.get("output_start")) is not None:
+            cuts += [float(r["output_start"]) + float(c) for c in row.get("internal_cuts_s") or []
+                     if _num(c) is not None]
+    perf_rows = ((performance_cut or {}).get("units") or []) if isinstance(performance_cut, dict) else []
+    if perf_rows:
+        speaking = {str(r.get("unit_id")) for r in perf_rows if r.get("kind") == "SPEAKING"}
+    else:   # no performance cut: a unit whose own lines are heard in the final cut is a speaking unit
+        speaking = {str(r.get("unit_id")) for r in lines if isinstance(r, dict) and r.get("unit_id")
+                    and str(r.get("presence") or "") != "VOICE_OVER"}
+    content = _num(timeline.get("content_runtime_seconds"))
+    exclude = [(content, float("inf"))] if content else []
+    out = inv.measure_cut(shots=shots, lines=lines, unit_windows=segments, speaking_units=speaking, s7_cuts=cuts,
+                          exclude=exclude)
+    return out if any(out["counts"].values()) or out.get("pacing") else {}
+
+
 def measure(*, shots: list[dict[str, Any]], asr: Any = None, scan_path: Any = None, verify_path: Any = None,
             ass_path: Any = None, distinctness_path: Any = None, bgm_plan_path: Any = None,
             audio_bed_path: Any = None, s6_wave_state_path: Any = None,
-            skin_sheen_dir: Any = None, keyframes_dir: Any = None) -> dict[str, Any]:
+            skin_sheen_dir: Any = None, keyframes_dir: Any = None, release_timeline_path: Any = None,
+            performance_cut_path: Any = None, unit_recut_path: Any = None) -> dict[str, Any]:
     """All free measurements, each best-effort ({} when its input is missing).  Never raises."""
     out: dict[str, Any] = {}
     steps = (
@@ -381,6 +428,8 @@ def measure(*, shots: list[dict[str, Any]], asr: Any = None, scan_path: Any = No
         ("s6_burn_unresolved", lambda: measure_s6_burn_unresolved(_read(s6_wave_state_path))),
         ("skin_sheen", lambda: measure_skin_sheen(skin_sheen_dir)),
         ("identity_swap_risk", lambda: measure_identity_swap_risk(keyframes_dir)),
+        ("s7_edit", lambda: measure_s7_edit(asr, shots, _read(release_timeline_path), _read(performance_cut_path),
+                                            _read(unit_recut_path))),
     )
     for key, fn in steps:
         try:
@@ -397,7 +446,7 @@ MEASUREMENT_ITEM = {"burned_text": "QA-BURNED-TEXT", "masks": "QA-OVERSIZED-MASK
                     "dialogue_tail": "QA-DIALOGUE-TAIL-CUT", "subtitle_wrap": "QA-SUBTITLE-WRAP",
                     "lookalike_cast": "QA-LOOKALIKE-CAST", "bgm": "QA-BGM-DISCONTINUOUS",
                     "s6_burn_unresolved": "QA-BURNED-TEXT", "skin_sheen": "QA-SKIN-SHEEN-DRIFT",
-                    "identity_swap_risk": "QA-LOOKALIKE-CAST"}
+                    "identity_swap_risk": "QA-LOOKALIKE-CAST", "s7_edit": "QA-EDIT-FRAGMENT"}
 
 
 def reviewer_request(measurements: dict[str, Any]) -> dict[str, Any]:
@@ -515,6 +564,15 @@ def _measured_findings(measurements: dict[str, Any]) -> list[dict[str, Any]]:
     for row in (measurements.get("skin_sheen") or {}).get("units") or []:
         out.append({"item_id": "QA-SKIN-SHEEN-DRIFT", "source": "S6_SKIN_SHEEN", "unit_id": row.get("unit_id"),
                     "detail": f"{row.get('unit_id')}: {','.join(row.get('reasons') or [])}"})
+    edit = measurements.get("s7_edit") or {}
+    for key in ("fragments", "speaker_not_speaking"):
+        for row in edit.get(key) or []:
+            out.append({"item_id": "QA-EDIT-FRAGMENT", "window": [row.get("start"), row.get("end")],
+                        "source": "MEASURED", "detail": f"{key} {row.get('seconds')} s"
+                        + (" (S7 cut)" if row.get("s7_cut") else "")})
+    for row in edit.get("mid_line_cuts") or []:
+        out.append({"item_id": "QA-EDIT-FRAGMENT", "at_seconds": row.get("at"), "source": "MEASURED",
+                    "detail": "cut inside a line" + (" (S7 cut)" if row.get("s7_cut") else "")})
     # the local A/V evidence pack (av_evidence_pack.py, video-native final review 2026-11-19)
     pack = measurements.get("av_evidence_pack") or {}
     for row in pack.get("burned_text_runs") or []:
@@ -628,6 +686,9 @@ def build_record(parsed: dict[str, Any], measurements: dict[str, Any], *, episod
             **({"video_review": video} if video else {}),
             **({"s6_burn_unresolved": ((measurements or {}).get("s6_burn_unresolved") or {}).get("units")}
                if ((measurements or {}).get("s6_burn_unresolved") or {}).get("units") else {}),
+            # the post-S7 edit measurement: findings (and, at S7's own cuts, a trigger) of the final fix round
+            **({"s7_edit_measure": (measurements or {}).get("s7_edit")}
+               if ((measurements or {}).get("s7_edit") or {}).get("counts") else {}),
             **({"letterbox_measured": ((measurements or {}).get("av_evidence_pack") or {}).get("letterbox_shots")}
                if ((measurements or {}).get("av_evidence_pack") or {}).get("letterbox_shots") else {}),
             "auto_recut": {"status": "FINAL_FIX_ROUND", "note": (

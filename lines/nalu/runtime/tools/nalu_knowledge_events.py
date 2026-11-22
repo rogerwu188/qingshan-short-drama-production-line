@@ -692,7 +692,7 @@ FINAL_REVIEW_ROUTES = {
                                        "VOICE", "ASR_MISMATCH", "HAND_ARTIFACT", "AI_ARTIFACT", "CONTINUITY",
                                        "VOICE_GENDER_MISMATCH", "REFERENCE_SHEET_LEAK")},
     **{k: "ENGINE" for k in ("SUBTITLE_WRAP", "BGM_FADES", "AUDIO_SMOOTHING", "DIALOGUE_TAIL_GUARD", "LETTERBOX",
-                             "MASK", "SFX", "SUBTITLE_READABILITY")},
+                             "MASK", "SFX", "SUBTITLE_READABILITY", "EDIT_FRAGMENT")},
 }
 FINAL_REVIEW_ROUTE_STAGE = {"DIRECTING_GUIDANCE": "SCRIPT_AUTHORING", "MODEL_CONSTRAINT": "S6", "ENGINE": "S7"}
 FINAL_REVIEW_MAX_FINDINGS = 12
@@ -714,7 +714,7 @@ SCOPE_LANGUAGE = "language"
 LANGUAGE_KINDS = frozenset({"VOICE", "ASR_MISMATCH", "SUBTITLE_WRAP", "SUBTITLE_READABILITY"})
 #: kinds whose cause is the picture, the edit, the model or the mix -- the same in every language
 GLOBAL_KINDS = frozenset({"BURNED_TEXT", "FACE_DRIFT", "SKIN_SHEEN", "COSTUME_IDENTITY", "LOOKALIKE", "STATIC_SHOT_SPLIT",
-                          "LETTERBOX", "MASK", "BGM_FADES", "AUDIO_SMOOTHING", "DIALOGUE_TAIL_GUARD",
+                          "LETTERBOX", "MASK", "BGM_FADES", "AUDIO_SMOOTHING", "DIALOGUE_TAIL_GUARD", "EDIT_FRAGMENT",
                           "HAND_ARTIFACT", "AI_ARTIFACT", "CONTINUITY", "SFX", "SHOT_GRAMMAR", "HOOK", "EMOTION",
                           # 2026-11-20: a woman voiced as a man is a casting / model fault in any language; acting
                           # monotony (talking without business, one stock gesture) is direction, never language

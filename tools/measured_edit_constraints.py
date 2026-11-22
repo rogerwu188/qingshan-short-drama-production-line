@@ -63,7 +63,7 @@ def resolve_source_interval(row, source, planned_duration):
 
 
 def yield_to_performance_cut(payload, performance_cut):
-    """Drop the constraint rows of units that carry no on-screen scripted line.
+    """Drop the constraint rows of units the performance cut decides: no on-screen scripted line, or a word-timed line.
 
     A measured edit trims a unit to the speech the S6 dialogue QA heard in it.  That is only right
     when the speech is the unit's scripted on-screen line.  In a unit with no on-screen line (the
@@ -75,16 +75,27 @@ def yield_to_performance_cut(payload, performance_cut):
     stopped on VOICE_OVER_OVERLAPS_DIALOGUE with no way out.  Such a unit follows the performance
     cut alone; the dropped rows stay in the payload under ``yielded_to_performance_cut``.
 
+    A SPEAKING unit whose scripted line the performance cut matched word by word (status MATCHED with a tail guard)
+    follows the performance cut too (owner 2026-11-21, device 1101 E21: lines cut off before they finish).  The
+    measured interval ends 0.12 s after the S6 QA segment end -- Whisper's segment end runs early on the final
+    syllable -- and the AgentCut build only lets a tail trim SHORTEN the measured interval, so the guarded cut of the
+    performance cut (word end + 0.4 s at a line end, the syllable's measured decay) never reached the picture.
+
     Returns (payload, dropped unit ids).  ``performance_cut`` is the <EP>_PERFORMANCE_CUT.json report.
     """
-    silent = {str(row.get("unit_id")) for row in (performance_cut or {}).get("units") or []
-              if row.get("kind") == "SILENT"}
+    reasons: dict[str, str] = {}
+    for row in (performance_cut or {}).get("units") or []:
+        uid = str(row.get("unit_id"))
+        if row.get("kind") == "SILENT":
+            reasons[uid] = "NO_ON_SCREEN_SCRIPTED_LINE"
+        elif row.get("kind") == "SPEAKING" and row.get("status") == "MATCHED" and row.get("tail_guard"):
+            reasons[uid] = "PERFORMANCE_CUT_WORD_TIMED_TAIL_GUARD"
     rows = list((payload or {}).get("units") or [])
-    dropped = [row for row in rows if str(row.get("unit_id")) in silent]
+    dropped = [row for row in rows if str(row.get("unit_id")) in reasons]
     if not dropped:
         return payload, []
     out = dict(payload)
-    out["units"] = [row for row in rows if str(row.get("unit_id")) not in silent]
+    out["units"] = [row for row in rows if str(row.get("unit_id")) not in reasons]
     out["yielded_to_performance_cut"] = list(payload.get("yielded_to_performance_cut") or []) + [
-        dict(row, reason="NO_ON_SCREEN_SCRIPTED_LINE") for row in dropped]
+        dict(row, reason=reasons[str(row.get("unit_id"))]) for row in dropped]
     return out, [str(row["unit_id"]) for row in dropped]

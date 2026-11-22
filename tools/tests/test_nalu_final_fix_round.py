@@ -158,7 +158,7 @@ class FreeFixTest(unittest.TestCase):
     def test_settings_keep_operator_env(self):
         got = ffr.free_settings(["BGM_FADES", "DIALOGUE_TAIL_GUARD", "STATIC_SHOT_SPLIT"],
                                 {"NALU_BGM_MIN_CUE_SECONDS": "20"})
-        self.assertEqual(got["env"], {"NALU_BGM_FADE_SCALE": "1.6", "NALU_S7_TAIL_GUARD_SECONDS": "0.4",
+        self.assertEqual(got["env"], {"NALU_BGM_FADE_SCALE": "1.6", "NALU_S7_TAIL_GUARD_SECONDS": "0.55",
                                       "NALU_S7_POST_LINE_BEAT_SECONDS": "0.7"})
         self.assertEqual(got["kept_operator_env"], ["NALU_BGM_MIN_CUE_SECONDS"])
 
@@ -343,7 +343,7 @@ class RoundTest(unittest.TestCase):
         self.assertEqual(out["action"], "S7_RERUN")
         settings = json.loads((self.p.assembly / "E01_FINAL_FIX_S7_SETTINGS.json").read_text(encoding="utf-8"))
         self.assertEqual(settings["env"]["NALU_BGM_FADE_SCALE"], "1.6")
-        self.assertEqual(settings["env"]["NALU_S7_TAIL_GUARD_SECONDS"], "0.4")
+        self.assertEqual(settings["env"]["NALU_S7_TAIL_GUARD_SECONDS"], "0.55")
         self.assertTrue(any(l.startswith("FINAL_FIX_ROUND_START") for l in self.ctx.lines))
         self.assertTrue(any(l.startswith("FINAL_FIX_FREE_RECUT kind=BGM_FADES") for l in self.ctx.lines))
         self.assertTrue((self.p.assembly / "final_qa" / "final_fix_round" / "first_review"

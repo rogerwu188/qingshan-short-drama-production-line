@@ -9,8 +9,12 @@ verdict is (``NALU_FINAL_FIX_ROUNDS``, default 1; 0 disables; values above 1 are
 Each confirmed finding is mapped to one fix class:
 
 * ``FREE_S7`` -- re-cut / re-mix with the existing S7 tools, zero credits:
-    STATIC_SHOT_SPLIT     an over-long static shot is split with a cutaway from a neighbouring unit's unused frames
-                          (unit_recut plan; the unit's own sound runs on), else with a punch-in on its second half
+    STATIC_SHOT_SPLIT     an over-long static shot is split with a cutaway from a neighbouring SILENT unit's unused
+                          frames (unit_recut plan; the unit's own sound runs on), else with a punch-in on its second
+                          half -- only at line boundaries, never into pieces under the minimum shot (s7_edit_invariants)
+    EDIT_FRAGMENT         the post-S7 measurement (or a reviewer) found fragments under the minimum shot, a speaker
+                          on screen who does not speak, or a line cut off at the cut -> S7 re-edit with a longer
+                          minimum shot / pacing floor and a wider tail guard (s7_edit_invariants)
     AUDIO_SMOOTHING       audio-bed RMS jump / loudness window too hot -> longer equal-power cut crossfades
     BGM_FADES             music starting / stopping abruptly -> longer cue fades and a longer minimum cue
                           (bgm_cue_shaping)
@@ -86,7 +90,8 @@ FREE = "FREE_S7"
 PAID = "PAID_S6_REDO"
 RECORD = "RECORD_ONLY"
 
-FREE_KINDS = ("STATIC_SHOT_SPLIT", "AUDIO_SMOOTHING", "BGM_FADES", "SUBTITLE_WRAP", "DIALOGUE_TAIL_GUARD")
+FREE_KINDS = ("STATIC_SHOT_SPLIT", "AUDIO_SMOOTHING", "BGM_FADES", "SUBTITLE_WRAP", "DIALOGUE_TAIL_GUARD",
+              "EDIT_FRAGMENT")
 PAID_KINDS = ("BURNED_TEXT", "REFERENCE_SHEET_LEAK", "COSTUME_IDENTITY", "FACE_DRIFT", "SKIN_SHEEN", "HAND_ARTIFACT", "VOICE_GENDER_MISMATCH")
 #: owner order when the round's budget does not cover every paid redo
 PAID_PRIORITY = {kind: rank for rank, kind in enumerate(PAID_KINDS)}
@@ -96,6 +101,7 @@ ITEM_KIND = {
     "QA-BURNED-TEXT": "BURNED_TEXT",
     "QA-REFERENCE-SHEET-LEAK": "REFERENCE_SHEET_LEAK",
     "QA-DIALOGUE-TAIL-CUT": "DIALOGUE_TAIL_GUARD",
+    "QA-EDIT-FRAGMENT": "EDIT_FRAGMENT",
     "QA-SUBTITLE-WRAP": "SUBTITLE_WRAP",
     "QA-BGM-DISCONTINUOUS": "BGM_FADES",
     "QA-SKIN-SHEEN-DRIFT": "SKIN_SHEEN",
@@ -161,6 +167,10 @@ KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("SUBTITLE_WRAP", ("wrap", "line break", "lone punctuation", "on its own line", "换行", "单独成行", "断行")),
     ("DIALOGUE_TAIL_GUARD", ("cut off", "clipped", "truncated", "last syllable", "tail cut", "no pause",
                              "cuts mid", "尾音", "被剪", "切断", "截断", "没有停顿", "没停顿")),
+    ("EDIT_FRAGMENT", ("cuts too fast", "cut too fast", "cutting too fast", "cuts away too fast", "too many cuts",
+                       "flash cut", "choppy edit", "choppy cut", "doesn't say anything", "does not say anything",
+                       "says nothing before", "without speaking", "切得太快", "切太快", "切镜太快", "镜头太碎",
+                       "剪得太碎", "一闪而过", "没说话就切", "不说话就切", "还没说话就")),
     ("BGM_FADES", ("bgm", "music", "配乐", "音乐", "背景乐")),
     ("AUDIO_SMOOTHING", ("rms", "loudness", "too loud", "too hot", "volume jump", "level jump", "audio jump",
                          "sudden loud", "louder", "quieter", "audio bed", "room tone", "响度", "音量", "忽大忽小",
@@ -182,12 +192,17 @@ FREE_SETTINGS: dict[str, dict[str, str]] = {
     "AUDIO_SMOOTHING": {"NALU_S7_CUT_CROSSFADE_SECONDS": "0.16"},
     "BGM_FADES": {"NALU_BGM_MIN_CUE_SECONDS": "16", "NALU_BGM_FADE_SCALE": "1.6"},
     "SUBTITLE_WRAP": {"NALU_S7_SPLIT_LONG_CAPTIONS": "1"},
-    "DIALOGUE_TAIL_GUARD": {"NALU_S7_TAIL_GUARD_SECONDS": "0.4", "NALU_S7_POST_LINE_BEAT_SECONDS": "0.7"},
+    # the default sentence-end guard is already 0.4 s (dialogue_tail_guard.SENTENCE_END_GUARD_SECONDS): widen past it
+    "DIALOGUE_TAIL_GUARD": {"NALU_S7_TAIL_GUARD_SECONDS": "0.55", "NALU_S7_POST_LINE_BEAT_SECONDS": "0.7"},
+    # S7 edit invariants 2 + 3 (owner 2026-11-21, E21): longer minimum shot, higher median pacing floor
+    "EDIT_FRAGMENT": {"NALU_S7_MIN_SHOT_SECONDS": "1.5", "NALU_S7_MEDIAN_SHOT_FLOOR_SECONDS": "2.5"},
 }
 
 STATIC_MIN_SPLIT_SECONDS = 4.0     # a cut shorter than this is not split
-CUTAWAY_MIN_SECONDS = 0.8          # borrowed frames shorter than this are not a cutaway
-CUTAWAY_MAX_SECONDS = 1.5
+#: a cutaway is a motivated reaction: at least the reaction minimum (s7_edit_invariants.REACTION_MIN_SECONDS), never
+#: the 0.8-1.5 s flash it used to be (owner 2026-11-21, E21: "1-2 s shots ... cuts away")
+CUTAWAY_MIN_SECONDS = 1.5
+CUTAWAY_MAX_SECONDS = 2.0
 PUNCH_IN_FRAME = [0.1, 0.08, 0.8, 0.8]  # x, y, w, h of the second half's punch-in (unit_recut reframe)
 GEMINI_MATCH_S = 1.5
 
@@ -489,10 +504,47 @@ def collect_findings(report: dict[str, Any] | None, checklist: dict[str, Any] | 
         out.append({"source": "REVIEW_HARD_FAIL", "item": None, "text": "identity colour mismatch (hard fail)",
                     "kind_hint": "COSTUME_IDENTITY"})
     out.extend(s6_unresolved_findings(checklist.get("s6_burn_unresolved")))
+    out.extend(edit_measure_findings(checklist.get("s7_edit_measure")))
     return out
 
 
 S6_SOURCE = "S6_UNRESOLVED"
+EDIT_SOURCE = "S7_EDIT_MEASURE"
+
+
+def edit_measure_findings(measure: Any) -> list[dict[str, Any]]:
+    """The post-S7 edit measurement (s7_edit_invariants.measure_cut, kept by the must-check list as
+    ``s7_edit_measure``) as findings of the round: fragments under the minimum shot and speakers on screen who do not
+    speak -> EDIT_FRAGMENT, lines ending < 0.15 s before a cut and cuts inside a line -> DIALOGUE_TAIL_GUARD.  Free
+    fixes (S7 re-edit); a finding at a cut S7 made itself (``s7_cut``) is a trigger of the round
+    (:func:`triggered`), one inside the video model's own take is recorded with it."""
+    if not isinstance(measure, dict):
+        return []
+    out = []
+    for key, kind, what in (("fragments", "EDIT_FRAGMENT", "shot shorter than the minimum shot"),
+                            ("speaker_not_speaking", "EDIT_FRAGMENT", "speaker on screen who does not speak"),
+                            ("tail_gaps", "DIALOGUE_TAIL_GUARD", "line ends right at the cut"),
+                            ("mid_line_cuts", "DIALOGUE_TAIL_GUARD", "cut inside a spoken line")):
+        for row in (measure.get(key) or [])[:20]:
+            if not isinstance(row, dict):
+                continue
+            if key in ("fragments", "speaker_not_speaking"):
+                a, b = _num(row.get("start")), _num(row.get("end"))
+                detail = f"{row.get('seconds')} s, speech {row.get('speech_seconds')} s"
+            elif key == "tail_gaps":
+                a = b = _num(row.get("next_cut"))
+                detail = f"gap {row.get('gap_seconds')} s after the line ending at {row.get('line_end')}"
+            else:
+                a = b = _num(row.get("at"))
+                detail = f"line {row.get('line_start')}-{row.get('line_end')}"
+            out.append({"source": EDIT_SOURCE, "item": "QA-EDIT-FRAGMENT" if kind == "EDIT_FRAGMENT"
+                        else "QA-DIALOGUE-TAIL-CUT", "kind_hint": kind, "severity": "P2",
+                        "s7_cut": bool(row.get("s7_cut")),
+                        "text": f"S7 measured: {what} ({detail})" + ("" if row.get("s7_cut") else
+                                                                       " inside the video model's own take"),
+                        **({"window": [round(a, 3), round(b if b is not None else a, 3)]} if a is not None else {}),
+                        **({"unit_id": str(row["unit_id"])} if row.get("unit_id") else {})})
+    return out
 
 
 def s6_unresolved_findings(rows: Any) -> list[dict[str, Any]]:
@@ -574,7 +626,7 @@ def map_findings(findings: list[dict[str, Any]], segments: list[dict[str, Any]])
 CONFIRMED_SOURCES = ("QA_CHECKLIST_REVIEWER", "GEMINI_CONFIRMED")
 #: which copy of a duplicated finding is kept (confirmed must-check first, so the trigger rule is unchanged)
 SOURCE_RANK = {"QA_CHECKLIST_REVIEWER": 0, "GEMINI_CONFIRMED": 1, "REVIEW_HARD_FAIL": 2, "REVIEW_PROBLEM": 3,
-               S6_SOURCE: 4}
+               S6_SOURCE: 4, EDIT_SOURCE: 5}
 DEDUPE_S = 1.0
 _SEVERITY_RANK = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 #: a confirmed finding without a severity (must-check DEFECT, hard fail) ranks as P1
@@ -705,8 +757,10 @@ def reconcile(first: list[dict[str, Any]], second: list[dict[str, Any]] | None) 
 
 def triggered(rejected: bool, mapped: list[dict[str, Any]]) -> bool:
     """A REJECT_RECUT verdict, or a PASS with a confirmed must-check DEFECT (reviewer DEFECT / confirmed Gemini
-    finding).  A PASS whose report merely lists problems is not a trigger."""
-    return bool(rejected) or any(f.get("source") in CONFIRMED_SOURCES for f in mapped)
+    finding), or a post-S7 edit measurement at a cut S7 made (a fragment / silent speaker / clipped line the free
+    re-edit can fix).  A PASS whose report merely lists problems is not a trigger."""
+    return bool(rejected) or any(f.get("source") in CONFIRMED_SOURCES
+                                 or (f.get("source") == EDIT_SOURCE and f.get("s7_cut")) for f in mapped)
 
 
 def actionable(mapped: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -788,32 +842,103 @@ def free_settings(kinds: Iterable[str], environ: dict[str, str] | None = None) -
     return {"env": out, "kept_operator_env": sorted(set(kept))}
 
 
-def static_shot_segments(uid: str, window: tuple[float, float], *, neighbours: list[dict[str, Any]]) -> dict[str, Any]:
-    """unit_recut segments splitting one over-long static unit.
+def _invariants():
+    try:
+        from tools import s7_edit_invariants as inv  # noqa: PLC0415
+    except ImportError:  # flat sys.path (engine tools dir)
+        import s7_edit_invariants as inv  # type: ignore  # noqa: PLC0415
+    return inv
 
-    ``window`` is the unit's source in/out in the current cut.  ``neighbours`` are [{unit_id, unused: [(a, b), ...]}]
-    (source seconds of that unit the cut does not show).  With >= CUTAWAY_MIN_SECONDS of unused neighbour frames the
-    middle of the unit is covered by a cutaway (picture from the neighbour, sound from the unit itself, so the line
-    and the timing do not move); otherwise the second half is a punch-in on the same take.  Returns
-    {status, method, segments} -- status TOO_SHORT_TO_SPLIT for cuts under STATIC_MIN_SPLIT_SECONDS."""
+
+def _free_spans(spans: list[tuple[float, float]], busy: list[tuple[float, float]], pad: float) -> list[tuple[float, float]]:
+    """``spans`` minus every ``busy`` interval widened by ``pad`` (a neighbour's speech is never borrowed)."""
+    out = []
+    for lo, hi in spans:
+        cur = [(float(lo), float(hi))]
+        for b0, b1 in busy:
+            nxt = []
+            for a, b in cur:
+                if b1 + pad <= a or b0 - pad >= b:
+                    nxt.append((a, b))
+                    continue
+                if b0 - pad > a:
+                    nxt.append((a, b0 - pad))
+                if b1 + pad < b:
+                    nxt.append((b1 + pad, b))
+            cur = nxt
+        out.extend(cur)
+    return [(round(a, 3), round(b, 3)) for a, b in out if b - a > 0]
+
+
+def static_shot_segments(uid: str, window: tuple[float, float], *, neighbours: list[dict[str, Any]],
+                         speech: list[dict[str, Any]] | None = None, speaking: bool = False,
+                         min_seconds: float | None = None) -> dict[str, Any]:
+    """unit_recut segments splitting one over-long static unit, under the S7 edit invariants (tools/
+    s7_edit_invariants; owner 2026-11-21, device 1101 E21: 1-2 s shots of a character who says nothing).
+
+    ``window`` is the unit's source in/out in the current cut; ``speech`` the unit's ASR segments (source seconds,
+    word timestamps when present); ``speaking`` the unit carries an on-screen scripted line.  ``neighbours`` are
+    [{unit_id, unused: [(a, b), ...], speaking?, speech?}] (source seconds of that unit the cut does not show).
+
+    * every cut sits at a line boundary (never inside a word, a line's tail kept) and every piece is >= the minimum
+      shot (``min_seconds``, default s7_edit_invariants.min_shot_seconds());
+    * CUTAWAY: only from a neighbour WITHOUT an on-screen line (a speaking neighbour's unused frames show a speaker
+      who does not say what is heard), only from its frames with no speech in them, CUTAWAY_MIN_SECONDS..
+      CUTAWAY_MAX_SECONDS long (a motivated reaction); the unit's own sound runs on under it;
+    * PUNCH_IN otherwise: the second piece is a punch-in on the same take, split at a line boundary; for a speaking
+      unit each piece carries part of the line (or is a >= 1.5 s reaction hold);
+    * no such split -> status NO_LINE_BOUNDARY_SPLIT (nothing is cut).
+    Returns {status, method, segments, cuts}; status TOO_SHORT_TO_SPLIT for cuts under STATIC_MIN_SPLIT_SECONDS."""
+    inv = _invariants()
     a, b = float(window[0]), float(window[1])
     length = b - a
     if length < STATIC_MIN_SPLIT_SECONDS:
         return {"status": "TOO_SHORT_TO_SPLIT", "seconds": round(length, 3)}
+    min_s = inv.min_shot_seconds() if min_seconds is None else float(min_seconds)
+    reaction_s = max(inv.reaction_min_seconds(), min_s)
+    words = inv.speech_words(speech)
+    safe = inv.safe_intervals(words, a, b)
+
+    def is_safe(t: float) -> bool:
+        return any(lo - 1e-6 <= t <= hi + 1e-6 for lo, hi in safe)
+
+    def piece_ok(x0: float, x1: float) -> bool:
+        if x1 - x0 < min_s - 1e-6:
+            return False
+        return (not speaking or inv.speech_in(words, x0, x1) >= inv.SPEECH_OVERLAP_SECONDS
+                or x1 - x0 >= reaction_s - 1e-6)
+
     for nb in neighbours or []:
-        for lo, hi in nb.get("unused") or []:
-            span = float(hi) - float(lo)
-            if span < CUTAWAY_MIN_SECONDS:
+        if nb.get("speaking"):
+            continue
+        busy = inv.spans(nb.get("speech"))
+        for lo, hi in _free_spans([(float(x), float(y)) for x, y in nb.get("unused") or []], busy, inv.HEAD_LEAD_SECONDS):
+            span = hi - lo
+            c = round(min(CUTAWAY_MAX_SECONDS, span, length - 2 * min_s), 3)
+            if c < CUTAWAY_MIN_SECONDS - 1e-6:
                 continue
-            c = round(min(CUTAWAY_MAX_SECONDS, span, length / 3), 3)
-            m = round(a + (length - c) / 2, 3)
-            src = round(float(lo) + (span - c) / 2, 3)
-            return {"status": "PLANNED", "method": "CUTAWAY", "borrowed_from": nb["unit_id"], "segments": [
-                {"video": [uid, round(a, 3), m], "audio": [uid, round(a, 3), m]},
-                {"video": [nb["unit_id"], src, round(src + c, 3)], "audio": [uid, m, round(m + c, 3)]},
-                {"video": [uid, round(m + c, 3), round(b, 3)], "audio": [uid, round(m + c, 3), round(b, 3)]}]}
-    m = round(a + length / 2, 3)
-    return {"status": "PLANNED", "method": "PUNCH_IN", "segments": [
+            centre = a + (length - c) / 2.0
+            starts = []
+            x = a + min_s
+            while x + c <= b - min_s + 1e-6:
+                m = round(x, 3)
+                if is_safe(m) and is_safe(round(m + c, 3)) and piece_ok(a, m) and piece_ok(m + c, b):
+                    starts.append(m)
+                x += inv.STEP_SECONDS
+            if not starts:
+                continue
+            m = min(starts, key=lambda v: (abs(v - centre), v))
+            src = round(lo + (span - c) / 2, 3)
+            return {"status": "PLANNED", "method": "CUTAWAY", "borrowed_from": nb["unit_id"], "cuts": [m, round(m + c, 3)],
+                    "segments": [
+                        {"video": [uid, round(a, 3), m], "audio": [uid, round(a, 3), m]},
+                        {"video": [nb["unit_id"], src, round(src + c, 3)], "audio": [uid, m, round(m + c, 3)]},
+                        {"video": [uid, round(m + c, 3), round(b, 3)], "audio": [uid, round(m + c, 3), round(b, 3)]}]}
+    point = inv.split_points(words, a, b, min_s=min_s, speaking=speaking, reaction_s=reaction_s)
+    if not point:
+        return {"status": "NO_LINE_BOUNDARY_SPLIT", "seconds": round(length, 3)}
+    m = round(point[0], 3)
+    return {"status": "PLANNED", "method": "PUNCH_IN", "cuts": [m], "segments": [
         {"video": [uid, round(a, 3), m], "audio": [uid, round(a, 3), m]},
         {"video": [uid, m, round(b, 3)], "audio": [uid, m, round(b, 3)], "reframe": list(PUNCH_IN_FRAME)}]}
 

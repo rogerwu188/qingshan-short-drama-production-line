@@ -26,6 +26,10 @@ import os
 from typing import Any
 
 TAIL_GUARD_SECONDS = 0.25
+#: S7 edit invariant 1 (owner 2026-11-21, device 1101 E21 "cut off before finishing their line"; tools/
+#: s7_edit_invariants): the cut after a LINE's last word (the end of a sentence, the only place tail_cut is used) is
+#: at least this far after the word end, even when unscripted speech follows right away
+SENTENCE_END_GUARD_SECONDS = 0.4
 SPEECH_END_PAD_SECONDS = 0.10
 POST_LINE_BEAT_SECONDS = 0.5
 REACTION_BEAT_SECONDS = 0.3
@@ -76,10 +80,11 @@ def speech_end(frames: list[float] | None, word_end: float, *, line_start: float
 
 
 def guard(word_end: float, frames: list[float] | None = None, *, line_start: float | None = None,
-          hop: float = HOP) -> dict[str, Any]:
-    """{guard, speech_end}: the earliest cut that never clips the line's last syllable."""
+          hop: float = HOP, sentence_end: bool = False) -> dict[str, Any]:
+    """{guard, speech_end}: the earliest cut that never clips the line's last syllable (``sentence_end``: the word
+    ends a line, so the tail is at least SENTENCE_END_GUARD_SECONDS)."""
     end = speech_end(frames, word_end, line_start=line_start, hop=hop)
-    g = word_end + tail_guard_seconds()
+    g = word_end + max(tail_guard_seconds(), SENTENCE_END_GUARD_SECONDS if sentence_end else 0.0)
     if end is not None:
         g = max(g, end + SPEECH_END_PAD_SECONDS)
     return {"guard": round(g, 3), "speech_end": end, "word_end": round(float(word_end), 3)}
@@ -102,10 +107,18 @@ def post_line_beat(contract: dict[str, Any] | None = None, environ: dict[str, st
 
 def tail_cut(word_end: float, original: float, *, frames: list[float] | None = None,
              line_start: float | None = None, next_speech_start: float | None = None,
-             beat: float = POST_LINE_BEAT_SECONDS, speech_gap: float = 0.05, hop: float = HOP) -> dict[str, Any]:
-    """The out point after a line: the beat (capped at unscripted speech that follows), never before the guard,
-    never past the clip.  Returns {cut, guard, speech_end, beat, capped_by_next_speech, guard_applied}."""
+             beat: float = POST_LINE_BEAT_SECONDS, speech_gap: float = 0.05, hop: float = HOP,
+             sentence_end: bool = True) -> dict[str, Any]:
+    """The out point after a line: the beat (capped at unscripted speech that follows), never before the guard
+    (a line's end: SENTENCE_END_GUARD_SECONDS at least, unless unscripted speech starts sooner -- then up to that
+    speech, never below the plain guard), never past the clip.  Returns {cut, guard, speech_end, beat,
+    capped_by_next_speech, guard_applied}."""
     g = guard(word_end, frames, line_start=line_start, hop=hop)
+    if sentence_end:   # the line's end: >= SENTENCE_END_GUARD_SECONDS, yielding only to clearly separate speech
+        floor = float(word_end) + SENTENCE_END_GUARD_SECONDS
+        if next_speech_start is not None:
+            floor = min(floor, float(next_speech_start) - speech_gap)
+        g = {**g, "guard": round(max(g["guard"], floor), 3)}
     desired = float(word_end) + float(beat)
     capped = False
     if next_speech_start is not None and float(next_speech_start) - speech_gap < desired:
