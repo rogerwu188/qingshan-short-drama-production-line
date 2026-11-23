@@ -783,7 +783,10 @@ def measure(contract: dict[str, Any], language: str | None = None) -> dict[str, 
 #: keeps its own switch.  Integrity failures are never ADMITTED_AFTER_REVISIONS: they go back to the writer until the
 #: S1 integrity round cap (nalu_pipeline.S1_INTEGRITY_MAX_ROUNDS) blocks the episode with a named code.
 INTEGRITY_SWITCH = "NALU_SCRIPT_INTEGRITY"
-INTEGRITY_CODES = frozenset({"BOILERPLATE_TEXT", "BOILERPLATE_PHRASE", "SCENE_SPLIT_LOCATION_CONTRADICTS_ACTION"})
+INTEGRITY_CODES = frozenset({"BOILERPLATE_TEXT", "BOILERPLATE_PHRASE", "SCENE_SPLIT_LOCATION_CONTRADICTS_ACTION",
+                             "SCENE_NOT_CONTIGUOUS"})
+#: transition modes that legitimately return to an earlier scene (cross-cutting / flashback)
+INTERCUT_MODES = frozenset({"INTERCUT", "CROSS_CUT", "CROSSCUT", "FLASHBACK", "PARALLEL_CUT"})
 BOILERPLATE_SHARE = 0.5          # the same text on more than half of the shots ...
 BOILERPLATE_MIN_SCENES = 3       # ... spread over at least three scenes is a series template, not a scene's own text
 BOILERPLATE_MIN_CHARS = 12
@@ -791,10 +794,22 @@ BOILERPLATE_MIN_CHARS = 12
 #: ADVISORY (warnings only): framing, axis, camera motivation, transition reason -- accepted lab scripts (holmes,
 #: huayuan, urban 2026-10/11) legitimately keep one episode-level axis rule or one locked-single framing template, so
 #: a repeat there is not by itself proof that the scene was never written.
-BOILERPLATE_SHOT_FIELDS = (("sound", "ambience"),)
+BOILERPLATE_SHOT_FIELDS = (("sound", "ambience"),
+                           # deep review 1485 E09 (JA anime line, 2026-11-23): one action / state template on all 38
+                           # shots of five scenes -- "<Name> grabs the desk or clenches a fist while delivering the
+                           # line", entry "the immediate conflict is already active", exit "the speaker finishes the
+                           # gesture as the threat escalates", body "one distinct gesture driven by the conflict".
+                           # H3 rendered one stock gesture (raised index finger) for all of them; the per-line
+                           # PERFORMANCE_PLACEHOLDER taste check was admitted after two rounds.  What a shot DOES is
+                           # never a legitimate series template, so its copy across scenes is integrity.
+                           # (entry_state stays advisory: accepted lab scripts open every shot on one neutral pose,
+                           # "<Name> is visible with both arms lowered before the action begins")
+                           ("action", "primary_action"), ("shot", "blocking"), ("shot", "completion_state"),
+                           ("performance", "body_action"),
+                           ("performance", "business_en"))
 BOILERPLATE_ADVISORY_SHOT_FIELDS = (("camera_plan", "start_framing"), ("camera_plan", "end_framing"),
                                     ("camera_plan", "motivation"), ("shot", "axis"), ("shot", "camera"),
-                                    ("transition", "reason"))
+                                    ("transition", "reason"), ("shot", "entry_state"))
 #: per-scene rows (scene_states ambient text): advisory; pacing.scene_plan objective / conflict / action: blocking
 BOILERPLATE_SCENE_FIELDS = (("ambient_life", "motion_trend"), ("ambient_life", "first_frame_state"),
                             ("ambient_life", "reaction_progression"))
@@ -805,7 +820,11 @@ KNOWN_BOILERPLATE_PHRASES = (
     "the declared starting position", "the declared posture", "hut-to-field axis", "bamboo wind and field insects",
     "keep the conflict readable", "hold the readable conflict", "the listener reacts visibly",
     "no unregistered prop handoff", "locked readable framing", "推进调查并制造可见冲突", "嫌疑人或证据阻碍调查",
-    "抓、夺、定身、捆绑或人群逼近")
+    "抓、夺、定身、捆绑或人群逼近",
+    # 1485 E09 (JA anime): the per-shot action / state template
+    "grabs the desk or clenches a fist", "the immediate conflict is already active",
+    "the speaker finishes the gesture", "one distinct gesture driven by the conflict",
+    "makes one clear anime gesture", "delivers the line with a clear anime gesture")
 _NAME_RUN = re.compile(r"\b[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*")
 
 
@@ -958,13 +977,37 @@ def location_contradictions(contract: dict[str, Any], rows: list[dict[str, Any]]
     return out
 
 
+def scene_order_failures(contract: dict[str, Any]) -> list[str]:
+    """The shots array is the playback order: a scene_id that comes back after another scene has started is a shot
+    filed at the wrong place (deep review 1485 E09, 2026-11-23: the six silent scene-closing shots of S01-S05 were
+    appended after the last scene and played as a 9 s montage at the end of the episode).  A shot that declares
+    ``intercut: true`` or an INTERCUT / CROSS_CUT / FLASHBACK transition may return."""
+    out: list[str] = []
+    order: list[str] = []
+    for shot in (contract or {}).get("shots") or []:
+        if not isinstance(shot, dict):
+            continue
+        scene = _clean(shot.get("scene_id"))
+        if not scene:
+            continue
+        spec = shot.get("prompt_spec") if isinstance(shot.get("prompt_spec"), dict) else {}
+        mode = str((_field_source(shot, spec, "transition") or {}).get("transition_mode")
+                   or shot.get("incoming_transition_mode") or "").upper()
+        if order and scene != order[-1] and scene in order and not shot.get("intercut") \
+                and mode not in INTERCUT_MODES:
+            out.append(f"SCENE_NOT_CONTIGUOUS:{scene}:{_clean(shot.get('shot_id'))}")
+        if not order or order[-1] != scene:
+            order.append(scene)
+    return out[:8]
+
+
 def integrity_failures(contract: dict[str, Any], language: str | None = None,
                        metrics: dict[str, Any] | None = None) -> list[str]:
     """The non-admittable part of the check: boilerplate and a same-place split whose action names another place."""
     contract = contract if isinstance(contract, dict) else {}
     m = metrics if metrics is not None else measure(contract, language)
     rows = timeline(contract, m.get("language") or contract_language(contract, language))
-    failures = boilerplate_failures(contract)
+    failures = scene_order_failures(contract) + boilerplate_failures(contract)
     contradicted = location_contradictions(contract, rows)
     for pair in m.get("same_place_splits") or []:
         a, _, b = pair.partition(">")
@@ -1010,10 +1053,16 @@ FIXES = {
     "ADAPTATION_PLAN_MISSING": "write adaptation_plan: source_chapters, plot_events, cut",
     "ADAPTATION_TOO_THIN": "budget the episode by plot events: cover at least the required turns from the source",
     "BOILERPLATE_TEXT": "write each scene's own start/end framing, ambience, axis, transition and scene plan from "
-                        "THAT scene's place and action (who is where, what is heard there) -- never one series "
-                        "template copied onto every shot (integrity: not admitted after revisions)",
+                        "THAT scene's place and action (who is where, what is heard there), and each shot's own "
+                        "action / blocking / exit / gesture from THAT line (what this person physically does here, "
+                        "with which prop or partner) -- never one series template copied onto every shot "
+                        "(integrity: not admitted after revisions)",
     "BOILERPLATE_PHRASE": "replace the template sentences ('the declared subject / location / beat', a copied "
                           "ambience or axis) with the shot's concrete content",
+    "SCENE_NOT_CONTIGUOUS": "the shots array is the playback order: put every shot inside its own scene (a scene's "
+                            "closing / silent beat goes after that scene's last line, before the next scene starts); "
+                            "only a declared intercut (intercut: true or an INTERCUT / FLASHBACK transition) may "
+                            "return to an earlier scene (integrity)",
     "SCENE_SPLIT_LOCATION_CONTRADICTS_ACTION": "the action happens somewhere else than the scene's location_id "
                                                "(a boat, a shop, a street): give that scene its own location, "
                                                "ambience and axis, or move the action back (integrity)",
