@@ -248,7 +248,7 @@ class BudgetTest(unittest.TestCase):
     def test_over_budget_episode_skips_without_a_call(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            req = _pack_and_request(root, duration=6000)
+            req = _pack_and_request(root, duration=30000)   # even A alone on Flash at 1 fps LOW is over 25
             calls: list = []
             record = gvr.run(request_path=req, out=root / "g.json", post=_post(calls), transcoder=_transcode,
                              environ={"HOPSAPI_API_KEY": "k"}, context={"cards": []})
@@ -294,7 +294,13 @@ class MergeTest(_Base):
         self.assertEqual(decisions, {"S1": "CONFIRMED", "S2": "NOT_ANSWERED", "S3": "CONFIRMED", "S4": "NOT_ANSWERED"})
         self.assertEqual(record["verdict"], "REJECT_RECUT")
         self.assertEqual(record["craft_summary"]["opening_hook"]["at"], 0.5)
-        self.assertAlmostEqual(record["cost_credits"], 4 * (20000 * 50.25e-6 + 2000 * 251.25e-6), places=2)
+        # each pass is billed at the model it ran on (2026-11-23: A/B/D Pro, C Flash; the 25-credit plan may step
+        # B / D down to Flash)
+        expected = sum(20000 * PRICES[v["model"]][0] / 1e6 + 2000 * PRICES[v["model"]][1] / 1e6
+                       for v in record["passes"].values())
+        self.assertAlmostEqual(record["cost_credits"], expected, places=2)
+        self.assertEqual(record["passes"]["A"]["model"], "gemini-3.1-pro-preview")
+        self.assertEqual(record["passes"]["C"]["model"], "gemini-3.8-flash")
         self.assertEqual(set(record["passes"]), set(mp.PASS_IDS))
         self.assertEqual(record["cards_sent"], 1)
         # the summary lines and the must-check record still read it

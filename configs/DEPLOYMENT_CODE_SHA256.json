@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2558,
+  "file_count": 2559,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -477,7 +477,7 @@
     },
     {
       "path": "lines/nalu/docs/PIPELINE_RUNBOOK.md",
-      "sha256": "2ef61ac5753aa0bee9277c4d78e8ef5bf60419d85f1a7d14b0b6ddb4edf90709"
+      "sha256": "bb8c3de004e20fcaba762cfc9e300c5ff25350f0d69816bd0decab5f500abfae"
     },
     {
       "path": "lines/nalu/docs/PORT_PARITY_REPORT.md",
@@ -741,11 +741,11 @@
     },
     {
       "path": "lines/nalu/runtime/tools/gemini_review_passes.py",
-      "sha256": "167b86b26d3da21972b25cfeb873377462cc136d4eb2b0bc16bc951fd842878a"
+      "sha256": "0f65835ffeacb0de5c395c5378e3b9e080a8262608b7cf4cc2af30351bb84b08"
     },
     {
       "path": "lines/nalu/runtime/tools/gemini_video_review.py",
-      "sha256": "0c92ce04ca8203fa0792f3448589b1a6adfcd3cc4f89a3dc43678a93f92b18df"
+      "sha256": "8afd4b54502504b8f62170dc7366c98214e294fa1313b7e1fbfb68c961f2b1f2"
     },
     {
       "path": "lines/nalu/runtime/tools/generate_period_look.py",
@@ -8621,7 +8621,11 @@
     },
     {
       "path": "tools/tests/test_nalu_gemini_multipass.py",
-      "sha256": "feb98beba311274b728f6b78299dc712494f75fc3e276db54383f11818dd602f"
+      "sha256": "69ee08c9aa1fbe1ea203f3fcd5e4b0854b7654ed0dfd40c23f53272fc15739c8"
+    },
+    {
+      "path": "tools/tests/test_nalu_gemini_review_models.py",
+      "sha256": "78485c84baa0e9d5d0974e9ad8bdcd0c56ee10ea522b5ef4f56ad389d4a6a5a4"
     },
     {
       "path": "tools/tests/test_nalu_h3_resolution.py",

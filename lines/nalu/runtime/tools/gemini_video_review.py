@@ -24,7 +24,9 @@ for each dismissal.
 Mode (``NALU_GEMINI_REVIEW_MODE``): ``multipass`` (default since 2026-11-20, gemini_review_passes.py) sends four
 specialist passes in parallel -- A picture / AI artefacts at 720p HIGH media resolution, B identity & continuity with
 the identity cards and the scene list, C sound, D director / craft with the storyboard and the craft standard --
-under ``NALU_GEMINI_REVIEW_MAX_CREDITS`` (default 8.0) and merges them into the same record (ids G1.. / S1.., plus
+A, B, D on gemini-3.1-pro-preview and C on gemini-3.8-flash (2026-11-23; ``NALU_GEMINI_REVIEW_MODEL_A``..``_D``,
+``NALU_GEMINI_REVIEW_MODEL`` for every pass without its own) -- under ``NALU_GEMINI_REVIEW_BUDGET`` (alias
+``NALU_GEMINI_REVIEW_MAX_CREDITS``, default 25.0) and merges them into the same record (ids G1.. / S1.., plus
 ``pass`` and ``scope_hint`` per finding and ``passes`` per pass).  ``single`` is the original one-call Pass B above
 (default cap 1.5).
 
@@ -60,12 +62,12 @@ DEFAULT_BASE_URL = "https://hopsapi.com/v1"
 DEFAULT_FPS = 2.0
 FPS_STEPS = (2.0, 1.5, 1.0)
 MAX_CREDITS_DEFAULT = 1.5          # single pass
-MULTIPASS_MAX_CREDITS_DEFAULT = 8.0
+MULTIPASS_MAX_CREDITS_DEFAULT = 25.0  # == gemini_review_passes.MAX_CREDITS_DEFAULT (2026-11-23)
 MODE_ENV = "NALU_GEMINI_REVIEW_MODE"
 MODES = ("multipass", "single")
 DEFAULT_MODE = "multipass"
-#: credits per 1M tokens (input, output incl. thinking) -- HopsAPI list prices used by the benchmark
-PRICES = {"gemini-3.8-flash": (50.25, 251.25), "gemini-3.1-pro-preview": (134.0, 804.0)}
+#: credits per 1M tokens (input, output incl. thinking) -- HopsAPI list prices (one table: gemini_review_passes)
+from gemini_review_passes import MODEL_PRICES as PRICES  # noqa: E402
 #: measured on the benchmark (fps 2, default media resolution): video 66 tokens / frame, audio 25 tokens / s
 VIDEO_TOKENS_PER_FRAME = 66
 AUDIO_TOKENS_PER_S = 25
@@ -409,13 +411,20 @@ def run(*, request_path: Path, out: Path, model: str | None = None, fps: float |
     scenes and storyboard -- by default read from the episode's own files (gemini_review_passes.episode_context)."""
     env = os.environ if environ is None else environ
     mode = review_mode(env, mode)
-    model = model or env.get("NALU_GEMINI_REVIEW_MODEL") or DEFAULT_MODEL
-    default_cap = MULTIPASS_MAX_CREDITS_DEFAULT if mode == "multipass" else MAX_CREDITS_DEFAULT
-    cap = max_credits if max_credits is not None else float(env.get("NALU_GEMINI_REVIEW_MAX_CREDITS")
-                                                             or default_cap)
+    pass_models: dict[str, str] | None = None
+    if mode == "multipass":
+        import gemini_review_passes as _mp  # noqa: PLC0415 -- same directory
+        pass_models = _mp.resolve_pass_models(env, model, tuple(passes or _mp.PASS_IDS))
+        cap = max_credits if max_credits is not None else _mp.budget_cap(env, MULTIPASS_MAX_CREDITS_DEFAULT)
+        distinct = sorted(set(pass_models.values()))
+        model = distinct[0] if len(distinct) == 1 else "+".join(distinct)
+    else:
+        model = model or env.get("NALU_GEMINI_REVIEW_MODEL") or DEFAULT_MODEL
+        cap = max_credits if max_credits is not None else float(env.get("NALU_GEMINI_REVIEW_MAX_CREDITS")
+                                                                 or MAX_CREDITS_DEFAULT)
     preferred = fps or float(env.get("NALU_GEMINI_REVIEW_FPS") or DEFAULT_FPS)
     record: dict[str, Any] = {"schema": SCHEMA, "tool": TOOL_ID, "recorded_at": _now(), "model": model,
-                              "mode": mode,
+                              "mode": mode, **({"models": pass_models} if pass_models else {}),
                               "authority": "ADVISORY_NOT_A_GATE: Codex verifies every finding; a failure never blocks",
                               "request": str(request_path), "request_sha256": _sha(request_path)}
 
@@ -446,7 +455,8 @@ def run(*, request_path: Path, out: Path, model: str | None = None, fps: float |
         duration = float((request.get("objective_summary") or {}).get("duration_seconds") or 0) or media_duration(video)
         measurements = ((request.get("qa_defect_checklist_request") or {}).get("measurements") or {})
         if mode == "multipass":
-            return _run_multipass(record, finish, request=request, video=video, duration=duration, model=model,
+            return _run_multipass(record, finish, request=request, video=video, duration=duration,
+                                  model=pass_models or model,
                                   cap=cap, key=key, env=env, post=post, transcoder=transcoder,
                                   measurements=measurements, context=context, passes=passes)
         transcoder = transcoder or transcode
@@ -487,7 +497,7 @@ def run(*, request_path: Path, out: Path, model: str | None = None, fps: float |
 
 
 def _run_multipass(record: dict[str, Any], finish: Callable[..., dict[str, Any]], *, request: dict[str, Any],
-                   video: Path, duration: float, model: str, cap: float, key: str, env: Any,
+                   video: Path, duration: float, model: str | dict[str, str], cap: float, key: str, env: Any,
                    post: Callable[..., tuple[int, bytes]], transcoder: Callable[..., Path] | None,
                    measurements: dict[str, Any], context: dict[str, Any] | None,
                    passes: tuple[str, ...] | None) -> dict[str, Any]:

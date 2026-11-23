@@ -43,7 +43,16 @@ the pass checked and passed), so coverage is systematic rather than free-form; a
 becomes a P3 ``from_checklist`` finding.  Pass B also compares every same-sex pair of characters (``cast_compare``);
 a pair judged not distinct without a QA-LOOKALIKE-CAST finding becomes a P2 one with both characters' times.
 
-Budget: ``NALU_GEMINI_REVIEW_MAX_CREDITS`` (default 8.0) per episode, split across the passes.  Every pass is
+Models per pass (owner 2026-11-23, E24 A/B: gemini-3.1-pro-preview found 30 picture / story findings vs 19 on
+gemini-3.8-flash -- Flash missed burned text and several character / location details -- while the sound pass with
+the local ASR suspects was as good on Flash): A, B, D on ``gemini-3.1-pro-preview``, C on ``gemini-3.8-flash``.
+``NALU_GEMINI_REVIEW_MODEL_A`` .. ``_D`` override one pass; ``NALU_GEMINI_REVIEW_MODEL`` (or ``--model``) applies
+to every pass without its own override.  A Pro pass answered with a 4xx policy / model-unavailable status is
+retried once on gemini-3.8-flash (``model_fallback`` in the pass record); each pass records its ``model``.
+
+Budget: ``NALU_GEMINI_REVIEW_BUDGET`` (alias ``NALU_GEMINI_REVIEW_MAX_CREDITS``; default 25.0 since 2026-11-23,
+review cost is not a concern during the quality-fix period) per episode, split across the passes, each priced at
+its own model (Pro: + an expected ~8k thinking tokens per pass, billed as output).  Every pass is
 estimated before anything is sent; while the total is over the cap the lowest-priority pass that can still step
 down is degraded (D, then C, then B, then A: fps and media resolution), and when no pass can step down any more the
 lowest-priority pass is skipped (D -> C -> B; A last).  The recorded cost is computed from each response's usage.
@@ -67,18 +76,34 @@ from typing import Any, Callable
 
 SCHEMA_PASSES = "nalu.gemini_video_review.multipass.v1"
 MODE_ENV = "NALU_GEMINI_REVIEW_MODE"
-MAX_CREDITS_DEFAULT = 8.0
+MAX_CREDITS_DEFAULT = 25.0
+BUDGET_ENVS = ("NALU_GEMINI_REVIEW_BUDGET", "NALU_GEMINI_REVIEW_MAX_CREDITS")
+PRO_MODEL = "gemini-3.1-pro-preview"
+FLASH_MODEL = "gemini-3.8-flash"
+MODEL_ENV = "NALU_GEMINI_REVIEW_MODEL"
+#: owner 2026-11-23 (E24 A/B): picture, identity and director passes on Pro, sound on Flash
+PASS_MODELS: dict[str, str] = {"A": PRO_MODEL, "B": PRO_MODEL, "C": FLASH_MODEL, "D": PRO_MODEL}
+#: credits per 1M tokens (input, output incl. thinking) -- HopsAPI list prices (2026-11-23)
+MODEL_PRICES: dict[str, tuple[float, float]] = {FLASH_MODEL: (50.25, 251.25), PRO_MODEL: (134.0, 804.0)}
+#: thinking tokens a model spends per pass ON TOP of ``expected_out`` (which already holds Flash's ~1.2k).  Pro
+#: thinks dynamically (no thinkingBudget sent): E24 2026-11-23 2-7.9k per call, ~8k on a full pass
+THINKING_TOKENS: dict[str, int] = {PRO_MODEL: 8000}
+#: a Pro pass answered with one of these (policy / permission / model unavailable; HopsAPI 424) is retried once
+#: on FALLBACK_MODEL.  401 (key) and 429 / 5xx (retried with backoff) are not model problems.
+FALLBACK_MODEL = FLASH_MODEL
+FALLBACK_STATUSES = (400, 403, 404, 424, 451)
 PASS_IDS = ("A", "B", "C", "D")
 #: lowest priority first: degraded first, skipped first
 DEGRADE_ORDER = ("D", "C", "B", "A")
 #: video tokens per frame by media resolution (measured on HopsAPI gemini-3.8-flash, 2026-11-19/20: 66 default,
 #: 264 high), image tokens by resolution (Gemini 3 documentation), audio 25 tokens / s
-VIDEO_TOKENS = {"LOW": 66, "HIGH": 264}
-IMAGE_TOKENS = {"LOW": 280, "HIGH": 1120}
+#: DEFAULT = no mediaResolution sent (video: same 66 tokens / frame as LOW; images: the model's default, high)
+VIDEO_TOKENS = {"LOW": 66, "DEFAULT": 66, "HIGH": 264}
+IMAGE_TOKENS = {"LOW": 280, "DEFAULT": 1120, "HIGH": 1120}
 AUDIO_TOKENS_PER_S = 25
 MAX_OUTPUT_TOKENS = 16384
 MAX_UPLOAD_BYTES = 14_500_000
-MEDIA_RESOLUTION = {"LOW": "MEDIA_RESOLUTION_LOW", "HIGH": "MEDIA_RESOLUTION_HIGH"}
+MEDIA_RESOLUTION = {"LOW": "MEDIA_RESOLUTION_LOW", "DEFAULT": None, "HIGH": "MEDIA_RESOLUTION_HIGH"}
 CARD_MAX_SIDE = 768
 MAX_CARDS = 6
 LOG_MAX_ROWS = 80
@@ -99,15 +124,17 @@ PASSES: dict[str, dict[str, Any]] = {
           "ladder": ((2.0, "HIGH"), (1.5, "HIGH"), (1.0, "HIGH"), (2.0, "LOW"), (1.0, "LOW"))},
     "B": {"name": "IDENTITY_CONTINUITY", "audio": False, "scale": (720, 1280), "expected_out": 4900,
           # dynamic thinking spent 0 tokens on B once (empty card comparison); thinkingLevel "high" ran to the
-          # 16k output cap (truncated JSON, 6.9 credits) -- a fixed budget bounds it
+          # 16k output cap (truncated JSON, 6.9 credits) -- a fixed budget bounds it (Flash only: Pro thinks
+          # dynamically, see THINKING_TOKENS)
           "thinking_budget": 3072,
           "ladder": ((2.0, "HIGH"), (1.5, "HIGH"), (1.0, "HIGH"), (2.0, "LOW"), (1.0, "LOW"))},
     "C": {"name": "SOUND", "audio": True, "scale": (432, 768), "expected_out": 3000,
           "ladder": ((2.0, "LOW"), (1.0, "LOW"))},
     # + one unit_parity row per unit (2026-11-23) in place of the craft_summary beat rows: +400 for the "seen" text.
     # The budget split is unchanged: at 100 s A keeps 2 fps HIGH, at 110 s 1.5 fps HIGH (as before plan parity)
+    # 2026-11-23: on Pro at the default media resolution (432p, 2 fps), as in the E24 A/B
     "D": {"name": "DIRECTOR_CRAFT", "audio": True, "scale": (432, 768), "expected_out": 2800,
-          "ladder": ((2.0, "LOW"), (1.0, "LOW"))},
+          "ladder": ((2.0, "DEFAULT"), (1.0, "DEFAULT"))},
 }
 
 #: class -> (pass, Chinese checklist text).  Existing ids (QA-*, LETTERBOX, LOOK-DRIFT, OTHER) keep their meaning.
@@ -857,34 +884,82 @@ def build_pass_prompt(pid: str, *, duration: float, context: dict[str, Any] | No
     return "\n".join(lines)
 
 
-# ============================================================================================== budget
+# ============================================================================================== models + budget
+def resolve_pass_models(environ: Any = None, override: str | None = None,
+                        passes: tuple[str, ...] = PASS_IDS) -> dict[str, str]:
+    """{pass: model}: ``NALU_GEMINI_REVIEW_MODEL_<P>`` > ``override`` (``--model``) > ``NALU_GEMINI_REVIEW_MODEL``
+    > PASS_MODELS."""
+    env = os.environ if environ is None else environ
+    common = str(override or env.get(MODEL_ENV) or "").strip()
+    return {p: str(env.get(f"{MODEL_ENV}_{p}") or "").strip() or common or PASS_MODELS[p] for p in passes}
+
+
+def _models(model: str | dict[str, str] | None, passes: tuple[str, ...] = PASS_IDS) -> dict[str, str]:
+    """A single model for every pass (the pre-2026-11-23 call shape), a per-pass map, or the defaults."""
+    if isinstance(model, dict):
+        return {p: model.get(p) or PASS_MODELS[p] for p in passes}
+    return {p: model or PASS_MODELS[p] for p in passes}
+
+
+def budget_cap(environ: Any = None, default: float = MAX_CREDITS_DEFAULT) -> float:
+    env = os.environ if environ is None else environ
+    for name in BUDGET_ENVS:
+        value = _num(env.get(name))
+        if value is not None and value > 0:
+            return value
+    return default
+
+
+def thinking_budget(pid: str, model: str) -> int | None:
+    """The fixed thinkingBudget sent for a pass: Flash keeps the pass's own (B 3072); Pro thinks dynamically."""
+    return None if model in THINKING_TOKENS else PASSES[pid].get("thinking_budget")
+
+
+def expected_output_tokens(pid: str, model: str) -> int:
+    return int(PASSES[pid]["expected_out"]) + int(THINKING_TOKENS.get(model, 0))
+
+
+def pass_ladder(pid: str, model: str) -> tuple[tuple[str, float, str], ...]:
+    """(model, fps, media resolution) from preferred to cheapest.  A pass on a model other than FALLBACK_MODEL keeps
+    that model only for its top fps steps (>= 1.5 fps at the preferred resolution) and then steps down to
+    FALLBACK_MODEL's full ladder: a Pro pass's cost is mostly its answer + thinking, so dropping its fps saves little
+    while a Flash pass at full resolution still sees the burned text / faces (2026-11-23)."""
+    ladder = PASSES[pid]["ladder"]
+    if model == FALLBACK_MODEL:
+        return tuple((model, f, r) for f, r in ladder)
+    top = tuple((model, f, r) for f, r in ladder if r == ladder[0][1] and f >= 1.5)
+    return top + tuple((FALLBACK_MODEL, f, r) for f, r in ladder)
+
+
 def estimate_pass(model: str, prices: dict[str, tuple[float, float]], *, pid: str, duration: float, fps: float,
                   res: str, prompt_chars: int, images: int = 0) -> float:
-    pin, pout = prices.get(model) or next(iter(prices.values()))
+    pin, pout = prices.get(model) or MODEL_PRICES.get(model) or next(iter(prices.values()))
     tokens = duration * fps * VIDEO_TOKENS[res] + images * IMAGE_TOKENS[res] + prompt_chars / 1.6 + 300
     if PASSES[pid]["audio"]:
         tokens += duration * AUDIO_TOKENS_PER_S
-    return round(tokens * pin / 1e6 + PASSES[pid]["expected_out"] * pout / 1e6, 3)
+    return round(tokens * pin / 1e6 + expected_output_tokens(pid, model) * pout / 1e6, 3)
 
 
-def plan_budget(model: str, prices: dict[str, tuple[float, float]], *, duration: float, cap: float,
-                prompt_chars: dict[str, int], images: dict[str, int] | None = None,
+def plan_budget(model: str | dict[str, str] | None, prices: dict[str, tuple[float, float]], *, duration: float,
+                cap: float, prompt_chars: dict[str, int], images: dict[str, int] | None = None,
                 passes: tuple[str, ...] = PASS_IDS) -> dict[str, Any]:
-    """{pass: {fps, res, estimate} | {skipped: reason}} and the total.  Degrade D, C, B, A (one ladder step at a
-    time, lowest priority first) until the estimate fits ``cap``; then skip D, C, B.  A is never skipped while it
-    alone fits."""
+    """{pass: {model, fps, res, estimate} | {skipped: reason}} and the total.  Degrade D, C, B, A (one pass_ladder
+    step at a time, lowest priority first) until the estimate fits ``cap``; then skip D, C, B.  A is never skipped
+    while it alone fits."""
     images = images or {}
+    models = _models(model, passes)
+    ladders = {p: pass_ladder(p, models[p]) for p in passes}
     step = {p: 0 for p in passes}
     active = list(passes)
 
     def est(p: str) -> float:
-        fps, res = PASSES[p]["ladder"][step[p]]
-        return estimate_pass(model, prices, pid=p, duration=duration, fps=fps, res=res,
+        use, fps, res = ladders[p][step[p]]
+        return estimate_pass(use, prices, pid=p, duration=duration, fps=fps, res=res,
                              prompt_chars=prompt_chars.get(p, 2000), images=images.get(p, 0))
 
     skipped: dict[str, str] = {}
     while active and sum(est(p) for p in active) > cap:
-        movable = [p for p in DEGRADE_ORDER if p in active and step[p] + 1 < len(PASSES[p]["ladder"])]
+        movable = [p for p in DEGRADE_ORDER if p in active and step[p] + 1 < len(ladders[p])]
         if movable:
             step[movable[0]] += 1
             continue
@@ -893,13 +968,22 @@ def plan_budget(model: str, prices: dict[str, tuple[float, float]], *, duration:
             break
         active.remove(victim)
         skipped[victim] = "BUDGET_SKIPPED"
+    # the greedy descent can overshoot (a whole Pro step at once): give the slack back, highest priority first
+    for p in reversed(DEGRADE_ORDER):
+        while p in active and step[p] > 0:
+            step[p] -= 1
+            if sum(est(q) for q in active) <= cap:
+                continue
+            step[p] += 1
+            break
     plan: dict[str, Any] = {}
     for p in passes:
         if p in skipped:
             plan[p] = {"skipped": skipped[p]}
         elif p in active:
-            fps, res = PASSES[p]["ladder"][step[p]]
-            plan[p] = {"fps": fps, "res": res, "estimate": est(p), "degraded_steps": step[p]}
+            use, fps, res = ladders[p][step[p]]
+            plan[p] = {"model": use, "fps": fps, "res": res, "estimate": est(p), "degraded_steps": step[p],
+                       **({"model_planned": models[p]} if use != models[p] else {})}
     total = round(sum(v.get("estimate", 0.0) for v in plan.values()), 3)
     if active and total > cap:   # even A alone at its cheapest does not fit
         plan = {p: {"skipped": "ESTIMATE_OVER_BUDGET"} for p in passes}
@@ -979,7 +1063,8 @@ def request_body(*, video_bytes: bytes, prompt: str, fps: float, res: str,
     parts.append({"text": prompt})
     return {"contents": [{"role": "user", "parts": parts}],
             "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json",
-                                 "maxOutputTokens": MAX_OUTPUT_TOKENS, "mediaResolution": MEDIA_RESOLUTION[res],
+                                 "maxOutputTokens": MAX_OUTPUT_TOKENS,
+                                 **({"mediaResolution": MEDIA_RESOLUTION[res]} if MEDIA_RESOLUTION[res] else {}),
                                  **({"thinkingConfig": {"thinkingBudget": int(thinking_budget)}}
                                     if thinking_budget else {})}}
 
@@ -1245,7 +1330,8 @@ def split_suspects(suspects: dict[str, list[dict[str, Any]]]) -> dict[str, dict[
 
 
 # ============================================================================================== run
-def run_passes(*, video: Path, duration: float, model: str, prices: dict[str, tuple[float, float]], cap: float,
+def run_passes(*, video: Path, duration: float, model: str | dict[str, str] | None,
+               prices: dict[str, tuple[float, float]], cap: float,
                key: str, base_url: str, post: Callable[..., tuple[int, bytes]], context: dict[str, Any],
                leads: dict[str, Any], suspects: dict[str, list[dict[str, Any]]], anime: bool,
                craft: list[dict[str, str]], measured_pacing: dict[str, Any] | None,
@@ -1257,8 +1343,10 @@ def run_passes(*, video: Path, duration: float, model: str, prices: dict[str, tu
                sleep: Callable[[float], None] | None = None, deadline_s: float = DEADLINE_S,
                clock: Callable[[], float] = time.monotonic) -> dict[str, Any]:
     """Plan, prepare, call (parallel) and merge.  Never raises for a single pass: each pass records its own
-    status (OK | SKIPPED | ERROR) and reason."""
+    status (OK | SKIPPED | ERROR) and reason.  ``model``: one model for every pass or {pass: model}
+    (resolve_pass_models)."""
     sleep = sleep or (lambda seconds: time.sleep(seconds))
+    models = _models(model, passes)
     t_end = clock() + deadline_s
     per_pass_suspects = split_suspects(suspects)
     cards = [dict(c) for c in context.get("cards") or []]
@@ -1278,7 +1366,7 @@ def run_passes(*, video: Path, duration: float, model: str, prices: dict[str, tu
         prompts = {p: build_pass_prompt(p, duration=duration, context=ctx, leads=leads,
                                         suspects=per_pass_suspects[p], anime=anime, craft=craft,
                                         measured_pacing=measured_pacing) for p in passes}
-        plan = plan_budget(model, prices, duration=duration, cap=cap,
+        plan = plan_budget(models, prices, duration=duration, cap=cap,
                            prompt_chars={p: len(t) for p, t in prompts.items()},
                            images={"B": len(card_bytes)}, passes=passes)
         results: dict[str, dict[str, Any]] = {}
@@ -1293,7 +1381,8 @@ def run_passes(*, video: Path, duration: float, model: str, prices: dict[str, tu
             except Exception as exc:  # noqa: BLE001
                 results[p] = {"status": "ERROR", "reason": f"MEDIA:{type(exc).__name__}:{str(exc)[:160]}"}
                 continue
-            results[p] = {"status": "PENDING", "fps": cfg["fps"], "media_resolution": cfg["res"],
+            results[p] = {"status": "PENDING", "model": cfg["model"], "fps": cfg["fps"], "media_resolution": cfg["res"],
+                          **({"model_planned": cfg["model_planned"]} if cfg.get("model_planned") else {}),
                           "estimated_credits": cfg["estimate"], "chunks": len(media),
                           "upload_bytes": sum(m["path"].stat().st_size for m in media)}
             for m in media:
@@ -1308,35 +1397,51 @@ def run_passes(*, video: Path, duration: float, model: str, prices: dict[str, tu
             prompt = prompts[p] if window is None else build_pass_prompt(
                 p, duration=duration, context=ctx, leads=leads, suspects=per_pass_suspects[p], anime=anime,
                 window=window, craft=craft, measured_pacing=measured_pacing)
-            body = request_body(video_bytes=m["path"].read_bytes(), prompt=prompt, fps=cfg["fps"], res=cfg["res"],
-                                images=card_bytes if p == "B" else None,
-                                thinking_budget=PASSES[p].get("thinking_budget"))
-            data = json.dumps(body).encode()
+            video_bytes = m["path"].read_bytes()
             started = time.time()
             retries = 0
-            while True:
-                left = t_end - clock()
-                if left < 30:
-                    status, raw = 0, b"DEADLINE"
-                    break
-                try:
-                    status, raw = post(f"{base_url.rstrip('/')}/models/{model}:generateContent", data,
-                                       {"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                                       min(CALL_TIMEOUT_S, left))
-                except Exception as exc:  # noqa: BLE001
-                    status, raw = 0, f"{type(exc).__name__}:{str(exc)[:200]}".encode()
-                if status == 200 or status not in RETRY_STATUSES or retries >= len(RETRY_BACKOFF_S):
-                    break
-                if t_end - clock() < RETRY_BACKOFF_S[retries] + 60:
-                    break
-                sleep(RETRY_BACKOFF_S[retries])
-                retries += 1
+
+            def attempt(use: str) -> tuple[int, bytes]:
+                nonlocal retries
+                body = request_body(video_bytes=video_bytes, prompt=prompt, fps=cfg["fps"], res=cfg["res"],
+                                    images=card_bytes if p == "B" else None,
+                                    thinking_budget=thinking_budget(p, use))
+                data = json.dumps(body).encode()
+                tries = 0
+                while True:
+                    left = t_end - clock()
+                    if left < 30:
+                        return 0, b"DEADLINE"
+                    try:
+                        status, raw = post(f"{base_url.rstrip('/')}/models/{use}:generateContent", data,
+                                           {"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                                           min(CALL_TIMEOUT_S, left))
+                    except Exception as exc:  # noqa: BLE001
+                        status, raw = 0, f"{type(exc).__name__}:{str(exc)[:200]}".encode()
+                    if status == 200 or status not in RETRY_STATUSES or tries >= len(RETRY_BACKOFF_S):
+                        return status, raw
+                    if t_end - clock() < RETRY_BACKOFF_S[tries] + 60:
+                        return status, raw
+                    sleep(RETRY_BACKOFF_S[tries])
+                    tries += 1
+                    retries += 1
+
+            used = cfg["model"]
+            status, raw = attempt(used)
+            fallback = None
+            if status in FALLBACK_STATUSES and used != FALLBACK_MODEL:
+                # 2026-11-23: a Pro pass refused (policy / model unavailable) is answered once on Flash
+                fallback = {"from": used, "to": FALLBACK_MODEL, "http_status": status,
+                            "error": redact(raw.decode("utf-8", errors="replace")[:300], key)}
+                used = FALLBACK_MODEL
+                status, raw = attempt(used)
             try:
                 payload = json.loads(raw.decode("utf-8", errors="replace") or "{}") if status == 200 else {}
             except ValueError:
                 payload = {}
             return p, m, {"http_status": status, "payload": payload, "latency_s": round(time.time() - started, 1),
-                          "prompt_chars": len(prompt), "retries": retries,
+                          "prompt_chars": len(prompt), "retries": retries, "model": used,
+                          **({"model_fallback": fallback} if fallback else {}),
                           "error": None if status == 200 else redact(raw.decode("utf-8", errors="replace")[:600], key)}
 
         answers: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {}
@@ -1363,7 +1468,11 @@ def run_passes(*, video: Path, duration: float, model: str, prices: dict[str, tu
             for k in ("promptTokenCount", "candidatesTokenCount", "thoughtsTokenCount", "totalTokenCount"):
                 usage_sum[k] = usage_sum.get(k, 0) + int(usage.get(k) or 0)
             if usage and actual_credits:
-                cost += actual_credits(model, usage)
+                cost += actual_credits(res.get("model") or rec["model"], usage)
+            if res.get("model_fallback"):
+                rec["model_fallback"] = res["model_fallback"]
+                if res.get("http_status") == 200:
+                    rec["model"] = res["model"]
             rec["latency_s"] = max(rec.get("latency_s") or 0, res.get("latency_s") or 0)
             rec["retries"] = (rec.get("retries") or 0) + int(res.get("retries") or 0)
             if res.get("http_status") != 200:
