@@ -83,7 +83,9 @@ class S6RecordTest(unittest.TestCase):
         (p.preprod_reports / "E07_S6_WAVE_STATE.json").write_text(json.dumps(state, ensure_ascii=False), "utf-8")
         ctx = SimpleNamespace(p=p, episode="E07")
         out = json.loads(npl.s7_residual_burn_bands(ctx).read_text(encoding="utf-8"))
-        self.assertEqual(out["units"]["E07-VU-004"], {"y0": 0.8431, "y1": 0.9095, "texts": [LINE]})
+        unit = out["units"]["E07-VU-004"]
+        self.assertEqual({k: unit[k] for k in ("y0", "y1", "texts")}, {"y0": 0.8431, "y1": 0.9095, "texts": [LINE]})
+        self.assertIn("ocr", unit)          # the strict check's per-frame OCR (here: an unreadable fake clip)
 
     def test_unresolved_record_writes_texts_next_to_the_band(self):
         src = (ROOT / "lines/nalu/runtime/tools/nalu_pipeline.py").read_text(encoding="utf-8")
@@ -91,6 +93,8 @@ class S6RecordTest(unittest.TestCase):
 
 
 class BurnInSuppressionTest(unittest.TestCase):
+    """2026-11-23: the suppression runs on the STRICT verdict over per-frame OCR (test_strict_burned_line_check);
+    the OCR texts alone (the PR #299 record) never suppress any more."""
     def setUp(self):
         import build_burnin_subtitles as bbs
         self.bbs = bbs
@@ -99,28 +103,36 @@ class BurnInSuppressionTest(unittest.TestCase):
         lines = [("E07-VU-004", LINE, 12.6, 14.0), ("E07-VU-004", "でも、もう遅いのです。", 14.1, 15.6),
                  ("E07-VU-005", LINE, 16.0, 17.2)]
         events = [(a, b, {"text": t}) for _u, t, a, b in lines]
-        report = [{"unit_id": u, "shot_id": "s", "text": t, "start": a, "end": b} for u, t, a, b in lines]
+        report = [{"unit_id": u, "shot_id": f"s{i}", "text": t, "start": a, "end": b, "source_start": a - 12.0,
+                   "source_end": b - 12.0} for i, (u, t, a, b) in enumerate(lines)]
         return events, report
 
-    def test_matching_cue_is_suppressed_other_cues_kept(self):
+    @staticmethod
+    def frames(text, n=10):
+        return [{"t": 0.5 + i / 4.0, "w": 720, "h": 1280,
+                 "boxes": [{"text": text, "score": 0.97, "box": [160, 1094, 560, 1148]}]} for i in range(n)]
+
+    def test_exact_burned_line_is_suppressed_other_cues_kept(self):
         events, report = self.rows()
-        ev, rep, gone = self.bbs.suppress_already_burned(events, report, {"E07-VU-004": ["言わないでくださいまし"]})
+        ev, rep, gone, checks = self.bbs.suppress_already_burned(
+            events, report, {"E07-VU-004": {"frames": self.frames("言わないでくださいまし")}}, "ja")
         self.assertEqual([r["text"] for r in rep], ["でも、もう遅いのです。", LINE])        # VU-005 has no burn
         self.assertEqual(len(ev), 2)
-        self.assertEqual((gone[0]["unit_id"], gone[0]["reason"]), ("E07-VU-004", "LINE_ALREADY_BURNED_IN_PICTURE"))
-        self.assertEqual(gone[0]["similarity"], 1.0)
+        self.assertEqual((gone[0]["unit_id"], gone[0]["reason"], gone[0]["verdict"]),
+                         ("E07-VU-004", "LINE_ALREADY_BURNED_IN_PICTURE", "ACCEPT_CORRECT"))
+        self.assertEqual(len(checks), 2)
 
-    def test_garbled_burn_keeps_the_cue(self):
+    def test_near_or_garbled_burn_keeps_the_cue(self):
         events, report = self.rows()
-        ev, rep, gone = self.bbs.suppress_already_burned(events, report, {"E07-VU-004": ["囗亅彡乂"]})
-        self.assertEqual((len(rep), gone), (3, []))
+        for read in ("言わないでくだきいまし", "囗亅彡乂"):
+            _ev, rep, gone, _c = self.bbs.suppress_already_burned(
+                events, report, {"E07-VU-004": {"frames": self.frames(read)}}, "ja")
+            self.assertEqual((len(rep), gone), (3, []), read)
 
-    def test_a_split_line_is_suppressed_by_its_whole_line(self):
-        events = [(1.0, 2.0, {"text": "言わないで"}), (2.0, 3.0, {"text": "くださいまし！"})]
-        report = [{"unit_id": "U", "text": "言わないで", "line_text": LINE}, {"unit_id": "U", "text": "くださいまし！",
-                                                                              "line_text": LINE}]
-        _ev, rep, gone = self.bbs.suppress_already_burned(events, report, {"U": [LINE]})
-        self.assertEqual((rep, len(gone)), ([], 2))
+    def test_texts_without_frames_never_suppress(self):
+        events, report = self.rows()
+        _ev, rep, gone, checks = self.bbs.suppress_already_burned(events, report, {"E07-VU-004": {}}, "ja")
+        self.assertEqual((len(rep), gone, checks[0]["verdict"]), (3, [], "REJECT_UNSTABLE"))
 
     def test_bands_file_texts(self):
         tmp = Path(tempfile.mkdtemp()) / "bands.json"
@@ -157,7 +169,8 @@ class FixRoundTest(unittest.TestCase):
 
     def test_suppressed_duplicate_is_p2_and_no_trigger(self):
         mapped = self.mapped({"items": {}, "s6_burn_unresolved": [
-            {"unit_id": "E07-VU-004", "retries": 2, "residual_in_subtitle_band": True, "duplicate_suppressed": True}]})
+            {"unit_id": "E07-VU-004", "retries": 2, "residual_in_subtitle_band": True, "duplicate_suppressed": True,
+             "strict_burn_verdicts": ["ACCEPT_CORRECT"]}]})
         self.assertEqual(mapped[0]["severity"], "P2")
         self.assertIn("suppressed", mapped[0]["text"])
         self.assertFalse(ffr.triggered(False, mapped))
@@ -200,7 +213,7 @@ class PipelineFallbackTest(unittest.TestCase):
 
     def test_suppressed_marker_and_superseded_take(self):
         (self.p.assembly / "E07_BURNIN_SUBTITLES.json").write_text(json.dumps(
-            {"suppressed_duplicate_cues": [{"unit_id": "E07-VU-004"}]}), "utf-8")
+            {"suppressed_duplicate_cues": [{"unit_id": "E07-VU-004", "verdict": "ACCEPT_CORRECT"}]}), "utf-8")
         row = self.npl.final_fix_s6_rows(self.ctx, {})["s6_burn_unresolved"][0]
         self.assertTrue(row["duplicate_suppressed"])
         (self.p.video_media / "E07-VU-004.mp4").write_bytes(b"redone take")       # the unit was redone since

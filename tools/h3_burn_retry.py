@@ -445,34 +445,155 @@ def longest_run(flags: list[bool]) -> int:
     return best
 
 
+ENV_SUSPECT = "NALU_S6_SUSPECT_TEXT"
+#: OCR frames kept per take for the strict burned-line check (4 fps x 15 s)
+MAX_OCR_FRAMES = 60
+
+
+def band_frame_row(t: float, image: Any, raw: list | None, band: tuple[float, float] | None = None
+                   ) -> dict[str, Any]:
+    """One sampled frame's raw OCR boxes of the subtitle-band crop in full-frame pixels -- the per-frame detail the
+    strict burned-line check (subtitle_text_match.strict_burned_line_check) reads: {t, w, h, boxes: [{text, score,
+    box: [x0, y0, x1, y1]}]}.  Boxes without text are dropped; nothing else is filtered (the check filters)."""
+    import tail_frame_text_clean as _ttc  # noqa: PLC0415
+    h, w = image.shape[:2]
+    y_off = int(round(h * (band or (_ttc.BAND_Y0, _ttc.BAND_Y1))[0]))
+    boxes = []
+    for box, text, score in raw or []:
+        if not str(text or "").strip():
+            continue
+        xs = [float(p[0]) for p in box]
+        ys = [float(p[1]) + y_off for p in box]
+        boxes.append({"text": str(text), "score": round(float(score), 4),
+                      "box": [int(min(xs)), int(min(ys)), int(round(max(xs))), int(round(max(ys)))]})
+    return {"t": t, "w": int(w), "h": int(h), "boxes": boxes}
+
+
+#: the strict burned-line check reads the kept take at the prototype's rate (every 2nd frame at 24 fps): at the S6
+#: 4 fps a correct, steady line measured SIZE_JITTER 0.066 / 0.093 (p95 - p5 of ~10 integer-pixel box heights) and
+#: was rejected; at 12 fps the same clips measure 0.02
+STRICT_FPS = 12.0
+
+
+def ocr_band_frames(video: Path, lang: str = "zh", *, fps: float = STRICT_FPS, frames: FrameReader | None = None,
+                    ocr: Any = None, model: str | None = None) -> dict[str, Any]:
+    """Re-read a kept take's subtitle band with the recogniser of the dialogue language (tools/ocr_lang_models):
+    {model, lang, sample_fps, frames} for the strict burned-line check in S7, or {error} -- never raises."""
+    out: dict[str, Any] = {"lang": lang, "sample_fps": fps, "source": "S7_REOCR"}
+    try:
+        reader = frames or _cv2_frames
+        if ocr is None:
+            import ocr_lang_models as _olm  # noqa: PLC0415
+            engine, model = _olm.engine(lang)  # no fallback: a wrong recogniser must not feed the strict check
+
+            def ocr(img: Any) -> list:
+                return engine(img)[0] or []
+        import tail_frame_text_clean as _ttc  # noqa: PLC0415
+        rows = []
+        for t, image in reader(Path(video), fps):
+            h = image.shape[0]
+            crop = image[int(round(h * _ttc.BAND_Y0)):int(round(h * _ttc.BAND_Y1))]
+            rows.append(band_frame_row(t, image, ocr(crop)))
+        out.update(model=model or "injected", frames=rows)
+    except Exception as exc:  # noqa: BLE001 - no frames: the strict check cannot accept (our cue is kept)
+        out["error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
+    return out
+
+
+def suspect_pass_enabled(env: dict[str, str] | None = None) -> bool:
+    value = str((env if env is not None else os.environ).get(ENV_SUSPECT, "1")).strip().lower()
+    return value not in ("0", "off", "false", "no")
+
+
 def detect(video: Path, *, fps: float = SAMPLE_FPS, ocr: Any = None, frames: FrameReader | None = None,
-           min_consecutive: int = MIN_CONSECUTIVE) -> dict[str, Any]:
+           min_consecutive: int = MIN_CONSECUTIVE, lines: list[str] | None = None, lang: str = "zh",
+           suspect_ocr: Any = None) -> dict[str, Any]:
     """Burned caption text in a raw H3 clip.  Never raises.
 
     ``status``: BURNED (hits in >= ``min_consecutive`` consecutive samples), CLEAN, or FAIL_OPEN (cannot measure:
-    treated as clean by the caller).  ``burned_frames`` counts every sample with a hit (the best-take measure)."""
+    treated as clean by the caller).  ``burned_frames`` counts every sample with a hit (the best-take measure).
+
+    Two passes per sample: the subtitle-band pass (tail_frame_text_clean.find_text_boxes) and, from 2026-11-23 (E24
+    review: garbled 「不姒伴」「揞哓」 and a 198 px mid-frame placard 「樸花美娇」 slipped through), a whole-frame pass
+    (find_suspect_text_boxes: score >= 0.4, any orientation / position, area <= 25 %) that keeps only text saying
+    the unit's ``lines`` or garbled text; its hits carry ``pass: WHOLE_FRAME`` + ``kind``.  The whole-frame pass runs
+    with the default engine (or ``suspect_ocr``); an injected band ``ocr`` without ``suspect_ocr`` skips it, and
+    ``NALU_S6_SUSPECT_TEXT=off`` disables it.  ``ocr_frames``: every sample's raw band boxes (band_frame_row) for
+    the strict burned-line check, recorded with the recogniser id ``ocr_model``."""
     started = time.perf_counter()
     out: dict[str, Any] = {"schema": SCHEMA, "video": str(video), "fps": fps, "min_consecutive": min_consecutive}
     try:
         import tail_frame_text_clean as _ttc  # noqa: PLC0415 - same OCR engine + filters as the tail cleaner
         reader = frames or _cv2_frames
-        engine = ocr or _ttc._default_ocr
+        model = "injected"
+        if ocr is None:
+            base, model = _language_ocr(lang)
+            out["ocr_model"] = model
+        else:
+            base = ocr
+        if suspect_ocr is None and ocr is None and suspect_pass_enabled():
+            suspect_ocr = base
+        raw_seen: list[Any] = []
+
+        def engine(img: Any) -> list:
+            result = base(img)
+            raw_seen.append(result)
+            return result
         flags: list[bool] = []
         hits: list[dict[str, Any]] = []
+        ocr_frames: list[dict[str, Any]] = []
+        suspects = 0
         for t, image in reader(Path(video), fps):
+            raw_seen.clear()
             boxes = _ttc.find_text_boxes(image, engine)
-            flags.append(bool(boxes))
+            if len(ocr_frames) < MAX_OCR_FRAMES:
+                ocr_frames.append(band_frame_row(t, image, raw_seen[0] if raw_seen else []))
+            extra: list[dict[str, Any]] = []
+            if suspect_ocr is not None:
+                try:
+                    extra = _ttc.find_suspect_text_boxes(image, suspect_ocr, lines=lines, lang=lang, skip=boxes)
+                except Exception as exc:  # noqa: BLE001 - the band pass still counts
+                    out.setdefault("suspect_error", f"{type(exc).__name__}: {str(exc)[:160]}")
+            flags.append(bool(boxes or extra))
+            h = float(image.shape[0])
             for b in boxes:
                 hits.append({"t": t, "text": b["text"], "score": b["score"],
                              "glyph_px_at_720": b["glyph_px_at_720"],
-                             "y_centre": round((b["y0"] + b["y1"]) / 2.0 / float(image.shape[0]), 3)})
+                             "y_centre": round((b["y0"] + b["y1"]) / 2.0 / h, 3)})
+            for b in extra:
+                suspects += 1
+                hits.append({"t": t, "text": b["text"], "score": b["score"], "glyph_px_at_720": b["glyph_px_at_720"],
+                             "y_centre": round((b["y0"] + b["y1"]) / 2.0 / h, 3),
+                             "x_centre": round((b["x0"] + b["x1"]) / 2.0 / float(image.shape[1]), 3),
+                             "pass": "WHOLE_FRAME", "kind": b["kind"], **({"vertical": True} if b["vertical"] else {})})
         run = longest_run(flags)
         out.update(status="BURNED" if run >= min_consecutive else "CLEAN", frames_sampled=len(flags),
-                   burned_frames=sum(flags), longest_run=run, hits=hits[:40])
+                   burned_frames=sum(flags), longest_run=run, hits=hits[:40], ocr_frames=ocr_frames,
+                   ocr_model=model,
+                   **({"suspect_hits": suspects} if suspects else {}))
     except Exception as exc:  # noqa: BLE001 - fail-open: never block the line on the detector
         out.update(status="FAIL_OPEN", error=f"{type(exc).__name__}: {exc}"[:300], burned_frames=0)
     out["elapsed_ms"] = round((time.perf_counter() - started) * 1000.0, 1)
     return out
+
+
+def _language_ocr(lang: str) -> tuple[Any, str]:
+    """(OCR callable, recogniser id) for the dialogue language: RapidOCR's bundled recogniser for zh / en, the pinned
+    Japanese / Korean recogniser for ja / ko (tools/ocr_lang_models; the bundled one misses kana -- lab 2026-11-23:
+    an all-kana burned line read as nothing).  A language model that cannot be loaded falls back to the bundled
+    recogniser (the detector behaves as before; the strict check then re-reads or rejects)."""
+    import tail_frame_text_clean as _ttc  # noqa: PLC0415
+    try:
+        import ocr_lang_models as _olm  # noqa: PLC0415
+        if _olm.model_id(lang) == _olm.DEFAULT_MODEL_ID:
+            return _ttc._default_ocr, _olm.DEFAULT_MODEL_ID
+        engine, model = _olm.engine(lang)
+
+        def ocr(img: Any) -> list:
+            return engine(img)[0] or []
+        return ocr, model
+    except Exception:  # noqa: BLE001
+        return _ttc._default_ocr, "rapidocr_onnxruntime-1.4.4-default"
 
 
 # ---------------------------------------------------------------------------------------------- retry planning

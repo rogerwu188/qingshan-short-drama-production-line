@@ -275,7 +275,9 @@ class BurnRedoLoopTest(unittest.TestCase):
         self.detect_kwargs: list[dict] = []
 
         def detect(clip, **kw):
-            self.detect_kwargs.append(kw)
+            # 2026-11-23: S6 also passes the unit's lines + dialogue language (whole-frame text pass); this test
+            # pins the burn-run rule only
+            self.detect_kwargs.append({k: v for k, v in kw.items() if k not in ("lines", "lang")})
             frames = self.burned.get(Path(clip).read_text(), 0)
             return {"status": "BURNED" if frames else "CLEAN", "frames_sampled": 24, "burned_frames": frames,
                     "longest_run": frames, "elapsed_ms": 1.0, "hits": []}
