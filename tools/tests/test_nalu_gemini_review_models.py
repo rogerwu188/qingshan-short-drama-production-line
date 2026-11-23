@@ -23,34 +23,35 @@ import test_nalu_gemini_multipass as base  # noqa: E402
 
 PRO, FLASH = mp.PRO_MODEL, mp.FLASH_MODEL
 #: prompt sizes of a real plan-parity episode (E24-like: D carries one row per unit)
-CHARS = {"A": 6000, "B": 5000, "C": 5500, "D": 9000}
+CHARS = {"A": 6000, "B": 5000, "C": 5500, "D": 9000, "E": 5000}
+FOUR = ("A", "B", "C", "D")
 CARDS = {"B": 4}
 
 
 class ModelSelectionTest(unittest.TestCase):
     def test_default_models_per_pass(self):
-        self.assertEqual(mp.resolve_pass_models({}), {"A": PRO, "B": PRO, "C": FLASH, "D": PRO})
+        self.assertEqual(mp.resolve_pass_models({}), {"A": PRO, "B": PRO, "C": FLASH, "D": PRO, "E": PRO})
         self.assertEqual(gvr.PRICES[PRO], (134.0, 804.0))
         self.assertEqual(gvr.PRICES[FLASH], (50.25, 251.25))
 
     def test_env_overrides(self):
         env = {"NALU_GEMINI_REVIEW_MODEL": "gemini-x", "NALU_GEMINI_REVIEW_MODEL_C": "gemini-c"}
         self.assertEqual(mp.resolve_pass_models(env), {"A": "gemini-x", "B": "gemini-x", "C": "gemini-c",
-                                                       "D": "gemini-x"})
+                                                       "D": "gemini-x", "E": "gemini-x"})
         self.assertEqual(mp.resolve_pass_models({"NALU_GEMINI_REVIEW_MODEL_D": FLASH}),
-                         {"A": PRO, "B": PRO, "C": FLASH, "D": FLASH})
+                         {"A": PRO, "B": PRO, "C": FLASH, "D": FLASH, "E": PRO})
         # --model beats the global env, a per-pass env beats both
         self.assertEqual(mp.resolve_pass_models({"NALU_GEMINI_REVIEW_MODEL": "g", "NALU_GEMINI_REVIEW_MODEL_A": "a"},
                                                 override="cli"),
-                         {"A": "a", "B": "cli", "C": "cli", "D": "cli"})
+                         {"A": "a", "B": "cli", "C": "cli", "D": "cli", "E": "cli"})
 
     def test_budget_default_and_env(self):
-        self.assertEqual(mp.budget_cap({}), 55.0)
-        self.assertEqual(gvr.MULTIPASS_MAX_CREDITS_DEFAULT, 55.0)
+        self.assertEqual(mp.budget_cap({}), 80.0)          # 2026-11-23: A at 3 fps + the tail pass E
+        self.assertEqual(gvr.MULTIPASS_MAX_CREDITS_DEFAULT, 80.0)
         self.assertEqual(mp.budget_cap({"NALU_GEMINI_REVIEW_MAX_CREDITS": "12"}), 12.0)
         self.assertEqual(mp.budget_cap({"NALU_GEMINI_REVIEW_BUDGET": "40",
                                         "NALU_GEMINI_REVIEW_MAX_CREDITS": "12"}), 40.0)
-        self.assertEqual(mp.budget_cap({"NALU_GEMINI_REVIEW_BUDGET": "junk"}), 55.0)
+        self.assertEqual(mp.budget_cap({"NALU_GEMINI_REVIEW_BUDGET": "junk"}), 80.0)
 
 
 class EstimateTest(unittest.TestCase):
@@ -66,11 +67,12 @@ class EstimateTest(unittest.TestCase):
     def test_a_25_credit_budget_keeps_pass_a_on_pro_and_steps_b_d_down_to_flash(self):
         for duration in (60.0, 110.0):
             plan = mp.plan_budget(mp.resolve_pass_models({}), gvr.PRICES, duration=duration, cap=25.0,
-                                  prompt_chars=CHARS, images=CARDS)
+                                  prompt_chars=CHARS, images=CARDS, passes=FOUR)
             p = plan["passes"]
             self.assertLessEqual(plan["estimated_credits"], 25.0)
             self.assertTrue(all("skipped" not in v for v in p.values()), p)
-            self.assertEqual((p["A"]["model"], p["A"]["fps"], p["A"]["res"]), (PRO, 2.0, "HIGH"))
+            self.assertEqual((p["A"]["model"], p["A"]["res"]), (PRO, "HIGH"))
+            self.assertGreaterEqual(p["A"]["fps"], 2.0)
             self.assertEqual(p["C"]["model"], FLASH)
             # a Pro pass that does not fit steps down to Flash before losing resolution
             self.assertEqual((p["B"]["model"], p["B"]["res"], p["B"]["model_planned"]), (FLASH, "HIGH", PRO))
@@ -80,26 +82,28 @@ class EstimateTest(unittest.TestCase):
             plan = mp.plan_budget(mp.resolve_pass_models({}), gvr.PRICES, duration=duration, cap=mp.budget_cap({}),
                                   prompt_chars=CHARS, images=CARDS)
             p = plan["passes"]
-            self.assertLessEqual(plan["estimated_credits"], 55.0)
+            self.assertLessEqual(plan["estimated_credits"], 80.0)
             self.assertEqual({k: (v["model"], v["fps"], v["res"]) for k, v in p.items()},
-                             {"A": (PRO, 2.0, "HIGH"), "B": (PRO, 2.0, "HIGH"), "C": (FLASH, 2.0, "LOW"),
-                              "D": (PRO, 2.0, "DEFAULT")})
+                             {"A": (PRO, 3.0, "HIGH"), "B": (PRO, 2.0, "HIGH"), "C": (FLASH, 2.0, "LOW"),
+                              "D": (PRO, 2.0, "DEFAULT"), "E": (PRO, 8.0, "HIGH")})
             self.assertTrue(all(v["degraded_steps"] == 0 for v in p.values()))
 
     def test_long_episode_steps_down_the_model_aware_ladder_under_the_default(self):
         plan = mp.plan_budget(mp.resolve_pass_models({}), gvr.PRICES, duration=240.0, cap=mp.budget_cap({}),
                               prompt_chars=CHARS, images=CARDS)
         p = plan["passes"]
-        self.assertLessEqual(plan["estimated_credits"], 55.0)
+        self.assertLessEqual(plan["estimated_credits"], 80.0)
         self.assertTrue(all("skipped" not in v for v in p.values()), p)
-        self.assertEqual((p["A"]["model"], p["A"]["fps"], p["A"]["res"]), (PRO, 2.0, "HIGH"))
-        # B stepped down to Flash: the slack never goes back to D's Pro step (lower priority)
-        self.assertEqual((p["B"]["model"], p["D"]["model"], p["D"]["model_planned"]), (FLASH, FLASH, PRO))
+        self.assertEqual((p["A"]["model"], p["A"]["res"]), (PRO, "HIGH"))
+        self.assertGreaterEqual(p["A"]["fps"], 2.0)
+        # D (lowest priority) is stepped down to Flash first; A stays on Pro
+        self.assertEqual((p["D"]["model"], p["D"]["model_planned"], p["A"]["model"]), (FLASH, PRO, PRO))
 
     def test_pass_ladder_steps_a_pro_pass_down_to_flash(self):
         self.assertEqual(mp.pass_ladder("D", PRO), ((PRO, 2.0, "DEFAULT"), (FLASH, 2.0, "DEFAULT"),
                                                     (FLASH, 1.0, "DEFAULT")))
-        self.assertEqual(mp.pass_ladder("A", PRO)[:3], ((PRO, 2.0, "HIGH"), (PRO, 1.5, "HIGH"), (FLASH, 2.0, "HIGH")))
+        self.assertEqual(mp.pass_ladder("A", PRO)[:4], ((PRO, 3.0, "HIGH"), (PRO, 2.0, "HIGH"), (PRO, 1.5, "HIGH"),
+                                                        (FLASH, 3.0, "HIGH")))
         self.assertEqual(mp.pass_ladder("C", FLASH), ((FLASH, 2.0, "LOW"), (FLASH, 1.0, "LOW")))
 
     def test_request_body_default_resolution_and_thinking(self):
@@ -140,9 +144,9 @@ class RunTest(unittest.TestCase):
             return 200, json.dumps(_answer(data["contents"][0]["parts"][-1]["text"])).encode()
         out = self.run_passes(post)
         self.assertEqual(sorted(u.rsplit("/", 1)[1] for u in urls),
-                         sorted(f"{m}:generateContent" for m in (PRO, PRO, FLASH, PRO)))
+                         sorted(f"{m}:generateContent" for m in (PRO, PRO, FLASH, PRO, PRO)))
         self.assertEqual({p: v["model"] for p, v in out["passes"].items()},
-                         {"A": PRO, "B": PRO, "C": FLASH, "D": PRO})
+                         {"A": PRO, "B": PRO, "C": FLASH, "D": PRO, "E": PRO})
         self.assertAlmostEqual(out["passes"]["A"]["cost_credits"], 10000 * 134e-6 + 2000 * 804e-6, places=3)
         self.assertAlmostEqual(out["passes"]["C"]["cost_credits"], 10000 * 50.25e-6 + 2000 * 251.25e-6, places=3)
 
@@ -192,16 +196,16 @@ class RecordTest(base._Base):
     def test_gemini_review_json_records_models_per_pass(self):
         captured: list = []
         self.env["NALU_GEMINI_REVIEW_MODEL_B"] = FLASH
-        self.env["NALU_GEMINI_REVIEW_BUDGET"] = "60"
+        self.env["NALU_GEMINI_REVIEW_BUDGET"] = "90"
         record = self.run_review(captured)
         saved = json.loads((self.root / "final_reviewer" / "gemini_review.json").read_text(encoding="utf-8"))
-        self.assertEqual(saved["models"], {"A": PRO, "B": FLASH, "C": FLASH, "D": PRO})
+        self.assertEqual(saved["models"], {"A": PRO, "B": FLASH, "C": FLASH, "D": PRO, "E": PRO})
         self.assertEqual(saved["model"], f"{PRO}+{FLASH}")
-        self.assertEqual(saved["max_credits"], 60.0)
-        self.assertEqual({p: v["model"] for p, v in saved["passes"].items()},
-                         {"A": PRO, "B": FLASH, "C": FLASH, "D": PRO})
-        self.assertEqual({p: v["model"] for p, v in saved["budget_plan"].items()},
-                         {"A": PRO, "B": FLASH, "C": FLASH, "D": PRO})
+        self.assertEqual(saved["max_credits"], 90.0)
+        self.assertEqual({p: v["model"] for p, v in saved["passes"].items() if "model" in v},
+                         {"A": PRO, "B": FLASH, "C": FLASH, "D": PRO, "E": PRO})
+        self.assertEqual({p: v["model"] for p, v in saved["budget_plan"].items() if "model" in v},
+                         {"A": PRO, "B": FLASH, "C": FLASH, "D": PRO, "E": PRO})
         self.assertEqual(record["status"], "OK")
 
 

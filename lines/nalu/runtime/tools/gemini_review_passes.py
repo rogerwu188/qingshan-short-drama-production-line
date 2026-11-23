@@ -31,6 +31,11 @@ round and the knowledge base already read (ids G1.. / S1.., ``item``, ``start``/
                               MISSING_BEAT ...).  A NO unit becomes a QA-PLAN-MISMATCH finding; the merged record
                               carries ``plan_parity`` (every planned unit, n/m delivered) for the final fix round
                               (P0 NO -> paid redo class PLAN_MISMATCH) and final_cut_shot_plan_parity.
+  E  TAIL (2026-11-23)        720x1280 with audio, fps 8 HIGH, only the last 28 s (end card included): out-of-order
+                              strings of 1-2 s silent shots, voices where no line is planned, set shake / push-ins on
+                              locked shots, in-shot identity morphs, burned text, the ending hook.  Owner: "many
+                              problems cannot be seen at 2 frames a second" (ZH E25 / JA E10 endings).  Pass A's
+                              preferred step is 3 fps HIGH (was 2).
 
 Local suspects (2026-11-23, E24: Gemini missed burned text and stray voices that local OCR / ASR caught): the OCR
 text runs of the evidence pack (model-burned text anywhere in the frame + stacked lines in our subtitle band) are
@@ -50,7 +55,7 @@ the local ASR suspects was as good on Flash): A, B, D on ``gemini-3.1-pro-previe
 to every pass without its own override.  A Pro pass answered with a 4xx policy / model-unavailable status is
 retried once on gemini-3.8-flash (``model_fallback`` in the pass record); each pass records its ``model``.
 
-Budget: ``NALU_GEMINI_REVIEW_BUDGET`` (alias ``NALU_GEMINI_REVIEW_MAX_CREDITS``; default 55.0 since 2026-11-23,
+Budget: ``NALU_GEMINI_REVIEW_BUDGET`` (alias ``NALU_GEMINI_REVIEW_MAX_CREDITS``; default 80.0 since 2026-11-23 -- A at 3 fps + tail pass E --,
 review cost is not a concern during the quality-fix period) per episode, split across the passes, each priced at
 its own model (Pro: + an expected ~8k thinking tokens per pass, billed as output).  55 runs A, B, D on Pro at their
 preferred settings up to ~120 s (estimate ~42 credits at 60 s, ~51 at 110 s); longer episodes step down the
@@ -78,13 +83,14 @@ from typing import Any, Callable
 
 SCHEMA_PASSES = "nalu.gemini_video_review.multipass.v1"
 MODE_ENV = "NALU_GEMINI_REVIEW_MODE"
-MAX_CREDITS_DEFAULT = 55.0
+#: 80 since 2026-11-23 (owner: "many problems cannot be seen at 2 frames a second"): A at 3 fps + the tail pass E
+MAX_CREDITS_DEFAULT = 80.0
 BUDGET_ENVS = ("NALU_GEMINI_REVIEW_BUDGET", "NALU_GEMINI_REVIEW_MAX_CREDITS")
 PRO_MODEL = "gemini-3.1-pro-preview"
 FLASH_MODEL = "gemini-3.8-flash"
 MODEL_ENV = "NALU_GEMINI_REVIEW_MODEL"
 #: owner 2026-11-23 (E24 A/B): picture, identity and director passes on Pro, sound on Flash
-PASS_MODELS: dict[str, str] = {"A": PRO_MODEL, "B": PRO_MODEL, "C": FLASH_MODEL, "D": PRO_MODEL}
+PASS_MODELS: dict[str, str] = {"A": PRO_MODEL, "B": PRO_MODEL, "C": FLASH_MODEL, "D": PRO_MODEL, "E": PRO_MODEL}
 #: credits per 1M tokens (input, output incl. thinking) -- HopsAPI list prices (2026-11-23)
 MODEL_PRICES: dict[str, tuple[float, float]] = {FLASH_MODEL: (50.25, 251.25), PRO_MODEL: (134.0, 804.0)}
 #: thinking tokens a model spends per pass ON TOP of ``expected_out`` (which already holds Flash's ~1.2k).  Pro
@@ -94,9 +100,9 @@ THINKING_TOKENS: dict[str, int] = {PRO_MODEL: 8000}
 #: on FALLBACK_MODEL.  401 (key) and 429 / 5xx (retried with backoff) are not model problems.
 FALLBACK_MODEL = FLASH_MODEL
 FALLBACK_STATUSES = (400, 403, 404, 424, 451)
-PASS_IDS = ("A", "B", "C", "D")
+PASS_IDS = ("A", "B", "C", "D", "E")
 #: lowest priority first: degraded first, skipped first
-DEGRADE_ORDER = ("D", "C", "B", "A")
+DEGRADE_ORDER = ("D", "C", "E", "B", "A")
 #: video tokens per frame by media resolution (measured on HopsAPI gemini-3.8-flash, 2026-11-19/20: 66 default,
 #: 264 high), image tokens by resolution (Gemini 3 documentation), audio 25 tokens / s
 #: DEFAULT = no mediaResolution sent (video: same 66 tokens / frame as LOW; images: the model's default, high)
@@ -122,8 +128,9 @@ CALL_TIMEOUT_S = 600.0
 #: per pass: label, audio kept, upload scale, ladder of (fps, media resolution) from preferred to cheapest,
 #: expected answer + thinking tokens (benchmark 2026-11-20 mean x ~1.3, so the estimate errs high)
 PASSES: dict[str, dict[str, Any]] = {
+    # 3 fps first (owner 2026-11-23: identity morphs, shake and 1-2 s fragments are not visible at 2 frames a second)
     "A": {"name": "PICTURE_AI_ARTEFACTS", "audio": False, "scale": (720, 1280), "expected_out": 3700,
-          "ladder": ((2.0, "HIGH"), (1.5, "HIGH"), (1.0, "HIGH"), (2.0, "LOW"), (1.0, "LOW"))},
+          "ladder": ((3.0, "HIGH"), (2.0, "HIGH"), (1.5, "HIGH"), (1.0, "HIGH"), (2.0, "LOW"), (1.0, "LOW"))},
     "B": {"name": "IDENTITY_CONTINUITY", "audio": False, "scale": (720, 1280), "expected_out": 4900,
           # dynamic thinking spent 0 tokens on B once (empty card comparison); thinkingLevel "high" ran to the
           # 16k output cap (truncated JSON, 6.9 credits) -- a fixed budget bounds it (Flash only: Pro thinks
@@ -137,7 +144,15 @@ PASSES: dict[str, dict[str, Any]] = {
     # 2026-11-23: on Pro at the default media resolution (432p, 2 fps), as in the E24 A/B
     "D": {"name": "DIRECTOR_CRAFT", "audio": True, "scale": (432, 768), "expected_out": 2800,
           "ladder": ((2.0, "DEFAULT"), (1.0, "DEFAULT"))},
+    # 2026-11-23 (owner, ZH E25 / JA E10): "near the end the camera is strange, no subtitles, people talk nonsense,
+    # many very short cuts" -- the last ~25 s held an out-of-order montage of 1.5 s silent units that the 2-fps
+    # passes passed.  The tail window (last TAIL_SECONDS of the cut, end card included) at 8 fps, picture + sound.
+    "E": {"name": "TAIL_HIGH_FPS", "audio": True, "scale": (720, 1280), "expected_out": 2600, "tail_seconds": 28.0,
+          "ladder": ((8.0, "HIGH"), (6.0, "HIGH"), (8.0, "DEFAULT"), (4.0, "DEFAULT"))},
 }
+TAIL_CLASSES = ("QA-EDIT-FRAGMENT", "QA-WRONG-SPEAKER", "QA-CAMERA-WOBBLE", "QA-IDENTITY-MISMATCH", "QA-BODY-MORPH",
+                "QA-FACE-ARTIFACT", "QA-BURNED-TEXT", "QA-DIALOGUE-TAIL-CUT", "CRAFT-ENDING-HOOK", "CRAFT-CLARITY",
+                "CRAFT-ACTING-MONOTONY", "QA-PLAN-MISMATCH")
 
 #: class -> (pass, Chinese checklist text).  Existing ids (QA-*, LETTERBOX, LOOK-DRIFT, OTHER) keep their meaning.
 CLASS_TEXT: dict[str, tuple[str, str]] = {
@@ -232,11 +247,22 @@ LEGACY_IDS = {"C1": "QA-BURNED-TEXT", "C2": "QA-DIALOGUE-TAIL-CUT", "C3": "QA-OV
               "C4": "QA-LOOKALIKE-CAST", "C5": "QA-SUBTITLE-WRAP", "C6": "QA-BGM-DISCONTINUOUS"}
 
 
-DOMAINS = {"A": "画面瑕疵/烧字/黑边/字幕排版", "B": "身份/服装/场内连贯", "C": "声音/口型/配乐", "D": "节奏/镜头语法/剧情/字幕可读性"}
+DOMAINS = {"A": "画面瑕疵/烧字/黑边/字幕排版", "B": "身份/服装/场内连贯", "C": "声音/口型/配乐", "D": "节奏/镜头语法/剧情/字幕可读性",
+           "E": "片尾高帧率复查"}
 
 
 def pass_classes(pid: str) -> list[str]:
+    if pid == "E":  # the tail pass re-checks the other passes' classes that a 2-fps look misses
+        return [c for c in CLASS_TEXT if c in TAIL_CLASSES or c == "OTHER"]
     return [c for c, (p, _) in CLASS_TEXT.items() if p in (pid, "*")]
+
+
+def tail_window(pid: str, duration: float) -> tuple[float, float] | None:
+    """(start, end) of a tail-only pass, None for a whole-episode pass."""
+    tail = PASSES.get(pid, {}).get("tail_seconds")
+    if not tail or duration <= 0:
+        return None
+    return (round(max(0.0, duration - float(tail)), 2), round(duration, 2))
 
 
 def _num(value: Any) -> float | None:
@@ -774,6 +800,10 @@ def build_pass_prompt(pid: str, *, duration: float, context: dict[str, Any] | No
              "句尾是否被切或没有自然停顿、相邻台词响度是否跳变、背景音乐起停是否生硬、音效是否缺失或突兀、音频瑕疵。",
         "D": "导演/剪辑专审：按分镜表逐镜头判断它有没有交代它的剧情节拍，镜头语法是否成立，每个节拍的节奏，"
              "开头 3 秒钩子、结尾钩子，观众能否看懂谁/做什么/为什么，情绪节拍是否落地，字幕是否好读。节奏优先。",
+        "E": "片尾高帧率复查：这是全集最后一段，按高帧率逐帧看、带声音听。逐个镜头检查：是否有一串很短（约 2 秒以内）的碎镜头"
+             "接连切换、和前面剧情脱节（像被拼到片尾的蒙太奇）；没有字幕的地方是否有人在说话或发出含混不清的人声；"
+             "固定机位里背景是否抖动、推拉；人物是否在镜头内变脸/变成另一个人、身体变形；画面里有没有多余的字；"
+             "结尾是否落在悬念上。每处写出精确到 0.1 秒的时间点和看到/听到的内容。",
     }[pid]
     lines = [f"你是竖屏 9:16 短剧平台的终审审片员（{PASSES[pid]['name']}）。{span}{role}",
              "每发现一处单独列一条，不合并、不编造；没有就不列；宁可具体也不要笼统。时间用秒，保留 1 位小数。",
@@ -784,8 +814,13 @@ def build_pass_prompt(pid: str, *, duration: float, context: dict[str, Any] | No
     others = "、".join(v for k, v in DOMAINS.items() if k != pid)
     lines += [f"只报本清单里的问题（OTHER 只放本专审范围内但清单没写到的）；{others}由其它专审负责，不要报。"]
     cuts = _clip_rows(context.get("cuts") or [], window)
-    if cuts and pid in ("A", "B", "D"):
+    if cuts and pid in ("A", "B", "D", "E"):
         lines += ["", "实测镜头切点（逐镜头检查用）：", _json([[r["start"], r["end"]] for r in cuts])]
+    if pid == "E":
+        tail_plan = plan_prompt_rows(context.get("plan_units") or [], window)
+        if tail_plan:
+            lines += ["", "这一段的逐单元计划（start/end 是片段内时间；says 为空的单元计划无台词，不该有人说话）：",
+                      _json(tail_plan)]
     if pid == "A" and leads.get("burned_text_ocr") and not suspects.get("burned_text"):  # else a suspect below
         lines += ["", "本地 OCR 线索（可能有误，以你看到的为准）：", _json(_clip_rows(
             [{"start": (r.get("window") or [None, None])[0], "end": (r.get("window") or [None, None])[1],
@@ -936,6 +971,9 @@ def pass_ladder(pid: str, model: str) -> tuple[tuple[str, float, str], ...]:
 def estimate_pass(model: str, prices: dict[str, tuple[float, float]], *, pid: str, duration: float, fps: float,
                   res: str, prompt_chars: int, images: int = 0) -> float:
     pin, pout = prices.get(model) or MODEL_PRICES.get(model) or next(iter(prices.values()))
+    win = tail_window(pid, duration)
+    if win:
+        duration = win[1] - win[0]
     tokens = duration * fps * VIDEO_TOKENS[res] + images * IMAGE_TOKENS[res] + prompt_chars / 1.6 + 300
     if PASSES[pid]["audio"]:
         tokens += duration * AUDIO_TOKENS_PER_S
@@ -1043,6 +1081,12 @@ def prepare_media(video: Path, pid: str, workdir: Path, *, duration: float,
     meta = PASSES[pid]
     tc = transcoder or transcode_pass
     tag = f"{meta['scale'][0]}x{meta['scale'][1]}_{'av' if meta['audio'] else 'v'}"
+    win = tail_window(pid, duration)
+    if win:
+        tail = workdir / f"{tag}_tail{win[0]:.0f}.mp4"
+        if not tail.is_file():
+            tc(video, tail, scale=meta["scale"], audio=meta["audio"], start=win[0], length=win[1] - win[0])
+        return [{"path": tail, "window": win}]
     whole = workdir / f"{tag}.mp4"
     if not whole.is_file():
         tc(video, whole, scale=meta["scale"], audio=meta["audio"])
@@ -1333,7 +1377,10 @@ def split_suspects(suspects: dict[str, list[dict[str, Any]]]) -> dict[str, dict[
             "B": {}, "C": {"tail": suspects.get("tail") or [], "bgm": suspects.get("bgm") or [],
                            # ASR speech inside units the plan gives no line (2026-11-23, E24)
                            **({"stray_voice": suspects["stray_voice"]} if suspects.get("stray_voice") else {})},
-            "D": {"fragment": suspects.get("fragment") or []} if suspects.get("fragment") else {}}
+            "D": {"fragment": suspects.get("fragment") or []} if suspects.get("fragment") else {},
+            # the tail pass re-answers the suspects of its window (clipped by build_pass_prompt)
+            "E": {k: suspects[k] for k in ("fragment", "stray_voice", "camera_wobble", "burned_text")
+                  if suspects.get(k)}}
 
 
 # ============================================================================================== run

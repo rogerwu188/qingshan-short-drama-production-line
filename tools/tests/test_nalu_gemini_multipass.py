@@ -65,6 +65,9 @@ ANSWERS = {
     "DIRECTOR_CRAFT": {"findings": [{"class": "CRAFT-PACING", "start": 48.0, "end": 59.6, "severity": "P2",
                                      "scope_hint": "global"}],
                        "craft_summary": {"opening_hook": {"at": 0.5, "ok": True}}, "verdict": "REJECT_RECUT"},
+    # 2026-11-23: the tail pass (last 28 s at 8 fps); times on the window's own clock
+    "TAIL_HIGH_FPS": {"findings": [{"class": "QA-EDIT-FRAGMENT", "start": 20.0, "end": 26.0, "severity": "P1",
+                                    "description": "片尾一串 1.5 秒无台词碎镜头"}]},
 }
 
 
@@ -145,7 +148,7 @@ class PromptTest(_Base):
         self.assertEqual(record["mode"], "multipass")
         by = {c["name"]: c for c in captured}
         self.assertEqual(set(by), set(ANSWERS))
-        a, b, c, d = (by[k] for k in ANSWERS)
+        a, b, c, d = (by[k] for k in list(ANSWERS)[:4])
         # A: high media resolution, picture checklist, OCR lead, letterbox suspect; no audio-pass classes
         self.assertEqual(a["body"]["generationConfig"]["mediaResolution"], "MEDIA_RESOLUTION_HIGH")
         for cls in ("QA-FACE-ARTIFACT", "QA-HAND-ARTIFACT", "QA-SKIN-SHEEN-DRIFT", "QA-FLICKER", "QA-BURNED-TEXT",
@@ -223,20 +226,58 @@ class BudgetTest(unittest.TestCase):
         chars = {p: 2500 for p in mp.PASS_IDS}
         full = mp.plan_budget(MODEL, PRICES, duration=60, cap=20, prompt_chars=chars, images={"B": 2})
         self.assertTrue(all(v["degraded_steps"] == 0 for v in full["passes"].values()))
-        plan = mp.plan_budget(MODEL, PRICES, duration=100, cap=8, prompt_chars=chars, images={"B": 2})
+        four = ("A", "B", "C", "D")
+        plan = mp.plan_budget(MODEL, PRICES, duration=100, cap=8, prompt_chars=chars, images={"B": 2}, passes=four)
         p = plan["passes"]
         self.assertLessEqual(plan["estimated_credits"], 8)
-        self.assertEqual((p["A"]["fps"], p["A"]["res"]), (2.0, "HIGH"))     # the top pass keeps its settings
+        self.assertGreaterEqual(p["A"]["fps"], 2.0)                          # the top pass keeps HIGH, >= 2 fps
+        self.assertEqual(p["A"]["res"], "HIGH")
         self.assertEqual(p["D"]["degraded_steps"], 1)
         self.assertEqual(p["C"]["degraded_steps"], 1)
         self.assertGreaterEqual(p["B"]["degraded_steps"], 1)
-        tight = mp.plan_budget(MODEL, PRICES, duration=100, cap=3.0, prompt_chars=chars)["passes"]
+        tight = mp.plan_budget(MODEL, PRICES, duration=100, cap=3.0, prompt_chars=chars, passes=four)["passes"]
         self.assertEqual(tight["D"], {"skipped": "BUDGET_SKIPPED"})
         self.assertEqual(tight["C"], {"skipped": "BUDGET_SKIPPED"})
         self.assertIn("fps", tight["A"])
         none = mp.plan_budget(MODEL, PRICES, duration=1000, cap=0.5, prompt_chars=chars)
         self.assertEqual({v.get("skipped") for v in none["passes"].values()}, {"ESTIMATE_OVER_BUDGET"})
         self.assertEqual(none["estimated_credits"], 0.0)
+
+    def test_tail_pass_reviews_only_the_last_seconds_at_high_fps(self):
+        """Owner 2026-11-23: the out-of-order 1.5 s montage at the end of ZH E25 / JA E10 passed the 2-fps passes."""
+        self.assertEqual(mp.tail_window("E", 97.0), (69.0, 97.0))
+        self.assertIsNone(mp.tail_window("A", 97.0))
+        self.assertEqual(mp.tail_window("E", 20.0), (0.0, 20.0))
+        e100 = mp.estimate_pass(MODEL, PRICES, pid="E", duration=100, fps=8, res="HIGH", prompt_chars=0)
+        e200 = mp.estimate_pass(MODEL, PRICES, pid="E", duration=200, fps=8, res="HIGH", prompt_chars=0)
+        self.assertEqual(e100, e200)                                         # priced on the window, not the episode
+        self.assertGreaterEqual(mp.PASSES["E"]["ladder"][0][0], 6.0)
+        self.assertGreaterEqual(mp.PASSES["A"]["ladder"][0][0], 3.0)
+        self.assertIn("QA-EDIT-FRAGMENT", mp.pass_classes("E"))
+        self.assertIn("QA-WRONG-SPEAKER", mp.pass_classes("E"))
+        made = []
+
+        def tc(video, out, **kw):
+            made.append(kw)
+            out.write_bytes(b"x")
+            return out
+        with tempfile.TemporaryDirectory() as d:
+            media = mp.prepare_media(Path("v.mp4"), "E", Path(d), duration=97.0, transcoder=tc)
+        self.assertEqual(media[0]["window"], (69.0, 97.0))
+        self.assertEqual((made[0]["start"], made[0]["length"], made[0]["audio"]), (69.0, 28.0, True))
+        prompt = mp.build_pass_prompt("E", duration=97.0, window=(69.0, 97.0),
+                                      context={"plan_units": [{"unit": "VU-030", "start": 80.0, "end": 81.5,
+                                                               "says": ""}]})
+        self.assertIn("片尾高帧率复查", prompt)
+        self.assertIn("69-97", prompt)
+
+    def test_default_budget_keeps_every_pass_on_its_preferred_model_up_to_two_minutes(self):
+        for duration in (60.0, 110.0, 130.0):
+            plan = mp.plan_budget(mp.resolve_pass_models({}), PRICES, duration=duration, cap=mp.budget_cap({}),
+                                  prompt_chars={p: 6000 for p in mp.PASS_IDS}, images={"B": 4})
+            self.assertLessEqual(plan["estimated_credits"], mp.MAX_CREDITS_DEFAULT)
+            self.assertEqual({p: v["model"] for p, v in plan["passes"].items()}, mp.PASS_MODELS, duration)
+            self.assertEqual((plan["passes"]["A"]["fps"], plan["passes"]["E"]["fps"]), (3.0, 8.0))
 
     def test_estimate_counts_audio_and_cards_only_where_sent(self):
         a = mp.estimate_pass(MODEL, PRICES, pid="A", duration=100, fps=2, res="HIGH", prompt_chars=0)
