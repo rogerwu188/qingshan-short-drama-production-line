@@ -163,8 +163,10 @@ CLASS_TEXT: dict[str, tuple[str, str]] = {
     "CRAFT-EMOTION": ("D", "情绪节拍没落地：该有的反应/情绪高点没拍出来或表演不到位。"),
     # 2026-11-20 (line owner, JA-01 anime E02): characters talk with almost no small movements, and what there is is
     # always the same stock gesture (both hands spread outward)
+    # 2026-11-22 (JA-01 E08): the same raised right index finger in many shots, by three different speakers
     "CRAFT-ACTING-MONOTONY": ("D", "表演单调：人物说话时几乎没有小动作/身体戏（干站着念台词），或多个镜头反复用同一个手势"
-                                   "（如双手向两侧摊开、同一个耸肩）；听的人僵住不动没有反应。写出重复的是什么动作、出现在哪些时间点。"),
+                                   "（如双手向两侧摊开、竖起一根食指/指着对方、同一个耸肩）——不论是不是同一个角色，"
+                                   "不同人物用同一个手势也算；听的人僵住不动没有反应。写出重复的是什么动作、谁、出现在哪些时间点。"),
     "CRAFT-SUBTITLE-READABILITY": ("D", "字幕可读性：我方字幕停留太短读不完、压在复杂背景上看不清、与画面里其它文字重叠。"),
 
     "OTHER": ("*", "其它任何观众会注意到的问题。"),
@@ -369,7 +371,9 @@ def build_pass_prompt(pid: str, *, duration: float, context: dict[str, Any] | No
         "A": "画面与 AI 生成瑕疵专审：只看画面（不需要声音），逐镜头、逐秒盯细节，特别是脸、眼、牙、手、皮肤质感，"
              "并把每个镜头和前一个镜头对比（同一角色皮肤是否突然变油亮/塑料感、头发是否突然变湿），画面里有没有多余的字，"
              "画面是不是变成了角色设定图/三视图（同一角色多个副本、大脸特写小窗），"
-             "以及固定机位镜头里背景是否跟着人物的小动作一起晃（盯住门框、墙角等直线看它相对画框动没动）。",
+             "以及固定机位镜头里背景是否跟着人物的小动作一起晃（盯住门框、墙角等直线看它相对画框动没动）；"
+             "看手时顺带记下：不论是哪个角色，是否很多镜头都是同一个手势（竖起食指、指着对方、双手摊开），"
+             "有就报 OTHER，写明手势、角色和时间点（表演单调由导演专审定性，这里只给线索）。",
         "B": "身份与连贯性专审：对照下面附的角色身份卡（图片按顺序是 " +
              "、".join(c["label"] for c in context.get("cards") or [] if c.get("_sent")) +
              "），检查每个镜头里每个角色是否就是卡上的人；在每一场内部检查服装颜色、发型、配饰、道具、光线方向和色温、"

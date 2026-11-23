@@ -190,6 +190,8 @@ KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
                          "spreads his hands", "hands spread", "palms spread", "spread both hands",
                          "spreads both", "both hands outward", "both palms outward", "open-arm", "no gestures",
                          "without gestures", "stands stiff", "stiff while talking", "frozen while speaking",
+                         "index finger", "raised finger", "raises a finger", "pointing gesture", "keeps pointing",
+                         "same pointing", "竖起食指", "食指", "指指点点", "同一个手指",
                          "摊手", "同一个手势", "重复的手势", "手势重复", "动作单一", "说话时没有动作", "干站着", "僵着说话")),
     ("SUBTITLE_WRAP", ("wrap", "line break", "lone punctuation", "on its own line", "换行", "单独成行", "断行")),
     ("DIALOGUE_TAIL_GUARD", ("cut off", "clipped", "truncated", "last syllable", "tail cut", "no pause",

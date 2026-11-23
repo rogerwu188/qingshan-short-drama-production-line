@@ -96,10 +96,18 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
      没有只是两个人站着说话的场——每场至少一镜的 blocking 写出动作（抓、推、夺、递、摔、冲出去、离开）。
      **检查读分镜本身**（台词、blocking/primary_action、机位运动、景别、在场角色、道具），不信 `state_delta_dimensions` 标签：说话时只是抬手、前倾、跨一步，仍算说话头像。
      说话头像镜合计 ≤ 全集 60%；动作/道具特写/环境建立/转场镜头或边说边做（抓、推、递、摔、跑）的镜头 ≥ 全集 30%；约每 30 秒至少一个无台词的视觉节拍；
-     每 2 分钟 ≥ 3 场、≥ 2 个地点（或明确的时间跳转）。说明性台词改成动作与反应（证据拍在桌上、对方脸色变；S1 报告会从本集原著章节里摘出可拍的动作句），
+     约每 20–25 秒一次视觉变化，同一地点内就能做到（人物走动/穿过房间、有人进场、道具特写、带动作的反应、站位变化）。说明性台词改成动作与反应（证据拍在桌上、对方脸色变；S1 报告会从本集原著章节里摘出可拍的动作句），
      一句台词最多 2 个短句；不要同一人连说超过约 12 秒（中间插对方打断、动作或反应镜）。
+   - **换场必须有故事理由；一段对话 = 一个地点 = 一个 scene_id**（JA-01 E08：同一段三人对话被拆成议事厅/集市/庭院三个 location，
+     每个说话人的背景都不一样）：只有时间跳转（场景 time 变了）、人物走过去/赶到（用无台词的转场、到达或环境建立镜头开新场）、
+     或换了一批人的新事件才换地点；同一批人、同一话题、没有时间跳转的对话不许在台词之间换 location_id；相邻两个 scene_id 同一地点又没有时间跳转就是一场（合并）。
+     只有有理由的换场才计入节奏指标；为凑场次而把对话搬家会被报 `CONVERSATION_SPLIT_ACROSS_LOCATIONS` / `SCENE_SPLIT_SAME_LOCATION`，必须改。
+   - **每个说话镜的表演按这一句写**：`entry_state` / `primary_action` / `completion_state` / `contact_point` / `force_feedback`
+     写这一拍具体的一个动作（歪头、移开视线再看回、上前半步、转身背对、抱臂、整理袖口/头发、手里的道具）和听的人的反应；
+     不许每句都抄同一个模板（「<名字> delivers the line with a clear anime gesture and visible posture change」），不写「清晰的手势」，
+     不写指人/竖起食指（剧情真的需要指才写）；不合格报 `PERFORMANCE_PLACEHOLDER`。
    - **S1 免费自查与改稿**：S1 用 `lines/nalu/runtime/tools/script_pacing_check.py` 测这些数（每分钟转折数、第一冲突秒数、转折最大间隔、
-     说话头像占比、视觉动作占比、无台词视觉节拍、场次/地点变化、最长台词、无动作场、结尾悬念、改编事件数），报告在 `runtime/pipeline_state/<EP>.json` 的 `stages.S1.details.script_pacing`
+     说话头像占比、视觉动作占比、无台词视觉节拍、有理由的换场与视觉变化、对话跨地点、模板表演、最长台词、无动作场、结尾悬念、改编事件数），报告在 `runtime/pipeline_state/<EP>.json` 的 `stages.S1.details.script_pacing`
      （`failures` + `fixes`）。不合格时 S1 报 `SCRIPT_PACING_REVISE:round=n/2`：**这不是阻塞，是给你的改稿要求**——改叙事正典和四层（不改门禁、不问线主、不报 BLOCKED），
      重跑 S1→S3；最多两轮，第二轮改完仍不合格引擎自动放行并记录差距。本地可先自测：`$P $T/script_pacing_check.py check --contract <合同>`（免费）。
      测得的节奏数据会交给终审的导演/剪辑专审作参考。

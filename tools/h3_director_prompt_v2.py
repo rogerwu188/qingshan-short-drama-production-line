@@ -85,6 +85,16 @@ except ModuleNotFoundError:  # pragma: no cover
     import performance_variety as _pv  # type: ignore
 
 
+def _pointing_scripted(unit: dict[str, Any]) -> bool:
+    """A beat of this unit was given pointing business because its script asks for it (then the Never line must not
+    forbid it)."""
+    for spec in unit.get("ordered_prompt_specs") or []:
+        action = (spec.get("action") if isinstance(spec, dict) else None) or {}
+        if action.get("performance_business_family") == _pv.POINT_FAMILY:
+            return True
+    return False
+
+
 def _voice_gender_module():
     """lines/nalu/runtime/tools/voice_gender.py (the casting-gender authority), or None where it is not shipped."""
     try:
@@ -665,6 +675,9 @@ def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: se
         elif role in _PREVIOUS_FRAME_ROLES:
             lines.append(f"@Image{index} is the previous shot's last frame: continuity of positions, clothing "
                          "and props only; it defines no face.")
+        elif role == v1.SCENE_LOCATION_REFERENCE_ROLE:  # SCENE_LOCATION_LOCK_V1 (JA-01 E08)
+            lines.append(f"@Image{index} is this scene's location: keep the same place, background, set dressing and "
+                         "light; it defines no face and puts nobody in frame.")
         else:
             lines.append(f"@Image{index} is a supporting continuity reference: match only what it shows of the "
                          "setting and props; it defines no face.")
@@ -935,6 +948,15 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         prefix = f"BEAT.{number}"
         spec = _spec_for(unit, source)
         role = spec.get("role_semantic_disambiguation") or {}
+        # PERFORMANCE_VARIETY_V1 (JA-01 E08 2026-11-22): a generic placeholder action ("delivers the line with a clear
+        # anime gesture and visible posture change") is rebuilt from this beat's own business, never sent as is
+        placeholder_replaced = False
+        raw_line = str(source.get("dialogue") or "").strip()
+        beat_business = (spec.get("action") or {}).get("performance_business_en")
+        if raw_line and beat_business:
+            line_binding = crossmodal_by_speaker.get(v1._dialogue_partition(raw_line, language)[0].strip()) or {}
+            translated, placeholder_replaced = _pv.deplaceholder_beat(
+                translated, str(line_binding.get("provider_entity_label") or ""), beat_business)
         entry = scrub(translated["entry_state"])
         action = _cap(scrub(translated["primary_action"]))
         if stamped:  # a sentence repeated in every beat (an engine redo instruction) is said once per prompt
@@ -1022,7 +1044,9 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
                                        f"with lips closed; the voice comes from outside the frame"))
             business = (spec.get("action") or {}).get("performance_business_en") if beat_visible else ""
             business_line = _pv.business_sentence(speaker_label, business)
-            if business_line:
+            if business_line and placeholder_replaced:
+                business_rendered = True  # the action sentence above already is this business
+            elif business_line:
                 parts.append(business_line)
                 evidence[f"{prefix}.PERFORMANCE_BUSINESS"] = business_line
                 business_rendered = True
@@ -1152,6 +1176,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         negatives.append(CAMERA_LOCK_NEVER)
     if business_rendered:  # PERFORMANCE_VARIETY_V1 (line owner 2026-11-20, JA-01 E02)
         negatives.append(_pv.NEVER_STOCK)
+        if not _pointing_scripted(unit):  # JA-01 E08 2026-11-22: the same raised index finger on every line
+            negatives.append(_pv.NEVER_POINTING)
     never_line = "Never: " + "; ".join(dict.fromkeys(negatives)) + "."
     if stamped and subjects:  # provider expert: the anti-duplicate rule is the prompt's last sentence (no person: none)
         never_line += "\n" + v1.NO_DUPLICATE_PEOPLE

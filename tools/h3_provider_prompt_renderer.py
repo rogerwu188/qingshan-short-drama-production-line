@@ -13,6 +13,10 @@ import re
 from typing import Any
 
 try:
+    from tools import performance_variety as _pv
+except ModuleNotFoundError:  # pragma: no cover
+    import performance_variety as _pv  # type: ignore
+try:
     from tools.combat_unit_compiler import combat_shot_lines as _combat_shot_lines
 except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
     from combat_unit_compiler import combat_shot_lines as _combat_shot_lines
@@ -992,6 +996,21 @@ def speaker_gaze_clause(unit: dict[str, Any], binding: dict[str, Any] | None) ->
     return _cgp.speaker_gaze_sentence(label, side["side"], found["listener"])
 
 
+#: reference role of a scene's location image (lines/nalu/runtime/tools/scene_location_lock.LOCATION_REFERENCE_ROLE)
+SCENE_LOCATION_REFERENCE_ROLE = "SCENE_LOCATION_REFERENCE"
+
+
+def _spec_action(specs: list[Any], source_index: Any) -> dict[str, Any]:
+    """``ordered_prompt_specs[source_index - 1].action`` on every path (V1 / V2, any camera grammar), {} if absent."""
+    try:
+        position = int(source_index) - 1
+    except (TypeError, ValueError):
+        return {}
+    spec = specs[position] if 0 <= position < len(specs) else None
+    action = (spec.get("action") if isinstance(spec, dict) else None) or {}
+    return action if isinstance(action, dict) else {}
+
+
 def _spec_performance(specs: list[Any], source_index: Any) -> Any:
     """``ordered_prompt_specs[source_index - 1].action.performance`` (beats are 1-based over the specs)."""
     try:
@@ -1609,6 +1628,13 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
                 f"@Image{index}: opening composition, location, camera axis, pose and state; "
                 "named identity references override uncertain faces; never copy a static pose."
             )
+        elif role == SCENE_LOCATION_REFERENCE_ROLE:
+            # SCENE_LOCATION_LOCK_V1 (JA-01 E08): a tail-rejected unit keeps its scene's place in shot / reverse-shot
+            reference_lines.append(
+                f"@Image{index}: this scene's location, background only: the same place, background, set dressing "
+                "and light as this image; it defines no face, pose or person, and anyone shown in it appears in this "
+                "clip only if this clip names them."
+            )
         elif role == "PREVIOUS_REAL_TAIL_STATE_AUTHORITY" and _locked_dialogue_plan(plan.get("camera_plan") or {}):
             # nalu E13 prompt review: the previous unit's final frame can show people who are not in this clip
             # (a speaker change inside one scene); say what it carries.  Only LOCKED_DIALOGUE_CAMERA_V1 plans,
@@ -1698,6 +1724,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     visible_speakers = _visible_speaker_ids(plan) if scoped else []
     director_specs = (unit.get("ordered_prompt_specs") or []) if director_active(unit, plan) else []
     shared_clauses: set[str] = set()
+    business_rendered = False
     # Which beats render as an action ladder, and which of those is the first: the unit-wide microexpression /
     # body-sync / continuity clauses are stated on that one and referred to from the rest (E15 VU-020 budget).
     ladder_flags = [_ladder_beat(beat) for beat in action_beats]
@@ -1709,6 +1736,15 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             dialogue_binding = crossmodal_by_speaker.get(speaker)
             if dialogue_binding is None:
                 raise ValueError(f"H3_DIALOGUE_CROSSMODAL_BINDING_MISSING:{uid}:{speaker}")
+        # PERFORMANCE_VARIETY_V1 on the V1 renderer too (JA-01 E08 2026-11-22: every line was "<Name> delivers the
+        # line with a clear anime gesture and visible posture change" and H3 raised the same index finger each time):
+        # the speaker's concrete business and the listeners' reactions, from the editorial spec of this beat; a
+        # generic placeholder action / exit is rebuilt from that business.  No business on the spec -> unchanged.
+        spec_action = _spec_action(unit.get("ordered_prompt_specs") or [], source.get("source_index"))
+        business = (spec_action.get("performance_business_en")
+                    if dialogue_binding is not None and dialogue_binding.get("visible_speaker") else "")
+        business_label = str((dialogue_binding or {}).get("provider_entity_label") or "")
+        translated, placeholder_replaced = _pv.deplaceholder_beat(translated, business_label, business)
         line, evidence = _beat(
             source,
             translated,
@@ -1723,6 +1759,20 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
                            if len(crossmodal_rows) == 1 else None),
             ladder_first=(beat_number - 1 == first_ladder),
         )
+        business_line = _pv.business_sentence(business_label, business) if business else ""
+        if business_line:
+            if not placeholder_replaced:
+                line += f" {business_line}"
+            evidence[f"BEAT.{beat_number}.PERFORMANCE_BUSINESS"] = business_line
+            business_rendered = True
+            listener_rows = spec_action.get("listener_business_en")
+            if isinstance(listener_rows, dict) and not spec_action.get("listener_reaction_en"):
+                listener_labels = _entity_labels(unit, plan)
+                for cid, phrase in listener_rows.items():
+                    sentence = _pv.listener_sentence(listener_labels.get(str(cid), ""), phrase)
+                    if sentence:
+                        line += f" {sentence}"
+                        evidence[f"BEAT.{beat_number}.LISTENER_BUSINESS.{cid}"] = sentence
         if scoped:
             scope_text, scope_evidence = _beat_scope_clauses(
                 uid, visibility_scopes[beat_number - 1], visible_speakers[beat_number - 1], beat_number
@@ -1928,6 +1978,11 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     }
     if profile in profile_constraints:
         negatives.append(profile_constraints[profile])
+    if business_rendered:  # PERFORMANCE_VARIETY_V1 (V1 renderer, JA-01 E08 2026-11-22)
+        negatives.append("No " + _pv.NEVER_STOCK)
+        if not any(_spec_action(unit.get("ordered_prompt_specs") or [], i + 1).get("performance_business_family")
+                   == _pv.POINT_FAMILY for i in range(len(unit.get("ordered_prompt_specs") or []))):
+            negatives.append("No " + _pv.NEVER_POINTING)
     anime = _render_style.is_anime(unit)
     genre = _render_style.H3_GENRE if anime else "live-action short drama"
     if anime:

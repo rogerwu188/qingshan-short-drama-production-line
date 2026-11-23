@@ -120,7 +120,8 @@ $NALU_ENGINE_ROOT/.qingshan-venv/bin/python $NALU_ENGINE_ROOT/tools/intake_sourc
 - **改编预算（线主 2026-11-22：剧情推进太慢）**：按剧情事件，不按章节——本集覆盖 ≥ max(4, ⌊时长/25⌋) 个剧情事件（115 秒约 4–6 个），
   从起始章往后需要几章就取几章（通常 2–5 章）；授权 Codex 删减过场和次要人物、合并场次、压缩时间、为钩子调序、补写衔接动作，只保留关键剧情事实和人物真相。
   派单写一行 `pacing_policy: SHORT_DRAMA_PACING_V1`（Codex 合同 §2.0 第 5 条：冷开场冲突 ≤3 秒、每 20–30 秒一次升级/反转/揭示、结尾悬念、
-  每场有目标/冲突/身体动作、说话头像 ≤60%、视觉动作 ≥30%、每 2 分钟 ≥3 场且 ≥2 个地点；S1 按分镜免费测量，不合格 Codex 自己改稿，最多两轮）。
+  每场有目标/冲突/身体动作、说话头像 ≤60%、视觉动作 ≥30%、约每 20–25 秒一次视觉变化（同一地点内的走动/进场/特写/反应也算）、
+  换场必须有故事理由且一段对话只在一个地点一个 scene_id、每个说话镜的表演按这一句写（不抄模板、不默认指人）；S1 按分镜免费测量，不合格 Codex 自己改稿，最多两轮）。
   这条政策现在是所有合同的默认（不写也生效），派单照写这一行，只有明确写 `pacing_policy: OFF` 才关闭。
 - 简报条款（Codex 逐字抄进 `<EP>_PRODUCTION_BRIEF.json`）：title、owner_id（没指定填 "owner"）、style、target_seconds、budget_cap（指定了才写）、
   genre（`publish_x2creel.py categories --lang <剧集语言>` 列出的显示名 name，逐字复制，见 §6）、dialogue_language / genre_lang（zh|en）、
