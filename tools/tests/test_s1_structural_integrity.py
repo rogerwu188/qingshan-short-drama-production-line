@@ -87,7 +87,7 @@ def valid_contract() -> dict:
              "Lingyao presses a dagger to Wang Defa's throat.", scale="MEDIUM", ambience="Teahouse chatter."),
         shot("E24-S01-02", "E24-S01", ["CHAR-WANGDEFA", "CHAR-LINGYAO"], "Wang Defa raises both hands.",
              line="女侠饶命！", scale="MEDIUM_CLOSE_UP", ambience="Teahouse chatter.",
-             faces={"CHAR-LINGYAO": "BACK_OF_HEAD_OTS"}),
+             faces={"CHAR-LINGYAO": "BACK_AND_SHOULDERS_ONLY"}),
         shot("E24-S01-03", "E24-S01", ["CHAR-LINGYAO"], "Lingyao lowers the dagger, eyes on Wang Defa offscreen.",
              line="三天之内。", scale="CLOSE_UP", ambience="Teahouse chatter."),
         shot("E24-S02-01", "E24-S02", ["CHAR-MENGZIQIU", "CHAR-LINGYAO"],
@@ -427,10 +427,83 @@ class IntegrityLoopTest(unittest.TestCase):
                 self.assertEqual(npl.s1_integrity_round(p, {"contract": sha}, blockers)["round"], i)
             last = npl.s1_integrity_round(p, {"contract": "e"}, blockers)
             self.assertEqual(last["decision"], "EXHAUSTED")
+            # after the cap the integrity failures are admitted: only the non-integrity blocker remains
             marked = npl.s1_integrity_blockers(last, blockers)
-            self.assertEqual(marked[0], "SCRIPT_INTEGRITY_ROUNDS_EXHAUSTED:4")
+            self.assertEqual(marked, ["GATE10_WRITER_SCENE_SOURCE_DECLARATION_FAIL"])
             self.assertFalse(any(b.startswith("SCRIPT_INTEGRITY_REVISE:round=") for b in marked))
             self.assertEqual(npl.s1_integrity_round(p, {"contract": "f"}, ["GATE10_X"])["decision"], "PASS")
+
+    def test_admission_marker_and_fleet_note_once(self):
+        import nalu_pipeline as npl
+        blockers = ["SCRIPT_TOO_SHORT:62.0s<93.5s (target 110.0s): adapt more",
+                    "SCRIPT_INTEGRITY_FAIL:BOILERPLATE_TEXT:ambience:22/22",
+                    "SCRIPT_INTEGRITY_FAIL:BOILERPLATE_PHRASE:bamboo wind and field insects:22",
+                    "DIRECTION_POLICY_INTEGRITY_FAIL:DP9_CU_MCU_RATIO_1.0_OVER_0.8",
+                    "CHARACTER_ENTITY_CONTRACT_FAIL:E24-S01-01_ACTION_NAMES_CHARACTER_NOT_IN_CAST:CHAR-WANGDEFA",
+                    "PROJECT_SCOPE_FAIL:x"]
+        self.assertEqual(npl.s1_integrity_admission_marker(blockers),
+                         "SCRIPT_INTEGRITY_ADMITTED_AFTER_EXHAUSTION:SCRIPT_TOO_SHORT,SCRIPT_INTEGRITY_FAIL:"
+                         "BOILERPLATE_TEXT,SCRIPT_INTEGRITY_FAIL:BOILERPLATE_PHRASE,DIRECTION_POLICY_INTEGRITY_FAIL:"
+                         "DP9_CU_MCU_RATIO_1.0_OVER_0.8,CHARACTER_ENTITY_CONTRACT_FAIL")
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(npl, "RUNTIME", Path(d)):
+            ctx = SimpleNamespace(episode="E24")
+            npl.s1_integrity_fleet_note(ctx, "SCRIPT_INTEGRITY_ADMITTED_AFTER_EXHAUSTION:SCRIPT_TOO_SHORT")
+            npl.s1_integrity_fleet_note(ctx, "SCRIPT_INTEGRITY_ADMITTED_AFTER_EXHAUSTION:SCRIPT_TOO_SHORT")
+            lines = (Path(d) / "series" / "STATUS.md").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(lines), 1)
+            self.assertIn("E24 S1 SCRIPT_INTEGRITY_ADMITTED_AFTER_EXHAUSTION:SCRIPT_TOO_SHORT", lines[0])
+
+    def test_stage_s1_admits_after_exhaustion_and_continues(self):
+        """Round 5 of an E24-like script: S1 PASSES with the admitted codes recorded (no stall), and the S1 blockers
+        carry no round marker for the tick to resume."""
+        import nalu_pipeline as npl
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            work = root / "work"
+            work.mkdir()
+            contract = work / "contract.json"
+            contract.write_text(json.dumps(e24_like(), ensure_ascii=False), encoding="utf-8")
+            layers = {"narrative_canonical": work / "n.md", "directing_script": work / "d.md",
+                      "generation_contract": contract, "writer_manifest": work / "m.json"}
+            for path in layers.values():
+                if not path.exists():
+                    path.write_text("{}", encoding="utf-8")
+            (root / "briefs").mkdir()
+            (root / "briefs" / "E24_PRODUCTION_BRIEF.json").write_text(json.dumps({"target_seconds": 110}))
+            logs = root / "logs"
+            logs.mkdir()
+            (logs / npl.S1_INTEGRITY_LEDGER).write_text(json.dumps({"rounds": [
+                {"layers_sha256": f"old{i}"} for i in range(4)]}), encoding="utf-8")
+            paths = SimpleNamespace(layers=lambda: layers, contract=contract, writer_manifest=layers["writer_manifest"],
+                                    gate10="g", logs=logs, scope={"lexicon": "x", "scope_id": "S"},
+                                    narrative=layers["narrative_canonical"], directing=layers["directing_script"],
+                                    layers_source="t", state=root / "state.json", work=work)
+            entity = json.dumps(cec.validate_character_entity_contract(e24_like()), ensure_ascii=False)
+
+            def run(argv, name=""):
+                ok = "entity" not in name
+                return {"exit_code": 0, "log": str(root / f"{name}.log"),
+                        "stdout_tail": '{"status": "PASS", "failures": []}' if ok else entity}
+            ctx = SimpleNamespace(p=paths, episode="E24", run_id="R5", run=run)
+            with mock.patch.object(npl, "RUNTIME", root), \
+                    mock.patch.object(npl, "_record_line_upgrade", lambda *a, **k: None), \
+                    mock.patch.object(npl, "_camera_grammar_on", lambda _c: True), \
+                    mock.patch.object(npl, "project_scope_check", lambda *a, **k: {"status": "PASS", "failures": []}), \
+                    mock.patch.object(npl, "writer_selfcheck_admitted", lambda *a: True), \
+                    mock.patch.object(npl, "writer_capability_record", lambda *a: {}), \
+                    mock.patch.object(npl._policy, "selected", lambda: "LEGACY"):
+                res = npl.stage_s1(ctx)
+            self.assertEqual(res.status, "PASS", res.blockers)
+            self.assertEqual(res.blockers, [])
+            marker = res.details["s1_integrity_admitted"]
+            self.assertTrue(marker.startswith("SCRIPT_INTEGRITY_ADMITTED_AFTER_EXHAUSTION:"))
+            for code in ("SCRIPT_TOO_SHORT", "SCRIPT_INTEGRITY_FAIL:BOILERPLATE_TEXT", "CHARACTER_ENTITY_CONTRACT_FAIL",
+                         "DIRECTION_POLICY_INTEGRITY_FAIL:DP9_CU_MCU_RATIO_1.0_OVER_0.8"):
+                self.assertIn(code, marker)
+            self.assertEqual(res.details["s1_integrity"]["decision"], "EXHAUSTED")
+            self.assertIn(marker, (root / "series" / "STATUS.md").read_text(encoding="utf-8"))
+            receipt = json.loads((logs / "S1_GATE_RECEIPT.json").read_text(encoding="utf-8"))
+            self.assertEqual(receipt["status"], "PASS")
 
     def test_tick_resumes_once_per_integrity_round(self):
         saved = dict(os.environ)
@@ -448,7 +521,8 @@ class IntegrityLoopTest(unittest.TestCase):
             state(["SCRIPT_INTEGRITY_REVISE:round=1/4", "SCRIPT_INTEGRITY_FAIL:BOILERPLATE_TEXT:ambience:8/8"])
             self.assertEqual(cp.integrity_revision_pending("E24", {}), "round=1/4")
             self.assertEqual(cp.integrity_revision_pending("E24", {"integrity_revise_resumed": ["round=1/4"]}), "")
-            state(["SCRIPT_INTEGRITY_ROUNDS_EXHAUSTED:4", "CHARACTER_ENTITY_CONTRACT_FAIL:x"])
+            # after exhaustion S1 carries no round marker (admitted, or only non-integrity blockers): no resume loop
+            state(["PROJECT_SCOPE_FAIL:x"])
             self.assertEqual(cp.integrity_revision_pending("E24", {}), "")
 
             state(["SCRIPT_INTEGRITY_REVISE:round=2/4"])

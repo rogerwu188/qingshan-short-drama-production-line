@@ -116,7 +116,7 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
      （`SCRIPT_TOO_SHORT`）；动作碰到的人都在该镜 cast 里（或声明画外），互动镜 target ≠ 主体；所有 `CHAR-*` 都在 character_entities 里定义；
      shot_id 只用本集的（跨集要标 `carry_in`），转场行自己写不抄旧集；source_file 属于 source_chapters；每场自己的地点/环境声/轴线/scene_plan，不写系列模板句；
      CU+MCU ≤ 80 %，两人以上的场至少两个双人/群像镜头（说话单元可用过肩后脑勺的听者，说话的仍只有一人）。同一份剧本重跑不算一轮；
-     4 轮仍不完整则引擎保持 BLOCKED（`SCRIPT_INTEGRITY_ROUNDS_EXHAUSTED`），这时才报 BLOCKED。
+     4 轮仍不完整则引擎记录 `SCRIPT_INTEGRITY_ADMITTED_AFTER_EXHAUSTION:<codes>`（S1 结果、CHECKPOINT、STATUS.md）后自动放行，不停线、不报 BLOCKED。
 避开已知坑：首帧要看得见的道具别设计成「从怀里掏出」；古装灯写「无罩敞口油盏」；每个说话角色男女/音色要能区分；不写全黑画面。
 
 ## 2. 四层剧本（免费）

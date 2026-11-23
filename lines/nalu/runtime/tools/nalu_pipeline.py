@@ -1946,7 +1946,8 @@ S1_INTEGRITY_PREFIXES = ("SCRIPT_TOO_SHORT", "SCRIPT_TOO_LONG", "SCRIPT_INTEGRIT
                          "CHARACTER_ENTITY_CONTRACT_FAIL", "SCRIPT_STRUCTURE_CONTRACT_FAIL",
                          "CONTINUITY_STATE_CONTRACT_FAIL", "STATIC_DESIGN_GATE_FAIL",
                          "WRITER_CAPABILITY_STEP_OWED:SCRIPT_REVIEW_NOT_INDEPENDENT")
-#: distinct failing scripts the writer gets before the episode is held BLOCKED (integrity is not taste: never admitted)
+#: distinct failing scripts the writer gets; integrity failures are never admitted inside the taste loop, and after
+#: this many revisions they are admitted and recorded so the line never stalls (owner standing rules 2026-11-23)
 S1_INTEGRITY_MAX_ROUNDS = 4
 S1_INTEGRITY_LEDGER = "S1_INTEGRITY_ROUNDS.json"
 
@@ -1954,8 +1955,8 @@ S1_INTEGRITY_LEDGER = "S1_INTEGRITY_ROUNDS.json"
 def s1_integrity_round(p: Any, layer_shas: dict[str, Any], blockers: list[str]) -> dict[str, Any]:
     """One S1 decision of the bounded integrity loop.  Each distinct set of layer bytes that fails an integrity
     check is one round; re-running S1 on the same bytes never uses up a round.  Rounds 1..S1_INTEGRITY_MAX_ROUNDS:
-    REVISE (the writer fixes its own layers, the tick resumes Codex once per round); beyond: EXHAUSTED (still
-    BLOCKED, named code, no further resume).  Never raises."""
+    REVISE (the writer fixes its own layers, the tick resumes Codex once per round); beyond: EXHAUSTED (the
+    failures are admitted and recorded, no further resume).  Never raises."""
     codes = [b for b in blockers if str(b).startswith(S1_INTEGRITY_PREFIXES)]
     if not codes:
         return {"status": PASS, "decision": "PASS", "max_rounds": S1_INTEGRITY_MAX_ROUNDS}
@@ -1980,16 +1981,49 @@ def s1_integrity_round(p: Any, layer_shas: dict[str, Any], blockers: list[str]) 
                                    "integrity failures listed, then rerun S1; free, no owner decision"
                                    if decision == "REVISE" else
                                    f"{S1_INTEGRITY_MAX_ROUNDS} revisions did not clear the script's integrity "
-                                   "failures: the episode stays BLOCKED for the line agent / maintainer")}
+                                   "failures: admitted and recorded (SCRIPT_INTEGRITY_ADMITTED_AFTER_EXHAUSTION); "
+                                   "the line continues")}
 
 
 def s1_integrity_blockers(decision: dict[str, Any], blockers: list[str]) -> list[str]:
-    """Prefix the S1 blockers with the integrity loop's marker (the tick keys on ``SCRIPT_INTEGRITY_REVISE:round=``)."""
+    """The S1 blockers after the integrity loop's decision.  REVISE: prefixed with the round marker (the tick keys on
+    ``SCRIPT_INTEGRITY_REVISE:round=``).  EXHAUSTED: the integrity failures are admitted (dropped from the blockers,
+    recorded as SCRIPT_INTEGRITY_ADMITTED_AFTER_EXHAUSTION) -- only the non-integrity blockers remain."""
     if decision.get("decision") == "REVISE":
         return [f"SCRIPT_INTEGRITY_REVISE:round={decision['round']}/{decision['max_rounds']}"] + list(blockers)
     if decision.get("decision") == "EXHAUSTED":
-        return [f"SCRIPT_INTEGRITY_ROUNDS_EXHAUSTED:{decision['max_rounds']}"] + list(blockers)
+        return [b for b in blockers if not str(b).startswith(S1_INTEGRITY_PREFIXES)]
     return list(blockers)
+
+
+def s1_integrity_admission_marker(blockers: list[str]) -> str:
+    """``SCRIPT_INTEGRITY_ADMITTED_AFTER_EXHAUSTION:<codes>`` -- the gate (and the sub-code for the integrity
+    families) of every admitted failure, deduplicated, no story text."""
+    codes: list[str] = []
+    for b in blockers:
+        text = str(b)
+        if not text.startswith(S1_INTEGRITY_PREFIXES):
+            continue
+        head, _, rest = text.partition(":")
+        if head in ("SCRIPT_INTEGRITY_FAIL", "DIRECTION_POLICY_INTEGRITY_FAIL", "WRITER_CAPABILITY_STEP_OWED"):
+            head = f"{head}:{rest.split(':', 1)[0]}"
+        if head not in codes:
+            codes.append(head)
+    return "SCRIPT_INTEGRITY_ADMITTED_AFTER_EXHAUSTION:" + ",".join(codes[:12])
+
+
+def s1_integrity_fleet_note(ctx: Any, marker: str) -> None:
+    """One line in ``<runtime>/series/STATUS.md`` (the tail fleet_sync reports) -- once per episode and marker."""
+    try:
+        path = RUNTIME / "series" / "STATUS.md"
+        line = f"{ctx.episode} S1 {marker}"
+        if path.is_file() and line in path.read_text(encoding="utf-8"):
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(f"- {time.strftime('%Y-%m-%d %H:%MZ', time.gmtime())} {line}\n")
+    except OSError:
+        pass
 
 
 DIRECTION_POLICY_CONFIG = "configs/DIRECTION_POLICY_V1.json"
@@ -2111,12 +2145,16 @@ def stage_s1(ctx: Ctx) -> StageResult:
     layer_shas = {name: sha256_file(path) for name, path in p.layers().items()}
 
     length = script_length_check(ctx)
+    admitted_length: list[str] = []
     if length.get("status") == BLOCKED and length.get("blocker"):
-        res = StageResult(BLOCKED, missing_layers=[], layer_sha256=layer_shas, script_length=length)
-        res.blockers = [length["blocker"]]
-        res.details = {"s1_integrity": s1_integrity_round(p, layer_shas, res.blockers)}
-        res.blockers = s1_integrity_blockers(res.details["s1_integrity"], res.blockers)
-        return res
+        early = s1_integrity_round(p, layer_shas, [length["blocker"]])
+        if early.get("decision") != "EXHAUSTED":
+            res = StageResult(BLOCKED, missing_layers=[], layer_sha256=layer_shas, script_length=length)
+            res.details = {"s1_integrity": early}
+            res.blockers = s1_integrity_blockers(early, [length["blocker"]])
+            return res
+        # rounds exhausted: the over-long script is admitted with the others below (never stall the line)
+        admitted_length = [length["blocker"]]
     integrity_blockers: list[str] = [length["integrity_blocker"]] if length.get("integrity_blocker") else []
     in_flight = s1_pacing_in_flight(p)
     direction_policy, direction_blockers = s1_direction_policy(ctx, p, in_flight=in_flight)
@@ -2342,10 +2380,22 @@ def stage_s1(ctx: Ctx) -> StageResult:
         res.blockers.append("CHARACTER_ENTITY_CONTRACT_FAIL:"
                             + ",".join(str(f) for f in (entity_verdict.get("failures") or [])))
     # The bounded integrity loop: every writer-fixable script defect above sends the script back to the writer
-    # (the tick resumes Codex once per round); after S1_INTEGRITY_MAX_ROUNDS distinct failing scripts the episode
-    # stays BLOCKED under SCRIPT_INTEGRITY_ROUNDS_EXHAUSTED and the tick stops resuming -- the loop terminates.
-    res.details["s1_integrity"] = s1_integrity_round(p, layer_shas, list(getattr(res, "blockers", []) or []))
-    res.blockers = s1_integrity_blockers(res.details["s1_integrity"], list(getattr(res, "blockers", []) or []))
+    # (the tick resumes Codex once per round); after S1_INTEGRITY_MAX_ROUNDS distinct failing scripts the remaining
+    # integrity failures are ADMITTED and recorded (owner standing rules 2026-11-23: never stall the line, keep only
+    # critical gates; a short cut is still held at release by the < 0.85 x target release hold) -- the loop
+    # terminates and the tick has no round left to resume.
+    current = admitted_length + list(getattr(res, "blockers", []) or [])
+    integrity = s1_integrity_round(p, layer_shas, current)
+    res.details["s1_integrity"] = integrity
+    res.blockers = s1_integrity_blockers(integrity, current)
+    if integrity.get("decision") == "EXHAUSTED":
+        integrity["admitted"] = [str(b)[:200] for b in current if str(b).startswith(S1_INTEGRITY_PREFIXES)][:16]
+        integrity["marker"] = s1_integrity_admission_marker(current)
+        res.details["s1_integrity_admitted"] = integrity["marker"]
+        s1_integrity_fleet_note(ctx, integrity["marker"])
+        if not res.blockers and status == BLOCKED:
+            status = PASS
+            res.status = PASS
     # Downstream asset confirmation must bind stable S1 evidence.  The main
     # pipeline state is intentionally mutable as S2-S8 advance, so hashing that
     # file would invalidate a valid confirmation on every later stage update.
@@ -14424,6 +14474,15 @@ def write_checkpoint(ctx: Ctx) -> Path:
         blockers = ", ".join(row.get("blockers") or []) or "—"
         add(f"| {sid} | {STAGE_TITLES[sid]} | `{row.get('status')}` | {blockers} |")
     add("")
+    _s1_integrity = (ctx.stage_state("S1").get("details") or {}).get("s1_integrity") or {}
+    if isinstance(_s1_integrity, dict) and _s1_integrity.get("marker"):
+        add("## S1 script integrity admitted after exhaustion")
+        add("")
+        add(f"`{_s1_integrity['marker']}` -- {_s1_integrity.get('max_rounds')} writer revisions did not clear these "
+            "structural failures; the script was admitted so the line keeps moving (the release hold still applies).")
+        for _row in _s1_integrity.get("admitted") or []:
+            add(f"* `{_row}`")
+        add("")
     add("## What to watch (line-owner review list)")
     add("")
     if p.final_mp4.is_file():

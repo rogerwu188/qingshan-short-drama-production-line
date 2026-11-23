@@ -197,7 +197,7 @@
     },
     {
       "path": "agent_factory/storyclaw_portable/WRITER_CONTRACT.md",
-      "sha256": "628cf335799735281c22cba7d07eabe2da8543d13826f40c6ac237fb83aa6c68"
+      "sha256": "5d0976710fcab8a92979bdaa125aa0dc6bf6eca39aa127fb38eab4076ab5b9dd"
     },
     {
       "path": "configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json",
@@ -813,7 +813,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "204d67217a07076480de6bab3281d1b445f9154b91cea6210c8567ae3a3191b5"
+      "sha256": "3c6b64ffb83696ad0d72fa0f320d72f7995b5c05385fb232640376adf7d28a2c"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -1037,7 +1037,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "0148033743999a794832b84468d0133c103805e4a3dde4c4da47bea597226428"
+      "sha256": "bc7fe3fa944889bf64a8655f510cbc5b5345ba3b07e73cb9cce07ba8c38cc479"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -1057,7 +1057,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "24785a59be7a5b764346043930b749be64a2243ba5aecbe9fb38c31672fdc73d"
+      "sha256": "062ae4412fcea1538bbc2a0916ea83a574b8b40f064a8460193dadb7efbf9af9"
     },
     {
       "path": "skills/nalu-claude-code/scripts/collective_provision.py",
@@ -9209,7 +9209,7 @@
     },
     {
       "path": "tools/tests/test_s1_structural_integrity.py",
-      "sha256": "c999e2201f5967d2072de240fe8ee85bec4338c04662e61ee8b8d34385c5fe41"
+      "sha256": "25d15d87fc48f4872d5d585318c608f6041c7eb2ebc0849d23c81017a822b7a2"
     },
     {
       "path": "tools/tests/test_s1_writer_handoff_honesty.py",

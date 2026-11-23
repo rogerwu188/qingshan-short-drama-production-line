@@ -1273,7 +1273,7 @@ INTEGRITY_REVISE_MESSAGE = ("S1 的 SCRIPT_INTEGRITY_REVISE 是剧本结构完�
                             "script_pacing.integrity_failures 及 fixes），按 WRITER_CONTRACT.md 改本集叙事正典和四层剧本"
                             "（补足时长、两人互动的动作把双方都写进 cast、未定义的角色 id、每场自己的地点/环境声/轴线、"
                             "多人场至少两个双人或群像镜头），然后重跑 S1→S3。免费，不问线主；同一份剧本重跑不算一轮，"
-                            "最多 4 轮仍不完整则引擎保持 BLOCKED。")
+                            "4 轮仍不完整时引擎记录 SCRIPT_INTEGRITY_ADMITTED_AFTER_EXHAUSTION 后自动放行，不要报 BLOCKED。")
 
 
 def _s1_blockers(episode: str) -> list[Any]:
@@ -1294,7 +1294,8 @@ def pacing_revision_pending(episode: str, session: dict[str, Any]) -> str:
 
 def integrity_revision_pending(episode: str, session: dict[str, Any]) -> str:
     """The S1 integrity round ('round=1/4') the session was not yet resumed for, or ''.  The engine caps the loop
-    (nalu_pipeline.S1_INTEGRITY_MAX_ROUNDS) and then reports SCRIPT_INTEGRITY_ROUNDS_EXHAUSTED without a round, and
+    (nalu_pipeline.S1_INTEGRITY_MAX_ROUNDS) and then admits the script (SCRIPT_INTEGRITY_ADMITTED_AFTER_EXHAUSTION,
+    no round marker left), and
     each round label is resumed once -- an unrevised script never resumes twice, so this cannot repeat forever."""
     blockers = _s1_blockers(episode)
     rnd = next((str(b).split("SCRIPT_INTEGRITY_REVISE:", 1)[1] for b in blockers

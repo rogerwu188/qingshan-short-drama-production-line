@@ -183,8 +183,9 @@ an episode already past a paid stage that relies on the default is grandfathered
   one-person CU/MCU singles in one location, one framing / ambience / axis sentence on every shot, transition rows
   copied from E18, listener ids nobody defined, "Lingyao presses a dagger to Wang Defa throat" with cast = Lingyao.
   These are not taste: S1 reports `SCRIPT_INTEGRITY_REVISE:round=n/4` with the failures, you revise your own layers
-  and rerun S1 (free, no owner); the same bytes rerun never use a round; after four failing revisions the episode
-  stays BLOCKED (`SCRIPT_INTEGRITY_ROUNDS_EXHAUSTED`). Write so none of these fire:
+  and rerun S1 (free, no owner); the same bytes rerun never use a round; after four failing revisions the engine
+  admits the script and records `SCRIPT_INTEGRITY_ADMITTED_AFTER_EXHAUSTION:<codes>` (S1 result, CHECKPOINT, fleet
+  note) so the line never stalls -- the gaps stay on the record. Write so none of these fire:
   - **Length:** the shots' `target_seconds` total at least 0.85 × the brief's `target_seconds` (110 s → ≥ 94 s;
     `SCRIPT_TOO_SHORT`) and at most 1.3 ×. Short? Adapt more plot events and the interactions the scenes miss.
   - **Every person an action touches is in the frame.** A name in `primary_action` that is the clause's subject or the
@@ -233,8 +234,10 @@ blocking check; direct the episode the way people watch films:
   or duplicates a person who is both in the opening frame and a face reference). One H3 unit carries one speaker.
   The one-speaker rule governs SPEAKING units only. (1) Speaking shots show the speaker as the only front face and
   the only one speaking: a single, or (line owner 2026-11-23) an over-the-shoulder whose non-speaking listener is a
-  back-of-head / shoulder figure — list that listener in `cast` with `face_visibility` saying the face is not visible
-  (e.g. `BACK_OF_HEAD_OTS`) and as `dialogue_listener_id`; one speaker's consecutive lines stay in one shot.
+  back-of-head / shoulder figure — list that listener in `cast` with `face_visibility: "BACK_AND_SHOULDERS_ONLY"`
+  (the `<PART>_ONLY` / `FACE_OUT_OF_FRAME` vocabulary the H3 prompt renderer reads as "only X's back and shoulders in
+  frame; X's face is not shown" -- a free-text value such as `BACK_OF_HEAD_OTS` is NOT read and would put a second
+  full face in the prompt) and as `dialogue_listener_id`; one speaker's consecutive lines stay in one shot.
   (2) Two-shots / group shots whenever nobody speaks: a silent stand-off, a physical reaction, and EVERY silent
   action unit whose action has a target — list both people in `cast` (each with its `face_visibility`), the other
   person as `target_entity_id` with `interaction_mode` ≠ `NONE`, and a prop card (`props.reference_cards` /
