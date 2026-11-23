@@ -1001,6 +1001,73 @@ def scene_order_failures(contract: dict[str, Any]) -> list[str]:
     return out[:8]
 
 
+_SHOT_SUFFIX = re.compile(r"^(.*?)(\d+)\s*$")
+
+
+def _shot_rank(shot_id: str) -> tuple[str, int] | None:
+    m = _SHOT_SUFFIX.match(shot_id)
+    return (m.group(1), int(m.group(2))) if m else None
+
+
+def repair_scene_order(contract: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:
+    """Deterministic fix for SCENE_NOT_CONTIGUOUS (owner 2026-11-23: the last ~10-25 s of ZH E25 / JA E10 were a
+    montage of 1.5 s silent shots with odd camera, no subtitles and stray voices).  Root cause: the writer adds each
+    scene's silent visual beats / closing shots (JA E09/E10 ``E10-S01-06``; ZH E25 ``E25-S01-V01`` ...) *after the
+    last scene* of the ``shots`` array; units follow the shots array, so S7 played them as an out-of-order tail.
+    Every run of shots of a scene that comes back after another scene started (no intercut / flashback declared) is
+    moved, as a run, back into its own scene's first run: at the place ``structure[].shot_ids`` gives its first shot,
+    else after the last shot of the same id family with a lower number (``-05`` after ``-04``), else at the end of
+    the scene.  Returns (new contract, moved shot ids) -- (None, []) when nothing moves.  Shots stay byte-identical;
+    only their order changes."""
+    shots = (contract or {}).get("shots")
+    if not isinstance(shots, list) or not scene_order_failures(contract):
+        return None, []
+    struct_pos: dict[str, int] = {}
+    for beat in (contract or {}).get("structure") or []:
+        for sid in (beat.get("shot_ids") if isinstance(beat, dict) else None) or []:
+            struct_pos.setdefault(_clean(sid), len(struct_pos))
+    runs: list[tuple[str, list[Any]]] = []
+    for idx, shot in enumerate(shots):
+        scene = _clean(shot.get("scene_id")) if isinstance(shot, dict) else ""
+        if isinstance(shot, dict) and scene:
+            spec = shot.get("prompt_spec") if isinstance(shot.get("prompt_spec"), dict) else {}
+            mode = str((_field_source(shot, spec, "transition") or {}).get("transition_mode")
+                       or shot.get("incoming_transition_mode") or "").upper()
+            if shot.get("intercut") or mode in INTERCUT_MODES:
+                scene = f"__intercut_{idx}"  # a declared intercut keeps its place
+        key = scene or f"__noscene_{idx}"
+        if runs and runs[-1][0] == key:
+            runs[-1][1].append(shot)
+        else:
+            runs.append((key, [shot]))
+    home: dict[str, list[Any]] = {}
+    out_runs: list[list[Any]] = []
+    moved: list[str] = []
+    for key, run in runs:
+        if key not in home or key.startswith("__"):
+            home[key] = list(run)
+            out_runs.append(home[key])
+            continue
+        target = home[key]
+        first = _clean(run[0].get("shot_id")) if isinstance(run[0], dict) else ""
+        at = len(target)
+        ids = [_clean(s.get("shot_id")) if isinstance(s, dict) else "" for s in target]
+        if first in struct_pos and all(i in struct_pos for i in ids):
+            at = next((j for j, i in enumerate(ids) if struct_pos[i] > struct_pos[first]), len(target))
+        elif _shot_rank(first):
+            fam, num = _shot_rank(first)
+            same = [j for j, i in enumerate(ids) if _shot_rank(i) and _shot_rank(i)[0] == fam]
+            if same:
+                lower = [j for j in same if _shot_rank(ids[j])[1] < num]
+                at = (lower[-1] + 1) if lower else same[0]
+        target[at:at] = run
+        moved.extend(_clean(s.get("shot_id")) if isinstance(s, dict) else "" for s in run)
+    out = [s for run in out_runs for s in run]
+    if not moved or out == shots:
+        return None, []
+    return {**contract, "shots": out}, moved
+
+
 def integrity_failures(contract: dict[str, Any], language: str | None = None,
                        metrics: dict[str, Any] | None = None) -> list[str]:
     """The non-admittable part of the check: boilerplate and a same-place split whose action names another place."""

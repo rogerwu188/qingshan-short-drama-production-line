@@ -612,3 +612,91 @@ class SceneContiguityTest(unittest.TestCase):
         back["intercut"] = True
         c["shots"].append(back)
         self.assertEqual(sp.scene_order_failures(c), [])
+        self.assertEqual(sp.repair_scene_order(c), (None, []))
+
+
+class SceneOrderRepairTest(unittest.TestCase):
+    """Owner 2026-11-23 (ZH E25 / JA E10 endings): the appended closing shots are put back into their scenes."""
+
+    def e09_like(self, with_structure=True):
+        c = valid_contract()
+        s1 = dict(c["shots"][2], shot_id="E24-S01-04")     # scene 1's silent outcome shot ...
+        s2 = dict(c["shots"][4], shot_id="E24-S02-03")
+        c["shots"] += [s1, s2]                               # ... filed after the last scene
+        if with_structure:
+            c["structure"] = [{"beat_id": "E24-S01", "shot_ids": ["E24-S01-01", "E24-S01-02", "E24-S01-03",
+                                                                  "E24-S01-04"]},
+                              {"beat_id": "E24-S02", "shot_ids": ["E24-S02-01", "E24-S02-02", "E24-S02-03"]}]
+        return c
+
+    def test_returning_shots_go_back_into_their_scene(self):
+        for with_structure in (True, False):
+            c = self.e09_like(with_structure)
+            fixed, moved = sp.repair_scene_order(c)
+            self.assertEqual(moved, ["E24-S01-04", "E24-S02-03"])
+            self.assertEqual([s["shot_id"] for s in fixed["shots"]],
+                             ["E24-S01-01", "E24-S01-02", "E24-S01-03", "E24-S01-04",
+                              "E24-S02-01", "E24-S02-02", "E24-S02-03"])
+            self.assertEqual(sp.scene_order_failures(fixed), [])
+            self.assertEqual(sorted(json.dumps(s, sort_keys=True) for s in fixed["shots"]),
+                             sorted(json.dumps(s, sort_keys=True) for s in c["shots"]))  # shots unchanged
+
+    def test_structure_order_wins_over_shot_numbers(self):
+        c = self.e09_like()
+        c["structure"][0]["shot_ids"] = ["E24-S01-01", "E24-S01-04", "E24-S01-02", "E24-S01-03"]
+        fixed, _ = sp.repair_scene_order(c)
+        self.assertEqual([s["shot_id"] for s in fixed["shots"]][:4],
+                         ["E24-S01-01", "E24-S01-04", "E24-S01-02", "E24-S01-03"])
+
+    def test_unparseable_ids_go_to_the_end_of_their_own_scene(self):
+        c = self.e09_like(False)
+        c["shots"][-2]["shot_id"] = "closing-beat"
+        c["shots"][-1]["shot_id"] = "pier-outcome"
+        fixed, moved = sp.repair_scene_order(c)
+        self.assertEqual(moved, ["closing-beat", "pier-outcome"])
+        self.assertEqual([s["shot_id"] for s in fixed["shots"]],
+                         ["E24-S01-01", "E24-S01-02", "E24-S01-03", "closing-beat",
+                          "E24-S02-01", "E24-S02-02", "pier-outcome"])
+
+    def test_e25_visual_beat_runs_return_as_runs(self):
+        """ZH E25: 15 silent 1.5 s visual beats E25-Sxx-V01..V15 (global numbering) were the last 22 s."""
+        c = valid_contract()
+        extra = [dict(c["shots"][0], shot_id="E24-S01-V01"), dict(c["shots"][1], shot_id="E24-S01-V02"),
+                 dict(c["shots"][3], shot_id="E24-S02-V03")]
+        c["shots"] += extra
+        fixed, moved = sp.repair_scene_order(c)
+        self.assertEqual(moved, ["E24-S01-V01", "E24-S01-V02", "E24-S02-V03"])
+        self.assertEqual([s["shot_id"] for s in fixed["shots"]],
+                         ["E24-S01-01", "E24-S01-02", "E24-S01-03", "E24-S01-V01", "E24-S01-V02",
+                          "E24-S02-01", "E24-S02-02", "E24-S02-V03"])
+
+    def test_in_order_contract_untouched(self):
+        self.assertEqual(sp.repair_scene_order(valid_contract()), (None, []))
+
+    def _stage(self, contract, in_flight=False, env=None):
+        import nalu_pipeline as npl
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            path = d / "E24_GENERATION_CONTRACT_v1.json"
+            path.write_text(json.dumps(contract), encoding="utf-8")
+            (d / "logs").mkdir()
+            ctx = SimpleNamespace(episode="E24", run_id="r1")
+            p = SimpleNamespace(contract=path, logs=d / "logs")
+            with mock.patch.object(npl, "s1_pacing_in_flight", lambda _p: in_flight), \
+                    mock.patch.dict(os.environ, env or {}):
+                row = npl.s1_repair_scene_order(ctx, p)
+            return row, json.loads(path.read_text()), path.with_name(path.stem + ".pre_scene_order.json").exists()
+
+    def test_s1_rewrites_contract_before_any_paid_stage(self):
+        row, after, backup = self._stage(self.e09_like())
+        self.assertEqual(row["status"], "REPAIRED")
+        self.assertTrue(backup)
+        self.assertEqual(sp.scene_order_failures(after), [])
+
+    def test_s1_leaves_in_flight_or_opted_out_episode_alone(self):
+        for kw, status in (({"in_flight": True}, "SKIPPED_PAID_STAGE_RAN"),
+                           ({"env": {"NALU_SCENE_ORDER_REPAIR": "0"}}, "OFF")):
+            row, after, backup = self._stage(self.e09_like(), **kw)
+            self.assertEqual(row["status"], status)
+            self.assertFalse(backup)
+            self.assertTrue(sp.scene_order_failures(after))
