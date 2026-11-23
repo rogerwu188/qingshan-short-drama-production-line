@@ -248,7 +248,10 @@ def validate_character_entity_contract(payload: dict[str, Any]) -> dict[str, Any
 # defined.  H3 can only draw who the cast names, so the second person vanished from every interaction.  These are
 # data defects of the script, never taste: they return the script to the writer.
 
-_CHAR_ID_RE = re.compile(r"\bCHAR-[A-Za-z0-9][A-Za-z0-9_]*(?:-[A-Za-z0-9_]+)*")
+# A CHAR- token inside a longer hyphenated key is part of that key, not a character reference: the engine builds
+# wardrobe continuity keys as WARDROBE-<episode>-<character_id>-V1 (device 1437 E01: WARDROBE-E01-CHAR-KO-SUJIN-V1 was
+# read as an undefined character CHAR-KO-SUJIN-V1 and blocked the S5 / S6 prompt compile).
+_CHAR_ID_RE = re.compile(r"(?<![A-Za-z0-9_-])CHAR-[A-Za-z0-9][A-Za-z0-9_]*(?:-[A-Za-z0-9_]+)*")
 _PROPER_RUN_RE = re.compile(r"\b[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*")
 _RUN_STOPWORDS = frozenset({"THE", "A", "AN", "HE", "SHE", "HIS", "HER", "THEY", "THEIR", "IT", "ITS", "WHILE",
                             "THEN", "AS", "WHEN", "WITH", "AND", "BUT", "ONE", "TWO", "BOTH"})

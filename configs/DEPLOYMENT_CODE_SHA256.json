@@ -3913,7 +3913,7 @@
     },
     {
       "path": "tools/character_entity_contract.py",
-      "sha256": "52187d70e7094a0c50841e27283979e0374c4739d95a2bc59fc12e8cc3653d46"
+      "sha256": "256de2a3cbfd28521c17539efcbfae320b39a7aae15fcd48156ee27b1e5876a4"
     },
     {
       "path": "tools/character_identity_admission_gate.py",
@@ -7549,7 +7549,7 @@
     },
     {
       "path": "tools/tests/test_character_entity_contract.py",
-      "sha256": "e6153ed8a6ccca317f6db6cef90bb541bbb2a4fc96bb45d56e6883485a07f019"
+      "sha256": "00c332bde06935279687e05435a68d3127c23ed1b9e93e30b1d2507e40ee89af"
     },
     {
       "path": "tools/tests/test_character_identity_admission_gate.py",
