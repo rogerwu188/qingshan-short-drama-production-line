@@ -6578,6 +6578,21 @@ def s6_burn_retry_indices(state: dict[str, Any] | None) -> dict[str, int]:
             for uid, row in ((state or {}).get(_br.STATE_KEY) or {}).items() if row.get("attempts")}
 
 
+def s6_unit_lines(ctx: Any, uid: str) -> list[str]:
+    """The contract dialogue lines of unit ``uid`` (grouping plan editorial shots -> audio_contract.dialogue_units),
+    in order -- the S6 whole-frame text pass flags a read that says one of them.  [] on any error."""
+    try:
+        p = ctx.p
+        shots: list[str] = []
+        for unit in (read_json(p.grouping_plan, {}) or {}).get("units") or []:
+            if str(unit.get("unit_id")) == str(uid):
+                shots = [str(x) for x in unit.get("editorial_shot_ids") or []]
+        units = ((read_json(p.contract, {}) or {}).get("audio_contract") or {}).get("dialogue_units") or []
+        return [str(d.get("text") or "") for d in units if str(d.get("shot_id")) in shots and d.get("text")]
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
     """S6 burned-text check of every freshly landed H3 clip, BEFORE its tail frame is extracted (line owner
     2026-11-19: automatic paid retry only on detected burned text, at most NALU_S6_BURN_RETRY_MAX (2) per unit,
@@ -6629,7 +6644,7 @@ def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
             # be skipped as "already measured", leaving the record RETRY_SUBMITTED and the burned take unflagged
             ctx.say(f"{_br.SAME_RENDER_LOG} unit={uid} retry={pending_attempt.get('retry')} "
                     f"take={clip_sha[:12]} (byte-identical to an earlier take)")
-        det = _br.detect(clip)
+        det = _br.detect(clip, lines=s6_unit_lines(ctx, uid), lang=ctx_language(ctx))
         _s6_burn_note_fail_open(ctx, uid, det)
         # a take that shows the unit's identity sheet as its picture is never CLEAN (JA-01 E04 VU-007 2026-11-21:
         # "clean" only because H3 drew the reference sheet instead of text) -- retried like burned text
@@ -6642,6 +6657,12 @@ def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
         check = {k: det.get(k) for k in ("status", "frames_sampled", "burned_frames", "longest_run", "elapsed_ms",
                                          "error", _br.SHEET_LEAK_FLAG, "sheet_leak") if det.get(k) is not None}
         check.update(at=now(), retry=len(attempts), hits=(det.get("hits") or [])[:6])
+        if det.get("status") == "BURNED" and det.get("ocr_frames"):
+            # per-frame band OCR (text, conf, box) of a burned take: S7's strict burned-line check reads it instead of
+            # re-reading the clip when the recogniser fits the dialogue language (owner 2026-11-23)
+            check.update(ocr_frames=det.get("ocr_frames"), ocr_model=det.get("ocr_model"))
+        if det.get("suspect_hits"):
+            check["suspect_hits"] = det["suspect_hits"]
         if wob is not None:
             check[_br.WOBBLE_FLAG] = _wob_summary(wob)
         if det.get("status") != "BURNED" and not attempts and not wobble:
@@ -6905,13 +6926,39 @@ def s7_residual_burn_bands(ctx: Ctx) -> Path | None:
             # cue when it is the same line (it is already on screen) instead of stacking a second copy above it
             texts = list(band.get("texts") or []) or _br.residual_band_texts(
                 (((rec.get("checks") or {}).get(rec.get("kept_take_sha256")) or {}).get("hits")))
-            units[str(uid)] = {"y0": float(band["y0"]), "y1": float(band["y1"]), **({"texts": texts} if texts else {})}
+            units[str(uid)] = {"y0": float(band["y0"]), "y1": float(band["y1"]), **({"texts": texts} if texts else {}),
+                               "ocr": s7_burned_line_ocr(ctx, clip, rec)}
     if not units:
         return None
     path = ctx.p.assembly / f"{ctx.episode}_S6_RESIDUAL_BURN_BANDS.json"
     write_json(path, {"schema": "nalu.s6_residual_burn_bands.v1", "episode": ctx.episode, "units": units,
                       "recorded_at": now(), "recorded_by": TOOL_ID})
     return path
+
+
+def s7_burned_line_ocr(ctx: Any, clip: Path, rec: dict[str, Any]) -> dict[str, Any]:
+    """Per-frame band OCR of a unit's kept take for the strict burned-line check (build_burnin_subtitles,
+    owner 2026-11-23): a re-read of the kept take at h3_burn_retry.STRICT_FPS (12 fps, the prototype's rate) with
+    the recogniser of the dialogue language (zh / en: RapidOCR's bundled one; ja / ko: tools/ocr_lang_models) --
+    a few seconds per unresolved unit, free.  The S6 detection's 4 fps ``ocr_frames`` are the fallback when the
+    re-read fails and they were read with the right recogniser (at 4 fps a steady line can measure as jittery: the
+    check then rejects, never wrongly accepts).  {error} when neither exists -- the check cannot accept and our cue
+    stays.  Never raises."""
+    lang = ctx_language(ctx)
+    try:
+        import h3_burn_retry as _br  # noqa: PLC0415
+        import ocr_lang_models as _olm  # noqa: PLC0415
+        need = _olm.model_id(lang)
+        kept = ((rec.get("checks") or {}).get(rec.get("kept_take_sha256")) or {}) if isinstance(rec, dict) else {}
+        fresh = _br.ocr_band_frames(Path(clip), lang) if Path(clip).is_file() else {"error": "KEPT_TAKE_MISSING"}
+        if fresh.get("frames") and not fresh.get("error"):
+            return fresh
+        if kept.get("ocr_frames") and kept.get("ocr_model") == need:
+            return {"source": "S6_KEPT_TAKE", "model": need, "lang": lang, "sample_fps": _br.SAMPLE_FPS,
+                    "frames": kept["ocr_frames"], "reread_error": fresh.get("error")}
+        return {"source": "NONE", "lang": lang, "error": fresh.get("error") or "NO_OCR_FRAMES"}
+    except Exception as exc:  # noqa: BLE001
+        return {"source": "NONE", "lang": lang, "error": f"{type(exc).__name__}: {str(exc)[:160]}"}
 
 
 def _s6_burn_note_fail_open(ctx: Ctx, uid: str, det: dict[str, Any]) -> None:
@@ -6951,7 +6998,7 @@ def s6_final_fix_burn_check(ctx: Ctx, uid: str, clip: Path, clip_sha: str) -> di
     checks = dict(rec.get("burn_checks") or {})
     if clip_sha in checks or clip_sha == rec.get("parked_clip_sha256"):
         return None
-    det = _br.detect(clip, min_consecutive=1)
+    det = _br.detect(clip, min_consecutive=1, lines=s6_unit_lines(ctx, uid), lang=ctx_language(ctx))
     _s6_burn_note_fail_open(ctx, uid, det)
     retries = list(rec.get("burn_retries") or [])
     checks[clip_sha] = {**{k: det.get(k) for k in ("status", "frames_sampled", "burned_frames", "longest_run",
@@ -11688,6 +11735,25 @@ def _final_fix_annotate(ctx: Any, mapped: list[dict[str, Any]], segments: list[d
             f["annotation_error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
 
 
+def s7_burned_line_summary(ctx: Any, report_path: Path) -> list[dict[str, Any]]:
+    """The strict burned-line decisions of S7 (``burned_line_checks`` of <EP>_BURNIN_SUBTITLES.json) for the
+    episode record, one log line each.  [] when none / unreadable."""
+    rows = []
+    for row in ((read_json(report_path, {}) or {}).get("burned_line_checks") or []):
+        if not isinstance(row, dict):
+            continue
+        rows.append({k: row.get(k) for k in ("unit_id", "shot_id", "verdict", "reasons", "segments", "burn_window",
+                                             "spoken_window", "ocr_source", "ocr_model", "suppressed")
+                     if row.get(k) is not None})
+        try:
+            ctx.say(f"S7_BURNED_LINE_CHECK unit={row.get('unit_id')} shot={row.get('shot_id')} "
+                    f"verdict={row.get('verdict')} -> {'cue suppressed' if row.get('suppressed') else 'cue kept'}"
+                    + (f" ({'; '.join(str(r) for r in row.get('reasons') or [])[:200]})" if row.get('reasons') else ""))
+        except Exception:  # noqa: BLE001 - a test double without say
+            pass
+    return rows
+
+
 def final_fix_s6_rows(ctx: Any, checklist: dict[str, Any]) -> dict[str, Any]:
     """The must-check list with its S6 UNRESOLVED rows made reliable (JA-01 E07 VU-004 2026-11-22: the S6 burn of
     VU-004 stayed UNRESOLVED in our subtitle band, S7 moved our caption above it, yet the final fix round never redid
@@ -11713,9 +11779,18 @@ def final_fix_s6_rows(ctx: Any, checklist: dict[str, Any]) -> dict[str, Any]:
             rows.append({**row, "source_fallback": "S6_WAVE_STATE"})
         burnin = read_json(ctx.p.assembly / f"{ctx.episode}_BURNIN_SUBTITLES.json", {}) or {}
         suppressed = {str(r.get("unit_id")) for r in burnin.get("suppressed_duplicate_cues") or []
-                      if isinstance(r, dict)}
+                      if isinstance(r, dict) and r.get("verdict") == "ACCEPT_CORRECT"}
+        verdicts: dict[str, list[str]] = {}
+        for r in burnin.get("burned_line_checks") or []:
+            if isinstance(r, dict):
+                verdicts.setdefault(str(r.get("unit_id")), []).append(str(r.get("verdict")))
         for row in rows:
-            if str(row.get("unit_id")) in suppressed:
+            uid = str(row.get("unit_id"))
+            if verdicts.get(uid):
+                row["strict_burn_verdicts"] = verdicts[uid]
+            # owner 2026-11-23: our copy counts as suppressed only when the strict check accepted the burned line as
+            # exactly the cue's line, and no other line of the unit was rejected -- anything else stacks: P1 trigger
+            if uid in suppressed and not any(v.startswith("REJECT") for v in verdicts.get(uid, [])):
                 row["duplicate_suppressed"] = True
         if rows or out.get("s6_burn_unresolved"):
             out["s6_burn_unresolved"] = rows
@@ -13188,6 +13263,10 @@ def _stage_s7_pass(ctx: Ctx) -> StageResult:
             res.blockers = ["H3_BURNED_TEXT_STILL_VISIBLE"]
             return res
     res.details["subtitles"] = {"picture": str(subbed), "report": str(p.assembly / f"{ctx.episode}_BURNIN_SUBTITLES.json")}
+    # the strict burned-line decisions (owner 2026-11-23): our cue is suppressed only on ACCEPT_CORRECT
+    checks = s7_burned_line_summary(ctx, p.assembly / f"{ctx.episode}_BURNIN_SUBTITLES.json")
+    if checks:
+        res.details["subtitles"]["burned_line_checks"] = checks
     # 5b'. opening title (line owner 2026-10-22: every episode needs a proper opening).  Free overlay of
     # the brief's series title + episode line on the first 2.5 s; no added duration, audio stream copy.
     # A missing brief title / font or an ffmpeg failure only skips it (recorded) and never blocks S7.

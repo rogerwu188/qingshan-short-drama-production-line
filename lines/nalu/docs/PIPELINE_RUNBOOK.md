@@ -1170,10 +1170,23 @@ MiniMax-H3 sometimes burns the spoken line into the clip as a caption (centred, 
   `s6_burn_retry`, and the S8 checkpoint / QA defect checklist list it under `QA-BURNED-TEXT`.  Never blocks.
 * **Duplicate line (JA-01 E07 VU-004, 2026-11-22)**: an unresolved take whose burned text sits in our subtitle band
   records the OCR text with the band (`residual_text_band.texts`).  S7 (`build_burnin_subtitles --avoid-bands`)
-  SUPPRESSES our cue when that text is the cue's line (fuzzy >= 0.6, `subtitle_text_match.py`; report
-  `suppressed_duplicate_cues`) -- the line is already on screen; otherwise the cue moves clear of the band and the
-  final fix round takes the unit as BURNED_TEXT P1 (a trigger on its own; rows are read from the wave state when the
-  must-check list lacks them).  The post-S7 evidence pack OCRs the final cut's caption band: two stacked rows saying
+  SUPPRESSES our cue only on the STRICT verdict `ACCEPT_CORRECT` (2026-11-23, `subtitle_text_match.
+  strict_burned_line_check`; the PR #299 fuzzy >= 0.6 match accepted 「嬷媽」, a missing character, 「…看上你妈」 and
+  traditional copies): the kept take is re-read at 12 fps with the dialogue language's recogniser
+  (`tools/ocr_lang_models.py`: zh/en bundled, ja `japan_PP-OCRv4_rec_mobile`, ko `korean_PP-OCRv5_rec_mobile`,
+  sha256-pinned ModelScope v3.10.0, prefetched by setup_host, cached in `~/.cache/nalu/ocr_models`); the stable
+  segments must spell the unit's lines EXACTLY (NFKC, no punctuation, no simplified/traditional folding; ja
+  punctuation look-alikes only at the cue's punctuation), >= 90 % of text frames read them, mean conf >= 0.90 and no
+  box < 0.80, glyph-size jitter <= 6 %, position jitter <= 1 % of H, and the burned window overlaps the spoken
+  window.  Every decision is in `burned_line_checks` (report + S7 episode record, log `S7_BURNED_LINE_CHECK`).
+  REJECT_WRONG / REJECT_UNSTABLE / NO_BURN keep our cue (moved clear of the band) and the final fix round takes the
+  unit as BURNED_TEXT P1 (a trigger on its own; rows are read from the wave state when the must-check list lacks
+  them).  S6 keeps the per-frame band OCR (`ocr_frames`, text/conf/box) of burned takes as the fallback.
+* **Whole-frame text pass (E24 review, 2026-11-23)**: the S6 detector also OCRs the whole frame (score >= 0.4, any
+  orientation / position, area <= 25 %) and flags text that says the unit's line or is garbled (zh: a character
+  outside GB2312 level 1; any language: a read < 0.6 of >= 2 characters) -- E24's 「不姒伴」「揞哓」 and the
+  mid-frame placard 「樸花美娇」.  Hits carry `pass: WHOLE_FRAME` + `kind`; `NALU_S6_SUSPECT_TEXT=off` disables it.
+  ja / ko episodes detect with the language recogniser (the bundled one misses kana).  The post-S7 evidence pack OCRs the final cut's caption band: two stacked rows saying
   the same line (`stacked_subtitle_runs`) are a QA-BURNED-TEXT finding and a fix-round trigger.
 * **Log lines**: `S6_BURN_DETECTED unit=… frames=b/n retry=k/2 -> RETRY|KEEP_BEST (reason)`,
   `S6_BURN_RETRY_SUBMITTED unit=… retry=n/2`, `S6_BURN_RESOLVED unit=…`, `S6_BURN_UNRESOLVED unit=… reason=…`.

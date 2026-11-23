@@ -36,10 +36,11 @@ caption is built exactly as before.
 --avoid-bands (2026-11-21, JA-01 E04 VU-004): <EP>_S6_RESIDUAL_BURN_BANDS.json {units: {uid: {y0, y1, texts?}}} -- units
 whose kept S6 take still carries H3-burned text in our subtitle band (S6 retries UNRESOLVED).  A caption of such a unit
 that would overlap the burned line is drawn just ABOVE it (never above mid-frame; else below it), so the two never
-stack; the report row records ``moved_clear_of_burned_text``.  When the burned line's OCR text (``texts``) IS the cue's
-line (fuzzy >= 0.6, subtitle_text_match; JA-01 E07 VU-004 2026-11-22: moved above it, the viewer still read the same
-line twice) the cue is suppressed instead (``suppressed_duplicate_cues`` in the report).  Every other caption is
-unchanged.
+stack; the report row records ``moved_clear_of_burned_text``.  When the burned line IS the cue's line (JA-01 E07
+VU-004 2026-11-22: moved above it, the viewer still read the same line twice) the cue is suppressed instead
+(``suppressed_duplicate_cues``) -- from 2026-11-23 only on the STRICT verdict ACCEPT_CORRECT of
+subtitle_text_match.strict_burned_line_check over the kept take's per-frame band OCR (units[uid].ocr), never on a
+fuzzy match; every decision is in ``burned_line_checks``.  Every other caption is unchanged.
 
   build --episode EP --project <agentcut project> --asr <per-unit asr json> --contract <generation contract>
         --grouping <grouping plan> --source <picture_native.mp4> --out-ass <.ass> --out-video <subbed.mp4>
@@ -456,28 +457,77 @@ def burned_band_texts(path: Path | None) -> dict[str, list[str]]:
             for uid, row in units.items() if isinstance(row, dict) and row.get("texts")}
 
 
-def suppress_already_burned(events: list, report: list, burned: dict[str, list[str]],
-                            threshold: float | None = None) -> tuple[list, list, list[dict]]:
-    """(events, report rows, suppressed rows): a cue of a unit whose burned line says the same thing (the cue's text
-    or, for a sequential piece, its whole line) is dropped -- the picture already shows it.  ``events`` and
-    ``report`` are index-aligned (as built).  Pure."""
+def burned_band_ocr(path: Path | None) -> dict[str, dict]:
+    """{unit id: per-frame band OCR of the kept take} from ``<EP>_S6_RESIDUAL_BURN_BANDS.json`` (units[uid].ocr:
+    {source, model, lang, frames | error}); a unit listed without it maps to {} (the strict check then rejects)."""
+    if not path or not Path(path).is_file():
+        return {}
+    try:
+        units = (json.loads(Path(path).read_text(encoding="utf-8")) or {}).get("units") or {}
+    except (OSError, ValueError):
+        return {}
+    return {str(uid): dict(row.get("ocr") or {}) for uid, row in units.items() if isinstance(row, dict)}
+
+
+def suppress_already_burned(events: list, report: list, burned: dict[str, dict], language: str = "zh"
+                            ) -> tuple[list, list, list[dict], list[dict]]:
+    """(events, report rows, suppressed rows, checks): a line of a unit whose kept take still shows burned text in our
+    band is checked with the STRICT rule (subtitle_text_match.strict_burned_line_check, owner 2026-11-23: the >= 0.6
+    fuzzy match of PR #299 suppressed our correct caption under a WRONG burned line -- 「嬷媽」, a missing character,
+    「…看上你妈」, traditional characters).  Only ACCEPT_CORRECT drops the line's cues (every sequential piece);
+    REJECT_WRONG / REJECT_UNSTABLE / NO_BURN keep them (--avoid-bands moves them clear of the burned band) and the
+    unit stays a BURNED_TEXT P1 of the final fix round.  ``events`` and ``report`` are index-aligned.  Pure."""
     if not burned:
-        return events, report, []
+        return events, report, [], []
     import subtitle_text_match as _stm
-    limit = _stm.DUPLICATE_THRESHOLD if threshold is None else float(threshold)
+    # the unit's lines in order (a split line's cues share one line), with the spoken window in clip seconds
+    lines: dict[str, list[dict]] = {}
+    for row in report:
+        uid = str(row.get("unit_id") or "")
+        if uid not in burned:
+            continue
+        text = row.get("line_text") or row.get("text")
+        key = (row.get("shot_id"), text)
+        have = lines.setdefault(uid, [])
+        if not any((x["shot_id"], x["text"]) == key for x in have):
+            have.append({"shot_id": row.get("shot_id"), "text": text, "row": row})
+    checks: dict[tuple, dict] = {}
+    for uid, rows in lines.items():
+        ocr = burned.get(uid) or {}
+        rows.sort(key=lambda x: float(x["row"].get("source_start") if x["row"].get("source_start") is not None
+                                      else x["row"].get("start") or 0.0))
+        texts = [x["text"] for x in rows]
+        for x in rows:
+            row = x["row"]
+            window = None
+            if row.get("source_start") is not None and row.get("source_end") is not None:
+                window = (float(row["source_start"]), float(row["source_end"]))
+            frames = ocr.get("frames") if not ocr.get("error") else None
+            verdict = _stm.strict_burned_line_check(frames, x["text"], language, spoken_window=window,
+                                                    unit_lines=texts, sample_fps=ocr.get("sample_fps"))
+            if row.get("unit_recut") and verdict["verdict"] == _stm.ACCEPT_CORRECT:
+                # a re-cut unit's ASR is the derived clip's: its clock is not the kept take's -- never suppress
+                verdict = {**verdict, "verdict": _stm.REJECT_UNSTABLE, "reasons": ["UNIT_RECUT_TIMEBASE"]}
+            if ocr.get("error"):
+                verdict["reasons"] = [*verdict.get("reasons", []), f"OCR_UNAVAILABLE {ocr['error']}"]
+            checks[(uid, x["shot_id"], x["text"])] = {
+                "unit_id": uid, "shot_id": x["shot_id"], "line": x["text"], **{k: verdict.get(k) for k in (
+                    "verdict", "reasons", "segments", "burn_window", "spoken_window", "stable_cover", "mean_conf",
+                    "min_conf", "jitter", "text_frames") if verdict.get(k) is not None},
+                "ocr_source": ocr.get("source"), "ocr_model": ocr.get("model"),
+                "suppressed": verdict["verdict"] == _stm.ACCEPT_CORRECT}
     keep_e, keep_r, gone = [], [], []
     for ev, row in zip(events, report):
-        reads = burned.get(str(row.get("unit_id") or ""))
-        if reads:
-            score, read = max(_stm.best_match(row.get("text"), reads), _stm.best_match(row.get("line_text"), reads))
-            if score >= limit:
-                gone.append({"unit_id": row.get("unit_id"), "shot_id": row.get("shot_id"), "text": row.get("text"),
-                             "start": row.get("start"), "end": row.get("end"), "burned_text": read,
-                             "similarity": score, "reason": "LINE_ALREADY_BURNED_IN_PICTURE"})
-                continue
+        uid = str(row.get("unit_id") or "")
+        check = checks.get((uid, row.get("shot_id"), row.get("line_text") or row.get("text")))
+        if check and check["suppressed"]:
+            gone.append({"unit_id": row.get("unit_id"), "shot_id": row.get("shot_id"), "text": row.get("text"),
+                         "start": row.get("start"), "end": row.get("end"), "verdict": check["verdict"],
+                         "burned_segments": check.get("segments"), "reason": "LINE_ALREADY_BURNED_IN_PICTURE"})
+            continue
         keep_e.append(ev)
         keep_r.append(row)
-    return keep_e, keep_r, gone
+    return keep_e, keep_r, gone, list(checks.values())
 
 
 def caption_y_above(default_y: int, cap_h: int, start: float, end: float,
@@ -627,10 +677,11 @@ def main() -> int:
                        "timing_basis": "VOICE_OVER_PLACEMENT", "presence": "VOICE_OVER",
                        "timing_verification": "PLACED_FROM_S4_WAV_DURATION"})
     # JA-01 E07 VU-004 (2026-11-22): the unit's kept S6 take still shows H3's burned copy of the line in our band.
-    # When the burned text IS the cue's line (fuzzy >= 0.6, subtitle_text_match) the line is already on screen: our
-    # cue is suppressed for that window (free) instead of being drawn above it as a second copy.  A burned read that
-    # does not match (garbled / other text) keeps the cue, moved clear by --avoid-bands.
-    events, report, suppressed = suppress_already_burned(events, report, burned_band_texts(a.avoid_bands))
+    # Owner 2026-11-23: our cue is suppressed ONLY when the strict check proves the burned text is exactly the cue's
+    # line, stably, at the time it is spoken (ACCEPT_CORRECT); every other verdict keeps the cue, moved clear by
+    # --avoid-bands, and the unit stays a BURNED_TEXT P1 of the final fix round.
+    events, report, suppressed, line_checks = suppress_already_burned(events, report, burned_band_ocr(a.avoid_bands),
+                                                                     a.language)
     # no overlaps: clamp each caption's end to the next start
     events.sort(key=lambda x: x[0])
     report.sort(key=lambda row: row["start"])
@@ -724,6 +775,7 @@ def main() -> int:
            "unit_recut": str(a.unit_recut) if a.unit_recut else None, "unit_recut_dropped_lines": recut_dropped,
            "unmapped_dialogue_lines": unmapped_lines,
            **({"suppressed_duplicate_cues": suppressed} if suppressed else {}),
+           **({"burned_line_checks": line_checks} if line_checks else {}),
            **({"avoid_bands": str(a.avoid_bands), "avoid_rects": [{"start": s0, "end": e0, "y": r[1], "h": r[3]}
                                                                  for s0, e0, r in avoid]} if avoid else {}),
            "font": font_name, "font_file": font_file, "font_source": font_source,

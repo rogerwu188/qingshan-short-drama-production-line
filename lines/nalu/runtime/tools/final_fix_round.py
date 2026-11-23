@@ -616,7 +616,8 @@ def s6_unresolved_findings(rows: Any) -> list[dict[str, Any]]:
     """S6 retries that did not clear the unit (``s6_burn_unresolved`` of the must-check list, from the S6 wave state):
     the kept take still shows the identity sheet (REFERENCE_SHEET_LEAK, P0) or model-burned text -- in our subtitle
     band P1 (it stacks under our caption, E04 VU-004) and a trigger (E07 VU-004), elsewhere -- or when S7 suppressed
-    our copy because the burned line is the cue's line (``duplicate_suppressed``) -- P2.  Findings of their unit."""
+    our copy because the strict check proved the burned line is exactly the cue's line (``duplicate_suppressed`` with
+    ``strict_burn_verdicts`` ACCEPT_CORRECT, 2026-11-23) -- P2.  Findings of their unit."""
     out = []
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, dict) or not row.get("unit_id"):
@@ -634,7 +635,12 @@ def s6_unresolved_findings(rows: Any) -> list[dict[str, Any]]:
         # JA-01 E07 VU-004 (2026-11-22): the burned line IS the cue's line -> S7 suppressed our copy, the viewer reads
         # it once (P2, a redo only if the budget is left); any other in-band text stacks next to our caption (P1, and
         # a trigger of the round on its own: the round must not depend on a reviewer noticing it)
-        suppressed = bool(row.get("duplicate_suppressed"))
+        # owner 2026-11-23 (E24 review): "suppressed" only on the STRICT verdict -- S7 proved the burned text is
+        # exactly the cue's line (ACCEPT_CORRECT) and rejected no line of the unit; a wrong / unstable / unchecked
+        # burned line in the band stacks with our kept caption: P1 and a trigger
+        verdicts = [str(v) for v in row.get("strict_burn_verdicts") or []]
+        suppressed = (bool(row.get("duplicate_suppressed")) and "ACCEPT_CORRECT" in verdicts
+                      and not any(v.startswith("REJECT") for v in verdicts))
         stacks = in_band and not suppressed and not sheet
         out.append({"source": S6_SOURCE, "item": "QA-REFERENCE-SHEET-LEAK" if sheet else "QA-BURNED-TEXT",
                     "unit_id": str(row["unit_id"]),

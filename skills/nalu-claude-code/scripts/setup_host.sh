@@ -225,6 +225,10 @@ if [ ! -x .qingshan-venv/bin/python ] || [ "$before" != "$PIN_EFFECTIVE" ] || [ 
 fi
 .qingshan-venv/bin/python -c "import insightface, faster_whisper, rapidocr_onnxruntime, opencc" >>"$LOG" 2>&1 \
   || { STEP_python=IMPORT_CHECK_FAILED; finish BLOCKED python; }
+# language OCR recognisers for the strict burned-line check (ja / ko; sha256-pinned ModelScope tag, ~23 MB, cached in
+# ~/.cache/nalu/ocr_models).  Non-fatal: S7 fetches a missing one on first use, and without it never suppresses a cue.
+.qingshan-venv/bin/python tools/ocr_lang_models.py prefetch ja ko >>"$LOG" 2>&1 \
+  || NOTES+=("ocr ja/ko recognisers not prefetched (S7 retries on first use; strict burned-line check keeps our cue)")
 [ -f .env ] || cp .env.example .env; chmod 600 .env
 if [ ! -f "$RUNTIME/.nalu_setup_owner" ]; then
   run python3 lines/nalu/runtime/tools/bootstrap_runtime_root.py --runtime-root "$RUNTIME" --line-id nalu-minipc --work "短剧工作流" \
