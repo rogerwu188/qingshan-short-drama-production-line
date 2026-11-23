@@ -72,6 +72,23 @@ class CharacterEntityContractTests(unittest.TestCase):
         }
         self.assertEqual(validate_character_entity_contract(value)["status"], "PASS")
 
+    def test_engine_wardrobe_continuity_key_is_not_a_character_reference(self):
+        # device 1437 E01: build_nalu_preproduction writes WARDROBE-<episode>-<character_id>-V1
+        value = payload()
+        value["wardrobe_bible"] = {"bible_id": "WARDROBE-BIBLE-E54-V1", "characters": [
+            {"character_id": "CHAR-CHENJI", "continuity_key": "WARDROBE-E54-CHAR-CHENJI-V1"},
+            {"character_id": "CHAR-XUANYUAN", "continuity_key": "WARDROBE-E54-CHAR-XUANYUAN-V1"}]}
+        verdict = validate_character_entity_contract(value)
+        self.assertNotIn("CHARACTER_ID_REFERENCED_BUT_UNDEFINED", ";".join(verdict["failures"]))
+        self.assertEqual(verdict["status"], "PASS")
+
+    def test_standalone_undefined_character_id_still_fails(self):
+        value = payload()
+        value["ordered_prompt_specs"][0]["note"] = "CHAR-GHOST walks in; listener is (CHAR-NOBODY)"
+        failures = validate_character_entity_contract(value)["failures"]
+        self.assertIn("CHARACTER_ID_REFERENCED_BUT_UNDEFINED:CHAR-GHOST", failures)
+        self.assertIn("CHARACTER_ID_REFERENCED_BUT_UNDEFINED:CHAR-NOBODY", failures)
+
 
 def shot_payload(shots):
     """A contract shape that carries entry_state on the shot, the way the writer emits it."""
