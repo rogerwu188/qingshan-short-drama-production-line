@@ -1275,7 +1275,8 @@ def run(episode: str, *, review_path: Path | None = None,
     h3_resolution = episode_h3_resolution(episode)
 
     import unit_voice_consistency as _uvc
-    voice_check_active = _uvc.active_for(episode)
+    # E01+ since 2026-11-23; an episode whose post-gen QA already ran advisory stays advisory (sticky record)
+    voice_check_active = _uvc.enforced_for(episode, p.postgen_dir)
     voice_cast = (read_json(p.voice_cast, {}) or {}) if voice_check_active else {}
     name_to_id = exp.character_name_to_id() if voice_check_active else {}
     # before VOICE_TIMBRE_LOCK's active episode the same free measurement still runs, advisory only, for the
@@ -1330,7 +1331,7 @@ def run(episode: str, *, review_path: Path | None = None,
                                         expectations.get("expected_dialogue") or [],
                                         _src.shot_targets(exp.contract, language), language=language)
         write_json(out_dir / f"{unit_id}_speech_rate.json", speech_rate)
-        # VOICE_TIMBRE_LOCK (Roger 2026-09-28, E10+): the speaker's F0 on this unit's own ASR
+        # VOICE_TIMBRE_LOCK (Roger 2026-09-28; E01+ since 2026-11-23): the speaker's F0 on this unit's own ASR
         # segments against the voice_cast band — the final-cut voice_distinctness measurement,
         # moved to the unit so a drifting voice is rerolled here instead of shipped.
         voice = None

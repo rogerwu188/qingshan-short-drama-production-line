@@ -4,6 +4,8 @@ E10 S5 Q1: the inherited angle label lists the shot_size／camera of every shot 
 so E10-S03-03 / S10-01 / S05-01 keyframes drew another shot's box, covered mouth and end state.
 """
 import sys
+import tempfile
+import types
 import unittest
 from pathlib import Path
 
@@ -27,15 +29,40 @@ SPEC = {"camera": "特写／特写横摇到愕然的许岳平；机位 ANGLE-XU-
 
 
 class CameraNoteScopeTests(unittest.TestCase):
-    def test_policy_gates_e11_onward_and_keeps_e01_e10_legacy(self):
+    def test_policy_active_from_e01_for_every_series(self):
         self.assertEqual(POLICY.get("schema"), bkm.CAMERA_NOTE_POLICY_SCHEMA)
-        start = int(POLICY["active_from_episode"])
-        self.assertEqual(start, 11)
-        for episode in ("E01", "E09", "E10"):
-            self.assertFalse(bkm.camera_note_scoped(episode))
-        self.assertTrue(bkm.camera_note_scoped("E11"))
-        self.assertTrue(bkm.camera_note_scoped("E12"))
+        # owner 2026-11-23: was 11
+        self.assertEqual(int(POLICY["active_from_episode"]), 1)
+        self.assertEqual(int(POLICY["in_flight_exemption"]["legacy_active_from_episode"]), 11)
+        for episode in ("E01", "E09", "E10", "E11", "E12"):
+            self.assertTrue(bkm.camera_note_scoped(episode))
         self.assertFalse(bkm.camera_note_scoped("E11", {}))  # missing policy = legacy
+
+    def test_fresh_episode_scoped_and_sticky_after_keyframes_exist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pre, kf = Path(tmp), Path(tmp) / "keyframes"
+            first = bkm.camera_note_decision("E02", pre, kf, POLICY)
+            self.assertEqual((first["scoped"], first["reason"]), (True, "POLICY_ACTIVE"))
+            kf.mkdir()
+            (kf / "E02-S01-01-keyframe-v1.png").write_bytes(b"png")
+            again = bkm.camera_note_decision("E02", pre, kf, POLICY)  # a redo build
+            self.assertEqual((again["scoped"], again["recorded"]), (True, True))
+
+    def test_in_flight_episode_with_paid_keyframes_keeps_legacy_label(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pre, kf = Path(tmp), Path(tmp) / "keyframes"
+            kf.mkdir()
+            (kf / "E07-S03-03-keyframe-v1.png").write_bytes(b"png")
+            first = bkm.camera_note_decision("E07", pre, kf, POLICY)
+            self.assertEqual((first["scoped"], first["reason"]), (False, "IN_FLIGHT_KEYFRAMES_PREDATE_ACTIVATION"))
+            self.assertFalse(bkm.camera_note_decision("E07", pre, kf, POLICY)["scoped"])
+            self.assertFalse(bkm.episode_camera_note_scoped(
+                types.SimpleNamespace(episode="E07", camera_note_scope=first)))
+            # at/after the former start (E11) keyframes on disk change nothing
+            (kf / "E11-S01-01-keyframe-v1.png").write_bytes(b"png")
+            self.assertTrue(bkm.camera_note_decision("E11", pre, kf, POLICY)["scoped"])
+        # library callers without a main() decision use the plain episode gate
+        self.assertTrue(bkm.episode_camera_note_scoped(types.SimpleNamespace(episode="E03")))
 
     def test_scoped_note_has_geometry_and_only_this_shot(self):
         note = bkm.scoped_camera_note(SP_TASK, SUBSPACE, SHOT, SPEC, POLICY)

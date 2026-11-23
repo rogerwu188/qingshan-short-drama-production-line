@@ -62,7 +62,7 @@ def _dialogue(beat: dict[str, Any], voice_slots: dict[str, str] | None = None) -
     slot = (voice_slots or {}).get(speaker)
     if not slot:
         return f"；{speaker}只说一次：“{words.strip()}”，其余人物闭口" + (f"；{pace}" if pace else "")
-    # VOICE_TIMBRE_LOCK (E10+): bind the timbre at the line itself — 秦铭（音色严格同@音频1）说：“…”.
+    # VOICE_TIMBRE_LOCK (E01+ since 2026-11-23): bind the timbre at the line itself — 秦铭（音色严格同@音频1）说：“…”.
     return (f"；{voice_timbre_lock.line_binding(speaker, slot)}说：“{words.strip()}”，只说一次，其余人物闭口"
             + (f"；{pace}" if pace else ""))
 
@@ -256,7 +256,7 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
         for row in plan.get("voice_bindings") or []
     ]
     voices = "；".join(voice_rows)
-    # VOICE_TIMBRE_LOCK (E10+): the binding opens 【声音】 instead of trailing a long foley list.
+    # VOICE_TIMBRE_LOCK (E01+ since 2026-11-23): the binding opens 【声音】 instead of trailing a long foley list.
     sound_block = (
         voice_timbre_lock.sound_header(voice_rows) + "；" + sound
         if timbre_lock and voice_rows else sound + (f"；{voices}" if voices else "")

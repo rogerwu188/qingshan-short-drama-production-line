@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""unit_voice_consistency — S6 post-generation per-unit voice check (VOICE_TIMBRE_LOCK, E10+).
+"""unit_voice_consistency — S6 post-generation per-unit voice check (VOICE_TIMBRE_LOCK, E01+ since 2026-11-23).
 
 Roger 2026-09-28: E09's voices 「飘来飘去」.  The final-cut ``voice_distinctness`` detector saw it
 (秦铭 per-scene F0 median 119–250 Hz against a 173–234 Hz band) but only after assembly, and a
@@ -50,6 +50,11 @@ def check_policy() -> dict[str, Any]:
 def active_for(episode: str) -> bool:
     vtl = _vtl()
     return vtl.active_for(episode) and bool(check_policy().get("enabled"))
+
+
+def enforced_for(episode: str, postgen_dir: Path) -> bool:
+    """Runner gate: active policy AND not an in-flight episode exempted by the sticky activation record."""
+    return active_for(episode) and bool(_vtl().postgen_activation(episode, postgen_dir).get("enforced"))
 
 
 def _norm(text: str, language: str = "zh") -> str:

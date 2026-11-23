@@ -1,5 +1,6 @@
 """VOICE_TIMBRE_LOCK (Roger 2026-09-28, E09 声线漂移): prompt binding, writer self-check, post-gen check."""
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -14,12 +15,47 @@ POLICY = vtl.load_policy()
 
 
 class VoiceTimbreLockPolicyTests(unittest.TestCase):
-    def test_policy_exists_and_is_gated_by_episode(self):
+    def test_policy_exists_and_is_active_from_e01(self):
         self.assertTrue(POLICY)
-        start = int(POLICY["active_from_episode"])
-        self.assertFalse(vtl.active_for(f"E{start - 1:02d}-VU-001"))
-        self.assertTrue(vtl.active_for(f"E{start:02d}-VU-001"))
+        # owner 2026-11-23 (JA E09 wrong-gender voices): every series from E01
+        self.assertEqual(int(POLICY["active_from_episode"]), 1)
+        self.assertEqual(int(POLICY["in_flight_exemption"]["legacy_active_from_episode"]), 10)
+        for unit in ("E01-VU-001", "E09-VU-014", "E10-VU-001", "E33-VU-002"):
+            self.assertTrue(vtl.active_for(unit))
         self.assertFalse(vtl.active_for("UNIT-WITHOUT-EPISODE"))
+        self.assertFalse(vtl.active_for("E05-VU-001", {}))  # missing policy = legacy
+
+    def test_fresh_episode_is_enforced_and_sticky(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            postgen = Path(tmp) / "postgen"
+            first = vtl.postgen_activation("E03", postgen, POLICY)
+            self.assertEqual((first["enforced"], first["reason"]), (True, "POLICY_ACTIVE"))
+            self.assertTrue(vtl.activation_record_path("E03", postgen).is_file())
+            # later waves write post-gen results; the recorded decision still holds
+            (postgen / "E03-VU-001").mkdir(parents=True)
+            (postgen / "E03-VU-001" / "E03-VU-001_POST_GENERATION_QA.json").write_text("{}")
+            again = vtl.postgen_activation("E03", postgen, POLICY)
+            self.assertEqual((again["enforced"], again["recorded"]), (True, True))
+
+    def test_in_flight_episode_with_prior_postgen_stays_advisory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            postgen = Path(tmp) / "postgen"
+            (postgen / "E09-VU-001").mkdir(parents=True)
+            (postgen / "E09-VU-001" / "E09-VU-001_POST_GENERATION_QA.json").write_text("{}")
+            first = vtl.postgen_activation("E09", postgen, POLICY)
+            self.assertEqual((first["enforced"], first["reason"]),
+                             (False, "IN_FLIGHT_POSTGEN_PREDATES_ACTIVATION"))
+            self.assertFalse(vtl.postgen_activation("E09", postgen, POLICY)["enforced"])
+            # at/after the former start nothing changes: always enforced
+            (postgen / "E10-VU-001").mkdir(parents=True)
+            (postgen / "E10-VU-001" / "E10-VU-001_POST_GENERATION_QA.json").write_text("{}")
+            self.assertTrue(vtl.postgen_activation("E10", postgen, POLICY)["enforced"])
+
+    def test_missing_policy_never_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            postgen = Path(tmp) / "postgen"
+            self.assertEqual(vtl.postgen_activation("E03", postgen, {})["enforced"], False)
+            self.assertFalse(postgen.exists())
 
     def test_longest_term_wins_without_overlap(self):
         found = [row["term"] for row in vtl.terms_in("他屏着气轻声说一句，又压着嗓子问")]

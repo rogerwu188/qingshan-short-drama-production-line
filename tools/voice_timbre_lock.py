@@ -48,6 +48,48 @@ def active_for(episode_or_unit: Any, policy: dict[str, Any] | None = None) -> bo
     return bool(policy) and start is not None and number is not None and number >= int(start)
 
 
+ACTIVATION_SCHEMA = "nalu.voice_timbre_lock_activation.v1"
+
+
+def activation_record_path(episode: str, postgen_dir: Path) -> Path:
+    return Path(postgen_dir) / f"{str(episode).strip().upper()}_VOICE_TIMBRE_LOCK_ACTIVATION.json"
+
+
+def postgen_activation(episode: str, postgen_dir: Path, policy: dict[str, Any] | None = None, *,
+                       record: bool = True) -> dict[str, Any]:
+    """Whether the post-generation voice check ENFORCES for this episode (sticky per episode).
+
+    Owner 2026-11-23 moved activation to E01.  An episode below the former start whose
+    post-generation QA already ran under the advisory regime stays advisory, so already-paid
+    units are never retroactively rejected.  The first decision taken while the policy is active
+    is recorded beside the post-gen results and reused, so a fresh episode stays enforced.
+    """
+    policy = load_policy() if policy is None else policy
+    if not active_for(episode, policy):
+        return {"enforced": False, "reason": "POLICY_INACTIVE", "recorded": False}
+    path = activation_record_path(episode, postgen_dir)
+    if path.is_file():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = {}
+        if data.get("schema") == ACTIVATION_SCHEMA and isinstance(data.get("enforced"), bool):
+            return {"enforced": data["enforced"], "reason": str(data.get("reason") or ""), "recorded": True}
+    legacy = (policy.get("in_flight_exemption") or {}).get("legacy_active_from_episode")
+    number = episode_number(episode)
+    prior = (legacy is not None and number is not None and number < int(legacy)
+             and Path(postgen_dir).is_dir()
+             and any(Path(postgen_dir).glob("*/*_POST_GENERATION_QA.json")))
+    decision = ({"enforced": False, "reason": "IN_FLIGHT_POSTGEN_PREDATES_ACTIVATION"} if prior
+                else {"enforced": True, "reason": "POLICY_ACTIVE"})
+    if record:
+        Path(postgen_dir).mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"schema": ACTIVATION_SCHEMA, "episode": str(episode).strip().upper(),
+                                    "active_from_episode": policy.get("active_from_episode"), **decision},
+                                   ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {**decision, "recorded": record}
+
+
 def terms_in(text: str, policy: dict[str, Any] | None = None) -> list[dict[str, str]]:
     """Timbre-changing delivery terms found in ``text``, longest match first, no overlaps."""
     policy = load_policy() if policy is None else policy
