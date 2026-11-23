@@ -670,6 +670,9 @@ def s6_unresolved_findings(rows: Any) -> list[dict[str, Any]]:
                     "severity": "P0" if sheet else "P1" if stacks else "P2",
                     "kind_hint": "REFERENCE_SHEET_LEAK" if sheet else "BURNED_TEXT",
                     **({"trigger": True} if stacks else {}),
+                    # #303's strict decisions travel with the finding: the release hold reads them (burn_accepted)
+                    **({"strict_burn_verdicts": verdicts} if verdicts else {}),
+                    **({"duplicate_suppressed": True} if suppressed else {}),
                     "text": ("S6: the kept take still shows the identity reference sheet" if sheet else
                              "S6: the kept take still carries model-burned text"
                              + (" in the subtitle band" if in_band else "")
@@ -1484,14 +1487,22 @@ def _suspect_decision(row: dict[str, Any]) -> str:
 
 
 def burn_accepted(row: dict[str, Any] | None) -> bool:
-    """A burn the S7 burned-text handling accepted: an ACCEPT_CORRECT verdict on the row, or our copy suppressed
-    because the burned line is the cue's own line (``duplicate_suppressed``, v5)."""
+    """A burn the S7 strict burned-line check accepted (#303, owner 2026-11-23): the row's ``strict_burn_verdicts``
+    (S6 rows / their findings, from ``burned_line_checks`` of <EP>_BURNIN_SUBTITLES.json) hold ACCEPT_CORRECT and no
+    REJECT_*; or a single ``burn_verdict``/``verdict``/... field (a ``burned_line_checks`` row) says ACCEPT_CORRECT.
+    ``duplicate_suppressed`` counts only with an accepting strict verdict (the strict check is the only thing that
+    may suppress our copy); the S6 finding's "our copy was suppressed in S7" text is the legacy marker of the same."""
     row = row if isinstance(row, dict) else {}
-    if any(str(row.get(k) or "").upper() == BURN_ACCEPTED for k in ("burn_verdict", "verdict", "decision", "status",
-                                                                     "state", "resolution")):
+    verdicts = [str(v).upper() for v in row.get("strict_burn_verdicts") or []]
+    if verdicts:
+        return BURN_ACCEPTED in verdicts and not any(v.startswith("REJECT") for v in verdicts)
+    fields = [str(row.get(k) or "").upper() for k in ("burn_verdict", "verdict", "decision", "status", "state",
+                                                      "resolution")]
+    if any(v.startswith("REJECT") for v in fields):
+        return False
+    if BURN_ACCEPTED in fields or row.get("accept_correct"):
         return True
-    return bool(row.get("duplicate_suppressed") or row.get("accept_correct")) or \
-        "our copy was suppressed in S7" in str(row.get("text") or "")
+    return "our copy was suppressed in S7" in str(row.get("text") or "")
 
 
 def _burn_source(record: dict[str, Any], row: dict[str, Any]) -> dict[str, Any] | None:

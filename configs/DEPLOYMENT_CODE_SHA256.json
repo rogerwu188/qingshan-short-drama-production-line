@@ -733,7 +733,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/final_fix_round.py",
-      "sha256": "6648ada6d647fb404eed6433e9b8a1c9f77104c893a16ddaf652077be9cc9aa8"
+      "sha256": "c0f7786d3c0a8e494211038ba0237ee6a94c4bba7ed28bfc2d60e23c726b33e6"
     },
     {
       "path": "lines/nalu/runtime/tools/final_qa_evidence_bundle.py",
@@ -9517,7 +9517,7 @@
     },
     {
       "path": "tools/tests/test_strict_burned_line_check.py",
-      "sha256": "50de7768cef3659e6712a8e05ade3e66bbc425eaf10234e21f966bfdeea9450b"
+      "sha256": "cf0e822a0e64753facc49fb08127bb8291a71e4b2c99a3e9b8df85299fe3d47c"
     },
     {
       "path": "tools/tests/test_studio_asset_library.py",
