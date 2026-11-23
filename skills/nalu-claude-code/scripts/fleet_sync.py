@@ -13,7 +13,8 @@ the tick for long (short timeouts); a machine without network or without the ser
 * collective knowledge base (audit 2026-11-12): ``collective_tick`` fetches this device's collective-learning config
   from GET /v1/collective/provision (at most every 30 min) and starts a detached ``s3_sync.py device-sync`` (at most
   every 15 min, skipped while one runs); see collective_provision.py.  Disabled on the server = nothing touched.
-* commands: diagnose (model-free health check) / agent_task (instruction for the StoryClaw agent) /
+* commands: review_upload (fixed review files of one episode -> HopsAPI storage, URLs in the result) /
+  diagnose (model-free health check) / agent_task (instruction for the StoryClaw agent) /
   resume (hand the message to Codex) / update (scripted: self_update, set up the pin from the updated
   AGENTS.md, resume a stopped episode when the engine moved) / pause / unpause / query.  Nothing else is executed.
 
@@ -105,6 +106,20 @@ def _env_value(path: Path, name: str) -> str:
     return m.group(1).strip().strip("'\"") if m else ""
 
 
+def hopsapi_key(engine: Path, runtime: Path) -> str:
+    """The line's HopsAPI key, as paid_stage.sh resolves it: engine .env HOPSAPI_API_KEY, else the Codex provider
+    key when the provider is HopsAPI.  Never printed or reported."""
+    key = _env_value(engine / ".env", "HOPSAPI_API_KEY")
+    if not key:
+        try:
+            p = json.loads((runtime / "credentials" / "llm_provider.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            p = {}
+        if "hopsapi" in str(p.get("base_url") or "").lower():
+            key = str(p.get("api_key") or "").strip()
+    return key
+
+
 def hopsapi_credits(engine: Path, runtime: Path, *, now: float | None = None) -> dict | None:
     """The HopsAPI account balance this device bills (line owner 2026-11-12: one credit pool for the whole
     fleet; when it hits 0 every S6 video fails at zero cost).  ``GET /v1/account/credits`` is free and needs no
@@ -123,15 +138,8 @@ def hopsapi_credits(engine: Path, runtime: Path, *, now: float | None = None) ->
             return {k: v for k, v in cached.items() if not k.startswith("_")}
     except (OSError, ValueError):
         pass
-    key = _env_value(engine / ".env", "HOPSAPI_API_KEY")
+    key = hopsapi_key(engine, runtime)
     base = _env_value(engine / ".env", "HOPSAPI_BASE_URL") or CREDITS_DEFAULT_BASE
-    if not key:
-        try:
-            p = json.loads((runtime / "credentials" / "llm_provider.json").read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            p = {}
-        if "hopsapi" in str(p.get("base_url") or "").lower():
-            key = str(p.get("api_key") or "").strip()
     if not key:
         return None
     stamp = datetime.fromtimestamp(now, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -555,6 +563,135 @@ def agent_task(cp: Any, message: str) -> tuple[bool, dict, dict]:
     return True, {"status": "QUEUED_FOR_AGENT", "heartbeat_kick": kicked}, {}
 
 
+REVIEW_FILES = ("final_cut", "contract", "timeline", "gemini_review")
+REVIEW_EPISODE_RE = re.compile(r"E\d{2,3}")
+REVIEW_MAX_BYTES = 200 * 1024 * 1024
+REVIEW_UPLOAD_PATH = "maint-review"
+
+
+def _contract_candidates(engine: Path, runtime: Path, ep: str) -> list[Path]:
+    """Where this episode's generation contract can live, most authoritative first: the path the pipeline
+    recorded for the episode (only if it is named for this episode), the writer's v1 slot, the episode work dir
+    (and one level below), then other versions in the writer dir."""
+    name = re.compile(rf"{ep}_GENERATION_CONTRACT(_v\d+)?\.json")
+    out: list[Path] = []
+    try:
+        state = json.loads((runtime / "runtime" / "pipeline_state" / f"{ep}.json").read_text(encoding="utf-8"))
+        recorded = str(((state.get("layers") or {}).get("paths") or {}).get("generation_contract") or "")
+        if recorded and name.fullmatch(Path(recorded).name):
+            out.append(Path(recorded).expanduser())
+    except (OSError, ValueError, AttributeError):
+        pass
+    scripts = engine / "workflow" / "claude_writer_agent" / "scripts"
+    work = Path(os.environ.get("NALU_WORK_ROOT") or engine / "workflow" / "nalu") / ep
+    out.append(scripts / f"{ep}_GENERATION_CONTRACT_v1.json")
+    for d in (work, *sorted(p for p in work.glob("*") if p.is_dir())):
+        out += sorted((p for p in d.glob(f"{ep}_GENERATION_CONTRACT*.json") if name.fullmatch(p.name)), reverse=True)
+    out += sorted((p for p in scripts.glob(f"{ep}_GENERATION_CONTRACT_v*.json") if name.fullmatch(p.name)),
+                  reverse=True)
+    seen, uniq = set(), []
+    for p in out:
+        if str(p) not in seen:
+            seen.add(str(p))
+            uniq.append(p)
+    return uniq
+
+
+def _json_episode(path: Path) -> str | None:
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return str(doc.get("episode") or "").strip().upper() if isinstance(doc, dict) else None
+
+
+def review_files(engine: Path, runtime: Path, ep: str) -> dict[str, tuple[Path | None, str]]:
+    """{kind: (path or None, upload file name or the reason it is missing)} by fixed rules; no caller paths."""
+    work = Path(os.environ.get("NALU_WORK_ROOT") or engine / "workflow" / "nalu") / ep
+    out: dict[str, tuple[Path | None, str]] = {}
+    cut = next((p for p in (runtime / "deliverables" / ep / f"{ep}_final_9x16.mp4",
+                            runtime / "runtime" / "deliverables" / ep / f"{ep}_final_9x16.mp4") if p.is_file()), None)
+    out["final_cut"] = (cut, f"{ep}_final_9x16.mp4") if cut else (None, "NOT_FOUND")
+    contract, wrong = None, []
+    for p in _contract_candidates(engine, runtime, ep):
+        if p.is_file():
+            got = _json_episode(p)
+            if got == ep:
+                contract = p
+                break
+            wrong.append(f"{p.name}:episode={got}")
+    out["contract"] = (contract, contract.name) if contract else (
+        None, "EPISODE_MISMATCH:" + ",".join(wrong)[:200] if wrong else "NOT_FOUND")
+    timeline = work / "assembly" / f"{ep}_release_timeline.json"
+    out["timeline"] = (timeline, timeline.name) if timeline.is_file() else (None, "NOT_FOUND")
+    review = runtime / "claude_code" / ep / "final_reviewer" / "gemini_review.json"
+    out["gemini_review"] = (review, f"{ep}_gemini_review.json") if review.is_file() else (None, "NOT_FOUND")
+    return out
+
+
+def _inside(path: Path, roots: tuple[Path, ...]) -> bool:
+    real = path.resolve()
+    return any(real == r.resolve() or r.resolve() in real.parents for r in roots)
+
+
+def review_upload(cp: Any, payload: dict) -> tuple[bool, dict, dict]:
+    """Upload fixed review files of one episode for the maintainers' daily deep review (owner 2026-11-23): the final
+    cut, its generation contract, the release timeline and the device's Gemini final review.  System code, no
+    model, no shell; only these files (resolved by fixed rules, never a caller path), <= REVIEW_MAX_BYTES each, to
+    HopsAPI file storage (free) with the line's key (never printed).  Read-only for production."""
+    ep = str(payload.get("episode") or "").strip().upper()
+    if not REVIEW_EPISODE_RE.fullmatch(ep):
+        return False, {"error": "REVIEW_UPLOAD_BAD_EPISODE"}, {}
+    kinds = payload.get("files") or list(REVIEW_FILES)
+    if not isinstance(kinds, list) or not all(k in REVIEW_FILES for k in kinds):
+        return False, {"error": "REVIEW_UPLOAD_BAD_FILES"}, {}
+    engine, runtime = cp.roots()
+    result: dict[str, Any] = {"episode": ep, "engine_sha": _engine_sha(engine)[:12], "files": {}, "missing": []}
+    key = hopsapi_key(engine, runtime) or str(os.environ.get("HOPSAPI_API_KEY") or "").strip()
+    if not key:
+        return False, {**result, "error": "NO_HOPSAPI_KEY"}, {}
+    tools = engine / "tools"
+    if str(tools) not in sys.path:
+        sys.path.insert(0, str(tools))
+    try:
+        import hopsapi_video_client as hv  # noqa: PLC0415
+    except Exception as exc:  # noqa: BLE001
+        return False, {**result, "error": f"UPLOAD_CLIENT_UNAVAILABLE:{type(exc).__name__}"}, {}
+    found = review_files(engine, runtime, ep)
+    failed = False
+    old_key = os.environ.get(hv.API_KEY_ENV)
+    os.environ[hv.API_KEY_ENV] = key
+    try:
+        for kind in (k for k in REVIEW_FILES if k in kinds):
+            path, name = found[kind]
+            if path is None:
+                result["missing"].append({"file": kind, "reason": name})
+                continue
+            if not _inside(path, (engine, runtime)):
+                result["missing"].append({"file": kind, "reason": "OUTSIDE_ENGINE_OR_RUNTIME"})
+                continue
+            size = path.stat().st_size
+            if size > REVIEW_MAX_BYTES:
+                result["missing"].append({"file": kind, "reason": f"TOO_LARGE:{size}"})
+                continue
+            mime = "video/mp4" if kind == "final_cut" else "application/json"
+            try:
+                up = hv.upload_bytes(path.read_bytes(), file_name=name, upload_path=REVIEW_UPLOAD_PATH, mime=mime)
+            except (Exception, SystemExit) as exc:  # noqa: BLE001 -- one file failing never aborts the others
+                failed = True
+                result["missing"].append({"file": kind, "reason": f"UPLOAD_FAILED:{str(exc)[:160]}"})
+                continue
+            result["files"][kind] = {k: up.get(k) for k in ("url", "sha256", "bytes", "expires_at", "file_name")}
+    finally:
+        if old_key is None:
+            os.environ.pop(hv.API_KEY_ENV, None)
+        else:
+            os.environ[hv.API_KEY_ENV] = old_key
+    for row in result["missing"]:  # error text must never carry the key
+        row["reason"] = row["reason"].replace(key, "***")
+    return not failed, result, {}
+
+
 def run_command(cp: Any, cmd: dict) -> tuple[bool, dict, dict]:
     """(ok, result, extra tick fields) for one whitelisted command."""
     _, runtime = cp.roots()
@@ -584,6 +721,8 @@ def run_command(cp: Any, cmd: dict) -> tuple[bool, dict, dict]:
         if not message:
             return False, {"error": "AGENT_TASK_NEEDS_MESSAGE"}, {}
         return agent_task(cp, "（维护者经 fleet 下发）" + message)
+    if ctype == "review_upload":
+        return review_upload(cp, payload if isinstance(payload, dict) else {})
     return False, {"error": f"COMMAND_NOT_ALLOWED:{ctype}"}, {}
 
 
