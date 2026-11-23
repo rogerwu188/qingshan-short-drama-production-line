@@ -16,6 +16,12 @@ screening, writes ``assembly/<EP>_FINAL_CUT_SHOT_PLAN_PARITY.json`` and a short 
       consecutive 5 fps samples whose temporal difference YDIF < --frozen-ydif (default 0.5) — a held
       still, not a dark scene.
 
+Per-unit CONTENT parity (2026-11-23, device 1101 E24: wrong locations, reversed roles, invented people, missing
+beats -- all shipped): the multi-pass final review's pass D answers per unit whether the planned action, cast,
+location and props were delivered (gemini_review_passes ``plan_parity``).  :func:`merge_review_parity` folds that
+answer into this report after the review (``unit_parity``: every unit YES / PARTIAL / NO / NOT_IN_CUT, the note
+"plan parity: n/m delivered", finding PLAN_UNIT_NOT_DELIVERED for NO units); ``--gemini-review`` does it at once.
+
 Measurements come from ffmpeg (``scdet`` scene-change detection and ``signalstats`` YAVG/YLOW/YHIGH/YDIF
 sampled at 5 fps).
 The planned timeline is the generation contract's shot order and target_seconds; the end card (if any) is
@@ -246,6 +252,39 @@ def evaluate(final: Path, contract: dict[str, Any], *, end_card_seconds: float, 
     }
 
 
+UNIT_PARITY_SCHEMA = "nalu.final_cut_unit_parity.v1"
+
+
+def merge_review_parity(report: dict[str, Any], gemini_record: dict[str, Any] | None, *,
+                        final_sha256: str | None = None) -> dict[str, Any]:
+    """``report`` with ``unit_parity`` from the Gemini record's ``plan_parity`` (pass D, per unit) and, for NO units,
+    the finding PLAN_UNIT_NOT_DELIVERED.  A record of another cut (``final_video_sha256`` != ``final_sha256``) is
+    kept but marked stale and adds no finding.  Diagnostic like the rest of the report; idempotent."""
+    out = {**report, "findings": [f for f in report.get("findings") or [] if f.get("code") != "PLAN_UNIT_NOT_DELIVERED"]}
+    parity = (gemini_record or {}).get("plan_parity") if isinstance(gemini_record, dict) else None
+    if not isinstance(parity, dict) or not parity.get("units"):
+        out["unit_parity"] = {"schema": UNIT_PARITY_SCHEMA, "status": "NO_REVIEW_PARITY",
+                              "reason": (gemini_record or {}).get("status") or "NO_GEMINI_RECORD"}
+        out["status"] = "CLEAN" if not out["findings"] else "FINDINGS"
+        return out
+    stale = bool(final_sha256 and gemini_record.get("final_video_sha256")
+                 and gemini_record["final_video_sha256"] != final_sha256)
+    units = [{k: r.get(k) for k in ("unit_id", "start", "end", "planned_seconds", "delivered", "reasons", "severity",
+                                    "seen", "why") if r.get(k) not in (None, [], "")} for r in parity["units"]]
+    no = [u for u in units if u.get("delivered") == "NO"]
+    out["unit_parity"] = {"schema": UNIT_PARITY_SCHEMA, "status": "STALE" if stale else parity.get("status"),
+                          "source": "gemini_review.plan_parity (pass D)", "delivered": parity.get("delivered"),
+                          "total": parity.get("total"), "counts": parity.get("counts"), "note": parity.get("note"),
+                          "units": units, **({"reviewed_sha256": gemini_record.get("final_video_sha256")}
+                                             if stale else {})}
+    if no and not stale:
+        out["findings"].append({"code": "PLAN_UNIT_NOT_DELIVERED", "units": [
+            {"unit_id": u.get("unit_id"), "segment": [u.get("start"), u.get("end")], "reasons": u.get("reasons") or [],
+             "severity": u.get("severity")} for u in no]})
+    out["status"] = "CLEAN" if not out["findings"] else "FINDINGS"
+    return out
+
+
 def checkpoint_block(report: dict[str, Any]) -> str:
     lines = [f"## 成片对镜头表机器比对（seq=27 §六，诊断，不阻断）",
              f"- 成片 {report['final_duration_seconds']} s（正片 {report['body_seconds']} s）；镜头表 {report['planned_shots']} 镜，"
@@ -254,12 +293,20 @@ def checkpoint_block(report: dict[str, Any]) -> str:
     for f in report["findings"]:
         if f["code"] == "SHOT_COUNT_DRIFT":
             lines.append(f"  - SHOT_COUNT_DRIFT：{f['detected_segments']} 段 vs {f['planned_shots']} 镜（偏差 {f['drift']:+.0%}）")
+        elif f["code"] == "PLAN_UNIT_NOT_DELIVERED":
+            for row in f.get("units", []):
+                lines.append(f"  - 计划未拍出：{row['unit_id']} {row['segment'][0]}–{row['segment'][1]} s "
+                             f"{row.get('severity') or ''} {', '.join(row.get('reasons') or [])}".rstrip())
         elif f["code"] == "SAME_SIZE_SAME_SUBJECT_BOUNDARY":
             for row in f.get("boundaries", []):
                 lines.append(f"  - 同景别同主体边界（观众读作跳切）：{row['at_seconds']} s {row['from_unit']}→{row['to_unit']} {row['shot_size']}")
         else:
             for seg in f.get("segments", []):
                 lines.append(f"  - {f['code']}：{seg['segment'][0]}–{seg['segment'][1]} s（{seg['seconds']} s）镜 {', '.join(seg.get('planned_shot_ids') or [])}")
+    parity = report.get("unit_parity") or {}
+    if parity.get("note"):
+        lines.append(f"- 逐单元内容对照（终审 pass D）：{parity['note']}"
+                     + ("（评审的是另一版成片，仅供参考）" if parity.get("status") == "STALE" else ""))
     return "\n".join(lines) + "\n"
 
 
@@ -280,12 +327,16 @@ def main() -> int:
                     help="a frame is blank only if its 10-90 %% luma spread (YHIGH-YLOW) is below this (uniformity)")
     ap.add_argument("--frozen-ydif", type=float, default=0.5, help="signalstats YDIF below this = no motion between 5 fps samples")
     ap.add_argument("--frozen-min-seconds", type=float, default=1.0)
+    ap.add_argument("--gemini-review", default=None,
+                    help="final_reviewer/gemini_review.json: fold its per-unit plan parity (pass D) into the report")
     a = ap.parse_args()
     contract = json.loads(Path(a.contract).read_text(encoding="utf-8"))
     grouping = json.loads(Path(a.grouping_plan).read_text(encoding="utf-8")) if a.grouping_plan and Path(a.grouping_plan).is_file() else None
     report = evaluate(Path(a.final), contract, end_card_seconds=a.end_card_seconds, scene_threshold=a.scene_threshold,
                       static_yavg_delta=a.static_yavg_delta, blank_high=a.blank_high, blank_low=a.blank_low,
                       grouping_plan=grouping)
+    if a.gemini_review and Path(a.gemini_review).is_file():
+        report = merge_review_parity(report, json.loads(Path(a.gemini_review).read_text(encoding="utf-8")))
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     Path(a.out).write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     block = checkpoint_block(report)

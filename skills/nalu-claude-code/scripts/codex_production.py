@@ -202,8 +202,9 @@ def gemini_step(gemini: Path | None) -> str:
    C 声音（QA-LIPSYNC、QA-VOICE-INCONSISTENT、QA-WRONG-SPEAKER、QA-VOICE-GENDER 女角色男声/男角色女声、尾音、QA-LOUDNESS-JUMP、
    配乐、QA-SFX、QA-AUDIO-ARTIFACT）、
    D 导演/剪辑（QA-EDIT-FRAGMENT 碎镜头/不说话就切走、CRAFT-PACING、CRAFT-SHOT-GRAMMAR、CRAFT-BEAT-MISSED、CRAFT-CLARITY、CRAFT-OPENING-HOOK、CRAFT-ENDING-HOOK、
-   CRAFT-EMOTION、CRAFT-ACTING-MONOTONY、CRAFT-SUBTITLE-READABILITY）。全部都要核对；确认后引擎这样处理（你只管判断真假）：烧字、身份/服装、
-   脸与皮肤漂移、背景随人晃、手、声音性别不对 → 付费重做该单元；声音类 → 免费 S7 重混/重剪；导演/剪辑类 → 记录并进知识库。
+   CRAFT-EMOTION、CRAFT-ACTING-MONOTONY、CRAFT-SUBTITLE-READABILITY，以及 QA-PLAN-MISMATCH 该单元没拍出计划内容——逐单元结论见
+   `plan_parity`：主被动反了、地点不对、计划的人不在、多出计划外的人、节拍没发生）。全部都要核对；确认后引擎这样处理（你只管判断真假）：烧字、身份/服装、
+   脸与皮肤漂移、背景随人晃、手、声音性别不对、计划不符 → 付费重做该单元；声音类 → 免费 S7 重混/重剪；导演/剪辑类 → 记录并进知识库。
    你自己也必查这两条（Gemini 没报也要看）：**声音性别**——每个说话镜头，画面里开口的人是女性/男性，听到的声音是不是同性别
    （女角色配男声是硬伤，写 problems，带时间点和是谁）；**表演单调**——人物说话时有没有具体的小动作（整理袖口、握住桌沿、移开视线再看回、
    上前半步、抱臂、碰项链、歪头、轻呼一口气），还是干站着念台词、或多个镜头反复同一个手势（如双手向两侧摊开、竖起食指/指着对方；

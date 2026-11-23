@@ -720,7 +720,8 @@ FINAL_REVIEW_ROUTES = {
                                          "HOOK", "EMOTION", "ACTING_MONOTONY")},
     **{k: "MODEL_CONSTRAINT" for k in ("BURNED_TEXT", "FACE_DRIFT", "SKIN_SHEEN", "COSTUME_IDENTITY", "LOOKALIKE",
                                        "VOICE", "ASR_MISMATCH", "HAND_ARTIFACT", "AI_ARTIFACT", "CONTINUITY",
-                                       "VOICE_GENDER_MISMATCH", "REFERENCE_SHEET_LEAK", "CAMERA_WOBBLE")},
+                                       "VOICE_GENDER_MISMATCH", "REFERENCE_SHEET_LEAK", "CAMERA_WOBBLE",
+                                       "PLAN_MISMATCH")},
     **{k: "ENGINE" for k in ("SUBTITLE_WRAP", "BGM_FADES", "AUDIO_SMOOTHING", "DIALOGUE_TAIL_GUARD", "LETTERBOX",
                              "MASK", "SFX", "SUBTITLE_READABILITY", "EDIT_FRAGMENT")},
 }
@@ -752,7 +753,9 @@ GLOBAL_KINDS = frozenset({"BURNED_TEXT", "FACE_DRIFT", "SKIN_SHEEN", "COSTUME_ID
                           # 2026-11-21 (JA-01 E04): H3 drew the identity sheet as the picture -- a model fault
                           "REFERENCE_SHEET_LEAK",
                           # 2026-11-21 (KO E05): the set moving with the actor on a locked-off shot
-                          "CAMERA_WOBBLE"})
+                          "CAMERA_WOBBLE",
+                          # 2026-11-23 (device 1101 E24): the unit did not deliver its planned content
+                          "PLAN_MISMATCH"})
 LANGUAGE_ITEMS = frozenset({"QA-SUBTITLE-WRAP"})
 GLOBAL_ITEMS = frozenset({"QA-BURNED-TEXT", "QA-REFERENCE-SHEET-LEAK", "QA-CAMERA-WOBBLE",
                           "QA-SKIN-SHEEN-DRIFT", "QA-LOOKALIKE-CAST", "QA-OVERSIZED-MASK", "QA-BGM-DISCONTINUOUS",
@@ -853,9 +856,12 @@ def record_final_review_findings(rt: Path, *, episode: str, report_path: str | N
             checklist = {}  # a must-check list of another cut is not a finding of this one
         import final_fix_round as _ffr  # noqa: PLC0415 -- same directory
         # the review's own findings only: S6 unresolved retries (final_fix_round.S6_SOURCE) are engine measurements
-        # with their own S6 events, never "confirmed by the final review"
+        # with their own S6 events, never "confirmed by the final review"; pass D's plan parity rows
+        # (final_fix_round.PLAN_SOURCE) are Gemini's unverified verdicts -- a QA-PLAN-MISMATCH finding the reviewer
+        # CONFIRMED arrives as GEMINI_CONFIRMED
+        unconfirmed = {getattr(_ffr, "S6_SOURCE", "S6_UNRESOLVED"), getattr(_ffr, "PLAN_SOURCE", "GEMINI_PLAN_PARITY")}
         findings = [f for f in _ffr.map_findings(_ffr.collect_findings(report, checklist), [])
-                    if f.get("source") != getattr(_ffr, "S6_SOURCE", "S6_UNRESOLVED")]
+                    if f.get("source") not in unconfirmed]
         if not findings:
             return {"status": "NO_FINDINGS", "events": events}
         lang = final_review_language(language)

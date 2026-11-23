@@ -11974,6 +11974,68 @@ def s7_final_fix_round(ctx: Any, res: Any, final_audience: dict[str, Any], revie
             **({"next": f"{RT_TOOLS / 'paid_stage.sh'} {ctx.episode} S6 S8"} if parked else {})}
 
 
+def s7_review_plan_parity(ctx: Any, res: Any, final_audience: dict[str, Any]) -> dict[str, Any]:
+    """After the final review (and its fix round) proceeds: the per-unit plan parity of the multi-pass review's
+    pass D (gemini_review.json ``plan_parity``) is folded into ``<EP>_FINAL_CUT_SHOT_PLAN_PARITY.json`` / .md
+    (final_cut_shot_plan_parity.merge_review_parity), and the final fix record gets ``plan_parity``, the objective
+    defects left at release (runtime vs target, unresolved burns, stray voices, plan NO units) and the release
+    policy (``release_block_objective_defects``, default OFF: recorded, never blocks) -- 2026-11-23, device 1101
+    E24 shipped with wrong locations, reversed roles, invented people and 56 s of a 110 s brief.  The checkpoint and
+    the fleet note read them from the record (final_fix_round.objective_lines / status_note).  Never raises."""
+    import final_fix_round as _ffr
+    p = ctx.p
+    out: dict[str, Any] = {"status": "NONE"}
+    try:
+        cand_sha = str(final_audience.get("final_video_sha256") or sha256_file(p.final_candidate) or "")
+        try:
+            import final_audience_review as _far  # noqa: PLC0415 -- same directory
+            gemini = read_json(_far.gemini_review_path(ctx.episode), {}) or {}
+        except Exception:  # noqa: BLE001 - no record: nothing to fold
+            gemini = {}
+        bound = bool(gemini) and gemini.get("final_video_sha256") in (None, cand_sha)
+        parity = dict(gemini.get("plan_parity") or {}) if bound else {}
+        # the must-check list carries the reviewer's decision on each local suspect next to Gemini's
+        report_path = str(final_audience.get("report") or "")
+        checklist = (read_json(Path(report_path).parent / f"{ctx.episode}_QA_DEFECT_CHECKLIST.json", {}) or {}
+                     if report_path else {})
+        if (checklist.get("bindings") or {}).get("final_video_sha256") not in (None, cand_sha):
+            checklist = {}
+        checks = ((checklist.get("video_review") or {}).get("suspect_checks")
+                  or (gemini.get("suspect_checks") if bound else None) or [])
+        parity_json = p.assembly / f"{ctx.episode}_FINAL_CUT_SHOT_PLAN_PARITY.json"
+        report = read_json(parity_json, {}) or {}
+        if report:
+            import final_cut_shot_plan_parity as _parity  # noqa: PLC0415 -- same directory
+            report = _parity.merge_review_parity(report, gemini if bound else None, final_sha256=cand_sha)
+            write_json(parity_json, report)
+            md = p.assembly / f"{ctx.episode}_FINAL_CUT_SHOT_PLAN_PARITY.md"
+            md.write_text(_parity.checkpoint_block(report), encoding="utf-8")
+            row = res.details.get("shot_plan_parity") if isinstance(res.details.get("shot_plan_parity"), dict) else {}
+            res.details["shot_plan_parity"] = {**row, "status": report.get("status"),
+                                               "findings": [f.get("code") for f in report.get("findings") or []],
+                                               "unit_parity": _ffr.plan_parity_summary(parity) or report.get(
+                                                   "unit_parity", {}).get("status")}
+        timeline = read_json(p.assembly / f"{ctx.episode}_release_timeline.json", {}) or {}
+        brief = read_json(RUNTIME / "briefs" / f"{ctx.episode}_PRODUCTION_BRIEF.json", {}) or {}
+        target = float(brief.get("target_seconds") or SCRIPT_DEFAULT_TARGET_SECONDS)
+        path = final_fix_record_path(ctx)
+        record = read_json(path, {}) or {}
+        if not record.get("status"):  # no round recorded (dry run): the round owns its record
+            return {**out, "status": "NO_FINAL_FIX_RECORD", "plan_parity": _ffr.plan_parity_summary(parity)}
+        record["plan_parity"] = _ffr.plan_parity_summary(parity)
+        record["objective_defects"] = _ffr.objective_defects(
+            record, runtime_s=timeline.get("content_runtime_seconds"), target_s=target, plan_parity=parity,
+            suspect_checks=checks)
+        record["release_policy"] = _ffr.release_policy(record["objective_defects"])
+        _ffr.write_record(path, record)
+        out = {"status": "RECORDED", "record": str(path), **_ffr.objective_summary(record)}
+        ctx.say(f"S7_OBJECTIVE_DEFECTS episode={ctx.episode} {_ffr.objective_note(record) or 'none'} "
+                f"release_block={'ON' if record['release_policy']['release_block_objective_defects'] else 'OFF'}")
+    except Exception as exc:  # noqa: BLE001 - diagnostic: never blocks by accident
+        out = {"status": "ERROR", "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
+    return out
+
+
 def promote_final_candidate(p: Any) -> dict[str, Any]:
     """Copy the S7-approved candidate (and its tail-ad variant) into deliverables/, sha-verified.
 
@@ -13653,6 +13715,15 @@ def _stage_s7_pass(ctx: Ctx) -> StageResult:
         res.status = BLOCKED
         res.blockers = (["FINAL_FIX_ROUND_S7_RERUN"] if final_fix["action"] == "S7_RERUN"
                         else [f"FINAL_FIX_ROUND_S6_REDO_PENDING:{','.join(final_fix.get('units') or [])}"])
+        return res
+    # 7c. per-unit plan parity + objective defects at release (2026-11-23, device 1101 E24); the release policy
+    # switch release_block_objective_defects is OFF by default (owner decision pending): recorded, never blocks
+    objective = s7_review_plan_parity(ctx, res, final_audience)
+    res.details["objective_defects"] = objective
+    if (objective.get("release_policy") or {}).get("blocks"):
+        res.status = BLOCKED
+        res.blockers = ["RELEASE_BLOCKED_OBJECTIVE_DEFECTS:" + ",".join(
+            (objective.get("objective_defects") or {}).get("classes") or [])]
         return res
 
     # ------------------------------------------- 8. final-package QA (D-9/D-12)

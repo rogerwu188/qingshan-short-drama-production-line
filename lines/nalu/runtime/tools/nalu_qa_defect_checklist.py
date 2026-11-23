@@ -692,7 +692,9 @@ def gemini_block(gemini: dict[str, Any] | None, parsed: dict[str, Any],
     count = {k: sum(1 for r in rows if r["status"] == k) for k in ("CONFIRMED", "DISMISSED", "UNVERIFIED")}
     return {"status": gemini.get("status"), "reason": gemini.get("reason"), "model": gemini.get("model"),
             "cost_credits": gemini.get("cost_credits"), "findings": rows, "suspect_checks": checks[:40],
-            "counts": count, "verdict": gemini.get("verdict")}
+            "counts": count, "verdict": gemini.get("verdict"),
+            # per-unit plan parity of pass D (2026-11-23, device 1101 E24): the final fix round's PLAN_MISMATCH input
+            **({"plan_parity": gemini["plan_parity"]} if isinstance(gemini.get("plan_parity"), dict) else {})}
 
 
 def routing(item_id: str, *, maskable: bool = True) -> str:
@@ -752,6 +754,9 @@ def build_record(parsed: dict[str, Any], measurements: dict[str, Any], *, episod
                 "unresolved") or []) if not r.get("s7_stabilized")]}
                if [r for r in (((measurements or {}).get("camera_wobble") or {}).get("unresolved") or [])
                    if not r.get("s7_stabilized")] else {}),
+            # pass D's per-unit plan parity (bound to this cut with the Gemini record): NO units are PLAN_MISMATCH
+            # findings of the final fix round, a P0 NO a trigger (final_fix_round.plan_parity_findings)
+            **({"plan_parity": video["plan_parity"]} if (video or {}).get("plan_parity") else {}),
             **({"letterbox_measured": ((measurements or {}).get("av_evidence_pack") or {}).get("letterbox_shots")}
                if ((measurements or {}).get("av_evidence_pack") or {}).get("letterbox_shots") else {}),
             "auto_recut": {"status": "FINAL_FIX_ROUND", "note": (
