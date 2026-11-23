@@ -915,14 +915,44 @@ def wardrobe_plate_excluded(spec: dict[str, Any], asset_id: str) -> bool:
     return True
 
 
+#: OTS_LISTENER_V1 (line owner 2026-11-23): a dialogue shot may show the non-speaking listener as an
+#: over-the-shoulder foreground figure (back of the head and one shoulder, face never shown).
+_OTS_VISIBILITY = re.compile(r"(?:^|_)(?:OTS|BACK_OF_(?:THE_)?HEAD)(?:_|$)"
+                             r"|^BACK_AND_SHOULDERS?_ONLY$|^SHOULDERS?_AND_BACK_ONLY$")
+
+
+def shot_ots_listener(spec: dict[str, Any], character_id: str) -> bool:
+    """True when the shot's cast row declares this character as an over-the-shoulder / back-of-head figure."""
+    for row in spec.get("cast") or []:
+        if str(row.get("character_id") or "") == str(character_id):
+            return bool(_OTS_VISIBILITY.search(str(row.get("face_visibility") or "").strip().upper()))
+    return False
+
+
 def shot_keeps_face_hidden(spec: dict[str, Any], character_id: str) -> bool:
     """True when the shot's cast row marks this character's face as not shown (NOT_MEASURABLE /
-    FACE_OUT_OF_FRAME)."""
+    FACE_OUT_OF_FRAME / an over-the-shoulder back-of-head figure)."""
     for row in spec.get("cast") or []:
         if str(row.get("character_id") or "") == str(character_id):
             value = str(row.get("face_visibility") or "").upper()
-            return value.endswith("NOT_MEASURABLE") or value.endswith("FACE_OUT_OF_FRAME")
+            return (value.endswith("NOT_MEASURABLE") or value.endswith("FACE_OUT_OF_FRAME")
+                    or shot_ots_listener(spec, character_id))
     return False
+
+
+def ots_listener_lines(spec: dict[str, Any]) -> list[str]:
+    """One keyframe line per declared over-the-shoulder figure: present in frame, face never shown."""
+    lines = []
+    for member in spec.get("cast") or []:
+        cid = str(member.get("character_id") or "")
+        if not cid or not shot_ots_listener(spec, cid):
+            continue
+        name = str(member.get("character") or cid)
+        lines.append(f"过肩前景：{name}（{cid}）背对镜头位于前景画面边缘，只露出{name}的后脑与一侧肩膀，略虚焦；"
+                     f"{name}不露脸、不说话（{name} is seen from behind in the "
+                     f"foreground, over-the-shoulder: only the back of the head and one shoulder, slightly out of "
+                     f"focus, at the frame edge; the face is never shown）。")
+    return lines
 
 
 def build_bindings(inputs: Inputs, shot_id: str, gate_ref: str) -> tuple[list[dict[str, Any]], list[str], list[str]]:
@@ -1466,6 +1496,7 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
          f"道具：{describe_blocking(blocking.get('props') or [], 'prop_id', 'prop')}", True),
         ("role_semantics", role_semantic_prompt_block(role), True),
         ("cast_clause", cast_clause, True),
+        *[(f"ots_listener_{index}", line, True) for index, line in enumerate(ots_listener_lines(spec))],
         *([("eyeline", eyeline, True)] if eyeline else []),
         ("scale",
          (f"比例基准：以人物肩宽为真实比例基准；place map "

@@ -817,7 +817,8 @@ def locked_camera_conflicts(text: str) -> list[str]:
 # render
 # ----------------------------------------------------------------------------------------------------------
 def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: set[str], people: int,
-                     beings: int, exact_first_frame: bool = False) -> list[str]:
+                     beings: int, exact_first_frame: bool = False,
+                     face_hidden: dict[str, str] | None = None) -> list[str]:
     refs = unit.get("reference_images") or []
     sequence_by_path = {str(row.get("path") or ""): row for row in unit.get("reference_image_sequence") or []
                         if row.get("path") and str(row.get("entity_id") or "").startswith("CHAR-")}
@@ -851,6 +852,12 @@ def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: se
                     else f"@Image{index} is {entity}'s face only: a face crop; clothing and headwear come from "
                          "@Image1 and the wardrobe text, never from this crop." if face_crop
                     else f"@Image{index} is {entity}'s {body}.")
+            hidden = (face_hidden or {}).get(entity_id) if entity_id else None
+            if hidden and not ((onscreen and entity_id not in onscreen) or entity_id in offscreen_only):
+                # a partial-visibility listener: an unqualified "face and body" pulls a front face in
+                line = (f"@Image{index} is {entity}'s identity reference: use @Image{index} only for {entity}'s "
+                        + ("hair, build and wardrobe from behind" if hidden == "BEHIND" else "build and wardrobe")
+                        + f"; {entity}'s face is not shown.")
             if entity_id and ((onscreen and entity_id not in onscreen) or entity_id in offscreen_only):
                 line += (f" It is for identity only: {entity} stays out of frame in this clip; nobody on screen takes "
                          f"on {entity}'s face, hair or outfit.")
@@ -943,8 +950,12 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
                                                              scope.get("anonymous_role_descriptors") or []))
 
     # --- references ------------------------------------------------------------------------------------
+    # OTS_LISTENER_V1: someone whose face is hidden in every beat they are in uses the sheet for the look only
+    face_hidden = {s["entity_id"]: ("BEHIND" if any(p.startswith("back") or "shoulder" in p
+                                                    for p in s["partial"].values()) else "PARTIAL")
+                   for s in subjects if s["partial"] and len(s["partial"]) == len(s["present"])}
     reference_lines = _reference_lines(unit, plan, onscreen=onscreen_ids, people=len(people), beings=len(beings),
-                                       exact_first_frame=stamped)
+                                       exact_first_frame=stamped, face_hidden=face_hidden)
     if stamped and people and any("'s face and body." in line or "'s face only" in line or "character sheet of one" in line
                                   for line in reference_lines):
         reference_lines.append(IDENTITY_LOCK_V2)
@@ -965,6 +976,7 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     ] if v)
     who_lines: list[str] = []
     whole = all(len(s["present"]) == len(beats) and not s["partial"] for s in subjects)
+    ots_labels = [s["label"] for s in subjects if v1.OTS_PART in s["partial"].values()]
     subjects_v2 = (v2_english.get("subjects") or {}) if isinstance(v2_english.get("subjects"), dict) else {}
 
     def look_of(s: dict[str, Any], compact: bool) -> str:
@@ -1000,6 +1012,16 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         if whole:
             presence = ("visible from the first frame to the last" if total == 1 else
                         f"{'both' if total == 2 else 'all'} visible from the first frame to the last")
+        elif ots_labels:
+            # OTS_LISTENER_V1: say plainly who faces the camera and who is the back-of-head foreground figure
+            facing = [s["label"] for s in people if s["label"] not in ots_labels]
+            ots_whole = all(len(s["present"]) == len(beats) and (
+                s["label"] not in ots_labels and not s["partial"]
+                or s["label"] in ots_labels and len(s["partial"]) == len(beats)
+                and all(p == v1.OTS_PART for p in s["partial"].values())) for s in subjects)
+            presence = ((f"{_join_names(facing)} face{'s' if len(facing) == 1 else ''} camera; " if facing else "")
+                        + f"{_join_names(ots_labels)} in the foreground from behind (face not shown)"
+                        + ("" if ots_whole else "; presence as noted for each"))
         else:
             presence = "presence as noted for each"
         background = director_v2_background_clause(unbound_total,
@@ -1015,7 +1037,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
                 line += f" In frame only {', '.join(_span(w) for w in windows)}."
             for index, part in sorted(s["partial"].items()):
                 window = _span((float(beats[index]["start_seconds"]), float(beats[index]["end_seconds"])))
-                line += (f" {window}: only {s['label']}'s {part} in frame; {s['label']}'s face is not shown."
+                line += (f" {window}: {v1.ots_clause(s['label'])}." if part == v1.OTS_PART else
+                         f" {window}: only {s['label']}'s {part} in frame; {s['label']}'s face is not shown."
                          if part else f" {window}: {s['label']}'s face stays out of frame.")
             lines.append(line)
         tail = []
@@ -1512,7 +1535,8 @@ def director_v2_self_check(text: str, unit: dict[str, Any], plan: dict[str, Any]
         window = _span((float(beats[index]["start_seconds"]), float(beats[index]["end_seconds"])))
         for row in rows:
             label = row["label"] or subject_label(unit, plan, row["entity_id"])
-            expected = (f"{window}: only {label}'s {row['part']} in frame" if row["part"]
+            expected = (f"{window}: {v1.ots_clause(label)}" if row["part"] == v1.OTS_PART
+                        else f"{window}: only {label}'s {row['part']} in frame" if row["part"]
                         else f"{window}: {label}'s face stays out of frame")
             if expected not in text:
                 findings.append(f"PARTIAL_CLAUSE_MISSING:BEAT.{index + 1}:{label}")

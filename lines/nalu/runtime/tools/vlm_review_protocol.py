@@ -166,7 +166,10 @@ QUESTIONNAIRES: dict[str, dict[str, dict[str, Any]]] = {
             "enum": PF, "maps_to": ["ACTION-SHOT-DESIGN-AND-STATE-HANDOFF",
                                     "CHARACTER-IDENTITY-ADMISSION"],
             "question": "Is every character in expectations.required_visible_characters visible, "
-                        "and is NO undeclared person visible?"},
+                        "and is NO undeclared person visible?"
+                        " A figure listed in expectations.over_the_shoulder_characters (seen from behind, back of the head "
+                        "and one shoulder, face not shown) IS that declared character — present, not an "
+                        "extra or invented person."},
         "screen_slots_and_depth_planes_match": {
             "enum": PFN, "maps_to": ["ACTION-SHOT-DESIGN-AND-STATE-HANDOFF"],
             "question": "Does each cast member occupy the declared screen_slot and depth_plane?"},
@@ -345,7 +348,10 @@ QUESTIONNAIRES: dict[str, dict[str, dict[str, Any]]] = {
                                     "CHARACTER-IDENTITY-ADMISSION"],
             "question": "Across the whole clip, is exactly the declared cast present — every "
                         "name in expectations.required_visible_characters visible and NO "
-                        "additional or duplicated person?"},
+                        "additional or duplicated person?"
+                        " A figure listed in expectations.over_the_shoulder_characters (seen from behind, back of the head "
+                        "and one shoulder, face not shown) IS that declared character — present, not an "
+                        "extra or invented person."},
         "each_visible_character_identity_recognisable": {
             "enum": PFN, "maps_to": ["CHARACTER-IDENTITY-ADMISSION"],
             "question": "Is every visible character the same person as its canonical identity "
@@ -430,7 +436,10 @@ QUESTIONNAIRES: dict[str, dict[str, dict[str, Any]]] = {
             "question": "Are there people not in the declared cast?  FAIL when any person, face, hand or body "
                         "part appears that is not one of expectations.required_visible_characters (a stranger, a "
                         "floating or disembodied hand, a kneeling or background figure not declared), at any "
-                        "moment of the clip."},
+                        "moment of the clip."
+                        " A figure listed in expectations.over_the_shoulder_characters (seen from behind, back of the head "
+                        "and one shoulder, face not shown) IS that declared character — present, not an "
+                        "extra or invented person."},
         "location_matches_scene": {
             "enum": PF, "maps_to": ["SCENE-AUTHORITY-LOCK"],
             "question": "Does the location match the scene?  The place must be expectations.scene_location "
