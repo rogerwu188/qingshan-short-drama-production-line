@@ -1,0 +1,1633 @@
+{
+ "schema": "nalu.foley_library.v1",
+ "pack_id": "nalu-foley-cc0-v1",
+ "authority": "line owner 2026-11-23: free licensed foley library keyed to verbs in the contract, engineering time only",
+ "license": {
+  "spdx": "CC0-1.0",
+  "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "summary": "Public-domain dedication: commercial use, modification and redistribution allowed, no attribution required.",
+  "verified_on": "2026-11-23",
+  "sources": [
+   "Kenney 'RPG sounds' (OpenGameArt.org mirror, licence file in the archive: CC0)",
+   "Freesound.org sounds whose licence is 'Creative Commons 0' (checked per sound page)"
+  ],
+  "excluded": [
+   "BBC Sound Effects / RemArc (personal, educational or research use only — not commercial)",
+   "Sonniss GDC bundles (royalty-free but redistribution of the sounds themselves is not permitted)",
+   "Freesound CC-BY / CC-BY-NC sounds"
+  ]
+ },
+ "pack": {
+  "url": "https://github.com/rogerwu188/qingshan-short-drama-production-line/releases/download/nalu-foley-cc0-v1/nalu-foley-cc0-v1.zip",
+  "size_bytes": 6414442,
+  "sha256": "8f9f1c61b627256fffd48ea039624b01dc52a3c7d7711a83e878b2973f92ab6b",
+  "extra_files": [
+   "LICENSE.txt",
+   "manifest.json"
+  ]
+ },
+ "clips": [
+  {
+   "clip_id": "kenney_footstep00",
+   "event": "footsteps_indoor",
+   "kind": "spot",
+   "file": "spots/footsteps_indoor/kenney_footstep00.opus",
+   "duration_s": 0.244,
+   "source": {
+    "site": "OpenGameArt.org (Kenney 'RPG sounds' pack)",
+    "url": "https://opengameart.org/content/50-rpg-sound-effects",
+    "archive": "https://opengameart.org/sites/default/files/RPGsounds_Kenney.zip",
+    "member": "OGG/footstep00.ogg",
+    "author": "Kenney Vleugels (www.kenney.nl)",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "processing": "lead/tail silence trim, length cap, 3 ms / 30 ms fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "2c8f8f3b2db53c5b7894466813f2da6461a49799dba18307a769c3349e5f00ca",
+   "bytes": 2439
+  },
+  {
+   "clip_id": "kenney_footstep02",
+   "event": "footsteps_indoor",
+   "kind": "spot",
+   "file": "spots/footsteps_indoor/kenney_footstep02.opus",
+   "duration_s": 0.242,
+   "source": {
+    "site": "OpenGameArt.org (Kenney 'RPG sounds' pack)",
+    "url": "https://opengameart.org/content/50-rpg-sound-effects",
+    "archive": "https://opengameart.org/sites/default/files/RPGsounds_Kenney.zip",
+    "member": "OGG/footstep02.ogg",
+    "author": "Kenney Vleugels (www.kenney.nl)",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "processing": "lead/tail silence trim, length cap, 3 ms / 30 ms fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "cd014dff81626e63eece6a44783917f4a316cb79305244398bdc2dce2959d9ae",
+   "bytes": 2721
+  },
+  {
+   "clip_id": "kenney_footstep04",
+   "event": "footsteps_indoor",
+   "kind": "spot",
+   "file": "spots/footsteps_indoor/kenney_footstep04.opus",
+   "duration_s": 0.305,
+   "source": {
+    "site": "OpenGameArt.org (Kenney 'RPG sounds' pack)",
+    "url": "https://opengameart.org/content/50-rpg-sound-effects",
+    "archive": "https://opengameart.org/sites/default/files/RPGsounds_Kenney.zip",
+    "member": "OGG/footstep04.ogg",
+    "author": "Kenney Vleugels (www.kenney.nl)",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "processing": "lead/tail silence trim, length cap, 3 ms / 30 ms fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "10fc49eb887eda43dc92c198b1161caaf6f17727bf903949c3ba37e059cc58dc",
+   "bytes": 3133
+  },
+  {
+   "clip_id": "kenney_footstep06",
+   "event": "footsteps_indoor",
+   "kind": "spot",
+   "file": "spots/footsteps_indoor/kenney_footstep06.opus",
+   "duration_s": 0.242,
+   "source": {
+    "site": "OpenGameArt.org (Kenney 'RPG sounds' pack)",
+    "url": "https://opengameart.org/content/50-rpg-sound-effects",
+    "archive": "https://opengameart.org/sites/default/files/RPGsounds_Kenney.zip",
+    "member": "OGG/footstep06.ogg",
+    "author": "Kenney Vleugels (www.kenney.nl)",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "processing": "lead/tail silence trim, length cap, 3 ms / 30 ms fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "eae344ec1ed2bdf46513296f04b25710f05b2248ca3d957dd463e339ce61e577",
+   "bytes": 2718
+  },
+  {
+   "clip_id": "kenney_doorOpen_1",
+   "event": "door_open",
+   "kind": "spot",
+   "file": "spots/door_open/kenney_doorOpen_1.opus",
+   "duration_s": 0.919,
+   "source": {
+    "site": "OpenGameArt.org (Kenney 'RPG sounds' pack)",
+    "url": "https://opengameart.org/content/50-rpg-sound-effects",
+    "archive": "https://opengameart.org/sites/default/files/RPGsounds_Kenney.zip",
+    "member": "OGG/doorOpen_1.ogg",
+    "author": "Kenney Vleugels (www.kenney.nl)",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "processing": "lead/tail silence trim, length cap, 3 ms / 30 ms fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "ef7ced239c92afbe74f2ec4ddd4ddc6ff0d63253b82fce46105f0554bb0daaa2",
+   "bytes": 7901
+  },
+  {
+   "clip_id": "kenney_doorOpen_2",
+   "event": "door_open",
+   "kind": "spot",
+   "file": "spots/door_open/kenney_doorOpen_2.opus",
+   "duration_s": 1.41,
+   "source": {
+    "site": "OpenGameArt.org (Kenney 'RPG sounds' pack)",
+    "url": "https://opengameart.org/content/50-rpg-sound-effects",
+    "archive": "https://opengameart.org/sites/default/files/RPGsounds_Kenney.zip",
+    "member": "OGG/doorOpen_2.ogg",
+    "author": "Kenney Vleugels (www.kenney.nl)",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "processing": "lead/tail silence trim, length cap, 3 ms / 30 ms fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "90cb285f5b70bd3664819f5f1f1b0bf73079bc1c3c4fd979ee6efe16082196d1",
+   "bytes": 11760
+  },
+  {
+   "clip_id": "kenney_doorClose_1",
+   "event": "door_close",
+   "kind": "spot",
+   "file": "spots/door_close/kenney_doorClose_1.opus",
+   "duration_s": 0.675,
+   "source": {
+    "site": "OpenGameArt.org (Kenney 'RPG sounds' pack)",
+    "url": "https://opengameart.org/content/50-rpg-sound-effects",
+    "archive": "https://opengameart.org/sites/default/files/RPGsounds_Kenney.zip",
+    "member": "OGG/doorClose_1.ogg",
+    "author": "Kenney Vleugels (www.kenney.nl)",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "processing": "lead/tail silence trim, length cap, 3 ms / 30 ms fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "d604b44b6ca64b6eb85e118496c22dbf8cf04e2e073275d473e4e94382c67d08",
+   "bytes": 5375
+  },
+  {
+   "clip_id": "kenney_doorClose_2",
+   "event": "door_close",
+   "kind": "spot",
+   "file": "spots/door_close/kenney_doorClose_2.opus",
+   "duration_s": 0.612,
+   "source": {
+    "site": "OpenGameArt.org (Kenney 'RPG sounds' pack)",
+    "url": "https://opengameart.org/content/50-rpg-sound-effects",
+    "archive": "https://opengameart.org/sites/default/files/RPGsounds_Kenney.zip",
+    "member": "OGG/doorClose_2.ogg",
+    "author": "Kenney Vleugels (www.kenney.nl)",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "processing": "lead/tail silence trim, length cap, 3 ms / 30 ms fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "ed1d0d89cac0d2d36a829fa4c3ce04a48dcbe6e4dee4fa126ccef7c813c3c324",
+   "bytes": 5918
+  },
+  {
+   "clip_id": "kenney_doorClose_4",
+   "event": "door_close",
+   "kind": "spot",
+   "file": "spots/door_close/kenney_doorClose_4.opus",
+   "duration_s": 0.603,
+   "source": {
+    "site": "OpenGameArt.org (Kenney 'RPG sounds' pack)",
+    "url": "https://opengameart.org/content/50-rpg-sound-effects",
+    "archive": "https://opengameart.org/sites/default/files/RPGsounds_Kenney.zip",
+    "member": "OGG/doorClose_4.ogg",
+    "author": "Kenney Vleugels (www.kenney.nl)",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "processing": "lead/tail silence trim, length cap, 3 ms / 30 ms fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "611e8a0c42d17f810a535cacf47508587cfcc258245aee32634d6af95e1f5b75",
+   "bytes": 5575
+  },
+  {
+   "clip_id": "kenney_cloth1",
+   "event": "cloth",
+   "kind": "spot",
+   "file": "spots/cloth/kenney_cloth1.opus",
+   "duration_s": 0.618,
+   "source": {
+    "site": "OpenGameArt.org (Kenney 'RPG sounds' pack)",
+    "url": "https://opengameart.org/content/50-rpg-sound-effects",
+    "archive": "https://opengameart.org/sites/default/files/RPGsounds_Kenney.zip",
+    "member": "OGG/cloth1.ogg",
+    "author": "Kenney Vleugels (www.kenney.nl)",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "processing": "lead/tail silence trim, length cap, 3 ms / 30 ms fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "de2eb12928a4c11e4f485093d2540fadb99bec9cd7444fb722d3a08040223be9",
+   "bytes": 5313
+  },
+  {
+   "clip_id": "kenney_cloth2",
+   "event": "cloth",
+   "kind": "spot",
+   "file": "spots/cloth/kenney_cloth2.opus",
+   "duration_s": 0.381,
+   "source": {
+    "site": "OpenGameArt.org (Kenney 'RPG sounds' pack)",
+    "url": "https://opengameart.org/content/50-rpg-sound-effects",
+    "archive": "https://opengameart.org/sites/default/files/RPGsounds_Kenney.zip",
+    "member": "OGG/cloth2.ogg",
+    "author": "Kenney Vleugels (www.kenney.nl)",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "processing": "lead/tail silence trim, length cap, 3 ms / 30 ms fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "e45eef38978114d9345e76935382f166297a1322ffb4f57bd69df8cd2fa0d48a",
+   "bytes": 3307
+  },
+  {
+   "clip_id": "kenney_cloth3",
+   "event": "cloth",
+   "kind": "spot",
+   "file": "spots/cloth/kenney_cloth3.opus",
+   "duration_s": 0.472,
+   "source": {
+    "site": "OpenGameArt.org (Kenney 'RPG sounds' pack)",
+    "url": "https://opengameart.org/content/50-rpg-sound-effects",
+    "archive": "https://opengameart.org/sites/default/files/RPGsounds_Kenney.zip",
+    "member": "OGG/cloth3.ogg",
+    "author": "Kenney Vleugels (www.kenney.nl)",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "processing": "lead/tail silence trim, length cap, 3 ms / 30 ms fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "54446bd513d4afe1819e5e4a6c7633ae78d2871b21282d2901f73136d94020bd",
+   "bytes": 3660
+  },
+  {
+   "clip_id": "kenney_drawKnife1",
+   "event": "blade_draw",
+   "kind": "spot",
+   "file": "spots/blade_draw/kenney_drawKnife1.opus",
+   "duration_s": 0.282,
+   "source": {
+    "site": "OpenGameArt.org (Kenney 'RPG sounds' pack)",
+    "url": "https://opengameart.org/content/50-rpg-sound-effects",
+    "archive": "https://opengameart.org/sites/default/files/RPGsounds_Kenney.zip",
+    "member": "OGG/drawKnife1.ogg",
+    "author": "Kenney Vleugels (www.kenney.nl)",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "processing": "lead/tail silence trim, length cap, 3 ms / 30 ms fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "12a64b76070e7749ebe5a08ec70da3bf9c03600b6eb3e2265457c95d4631c51e",
+   "bytes": 2891
+  },
+  {
+   "clip_id": "kenney_handleCoins",
+   "event": "coins",
+   "kind": "spot",
+   "file": "spots/coins/kenney_handleCoins.opus",
+   "duration_s": 0.763,
+   "source": {
+    "site": "OpenGameArt.org (Kenney 'RPG sounds' pack)",
+    "url": "https://opengameart.org/content/50-rpg-sound-effects",
+    "archive": "https://opengameart.org/sites/default/files/RPGsounds_Kenney.zip",
+    "member": "OGG/handleCoins.ogg",
+    "author": "Kenney Vleugels (www.kenney.nl)",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "processing": "lead/tail silence trim, length cap, 3 ms / 30 ms fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "fdf9cc02eb651432a30a283366419e588834de9d0bd505fdc7e03c03cee795a2",
+   "bytes": 7708
+  },
+  {
+   "clip_id": "kenney_handleCoins2",
+   "event": "coins",
+   "kind": "spot",
+   "file": "spots/coins/kenney_handleCoins2.opus",
+   "duration_s": 0.328,
+   "source": {
+    "site": "OpenGameArt.org (Kenney 'RPG sounds' pack)",
+    "url": "https://opengameart.org/content/50-rpg-sound-effects",
+    "archive": "https://opengameart.org/sites/default/files/RPGsounds_Kenney.zip",
+    "member": "OGG/handleCoins2.ogg",
+    "author": "Kenney Vleugels (www.kenney.nl)",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "processing": "lead/tail silence trim, length cap, 3 ms / 30 ms fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "2829e996c623fe38a14467e7350c6e197011baf08d228e7da3134e11f31579cc",
+   "bytes": 3808
+  },
+  {
+   "clip_id": "kenney_bookFlip1",
+   "event": "paper",
+   "kind": "spot",
+   "file": "spots/paper/kenney_bookFlip1.opus",
+   "duration_s": 0.706,
+   "source": {
+    "site": "OpenGameArt.org (Kenney 'RPG sounds' pack)",
+    "url": "https://opengameart.org/content/50-rpg-sound-effects",
+    "archive": "https://opengameart.org/sites/default/files/RPGsounds_Kenney.zip",
+    "member": "OGG/bookFlip1.ogg",
+    "author": "Kenney Vleugels (www.kenney.nl)",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "processing": "lead/tail silence trim, length cap, 3 ms / 30 ms fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "5a15528c27732a0f0a140348aab45724d1a338517c03641280724de2f23ceeab",
+   "bytes": 5953
+  },
+  {
+   "clip_id": "kenney_bookFlip2",
+   "event": "paper",
+   "kind": "spot",
+   "file": "spots/paper/kenney_bookFlip2.opus",
+   "duration_s": 0.43,
+   "source": {
+    "site": "OpenGameArt.org (Kenney 'RPG sounds' pack)",
+    "url": "https://opengameart.org/content/50-rpg-sound-effects",
+    "archive": "https://opengameart.org/sites/default/files/RPGsounds_Kenney.zip",
+    "member": "OGG/bookFlip2.ogg",
+    "author": "Kenney Vleugels (www.kenney.nl)",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "processing": "lead/tail silence trim, length cap, 3 ms / 30 ms fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "d034d7826c9e2f2784a2ec9d2ac522f87fe8275915b5d90f18446813e49e4ce9",
+   "bytes": 3922
+  },
+  {
+   "clip_id": "kenney_bookFlip3",
+   "event": "paper",
+   "kind": "spot",
+   "file": "spots/paper/kenney_bookFlip3.opus",
+   "duration_s": 0.21,
+   "source": {
+    "site": "OpenGameArt.org (Kenney 'RPG sounds' pack)",
+    "url": "https://opengameart.org/content/50-rpg-sound-effects",
+    "archive": "https://opengameart.org/sites/default/files/RPGsounds_Kenney.zip",
+    "member": "OGG/bookFlip3.ogg",
+    "author": "Kenney Vleugels (www.kenney.nl)",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "processing": "lead/tail silence trim, length cap, 3 ms / 30 ms fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "cdd6f07d815752bfaf3bb0f7aa11f42af77d0be7b050535432d7eac9c26a072b",
+   "bytes": 2268
+  },
+  {
+   "clip_id": "fs471095",
+   "event": "blade_clash",
+   "kind": "spot",
+   "file": "spots/blade_clash/fs471095.opus",
+   "duration_s": 0.776,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/spycrah/sounds/471095/",
+    "freesound_id": 471095,
+    "title": "Sword clash 1.wav",
+    "author": "spycrah",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (471095_9856191-hq.mp3), sha256 94540959aca157b2ccde9f94f1ca6c6755134ae162803364b92000e44db93aeb",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "183b6a735bd3afe858efacfeff1ae1b8d09ef3b3b84b3da728a57c4f5d4fd691",
+   "bytes": 7172
+  },
+  {
+   "clip_id": "fs334169",
+   "event": "blade_clash",
+   "kind": "spot",
+   "file": "spots/blade_clash/fs334169.opus",
+   "duration_s": 0.517,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/loudernoises/sounds/334169/",
+    "freesound_id": 334169,
+    "title": "Sword Clash",
+    "author": "loudernoises",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (334169_5859881-hq.mp3), sha256 a394298362847c54709c405425b72bbee8db146948dad27c81d17e97cb535886",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "99df8ff818918f129f8d219ac5cf06b56e6a2384551bb05cd70bf5fdab6a8cc3",
+   "bytes": 5359
+  },
+  {
+   "clip_id": "fs320521",
+   "event": "blade_draw",
+   "kind": "spot",
+   "file": "spots/blade_draw/fs320521.opus",
+   "duration_s": 1.8,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/deleted_user_2906614/sounds/320521/",
+    "freesound_id": 320521,
+    "title": "Unsheathed blade",
+    "author": "deleted_user_2906614",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (320521_2906614-hq.mp3), sha256 be9f02d355130e09ad91dde49c9fcffad5abbc137a6c2f8c3399fa13fa3b77d6",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "3bddb5df984425e12a6b653b6e9732403a3d03f0727a01a753a61212136c1ebc",
+   "bytes": 20320
+  },
+  {
+   "clip_id": "fs107589",
+   "event": "blade_draw",
+   "kind": "spot",
+   "file": "spots/blade_draw/fs107589.opus",
+   "duration_s": 0.817,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/Qat/sounds/107589/",
+    "freesound_id": 107589,
+    "title": "unsheath_sword.wav",
+    "author": "Qat",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (107589_1855536-hq.mp3), sha256 93628a109c8c0904e1f2bf6856fb7b3648039be144c86d7d7fa5620db08235e0",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "846721287bc89794d755119e8c3a174a60377370a452ea934117493ef535d162",
+   "bytes": 7814
+  },
+  {
+   "clip_id": "fs564230",
+   "event": "slap",
+   "kind": "spot",
+   "file": "spots/slap/fs564230.opus",
+   "duration_s": 1.0,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/njjjjjjjjjjjjjjjjjjjjjjjj/sounds/564230/",
+    "freesound_id": 564230,
+    "title": "Huge Slap in the Face",
+    "author": "njjjjjjjjjjjjjjjjjjjjjjjj",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (564230_10435241-hq.mp3), sha256 9f2ef6da0025371d44ec828c6c5b2e2d3aaaa77eb1521da7589d9fe8d8c53a29",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "7d8cf032968e9b3549253cf8acdb09474e86014a9ad8263ab34f863b019fd93e",
+   "bytes": 7527
+  },
+  {
+   "clip_id": "fs539163",
+   "event": "slap",
+   "kind": "spot",
+   "file": "spots/slap/fs539163.opus",
+   "duration_s": 0.393,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/khenshom/sounds/539163/",
+    "freesound_id": 539163,
+    "title": "Slap hit on the face or shoulder",
+    "author": "khenshom",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (539163_6652872-hq.mp3), sha256 8227bc3fc4079ddb358583d3e58187b87f51526d4bb644c3a4d3af9dc50fa50c",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "e2b75d77461468862b73caf86f78e9feb16aacb67f354b626ec9ac07d7fbf616",
+   "bytes": 3118
+  },
+  {
+   "clip_id": "fs118513",
+   "event": "punch",
+   "kind": "spot",
+   "file": "spots/punch/fs118513.opus",
+   "duration_s": 0.284,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/thefsoundman/sounds/118513/",
+    "freesound_id": 118513,
+    "title": "Punch_02.wav",
+    "author": "thefsoundman",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (118513_2136023-hq.mp3), sha256 3843df72e4433db9cf6ebc68314494ad843b6ab97c2f16df33728cb4488504a3",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "f20fd826b3f95d5e2e3052960e9a3a2a374e524dee3d779e3107f69dfdc78d33",
+   "bytes": 2872
+  },
+  {
+   "clip_id": "fs390462",
+   "event": "punch",
+   "kind": "spot",
+   "file": "spots/punch/fs390462.opus",
+   "duration_s": 0.667,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/Huminaatio/sounds/390462/",
+    "freesound_id": 390462,
+    "title": "Punch in the face",
+    "author": "Huminaatio",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (390462_1325505-hq.mp3), sha256 285ba66f5ad88d7e3a9c2b03345b87938ee720c8fc7b7711efd3eefd95d5bdf2",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "8872047c86c5044777dbbcff030f0c982961142301c9c4d328e17dd5a2f671fe",
+   "bytes": 4794
+  },
+  {
+   "clip_id": "fs417994",
+   "event": "body_fall",
+   "kind": "spot",
+   "file": "spots/body_fall/fs417994.opus",
+   "duration_s": 1.598,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/DylanTheFish/sounds/417994/",
+    "freesound_id": 417994,
+    "title": "Body fall.wav",
+    "author": "DylanTheFish",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (417994_7482766-hq.mp3), sha256 84f02fe82161b59a05ce7d0c77be61591fe9ee039ce22861bd276e059b6931ff",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "7cb6fbec8047133023924165e526c0febc6b795e0fc85cfe773f4ed0b557c332",
+   "bytes": 11192
+  },
+  {
+   "clip_id": "fs504626",
+   "event": "body_fall",
+   "kind": "spot",
+   "file": "spots/body_fall/fs504626.opus",
+   "duration_s": 1.468,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/leonelmail/sounds/504626/",
+    "freesound_id": 504626,
+    "title": "BODY FALL - V HVY - DIRT",
+    "author": "leonelmail",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (504626_4437257-hq.mp3), sha256 336a44d95279173764073a9b2d4d7e12f4167cfb0c1ad5c58e316895e129c6bb",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "b738b406eaa476c3a41038b773daee5990571cdf7712a53ab3b0f5eef99ea6d3",
+   "bytes": 11658
+  },
+  {
+   "clip_id": "fs141563",
+   "event": "glass_break",
+   "kind": "spot",
+   "file": "spots/glass_break/fs141563.opus",
+   "duration_s": 1.526,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/avrahamy/sounds/141563/",
+    "freesound_id": 141563,
+    "title": "Glass Break",
+    "author": "avrahamy",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (141563_1422573-hq.mp3), sha256 3cf725050dd2a3685f0c80b165c22c63615059f3bb10695ae20ba3dd398bc7b4",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "5f63f4f254ae90064ff753122a95989873318deabb81a58cad6c4b76256b7a92",
+   "bytes": 13365
+  },
+  {
+   "clip_id": "fs212698",
+   "event": "glass_break",
+   "kind": "spot",
+   "file": "spots/glass_break/fs212698.opus",
+   "duration_s": 1.147,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/dasebr/sounds/212698/",
+    "freesound_id": 212698,
+    "title": "Breaking a glass bottle",
+    "author": "dasebr",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (212698_2585359-hq.mp3), sha256 fab1a6d6d1b0244e0ee7a363731f575092c7703c03af12ec3ba3ad06d9c794a4",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "f7799972aa746cc2315ac8e39da3865146bd11a638e841c2048c4bd108b59cd5",
+   "bytes": 9184
+  },
+  {
+   "clip_id": "fs404922",
+   "event": "cup",
+   "kind": "spot",
+   "file": "spots/cup/fs404922.opus",
+   "duration_s": 0.944,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/squidge316/sounds/404922/",
+    "freesound_id": 404922,
+    "title": "putting down a mug on a table.wav",
+    "author": "squidge316",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (404922_1079491-hq.mp3), sha256 41e1078602f2c38eaa554ddc33f2bf73ce7c826a02158cef19a2a02af823e229",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "f5873f81a896d61f88ae82fef573fce860df4435c35aa8a59605df0f1243ff90",
+   "bytes": 6326
+  },
+  {
+   "clip_id": "fs426364",
+   "event": "cup",
+   "kind": "spot",
+   "file": "spots/cup/fs426364.opus",
+   "duration_s": 0.263,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/pbharri/sounds/426364/",
+    "freesound_id": 426364,
+    "title": "Cup.wav",
+    "author": "pbharri",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (426364_7124140-hq.mp3), sha256 835090435876e07d3dd933e143aaa791984561d9af72d29cca49261de43801e5",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "a17077be2567da5a51d8b78701cd881651769c8d4f2ba39cbf9bcd9e4cf2e0a1",
+   "bytes": 2566
+  },
+  {
+   "clip_id": "fs760369",
+   "event": "phone_notify",
+   "kind": "spot",
+   "file": "spots/phone_notify/fs760369.opus",
+   "duration_s": 0.113,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/Froey_/sounds/760369/",
+    "freesound_id": 760369,
+    "title": "Message Receive",
+    "author": "Froey_",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (760369_8331855-hq.mp3), sha256 97705575b761ad221d51868a6c8169e75d1594a59363b1d9a10ac9e3443d8c27",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "6776f51faa2a9bb525d2c1aa8d5d3a7844a3ae9f069792b62a5c3b719a2d0b48",
+   "bytes": 1355
+  },
+  {
+   "clip_id": "fs413691",
+   "event": "phone_notify",
+   "kind": "spot",
+   "file": "spots/phone_notify/fs413691.opus",
+   "duration_s": 1.243,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/PearceWilsonKing/sounds/413691/",
+    "freesound_id": 413691,
+    "title": "Phone Notification",
+    "author": "PearceWilsonKing",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (413691_3906011-hq.mp3), sha256 cabae66e4ae4298062683eef77e675cd30d6598195559ba8de4336f03dc5bf02",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "0468d0126ff1fec46cfc242c57491dd48c77e3f0007f9c4fa587c2e8db63a50b",
+   "bytes": 11160
+  },
+  {
+   "clip_id": "fs515295",
+   "event": "phone_vibrate",
+   "kind": "spot",
+   "file": "spots/phone_vibrate/fs515295.opus",
+   "duration_s": 1.042,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/Breviceps/sounds/515295/",
+    "freesound_id": 515295,
+    "title": "Phone vibration",
+    "author": "Breviceps",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (515295_9159316-hq.mp3), sha256 0125e5aac83f431305263569134611567f6823ef29ac52446b23ccac210b60f4",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "ba8edbd1911869c9c663b397fe8ccfeee827932bf1977b44ab054c341250c93a",
+   "bytes": 9605
+  },
+  {
+   "clip_id": "fs529979",
+   "event": "phone_vibrate",
+   "kind": "spot",
+   "file": "spots/phone_vibrate/fs529979.opus",
+   "duration_s": 1.015,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/lartti/sounds/529979/",
+    "freesound_id": 529979,
+    "title": "phone vibrate.wav",
+    "author": "lartti",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (529979_1654547-hq.mp3), sha256 b1c8161ddc162b15aab19844abc39ffb1e81f13f48b722533395648c062c9d9c",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "da36704261eb8e4ec19f548017e80d123f8607d0616af1df70e7863e22b08d7a",
+   "bytes": 11474
+  },
+  {
+   "clip_id": "fs171447",
+   "event": "car_pass",
+   "kind": "spot",
+   "file": "spots/car_pass/fs171447.opus",
+   "duration_s": 5.0,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/hinzebeat/sounds/171447/",
+    "freesound_id": 171447,
+    "title": "Car passing by.wav",
+    "author": "hinzebeat",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (171447_3191786-hq.mp3), sha256 d95bbd25def58aab3e53a5ac58b90b48048d1719249e66296ff67ddd52f43a32",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "31abb79a83da2588157edd7f673cd5d19531fd7221ace540059f112ff3406dbe",
+   "bytes": 34226
+  },
+  {
+   "clip_id": "fs462862",
+   "event": "car_pass",
+   "kind": "spot",
+   "file": "spots/car_pass/fs462862.opus",
+   "duration_s": 5.0,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/Breviceps/sounds/462862/",
+    "freesound_id": 462862,
+    "title": "Passing Car (Wet road)",
+    "author": "Breviceps",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (462862_9159316-hq.mp3), sha256 5d68c4104bb971b54073c5cb861a16c53570f36ac9e12e1971cda1fb8fbbe0f7",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "130991a69fa39d3c72852f9aa33aae8f478d37d2695792af7ffe28f27fefb9ef",
+   "bytes": 36357
+  },
+  {
+   "clip_id": "fs208695",
+   "event": "car_door",
+   "kind": "spot",
+   "file": "spots/car_door/fs208695.opus",
+   "duration_s": 0.537,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/monotraum/sounds/208695/",
+    "freesound_id": 208695,
+    "title": "car door close.wav",
+    "author": "monotraum",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (208695_1756543-hq.mp3), sha256 80b39be8cee342cba273a7246d1c4933ce725927673af1b1a76a4abfbfe33088",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "3bae5883156cef86f1555772754b4b4bc1616392faecf932d08f44a363f1e8df",
+   "bytes": 4438
+  },
+  {
+   "clip_id": "fs175356",
+   "event": "horse_gallop",
+   "kind": "spot",
+   "file": "spots/horse_gallop/fs175356.opus",
+   "duration_s": 4.0,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/Max_Headroom/sounds/175356/",
+    "freesound_id": 175356,
+    "title": "Horse Galloping.wav",
+    "author": "Max_Headroom",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (175356_2861652-hq.mp3), sha256 ed8c2339488feca16a050f22101b7921034d646e8f479c577966d67d1b345c94",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "db272076951d948690ac2e54a944ed0ca6e2061045e3dc67aac74e54de6335c9",
+   "bytes": 34922
+  },
+  {
+   "clip_id": "fs197212",
+   "event": "horse_gallop",
+   "kind": "spot",
+   "file": "spots/horse_gallop/fs197212.opus",
+   "duration_s": 2.615,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/HebronTheatre/sounds/197212/",
+    "freesound_id": 197212,
+    "title": "Horse Gallop - Loopable.mp3",
+    "author": "HebronTheatre",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (197212_3001728-hq.mp3), sha256 599945b15855b537ee4118207ee9c9bdcf99403f2bced71695c6e7679771be1c",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "ce99a7847035453a4c1dc3884f24f24b06f83b52f665aa6f15f6c3d8b1f3ca16",
+   "bytes": 21463
+  },
+  {
+   "clip_id": "fs269571",
+   "event": "horse_neigh",
+   "kind": "spot",
+   "file": "spots/horse_neigh/fs269571.opus",
+   "duration_s": 1.227,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/shadoWisp/sounds/269571/",
+    "freesound_id": 269571,
+    "title": "horse neigh shortened.wav",
+    "author": "shadoWisp",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (269571_4564240-hq.mp3), sha256 3b0475aef4d9a421a97e69edc041619eaf204b123c19d57d5bc47d83bedc56f4",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "1ee66d572bc92237b5070ce2a166cf91f82b4ddf9d84cefdcae3036f6c1c1297",
+   "bytes": 10466
+  },
+  {
+   "clip_id": "fs715784",
+   "event": "magic_whoosh",
+   "kind": "spot",
+   "file": "spots/magic_whoosh/fs715784.opus",
+   "duration_s": 0.875,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/DustyWind/sounds/715784/",
+    "freesound_id": 715784,
+    "title": "Magic Whoosh",
+    "author": "DustyWind",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (715784_7943867-hq.mp3), sha256 6b58e5398290fc83b7b7d5166d942abb59831f977b44a11e51e712cb37bb1c76",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "06388f3bea35089cf4e83c8ede8e0f09d7e8e0febc9bfd02a75032bae283b989",
+   "bytes": 7112
+  },
+  {
+   "clip_id": "fs441225",
+   "event": "magic_whoosh",
+   "kind": "spot",
+   "file": "spots/magic_whoosh/fs441225.opus",
+   "duration_s": 2.2,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/LilMati/sounds/441225/",
+    "freesound_id": 441225,
+    "title": "Teleport",
+    "author": "LilMati",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (441225_6142149-hq.mp3), sha256 f5ff1eacbc53b700b3ae38c82e3b63c1183a4c8bb56a6316a2ef1f0ee716d6de",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "059427a4d9a2e3e42a551f23dd5c8a34b23c5de061e8cf0a9896e8618d8467d8",
+   "bytes": 19134
+  },
+  {
+   "clip_id": "fs535952",
+   "event": "magic_impact",
+   "kind": "spot",
+   "file": "spots/magic_impact/fs535952.opus",
+   "duration_s": 2.4,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/doudar41/sounds/535952/",
+    "freesound_id": 535952,
+    "title": "Electro_Hit_04.wav",
+    "author": "doudar41",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (535952_2393492-hq.mp3), sha256 656ec6a48a6ec4caee8b3abc9c285543a031448e6883e5522fc9ab34cc14a54b",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "1b1c80762bd69307ced9a01a4c98788f4a3c881a73433df9e53bbe5aed05beeb",
+   "bytes": 18492
+  },
+  {
+   "clip_id": "fs413224",
+   "event": "magic_impact",
+   "kind": "spot",
+   "file": "spots/magic_impact/fs413224.opus",
+   "duration_s": 1.419,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/ihitokage/sounds/413224/",
+    "freesound_id": 413224,
+    "title": "Energy impact 4",
+    "author": "ihitokage",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (413224_1675920-hq.mp3), sha256 df64efb61d3c96cc2c5c2679a3806ae12a35a46e5062f5290eb73e26144e92a9",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "90e93f23748f163e50cc11d14df1bd92908c00fdb2b067bb2205280977da3c48",
+   "bytes": 9226
+  },
+  {
+   "clip_id": "fs60013",
+   "event": "whoosh",
+   "kind": "spot",
+   "file": "spots/whoosh/fs60013.opus",
+   "duration_s": 0.426,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/qubodup/sounds/60013/",
+    "freesound_id": 60013,
+    "title": "Whoosh",
+    "author": "qubodup",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (60013_71257-hq.mp3), sha256 ebdb219e7f36f7e1aecdb045d6d8bdad059119af319863777c7302a69fa41a92",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "282b4981a5028d6f079846c84bd3ed8868027632d536d69338870c9942b9dc15",
+   "bytes": 3270
+  },
+  {
+   "clip_id": "fs683096",
+   "event": "whoosh",
+   "kind": "spot",
+   "file": "spots/whoosh/fs683096.opus",
+   "duration_s": 1.4,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/florianreichelt/sounds/683096/",
+    "freesound_id": 683096,
+    "title": "Woosh",
+    "author": "florianreichelt",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (683096_6253486-hq.mp3), sha256 3c641d4d6ea0c6b65423d8fe1a7d72bf7bfb08a91c1640f9e9a0ab9d5d23b265",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "90c213c8fea210173ea8141ac5df48a073c0ecedbb5e5afab30ec8e7e1ae9979",
+   "bytes": 10348
+  },
+  {
+   "clip_id": "fs22416",
+   "event": "heartbeat",
+   "kind": "spot",
+   "file": "spots/heartbeat/fs22416.opus",
+   "duration_s": 3.607,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/Lunardrive/sounds/22416/",
+    "freesound_id": 22416,
+    "title": "Four Heartbeats HQ_BeatSmith.wav",
+    "author": "Lunardrive",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (22416_120830-hq.mp3), sha256 471708f209b65270e00384a387ef139e47b6b3468f7030592eb20d90f8965648",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "2168d4c2fb87f95943cd4103d48fda7a925b622a803f78c243ba39c1ca4d4b97",
+   "bytes": 28723
+  },
+  {
+   "clip_id": "fs201571",
+   "event": "stinger",
+   "kind": "spot",
+   "file": "spots/stinger/fs201571.opus",
+   "duration_s": 3.129,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/Julien_Matthey/sounds/201571/",
+    "freesound_id": 201571,
+    "title": "JM_FX_Boom 01a.wav",
+    "author": "Julien_Matthey",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (201571_1535323-hq.mp3), sha256 47f30f1047075ffe6355718fed13375581ad175d023b712ac3bb43da03b0aba8",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "b4b19b2ddae78a11b8ffb0f6d95dd1751311a17a027a863ae96229584790322e",
+   "bytes": 19030
+  },
+  {
+   "clip_id": "fs430977",
+   "event": "stinger",
+   "kind": "spot",
+   "file": "spots/stinger/fs430977.opus",
+   "duration_s": 3.5,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/AudioPapkin/sounds/430977/",
+    "freesound_id": 430977,
+    "title": "Big impact.wav",
+    "author": "AudioPapkin",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (430977_8698658-hq.mp3), sha256 76b8435cf9f536ed689c774e111341b3e89ed0bcf8f75394757055844642aa42",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "8af8c94c26ca8eb8f115f4f00b11306bbb6816d33bd173fb78ece66fa9498c9f",
+   "bytes": 21347
+  },
+  {
+   "clip_id": "fs840719",
+   "event": "riser",
+   "kind": "spot",
+   "file": "spots/riser/fs840719.opus",
+   "duration_s": 2.54,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/SoundEffectsForAll/sounds/840719/",
+    "freesound_id": 840719,
+    "title": "Simple Riser",
+    "author": "SoundEffectsForAll",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (840719_17848526-hq.mp3), sha256 4b38c0526f51b7cefcd7a61154913923fcef799655b1b891ca38e874a50953ed",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "3451ec48144698423d29f70c776ba23ef493672509e8881b6a1c23e297071f1d",
+   "bytes": 21136
+  },
+  {
+   "clip_id": "fs268500",
+   "event": "knock",
+   "kind": "spot",
+   "file": "spots/knock/fs268500.opus",
+   "duration_s": 2.073,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/wjtaylor/sounds/268500/",
+    "freesound_id": 268500,
+    "title": "door_knock.wav",
+    "author": "wjtaylor",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (268500_4989900-hq.mp3), sha256 ea024bbe1e698e8ec98bbcdba8306abfa10e388bda1aed7b85ced5bcc940e48a",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "fd8bde8c766711ad1decfbf9ef945a9a4579bc9eaade844678ece3b167b9a015",
+   "bytes": 16625
+  },
+  {
+   "clip_id": "fs244325",
+   "event": "knock",
+   "kind": "spot",
+   "file": "spots/knock/fs244325.opus",
+   "duration_s": 1.103,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/Philip_Daniels/sounds/244325/",
+    "freesound_id": 244325,
+    "title": "Knock_on_door.wav",
+    "author": "Philip_Daniels",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (244325_3151690-hq.mp3), sha256 06edf35e85ab5c1676a48f086ee774ba3bfcaa2a6461d2cafdb429df8054d61b",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "9b59c89eafb8b8708dcd7d9dc46cdd109097f3ea51e5c7d32b58cdbf0eb4b513",
+   "bytes": 8316
+  },
+  {
+   "clip_id": "fs193170",
+   "event": "thunder",
+   "kind": "spot",
+   "file": "spots/thunder/fs193170.opus",
+   "duration_s": 5.461,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/netaj/sounds/193170/",
+    "freesound_id": 193170,
+    "title": "thunder",
+    "author": "netaj",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (193170_3012047-hq.mp3), sha256 24c597980770f11e6bd1dfc591a65526849af463f3a4558d510662119b82bbb4",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "46b4139ae2d6031d2ee09a087b36f9155f1aa04dcc148a22b586e72fadd5b595",
+   "bytes": 35412
+  },
+  {
+   "clip_id": "fs399656",
+   "event": "thunder",
+   "kind": "spot",
+   "file": "spots/thunder/fs399656.opus",
+   "duration_s": 5.5,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/bajko/sounds/399656/",
+    "freesound_id": 399656,
+    "title": "sfx_thunder blast.wav",
+    "author": "bajko",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (399656_2341984-hq.mp3), sha256 ab9d2f992ee25d6b3d0082b820ea9be73e255dbc8d848d4db304a338791ec54f",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "0820b03946cecbc73d139a8bc305da5ede314187ecadbd2cd00a551c5e8a3fd5",
+   "bytes": 40126
+  },
+  {
+   "clip_id": "fs353799",
+   "event": "footsteps_outdoor",
+   "kind": "spot",
+   "file": "spots/footsteps_outdoor/fs353799.opus",
+   "duration_s": 2.8,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/monte32/sounds/353799/",
+    "freesound_id": 353799,
+    "title": "Footsteps_6_Dirt_shoe.wav",
+    "author": "monte32",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (353799_5337613-hq.mp3), sha256 2ad738f1fa7d2707e0e42abdf6053f48e6ef88c26f3eabc76756805335adab41",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "174973e4f73c130bfb96f92eef10c6d57defb821538dc433148e3e2f4ef053d7",
+   "bytes": 25416
+  },
+  {
+   "clip_id": "fs521588",
+   "event": "footsteps_outdoor",
+   "kind": "spot",
+   "file": "spots/footsteps_outdoor/fs521588.opus",
+   "duration_s": 2.507,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/Fission9/sounds/521588/",
+    "freesound_id": 521588,
+    "title": "Hiking Boot Footsteps on Gravel",
+    "author": "Fission9",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (521588_9395330-hq.mp3), sha256 085013ce436bc00838d28cf18bc90ac797c65db2aa49869f728c7dd10f3ded17",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "c3d23f4f407f613375cf9e2124f1d1f5f9a1f0a8031ab34a28ca60e4dcabb1f3",
+   "bytes": 24828
+  },
+  {
+   "clip_id": "fs543385",
+   "event": "footsteps_snow",
+   "kind": "spot",
+   "file": "spots/footsteps_snow/fs543385.opus",
+   "duration_s": 2.8,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/alexo400/sounds/543385/",
+    "freesound_id": 543385,
+    "title": "FOOT_STEPS_SNOW_HEAVY.wav",
+    "author": "alexo400",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (543385_9067890-hq.mp3), sha256 b70c714b71c7a3954b96db7634f5b295738700892ec036d5e43a5af3b789fe18",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "a18089817265f68d197fd29ebbab8caec93d39653a0cfcfee5233616193fefbc",
+   "bytes": 23247
+  },
+  {
+   "clip_id": "fs181497",
+   "event": "footsteps_snow",
+   "kind": "spot",
+   "file": "spots/footsteps_snow/fs181497.opus",
+   "duration_s": 2.374,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/max_b_jo/sounds/181497/",
+    "freesound_id": 181497,
+    "title": "Footstep_Snow4",
+    "author": "max_b_jo",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (181497_1251777-hq.mp3), sha256 c196d57b7c0af2f6570ba0314450503ac290363dc12bdf56ff7e7223e668443d",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "2b19fc17cee51f1ae8d4d82a5e451701777f986b582b1d7ab51f07a086cab6f0",
+   "bytes": 17522
+  },
+  {
+   "clip_id": "fs117608",
+   "event": "footsteps_heels",
+   "kind": "spot",
+   "file": "spots/footsteps_heels/fs117608.opus",
+   "duration_s": 2.8,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/mefrancis13/sounds/117608/",
+    "freesound_id": 117608,
+    "title": "High Heels on Wooden Floor",
+    "author": "mefrancis13",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (117608_2056891-hq.mp3), sha256 10681c79493cdee7c0662af290ae444a47faecdb8b6c21d23e46bf78d5a85e26",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "02e9987c68af15c884977a73eb37e80d8b918fc8f34a80e1e5968b1a636c4e05",
+   "bytes": 18585
+  },
+  {
+   "clip_id": "fs571801",
+   "event": "footsteps_heels",
+   "kind": "spot",
+   "file": "spots/footsteps_heels/fs571801.opus",
+   "duration_s": 2.8,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/NachtmahrTV/sounds/571801/",
+    "freesound_id": 571801,
+    "title": "Walking in High Heels",
+    "author": "NachtmahrTV",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (571801_5620304-hq.mp3), sha256 b41efd6df51e650ee57dca4f15207522e0b1a4c5b32a8e6fa35595f1429cf057",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "9478ac43687776353c71aa14bc532021bf1283309d425dab5f9e1da7486c022e",
+   "bytes": 17996
+  },
+  {
+   "clip_id": "fs459965",
+   "event": "running",
+   "kind": "spot",
+   "file": "spots/running/fs459965.opus",
+   "duration_s": 2.6,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/florianreichelt/sounds/459965/",
+    "freesound_id": 459965,
+    "title": "Footsteps while running on wood",
+    "author": "florianreichelt",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (459965_6253486-hq.mp3), sha256 844619c09e7267194d7aeabb42f052cec216e58efb0e8827829e467d5c745f2e",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "fa95226ea69fee0eedbbc170f775d82a4a78bc7d86cd8a109b3a19d2b494b810",
+   "bytes": 20926
+  },
+  {
+   "clip_id": "fs443218",
+   "event": "running",
+   "kind": "spot",
+   "file": "spots/running/fs443218.opus",
+   "duration_s": 2.6,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/Topschool/sounds/443218/",
+    "freesound_id": 443218,
+    "title": "running",
+    "author": "Topschool",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (443218_6590186-hq.mp3), sha256 bd58f54e5a37f5661ba461297c583a47a8df83d4ca2a7e510c79d6d79bcd7b39",
+    "processing": "lead/tail silence trim, length cap, short fades, peak -3 dBFS, mono, Opus 64 kbps"
+   },
+   "sha256": "9e0bc28ca0cff5150584f4be713714b1ef3de710f5ec24596acde62531d51848",
+   "bytes": 18720
+  },
+  {
+   "clip_id": "fs243373",
+   "event": "amb_crowd_indoor",
+   "kind": "bed",
+   "file": "beds/amb_crowd_indoor/fs243373.opus",
+   "duration_s": 30.0,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/JohnsonBrandEditing/sounds/243373/",
+    "freesound_id": 243373,
+    "title": "Small Crowd pre-concert talking party bar walla talking",
+    "author": "JohnsonBrandEditing",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (243373_3229685-hq.mp3), sha256 5ccd7f18069521eacdf66737a85d125d8c14bd1d5cb26f4fadb9b3669e8df9a9",
+    "processing": "30 s excerpt, 1 s fades, RMS -26 dBFS (peak <= -3), stereo, Opus 96 kbps"
+   },
+   "sha256": "53ed34b1a8ef70345a812137082b4b30f05541917b8f0b02bc6a042a59ee5338",
+   "bytes": 334793
+  },
+  {
+   "clip_id": "fs28204",
+   "event": "amb_crowd_indoor",
+   "kind": "bed",
+   "file": "beds/amb_crowd_indoor/fs28204.opus",
+   "duration_s": 30.0,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/moxobna/sounds/28204/",
+    "freesound_id": 28204,
+    "title": "restaurant2.wav",
+    "author": "moxobna",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (28204_43834-hq.mp3), sha256 77e6d10c918b0bf3027479a1db950bb7c47774bf1af5c7a1c8cfa1e14c927ddb",
+    "processing": "30 s excerpt, 1 s fades, RMS -26 dBFS (peak <= -3), stereo, Opus 96 kbps"
+   },
+   "sha256": "5a601ff646c661ed566cd8504f1a68434c934c020632ad75d2c5082c042e28fd",
+   "bytes": 333196
+  },
+  {
+   "clip_id": "fs23244",
+   "event": "amb_crowd_outdoor",
+   "kind": "bed",
+   "file": "beds/amb_crowd_outdoor/fs23244.opus",
+   "duration_s": 30.0,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/alchemical/sounds/23244/",
+    "freesound_id": 23244,
+    "title": "Market Walk.mp3",
+    "author": "alchemical",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (23244_38848-hq.mp3), sha256 c982208b9acef9d5b4da6db4760730356347953a7cbc61f02f096dfc89d5bee9",
+    "processing": "30 s excerpt, 1 s fades, RMS -26 dBFS (peak <= -3), stereo, Opus 96 kbps"
+   },
+   "sha256": "723138f5cef8a77efd6e0de5a6876fb2bc929072aafec5540db76c74aa7a8b06",
+   "bytes": 335638
+  },
+  {
+   "clip_id": "fs819223",
+   "event": "amb_crowd_outdoor",
+   "kind": "bed",
+   "file": "beds/amb_crowd_outdoor/fs819223.opus",
+   "duration_s": 30.0,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/sounds_from_palestine/sounds/819223/",
+    "freesound_id": 819223,
+    "title": "Evening Bazaar Ambience at Souq Al Bashorah, Ramallah – Palestine",
+    "author": "sounds_from_palestine",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (819223_17247322-hq.mp3), sha256 710cd4f3250aecd6fd9d2b091914b85a3e8adb34571fa88cf5e7fa9dd1a49981",
+    "processing": "30 s excerpt, 1 s fades, RMS -26 dBFS (peak <= -3), stereo, Opus 96 kbps"
+   },
+   "sha256": "3002ee2c91b0d61268c882ce8e1e24723ee2d5dd3f93da69413ce9d55f5fe0c5",
+   "bytes": 331470
+  },
+  {
+   "clip_id": "fs117136",
+   "event": "amb_wind",
+   "kind": "bed",
+   "file": "beds/amb_wind/fs117136.opus",
+   "duration_s": 30.0,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/cobratronik/sounds/117136/",
+    "freesound_id": 117136,
+    "title": "Wind__Artic__Cold.wav",
+    "author": "cobratronik",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (117136_732072-hq.mp3), sha256 bc58d53ed6137b756dfa631bc970ef3d082c4b9f7cf4e530cdea8fc84737be5b",
+    "processing": "30 s excerpt, 1 s fades, RMS -26 dBFS (peak <= -3), stereo, Opus 96 kbps"
+   },
+   "sha256": "a624fc5c04caa7de44da3172a736fb7d24d013218f87aabde101c842f6ce3676",
+   "bytes": 336922
+  },
+  {
+   "clip_id": "fs459981",
+   "event": "amb_wind",
+   "kind": "bed",
+   "file": "beds/amb_wind/fs459981.opus",
+   "duration_s": 30.0,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/florianreichelt/sounds/459981/",
+    "freesound_id": 459981,
+    "title": "Strong Wind",
+    "author": "florianreichelt",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (459981_6253486-hq.mp3), sha256 485c02cb37857134c0adc86a941f69b56f8d065f0f77958415c528e5b96260b9",
+    "processing": "30 s excerpt, 1 s fades, RMS -26 dBFS (peak <= -3), stereo, Opus 96 kbps"
+   },
+   "sha256": "5388b6fae7c3d72ba25ba483fda03fed7b9249e1248a34b787e1d35e3630478c",
+   "bytes": 221143
+  },
+  {
+   "clip_id": "fs398740",
+   "event": "amb_rain",
+   "kind": "bed",
+   "file": "beds/amb_rain/fs398740.opus",
+   "duration_s": 30.0,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/Anthousai/sounds/398740/",
+    "freesound_id": 398740,
+    "title": "rain - drops on porch.wav",
+    "author": "Anthousai",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (398740_5923045-hq.mp3), sha256 4e9c8c288479301d0398f5f2102c637e4c13d2c0c3d6865798a903ca02387295",
+    "processing": "30 s excerpt, 1 s fades, RMS -26 dBFS (peak <= -3), stereo, Opus 96 kbps"
+   },
+   "sha256": "2b15dda2e41efc5d11c13c92f0d0ed1b70a13a30bdadc26c1c57a05ba6f72148",
+   "bytes": 371925
+  },
+  {
+   "clip_id": "fs171980",
+   "event": "amb_rain",
+   "kind": "bed",
+   "file": "beds/amb_rain/fs171980.opus",
+   "duration_s": 30.0,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/conleec/sounds/171980/",
+    "freesound_id": 171980,
+    "title": "AMB_M_City_Rain_Light.wav",
+    "author": "conleec",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (171980_221578-hq.mp3), sha256 41eb895bbadddf575a94f8fcbec78ce8a628309498b4e8d23a32b0de69d24eb5",
+    "processing": "30 s excerpt, 1 s fades, RMS -26 dBFS (peak <= -3), stereo, Opus 96 kbps"
+   },
+   "sha256": "570467a0c0012dde6fc2b92ca374139fe4c4f96c831103eaf8cb226875fefa28",
+   "bytes": 264449
+  },
+  {
+   "clip_id": "fs181563",
+   "event": "amb_fire",
+   "kind": "bed",
+   "file": "beds/amb_fire/fs181563.opus",
+   "duration_s": 30.0,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/kingsrow/sounds/181563/",
+    "freesound_id": 181563,
+    "title": "Fire Crackling 01.wav",
+    "author": "kingsrow",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (181563_1857065-hq.mp3), sha256 f06ff554e43415d6fe1d83d00d964c93f8a3b1c1ec7c5b59e4e6c4383dd4c591",
+    "processing": "30 s excerpt, 1 s fades, RMS -26 dBFS (peak <= -3), stereo, Opus 96 kbps"
+   },
+   "sha256": "dda9bddd0e97c5989ddf8c635cb2891c2c9c6764c0bc451baba7b3c906b20e5b",
+   "bytes": 423371
+  },
+  {
+   "clip_id": "fs414767",
+   "event": "amb_fire",
+   "kind": "bed",
+   "file": "beds/amb_fire/fs414767.opus",
+   "duration_s": 30.0,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/samarobryn/sounds/414767/",
+    "freesound_id": 414767,
+    "title": "Crackling Fire",
+    "author": "samarobryn",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (414767_4955305-hq.mp3), sha256 dff728c1912189f322a63059592e544d751551154bd0c9e292f2923121f98892",
+    "processing": "30 s excerpt, 1 s fades, RMS -26 dBFS (peak <= -3), stereo, Opus 96 kbps"
+   },
+   "sha256": "c53a500b66fb5d4ded97241940539753722ccf3915e72ac48b963d34f8a1c143",
+   "bytes": 357689
+  },
+  {
+   "clip_id": "fs385280",
+   "event": "amb_birds",
+   "kind": "bed",
+   "file": "beds/amb_birds/fs385280.opus",
+   "duration_s": 30.0,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/bajko/sounds/385280/",
+    "freesound_id": 385280,
+    "title": "sfx_amb_forest_spring_afternoon-01.wav",
+    "author": "bajko",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (385280_2341984-hq.mp3), sha256 08a3514a9a36b96173cb831cf8602ffa7eb9553c564cd48e96ac56552a175d38",
+    "processing": "30 s excerpt, 1 s fades, RMS -26 dBFS (peak <= -3), stereo, Opus 96 kbps"
+   },
+   "sha256": "2a37a50cdc841c71ad22ddf4d4b830f7a4088f87de3560513bb1810aa23e64e7",
+   "bytes": 350017
+  },
+  {
+   "clip_id": "fs274175",
+   "event": "amb_birds",
+   "kind": "bed",
+   "file": "beds/amb_birds/fs274175.opus",
+   "duration_s": 30.0,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/Mafon2/sounds/274175/",
+    "freesound_id": 274175,
+    "title": "Park ambience - mostly birds",
+    "author": "Mafon2",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (274175_1196472-hq.mp3), sha256 2b43dc90e42f5b5846a2f4afacc2e8127312625abdb1e95765f95c0f0aca36c4",
+    "processing": "30 s excerpt, 1 s fades, RMS -26 dBFS (peak <= -3), stereo, Opus 96 kbps"
+   },
+   "sha256": "4d70e8d190f837bb58204c0e468514b7d1b427c283b8c01a5ecc265955e2b2cd",
+   "bytes": 327238
+  },
+  {
+   "clip_id": "fs175020",
+   "event": "amb_insects",
+   "kind": "bed",
+   "file": "beds/amb_insects/fs175020.opus",
+   "duration_s": 30.0,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/sengjinn/sounds/175020/",
+    "freesound_id": 175020,
+    "title": "AMBIENCE NIGHT FIELD CRICKET 01.wav",
+    "author": "sengjinn",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (175020_2979997-hq.mp3), sha256 18da78264ed2ff12e74d1bc6ac17ce539a12568fd04a32c830f117fed31da8ea",
+    "processing": "30 s excerpt, 1 s fades, RMS -26 dBFS (peak <= -3), stereo, Opus 96 kbps"
+   },
+   "sha256": "8f4461b3a1b5b1be36a1f62f5c2147e79c9e8de3e587f0259f0577e0efd168e7",
+   "bytes": 367700
+  },
+  {
+   "clip_id": "fs333221",
+   "event": "amb_insects",
+   "kind": "bed",
+   "file": "beds/amb_insects/fs333221.opus",
+   "duration_s": 30.0,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/hdfreema/sounds/333221/",
+    "freesound_id": 333221,
+    "title": "Night Crickets Back Porch.aiff",
+    "author": "hdfreema",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (333221_2098408-hq.mp3), sha256 7429a4e5b023514f9d9ec313d0ec3d3304e69525b1d3689378d9809d4635128a",
+    "processing": "30 s excerpt, 1 s fades, RMS -26 dBFS (peak <= -3), stereo, Opus 96 kbps"
+   },
+   "sha256": "b8a7ca270f1ce0046050000acae66aa08ae422beb213244c9d64260b8bb92b87",
+   "bytes": 337011
+  },
+  {
+   "clip_id": "fs36734",
+   "event": "amb_city",
+   "kind": "bed",
+   "file": "beds/amb_city/fs36734.opus",
+   "duration_s": 30.0,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/moxobna/sounds/36734/",
+    "freesound_id": 36734,
+    "title": "citystreet3.wav",
+    "author": "moxobna",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (36734_43834-hq.mp3), sha256 888a1c1cb8abac5e23ac878f6f557b43fface2a11a6cce48ac2cd7b632a451b7",
+    "processing": "30 s excerpt, 1 s fades, RMS -26 dBFS (peak <= -3), stereo, Opus 96 kbps"
+   },
+   "sha256": "d22d126778154be2651db9a8f584569ebf620514899c0b7d1c66ee0aebf227a5",
+   "bytes": 337038
+  },
+  {
+   "clip_id": "fs512142",
+   "event": "amb_city",
+   "kind": "bed",
+   "file": "beds/amb_city/fs512142.opus",
+   "duration_s": 30.0,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/lupalenzuela/sounds/512142/",
+    "freesound_id": 512142,
+    "title": "Paris_traffic.wav",
+    "author": "lupalenzuela",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (512142_2286319-hq.mp3), sha256 f7b99fad3d0322e34bc9a2cd33b8a998e8b88a0b34e122013ff498e6138ddcb3",
+    "processing": "30 s excerpt, 1 s fades, RMS -26 dBFS (peak <= -3), stereo, Opus 96 kbps"
+   },
+   "sha256": "9b84cce0a9c9cffc54c10888eed11102b2d025e7c62ca0058e6bdb3e204eaafc",
+   "bytes": 244283
+  },
+  {
+   "clip_id": "fs108695",
+   "event": "amb_office",
+   "kind": "bed",
+   "file": "beds/amb_office/fs108695.opus",
+   "duration_s": 30.0,
+   "source": {
+    "site": "Freesound.org",
+    "url": "https://freesound.org/people/DiArchangeli/sounds/108695/",
+    "freesound_id": 108695,
+    "title": "Office Ambience.wav",
+    "author": "DiArchangeli",
+    "license": "CC0-1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source_media": "Freesound HQ preview (108695_1779874-hq.mp3), sha256 4a435d6792c0ac29e6ee0b5e8511c8de1b3405c76bfc303852df7e463b779ec6",
+    "processing": "30 s excerpt, 1 s fades, RMS -26 dBFS (peak <= -3), stereo, Opus 96 kbps"
+   },
+   "sha256": "ab9d3dcd9f80cf7782a74e65a25f39857b23519991f605dd457864487bad84d6",
+   "bytes": 251515
+  }
+ ]
+}

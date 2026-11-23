@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2562,
+  "file_count": 2565,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -492,6 +492,10 @@
       "sha256": "3cd903fc0a400975b8583c8e25408150eb50f3c57f77b4192c6f8e3876949dcb"
     },
     {
+      "path": "lines/nalu/runtime/configs/FOLEY_LIBRARY_CC0_V1.json",
+      "sha256": "3eb308cfe5a71655b2a124bc57f8c2ba12bdb2fb3690b117588063c68abef93f"
+    },
+    {
       "path": "lines/nalu/runtime/configs/GATE_REGISTRY_STILL_SCOPED_D13.json",
       "sha256": "b94a0505c291e3dae49ad0ff44b7ba1ae96d1d2f1ae24b3277a804213f222e84"
     },
@@ -717,7 +721,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/final_cut_audio_bed.py",
-      "sha256": "b7f4109331066fa84d430d42a90904be5d3317aef3ca74873ac9082afd6f8d30"
+      "sha256": "19b1c17322a50cdff146ac4c120a0a15354d87172b36df1921da4f51fe8ba9f7"
     },
     {
       "path": "lines/nalu/runtime/tools/final_cut_shot_plan_parity.py",
@@ -738,6 +742,10 @@
     {
       "path": "lines/nalu/runtime/tools/final_qa_evidence_bundle.py",
       "sha256": "b8de82573dd5fe301fc3e075f25cc2628a4932cf2d8b386dbfda8b1ddee49542"
+    },
+    {
+      "path": "lines/nalu/runtime/tools/foley_sfx_layer.py",
+      "sha256": "6b2e5e81062f50ab0e1f77f55d6299c63245fb4fee2de3af7ad8781bd24ddad6"
     },
     {
       "path": "lines/nalu/runtime/tools/gemini_review_passes.py",
@@ -8090,6 +8098,10 @@
     {
       "path": "tools/tests/test_fleet_sync_language.py",
       "sha256": "886d87e9c7820d0fa07fb4df2e19dfa0796421c4dc2658d5329c7a82fda8706d"
+    },
+    {
+      "path": "tools/tests/test_foley_sfx_layer.py",
+      "sha256": "ad3049937ab2290200912136442ecd99e82b394725c5b110ba989a934a81b023"
     },
     {
       "path": "tools/tests/test_frame_cadence_audit.py",
