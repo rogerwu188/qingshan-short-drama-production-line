@@ -108,10 +108,53 @@ def _visible_len(row: str) -> int:
     return len(row.replace(" ", ""))
 
 
-def wrap(text: str, width: int = 15) -> str:
+#: Japanese phrase (bunsetsu) boundaries (deep review 1485 E09, 2026-11-23: 「一人で結末を変えら／れると思い上がった。」
+#: split the verb 変えられる across the rows; 「…オルソー家／の生路に…」 hung the particle の on row 2).  A native
+#: subtitle breaks AFTER a particle or punctuation, before the next content word -- never inside a kanji / katakana
+#: compound, never between a kanji stem and its okurigana / particle.
+JA_PARTICLES = set("はがをにでとへもやの")
+JA_PARTICLE_PAIRS = ("から", "まで", "より", "けど", "ので", "のに", "だけ", "しか", "って", "ても", "でも", "には",
+                     "では", "とは", "へは", "にも", "とも", "ながら")
+_HIRAGANA = re.compile(r"[\u3041-\u309f]")
+_KATAKANA = re.compile(r"[\u30a0-\u30ff]")
+_KANJI = re.compile(r"[\u3400-\u9fff\u3005]")
+
+
+def _ja_kind(ch: str) -> str:
+    return ("H" if _HIRAGANA.match(ch) else "K" if _KATAKANA.match(ch) else "J" if _KANJI.match(ch)
+            else "P" if ch in CLAUSE_PUNCT or ch in NO_LINE_START or ch in NO_LINE_END else "O")
+
+
+def ja_break_cost(text: str, i: int) -> float:
+    """Extra cost of a Japanese row / cue break before ``text[i]``: negative after a particle that is followed by a
+    new content word (kanji / katakana / quote), positive inside a word (kanji-kanji, katakana-katakana) or between a
+    stem and its okurigana / particle (kanji or katakana -> hiragana) or inside a hiragana run."""
+    if not 0 < i < len(text):
+        return 0.0
+    a, b = text[i - 1], text[i]
+    ka, kb = _ja_kind(a), _ja_kind(b)
+    if ka == "P" or kb == "P":
+        return 0.0                                   # punctuation: the clause bonus / kinsoku rules decide
+    after_particle = a in JA_PARTICLES or text[max(0, i - 2):i] in JA_PARTICLE_PAIRS or \
+        text[max(0, i - 3):i] in JA_PARTICLE_PAIRS
+    if after_particle and kb in ("J", "K", "O"):
+        return -2.5                                  # 一人で｜結末を｜変えられると｜思い上がった
+    if after_particle and kb == "H":
+        return 0.5                                   # e.g. は｜いつも: plausible, not preferred
+    if ka in ("J", "K") and kb == "H":
+        return 4.0                                   # 変え｜られる / 家｜の: stem and its okurigana / particle
+    if ka == kb and ka in ("J", "K"):
+        return 3.0                                   # inside a compound: 結｜末, オル｜ソー
+    if ka == "H" and kb == "H":
+        return 2.0                                   # inside an inflection: 変えら｜れる
+    return 0.0
+
+
+def wrap(text: str, width: int = 15, language: str = "zh") -> str:
     """zh / ja character wrap: the fewest rows of at most ``width`` characters (a closing punctuation mark may
     hang one past it), rows as even as possible, a break after clause punctuation preferred, never breaking
-    against the kinsoku rules, never a one-character row."""
+    against the kinsoku rules, never a one-character row.  ``language`` ja also prefers phrase boundaries
+    (:func:`ja_break_cost`)."""
     text = text.strip()
     if len(text) <= width:
         return text
@@ -124,6 +167,8 @@ def wrap(text: str, width: int = 15) -> str:
         if len(head) > limit or not _break_ok(text, i):
             continue
         cost = abs(i - target) - (3.5 if head[-1] in CLAUSE_PUNCT else 0.0)
+        if language == "ja":
+            cost += ja_break_cost(text, i)
         # the rest must still fit the remaining rows
         if len(text) - i > width * (rows - 1) + 1:
             cost += 50
@@ -133,7 +178,12 @@ def wrap(text: str, width: int = 15) -> str:
         best = min(width, len(text) - 2) if len(text) > 3 else len(text)
         if best >= len(text):
             return text
-    return text[:best] + "\\N" + wrap(text[best:], width)
+    return text[:best] + "\\N" + wrap(text[best:], width, language)
+
+
+def wrap_ja(text: str, width: int = 15) -> str:
+    """Japanese: the zh character wrap at phrase boundaries (:func:`ja_break_cost`)."""
+    return wrap(text, width, "ja")
 
 def wrap_en(text: str, width: int = EN_WRAP_CHARS) -> str:
     """Word-boundary wrap, at most 2 lines: a line over ``width`` is split at the word
@@ -200,6 +250,8 @@ def split_cues(text: str, fits, language: str = "zh") -> list[str]:
         # bracket and is never one character -- heavily priced, not forbidden, so a split always exists
         if (i > 0 and chunk[:1] in NO_LINE_START) or (j < T and chunk[-1:] in NO_LINE_END) or _visible_len(chunk) <= 1:
             c += 100.0
+        if language == "ja" and j < T:
+            c += 0.25 * ja_break_cost(text, j)     # a cue boundary is a phrase boundary too (tokens = characters)
         return c if j == T or tokens[j - 1][-1:] in CUE_BREAK_PUNCT else c + 0.5
 
     # best[k][j]: cheapest split of tokens[:j] into k cues
@@ -598,7 +650,7 @@ def main() -> int:
     korean = a.language == "ko"
     style, font_size = (("EN", EN_FONT_SIZE) if english else ("KO", 40) if korean
                         else ("JA", 42) if a.language == "ja" else ("ZH", 42))
-    wrap_text = wrap_en if english else wrap_ko if korean else wrap
+    wrap_text = wrap_en if english else wrap_ko if korean else wrap_ja if a.language == "ja" else wrap
     font_file, font_source = (_media.resolve_latin_font() if english
                               else _media.resolve_language_font(a.language) if a.language in ("ja", "ko")
                               else _media.resolve_cjk_font())

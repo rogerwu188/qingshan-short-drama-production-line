@@ -60,3 +60,38 @@ class KinsokuWrapTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JapanesePhraseWrapTests(unittest.TestCase):
+    """Deep review 1485 E09 (2026-11-23): the zh character wrap split 変えられる and hung の on row 2."""
+
+    def test_e09_lines_break_at_phrase_boundaries(self):
+        self.assertEqual(bbs.wrap_ja("一人で結末を変えられると思い上がった。"), "一人で結末を変えられると\\N思い上がった。")
+        self.assertEqual(bbs.wrap_ja("褒美を、オルソー家の生路に変えますわ。"), "褒美を、オルソー家の\\N生路に変えますわ。")
+
+    def test_kinsoku_and_width_still_hold(self):
+        for text in LINES + ["一人で結末を変えられると思い上がった。", "放逐の日は、三日後に決まりました。"]:
+            out = bbs.wrap_ja(text).split("\\N")
+            self.assertEqual("".join(out), text)
+            for i, row in enumerate(out):
+                self.assertGreater(len(row), 1, out)
+                self.assertLessEqual(len(row), 16, out)
+                if i:
+                    self.assertNotIn(row[0], bbs.NO_LINE_START, out)
+
+    def test_break_costs(self):
+        text = "一人で結末を変えられると"
+        self.assertLess(bbs.ja_break_cost(text, 3), 0)       # で｜結
+        self.assertGreater(bbs.ja_break_cost(text, 4), 0)    # 結｜末
+        self.assertGreater(bbs.ja_break_cost(text, 8), 0)    # 変え｜ら... hiragana run
+        self.assertGreater(bbs.ja_break_cost("家の", 1), 0)  # kanji stem | particle
+
+    def test_zh_wrap_unchanged(self):
+        self.assertEqual(bbs.wrap("我和我姐姐差点被你的同伴对付了！"), bbs.wrap("我和我姐姐差点被你的同伴对付了！", 15, "zh"))
+
+    def test_ja_cue_split_prefers_phrase_boundary(self):
+        text = "一人で結末を変えられると思い上がった。それでも私は、あなたを守りたかった。"
+        cues = bbs.split_cues(text, lambda c: len(bbs.wrap_ja(c).split("\\N")) <= 1, "ja")
+        self.assertEqual("".join(cues), text)
+        for c in cues[1:]:
+            self.assertNotIn(c[0], bbs.NO_LINE_START, cues)
