@@ -23,7 +23,8 @@ Rules (owner 2026-11-19 spec; music MAY change or stop at a scene or mood change
    (or starts at its scene's start) within its source, else dropped.  Two cues of the same source closer than
    the flicker gap are one cue.
 5. Under dialogue the music ducks by ``DUCK_DB`` (-10 dB: the owner's -10..-14 dB meets the authenticity gate's
-   -6..-10 dB at -10), never muted.
+   -6..-10 dB at -10), never muted.  Audibility under lines (device 1101 E24) comes from the louder bed pad
+   (final_cut_audio_bed.PAD_LEVEL_DBFS), not a shallower duck.
 
 Pure functions; the S7 BGM plan (nalu_selective_bgm.cmd_plan) applies them before the coverage policy.
 """

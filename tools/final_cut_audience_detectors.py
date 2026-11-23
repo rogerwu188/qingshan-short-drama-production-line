@@ -72,7 +72,11 @@ DEFAULTS: dict[str, Any] = {
     "release_lufs_tolerance": 1.0,
     "release_tp": -1.0,
     "window_lufs_range": (-18.0, -12.0),
-    "adjacent_delta_max_lu": 6.0,
+    # device 1101 E24 (2026-11-23): lines ~6 dB apart passed at 6.0.  The target is 3.0 LU between adjacent line
+    # windows (S7 matches every line to -16 +- 1.5, tools/s7_audio_smoothing); a jump over the target is recorded
+    # (``adjacent_deltas_over_target``), only one over adjacent_delta_block_lu fails (no new stop on the line)
+    "adjacent_delta_max_lu": 3.0,
+    "adjacent_delta_block_lu": 6.0,
     "mascot_score_threshold": 0.85,
     "ocr_every_seconds": 2.5,
     "mascot_every_seconds": 1.0,
@@ -793,9 +797,11 @@ def load_or_run_readback(media: Path, cache: Path | None, *, model: str,
 
 def decide_loudness(integrated_lufs: float | None, true_peak_dbtp: float | None, window_lufs: Sequence[dict[str, Any]], *,
                     release_lufs: float, tolerance: float, release_tp: float, window_range: Sequence[float],
-                    adjacent_delta_max: float) -> dict[str, Any]:
+                    adjacent_delta_max: float, adjacent_delta_block: float | None = None) -> dict[str, Any]:
+    block = adjacent_delta_max if adjacent_delta_block is None else max(adjacent_delta_max, adjacent_delta_block)
     threshold = {"integrated_lufs": [release_lufs - tolerance, release_lufs + tolerance], "true_peak_dbtp_max": release_tp,
-                 "window_lufs_range": list(window_range), "adjacent_delta_max_lu": adjacent_delta_max}
+                 "window_lufs_range": list(window_range), "adjacent_delta_max_lu": adjacent_delta_max,
+                 "adjacent_delta_block_lu": block}
     if integrated_lufs is None and true_peak_dbtp is None:
         return detector("UNVERIFIED", threshold=threshold, reason="no ebur128 measurement")
     failures: list[str] = []
@@ -816,7 +822,7 @@ def decide_loudness(integrated_lufs: float | None, true_peak_dbtp: float | None,
     for prev, nxt in zip(measured_windows, measured_windows[1:]):
         delta = round(abs(float(nxt["lufs_window"]) - float(prev["lufs_window"])), 2)
         deltas.append({"from": prev["start"], "to": nxt["start"], "delta_lu": delta})
-        if delta > adjacent_delta_max:
+        if delta > block:
             failures.append(f"ADJACENT_LINE_DELTA:{float(prev['start']):.1f}->{float(nxt['start']):.1f}:{delta}LU")
     values = [float(w["lufs_window"]) for w in measured_windows]
     measured = {"integrated_lufs": integrated_lufs, "true_peak_dbtp": true_peak_dbtp,
@@ -824,7 +830,8 @@ def decide_loudness(integrated_lufs: float | None, true_peak_dbtp: float | None,
                 "window_lufs_min": min(values) if values else None, "window_lufs_max": max(values) if values else None,
                 "max_adjacent_delta_lu": max((d["delta_lu"] for d in deltas), default=0.0)}
     evidence = {"windows_out_of_range": [{"start": w["start"], "end": w["end"], "lufs_window": w["lufs_window"]} for w in out_of_range][:20],
-                "adjacent_deltas_over": [d for d in deltas if d["delta_lu"] > adjacent_delta_max][:20]}
+                "adjacent_deltas_over": [d for d in deltas if d["delta_lu"] > block][:20],
+                "adjacent_deltas_over_target": [d for d in deltas if d["delta_lu"] > adjacent_delta_max][:20]}
     if not measured_windows:
         evidence["note"] = "no per-line LUFS windows measured; only programme loudness judged"
     if failures:
@@ -904,7 +911,8 @@ def evaluate_from_measurements(m: dict[str, Any], options: dict[str, Any] | None
         "loudness": decide_loudness(m.get("integrated_lufs"), m.get("true_peak_dbtp"), segments,
                                     release_lufs=opts["release_lufs"], tolerance=opts["release_lufs_tolerance"],
                                     release_tp=opts["release_tp"], window_range=opts["window_lufs_range"],
-                                    adjacent_delta_max=opts["adjacent_delta_max_lu"]),
+                                    adjacent_delta_max=opts["adjacent_delta_max_lu"],
+                                    adjacent_delta_block=opts.get("adjacent_delta_block_lu")),
     }
     for name in HUMAN_REVIEW_DETECTORS:
         detectors[name] = detector("NOT_IMPLEMENTED", reason="human review question")

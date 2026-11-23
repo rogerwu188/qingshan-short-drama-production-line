@@ -12660,6 +12660,8 @@ def s7_dialogue_tail_trim(ctx: Ctx, res: StageResult, contract: dict[str, Any]
                       report, head, vo_seconds)
     # craft standard v1 (owner 2026-11-17, option A): silent units cut to their v1 length around the motion peak
     peak = s7_peak_window_trim(ctx, perf, contract, grouping)
+    # device 1101 E24 (2026-11-23): fragments of H3's own internal cuts (0.25 s / 0.37 s flashes) are trimmed away
+    internal = s7_internal_cut_trim(ctx, res, perf, asr)
     perf_path = p.assembly / f"{ctx.episode}_PERFORMANCE_CUT.json"
     write_json(perf_path, perf)
     report, head = _perf.merge(report, head, perf)
@@ -12673,7 +12675,9 @@ def s7_dialogue_tail_trim(ctx: Ctx, res: StageResult, contract: dict[str, Any]
                   for r in perf["units"] if r.get("reasons")],
         "warnings": perf["warnings"],
         "peak_trim": {k: peak.get(k) for k in ("status", "candidates", "peak_units", "head_units", "scale",
-                                               "removed_seconds", "before_total_seconds", "after_total_seconds")}}
+                                               "removed_seconds", "before_total_seconds", "after_total_seconds")},
+        "internal_cut_trim": {k: internal.get(k) for k in ("status", "report", "trimmed_units", "left_fragments",
+                                                            "removed_seconds")}}
     if perf["warnings"]:
         res.details.setdefault("warnings", []).extend(perf["warnings"])
     res.details["dialogue_tail_trim"] = {"report": str(report_path), "trimmed_units": report["trimmed_units"],
@@ -12687,6 +12691,39 @@ def s7_dialogue_tail_trim(ctx: Ctx, res: StageResult, contract: dict[str, Any]
     # (owner 2026-11-19): segments starting after the line end stay out of the caption / V.O. timing
     trimmed = _head.strip_words(_trim.trim_unit_asr(_perf.cut_unit_asr(asr, cut, perf), report))
     return trimmed, (report_path if report["trimmed_units"] else None)
+
+
+def s7_internal_cut_trim(ctx: Ctx, res: StageResult, perf: dict[str, Any], asr: dict[str, Any]) -> dict[str, Any]:
+    """Trim fragments of H3's own internal cuts (tools/h3_internal_cut_trim.py; device 1101 E24 2026-11-23): every
+    unit clip is scanned with ffmpeg scdet, the performance-cut row keeps the segment with its scripted line (silent:
+    its motion peak, else the longest) plus neighbouring designed shots, fragments under the minimum shot at the head
+    or tail are cut away.  Units carrying V.O. narration keep their window (the V.O. hold).  Report
+    <EP>_H3_INTERNAL_CUT_TRIM.json; NALU_S7_INTERNAL_CUT_TRIM=off disables it.  Free; never raises."""
+    import h3_internal_cut_trim as _ict
+    report_path = ctx.p.assembly / f"{ctx.episode}_H3_INTERNAL_CUT_TRIM.json"
+    if str(os.environ.get("NALU_S7_INTERNAL_CUT_TRIM") or "").strip().lower() in ("0", "off", "false"):
+        return {"status": "DISABLED"}
+    try:
+        ffmpeg = _media.require_ffmpeg()
+        clips = {mp4.stem: mp4 for mp4 in sorted(ctx.p.video_media.glob(f"{ctx.episode}-VU-*.mp4"))}
+        cuts, errors = _ict.measure_all(clips, lambda clip: _ict.scene_cuts(clip, ffmpeg=ffmpeg))
+        skip = {str(r.get("unit_id")) for r in perf.get("units") or [] if r.get("vo_seconds")}
+        report = _ict.apply(perf, cuts, asr, skip_units=skip)
+        report.update(episode=ctx.episode, scan_errors=errors, skipped_vo_units=sorted(skip), status="PASS")
+        if report["trimmed_units"]:
+            perf["changed_units"] = sum(1 for r in perf.get("units") or [] if r.get("changed"))
+            perf["after_total_seconds"] = round(sum(float(r["after_out"] or 0) - float(r["after_in"] or 0)
+                                                    for r in perf.get("units") or []), 3)
+            perf["removed_seconds"] = round(float(perf.get("before_total_seconds") or 0)
+                                            - perf["after_total_seconds"], 3)
+        write_json(report_path, report)
+        res.receipts.append(str(report_path))
+        return {"status": "PASS", "report": str(report_path), "trimmed_units": report["trimmed_units"],
+                "left_fragments": report["left_fragments"], "removed_seconds": report["removed_seconds"]}
+    except Exception as exc:  # noqa: BLE001 -- an edit polish, never a blocker
+        write_json(report_path, {"schema": _ict.SCHEMA, "episode": ctx.episode,
+                                 "status": f"SKIPPED_ERROR:{type(exc).__name__}:{exc}"})
+        return {"status": f"SKIPPED_ERROR:{type(exc).__name__}", "report": str(report_path)}
 
 
 def s7_measured_edit_yield_to_performance_cut(ctx: Ctx, res: StageResult, constraints_file: Path | None) -> list[str]:
@@ -12879,30 +12916,36 @@ def s7_leading_burst_mute(ctx: Ctx, res: StageResult, picture: Path,
 
 
 def s7_silent_unit_stray_speech_mute(ctx: Ctx, res: StageResult, picture: Path) -> Path:
-    """Mute the murmur H3 adds to some silent units (fleet 2026-11-13: dialogue:unexpected_native_*_speech_present
-    on 10 devices), on the rendered native cut, BEFORE the L-cut mix so a bridged speaker line is never touched.
+    """Stray voices in silent units muted (fleet 2026-11-13; device 1101 E24 2026-11-23: voices in
+    five silent shots shipped because S6 whisper had dropped them), on the rendered native cut, BEFORE the L-cut and
+    V.O. mixes so a bridged speaker line or narration is never touched.
 
-    The windows are the S6 real-speech segments of units with no scripted line (tools/silent_unit_stray_speech.py),
-    used only when the QA record measured the clip on disk now.  Ambience outside the windows is kept; 30 ms ramps;
-    video stream copied, duration unchanged.  Every episode (not only CAMERA_GRAMMAR_V1): it is free and only acts
-    where S6 measured stray speech.  Report <EP>_SILENT_UNIT_STRAY_SPEECH.json; any failure only skips the mute
-    (recorded), never blocks S7."""
+    Every audio clip of the AgentCut project whose unit carries no on-screen scripted line (s7_speaking_units) is
+    measured where it is placed (source, in-point, duration) with a VAD (tools/silent_unit_stray_speech.py) and each
+    VAD speech window is muted; the rest keeps its full band (foley).  NALU_S7_SILENT_UNIT_AUDIO=ambience also plays
+    the whole unit with the speech band removed; =off restores the untouched native cut.  30 ms ramps; video stream
+    copied, duration unchanged.  Every episode.  Report <EP>_SILENT_UNIT_STRAY_SPEECH.json; any failure only skips the step (recorded),
+    never blocks S7."""
     import silent_unit_stray_speech as _stray
     p = ctx.p
     report_path = p.assembly / f"{ctx.episode}_SILENT_UNIT_STRAY_SPEECH.json"
     try:
-        clips = {mp4.stem: mp4 for mp4 in sorted(p.video_media.glob(f"{ctx.episode}-VU-*.mp4"))}
-        records = {uid: read_json(p.postgen_dir / uid / f"{uid}_POST_GENERATION_QA.json", None) for uid in clips}
-        report = _stray.plan(clips, {k: v for k, v in records.items() if isinstance(v, dict)}, sha256_file)
-        windows = _stray.timeline_windows(report, read_json(p.agentcut_project, {}) or {})
-        report.update({"episode": ctx.episode, "source_picture": str(picture), "timeline_windows": windows})
-        if not windows:
+        ffmpeg = _media.require_ffmpeg()
+        speaking = s7_speaking_units(ctx) if (p.contract.is_file() or (
+            p.assembly / f"{ctx.episode}_PERFORMANCE_CUT.json").is_file()) else None
+        report = _stray.plan(read_json(p.agentcut_project, {}) or {},
+                             lambda src, a, d: _stray.measure_placed(src, a, d, ffmpeg=ffmpeg),
+                             speaking_units=speaking)
+        report.update({"episode": ctx.episode, "source_picture": str(picture)})
+        if not report["ambience_windows"] and not report["mute_windows"]:
             write_json(report_path, report)
-            res.details["silent_unit_stray_speech"] = {"report": str(report_path), "muted_units": 0}
+            res.details["silent_unit_stray_speech"] = {"report": str(report_path), "muted_units": 0,
+                                                       "ambience_units": 0}
             return picture
         out = p.assembly / f"{ctx.episode}_picture_native_straymute.mp4"
-        argv = [_media.require_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-i", str(picture),
-                "-map", "0:v:0", "-map", "0:a:0", "-c:v", "copy", "-af", _stray.mix_filter(windows),
+        argv = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(picture),
+                "-filter_complex", _stray.ambience_filter_complex(report["mute_windows"], report["ambience_windows"]),
+                "-map", "0:v:0", "-map", "[aout]", "-c:v", "copy",
                 "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", str(out)]
         run = subprocess.run(argv, capture_output=True, text=True, check=False)
         res.steps.append({"name": "s7_silent_unit_stray_speech_mute", "exit_code": run.returncode, "argv": argv,
@@ -12923,7 +12966,8 @@ def s7_silent_unit_stray_speech_mute(ctx: Ctx, res: StageResult, picture: Path) 
         return picture
     res.receipts.append(str(report_path))
     res.details["silent_unit_stray_speech"] = {"report": str(report_path), "muted_units": report["muted_units"],
-                                               "picture": str(out)}
+                                               "flagged_units": report["flagged_units"],
+                                               "ambience_units": report["ambience_units"], "picture": str(out)}
     return out
 
 
@@ -13285,7 +13329,7 @@ def _stage_s7_pass(ctx: Ctx) -> StageResult:
     # 5a. L-cuts (CAMERA_GRAMMAR_V1, authored sound bridges): the speaker's line plays on over the
     # reaction picture; no applied bridge -> the native picture continues unchanged.
     # 5a0. leading vocal burst (CAMERA_GRAMMAR_V1): muted on the native cut before the L-cut mix.
-    # 5a00. stray H3 murmur in silent units (every episode; S6 real-speech windows): muted before the L-cut mix.
+    # 5a00. silent units: VAD-measured stray voices muted (every episode) before the L-cut mix.
     native_source, bridge_blockers = s7_sound_bridge_mix(
         ctx, res, s7_silent_unit_stray_speech_mute(
             ctx, res, s7_leading_burst_mute(ctx, res, p.picture_native, trimmed_asr)))

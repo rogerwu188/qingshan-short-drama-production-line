@@ -731,6 +731,31 @@ def _speech_codes(language: str = "zh") -> dict[str, str]:
             "unexpected": "unexpected_native_mandarin_speech_present"}
 
 
+LOW_CONFIDENCE_NO_SPEECH_MAX = 0.8
+LOW_CONFIDENCE_LOGPROB_MIN = -1.5
+
+
+def _vad_speech_in_silent_unit(media: Path) -> dict[str, Any]:
+    """VAD over the whole clip of a unit with no scripted line (tools/silent_unit_stray_speech.measure_placed): any
+    speech run >= FLAG_SPEECH_SECONDS (0.3 s) is a flagged stray voice.  Recorded for S7 (which mutes it on the clip
+    it places), never a reject; an unmeasurable clip records the error."""
+    try:
+        stray = engine_module("silent_unit_stray_speech")
+        probe = subprocess.run([require_ffprobe(), "-v", "error", "-show_entries", "format=duration", "-of",
+                                "csv=p=0", str(media)], capture_output=True, text=True, check=False)
+        duration = float(probe.stdout.strip() or 0.0)
+        measured = stray.measure_placed(media, 0.0, duration, ffmpeg=require_ffmpeg())
+        windows = measured["windows"]
+        flagged = [w for w in windows if w[1] - w[0] >= stray.FLAG_SPEECH_SECONDS - 1e-9]
+        return {"type": "VAD_SPEECH_IN_SILENT_UNIT", "method": measured["method"], "windows": windows,
+                "flagged_windows": flagged, "speech_seconds": round(sum(b - a for a, b in windows), 3),
+                "flag_speech_seconds": stray.FLAG_SPEECH_SECONDS, "flagged": bool(flagged),
+                "rule": "a VAD speech run >= flag_speech_seconds in a unit with no scripted line is a stray voice; "
+                        "recorded, muted at S7 on the placed clip, never a reject"}
+    except Exception as exc:  # noqa: BLE001 -- a measurement, never a blocker
+        return {"type": "VAD_SPEECH_IN_SILENT_UNIT", "error": f"{type(exc).__name__}: {exc}", "flagged": False}
+
+
 def _verify_no_speech(media: Path, language: str = "zh") -> dict[str, Any]:
     """Second faster-whisper pass exposing per-segment no_speech_prob / avg_logprob."""
     try:
@@ -752,9 +777,16 @@ def _verify_no_speech(media: Path, language: str = "zh") -> dict[str, Any]:
                 and r["no_speech_prob"] < 0.5 and r["avg_logprob"] > -1.0
                 and (any("一" <= ch <= "鿿" for ch in r["text"]) if language == "zh"
                      else _has_speech_text(r["text"], language))]
+        # device 1101 E24 (2026-11-23): murmured names in silent shots decoded at low confidence and were dropped as
+        # "not dialogue".  The lowered bar only RECORDS them (S7 mutes them, free); it never adds a reject.
+        low = [r for r in rows if r not in real and not r["known_hallucination_pattern"]
+               and r["no_speech_prob"] < LOW_CONFIDENCE_NO_SPEECH_MAX and r["avg_logprob"] > LOW_CONFIDENCE_LOGPROB_MIN
+               and _has_speech_text(r["text"], language)]
         return {"type": "ASR_NO_SPEECH_VERIFICATION", "segments": rows, "real_speech_segments": real,
+                "low_confidence_speech_segments": low,
                 "rule": "known whisper boilerplate on non-speech audio, or no_speech_prob>=0.5, or "
-                        "avg_logprob<=-1.0 is not Mandarin dialogue"}
+                        "avg_logprob<=-1.0 is not Mandarin dialogue; no_speech_prob<0.8 and avg_logprob>-1.5 is "
+                        "recorded as low-confidence speech (muted at S7, never a reject)"}
     except Exception as exc:  # noqa: BLE001
         return {"type": "ASR_NO_SPEECH_VERIFICATION", "error": f"{type(exc).__name__}: {exc}",
                 "real_speech_segments": None}
@@ -955,6 +987,16 @@ def dialogue_check(unit_id: str, media: Path, expected_dialogue: list[dict[str, 
             if stray["mutable"]:
                 failures = [v for v in failures if v != codes["unexpected"]]
                 advisories.append(f"dialogue:{codes['unexpected']}:MUTED_AT_S7:{stray['speech_seconds']:g}s")
+    # device 1101 E24 (2026-11-23): the gate's own whisper+VAD pass dropped murmured voices in silent shots; every
+    # unit with no scripted line gets a VAD pass of its own -- any speech run >= 0.3 s is flagged (advisory; S7 mutes)
+    if not expected_dialogue:
+        vad = _vad_speech_in_silent_unit(media)
+        machine_adjudications.append(vad)
+        low = [r for row in machine_adjudications if row.get("type") == "ASR_NO_SPEECH_VERIFICATION"
+               for r in row.get("low_confidence_speech_segments") or []]
+        if vad.get("flagged") or low:
+            seconds = vad.get("speech_seconds") or round(sum(float(r["end"]) - float(r["start"]) for r in low), 3)
+            advisories.append(f"dialogue:vad_speech_in_silent_unit:MUTED_AT_S7:{float(seconds):g}s")
     # nalu D-18d (E04 VU-012): the engine gate primes whisper with initial_prompt=<expected text>;
     # on some clips that primed decode degenerates to a single replacement char ("\ufffd") and the
     # gate reports native_mandarin_speech_missing although the line is spoken.  Re-verify with an

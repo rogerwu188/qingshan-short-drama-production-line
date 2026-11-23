@@ -40,7 +40,7 @@ class RecallGuardTests(unittest.TestCase):
     def test_complete_recall_still_trims(self):
         got = self.run_build(1.0)
         self.assertEqual(len(got["units"]), 1)
-        self.assertAlmostEqual(got["units"][0]["recommended_source_out_seconds"], 4.82, places=2)
+        self.assertAlmostEqual(got["units"][0]["recommended_source_out_seconds"], 5.1, places=2)  # + 0.4 s tail
 
 
 if __name__ == "__main__":

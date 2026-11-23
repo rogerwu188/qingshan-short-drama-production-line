@@ -99,10 +99,13 @@ FLOOR_DBFS = -44.5   # broadband pink floor under every class (see shaped_noise)
 PAD_LOOP_XFADE_S = 4.0
 PAD_EDGE_FADE_S = 1.5
 PAD_LOWPASS_HZ = 500.0
-PAD_LEVEL_DBFS = -36.0
+#: device 1101 E24 (2026-11-23): the music was only audible in the gaps between lines (pad -36 dBFS, ducked up to
+#: 14 dB under every line).  The pad sits at -30 dBFS and ducks at most 10 dB (the owner's 2026-11-19 -10..-14 dB
+#: range): audible under dialogue, still under it.
+PAD_LEVEL_DBFS = -30.0
 DUCK_THRESHOLD_DBFS = -30.0
 DUCK_RATIO = 20.0
-DUCK_MAX_DB = 14.0
+DUCK_MAX_DB = 10.0
 DUCK_ATTACK_S = 0.150
 DUCK_RELEASE_S = 0.600
 
@@ -550,7 +553,8 @@ def measure_release(media: Path, cuts: list[float], windows: list[dict[str, Any]
     loud = decide_loudness(program["integrated_lufs"], program["true_peak_dbtp"], rows,
                            release_lufs=DETECTOR_DEFAULTS["release_lufs"], tolerance=DETECTOR_DEFAULTS["release_lufs_tolerance"],
                            release_tp=DETECTOR_DEFAULTS["release_tp"], window_range=DETECTOR_DEFAULTS["window_lufs_range"],
-                           adjacent_delta_max=DETECTOR_DEFAULTS["adjacent_delta_max_lu"])
+                           adjacent_delta_max=DETECTOR_DEFAULTS["adjacent_delta_max_lu"],
+                           adjacent_delta_block=DETECTOR_DEFAULTS.get("adjacent_delta_block_lu"))
     cut_stats = cut_silence_stats(mono, cuts)
     return {"sha256": sha256_file(media), "duration_s": round(len(mono) / SR, 3), "program_loudness": program,
             "silence": silence_stats(mono), "cuts": {k: v for k, v in cut_stats.items() if k != "rows"},
@@ -622,6 +626,18 @@ def main(argv: list[str] | None = None) -> int:
     else:
         duck_applied = None
 
+    # FOLEY / SFX HOOK -- design only, not implemented (device 1101 E24 2026-11-23: no action sound at all -- blade,
+    # footsteps, silver, crowd; contract sfx: []; owner decision pending).  A foley layer would plug in exactly here,
+    # as a fourth stem summed with native + bed + pad BEFORE the static programme gain, so it is levelled, measured
+    # (measure_release before/after) and muxed like the others:
+    #   inputs   contract shot sfx cues (S1 would author ``sfx: [{shot_id, kind, at_seconds}]``) mapped onto the release
+    #            timeline through ``segments`` (unit output_start + source offset - clip in-point), optionally the
+    #            visual action windows S7 already measures (``--action-windows`` of the audience detectors)
+    #   source   a local licensed one-shot library (free) keyed by ``kind``; no paid generation per episode
+    #   level    peak-normalised one-shots at about -24 dBFS, ducked with the same duck_gain_db(env_db) as the pad so a
+    #            hit never masks a line; mono, centred; 5 ms fades
+    #   report   a ``foley`` block next to ``pad`` (cues placed / skipped, library file + sha per hit)
+    #   stem     ``--stems-dir`` writes foley.wav beside bed.wav / pad_ducked.wav
     mix = (native.astype(np.float32) + bed + pad).astype(np.float32)
 
     with tempfile.TemporaryDirectory(prefix="audio_bed_") as tmp:

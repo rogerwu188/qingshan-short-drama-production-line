@@ -9,7 +9,9 @@ episode keeps the previous S7 path byte-for-byte):
    swung -25..-46 dB second to second.  ``smooth_duck_expr``: dialogue windows closer than ``DUCK_MERGE_GAP_S``
    merge into one duck, raised-cosine ramps (``DUCK_ATTACK_S`` down, ``DUCK_RELEASE_S`` up) and a lighter duck
    (``STAMPED_DUCK_DB``, -10 dB: the deep edge of the bgm_authenticity_gate -6..-10 dB contract).
-2. Per-unit native loudness jumped at cuts (every H3 clip carries its own room tone / dialogue level).
+2. Per-unit native loudness jumped at cuts (every H3 clip carries its own room tone / dialogue level); one gain
+   per unit still left whole lines ~6 dB hot (device 1101 E24), so dialogue units are matched LINE by line
+   (``LINE_TARGET_LUFS`` -16 +- ``LINE_TOLERANCE_LU``, clamp +-``MAX_LINE_GAIN_DB``).
    ``build_levelling_report``: before the AgentCut build each unit's integrated loudness is measured (dialogue
    units on their ASR speech windows, other units over the whole cut window) and a static gain toward the
    release role target (native_audio_loudness_contract.ROLE_TARGETS_LUFS) is applied, clamped to
@@ -51,7 +53,17 @@ DUCK_RELEASE_S = 1.2
 STAMPED_DUCK_DB = -10.0
 
 # --- 2. per-unit levelling -----------------------------------------------------------------------------------
-MAX_UNIT_GAIN_DB = 6.0
+#: device 1101 E24 (2026-11-23): Lingyao / Meng lines ~6 dB over their neighbours (unit medians -9.8 / -9.6 / -10.9
+#: LUFS vs -15.5) after a +-6 dB unit clamp; the clamp is +-9 dB and dialogue is matched LINE by line
+MAX_UNIT_GAIN_DB = 9.0
+#: per-line match: every spoken line (an ASR row of a dialogue unit) to LINE_TARGET_LUFS; a line already within
+#: LINE_TOLERANCE_LU keeps its level; gains clamped to +-MAX_LINE_GAIN_DB; LINE_RAMP_S ramps between lines
+LINE_TARGET_LUFS = -16.0
+LINE_TOLERANCE_LU = 1.5
+MAX_LINE_GAIN_DB = 9.0
+MIN_LINE_SECONDS = 0.4
+LINE_RAMP_S = 0.08
+LINE_QUIET_FLOOR_LUFS = -45.0
 UNIT_TRUE_PEAK_CEILING_DBTP = -1.5
 MIN_SPEECH_SECONDS = 0.5
 UNCHANGED_BELOW_DB = 0.25
@@ -131,6 +143,54 @@ def speech_windows(rows: list[dict[str, Any]] | None, cut: tuple[float, float]) 
     return out
 
 
+def line_spans(spans: list[tuple[float, float]], min_seconds: float = MIN_LINE_SECONDS) -> list[tuple[float, float]]:
+    """Speech spans -> measurable lines: a span shorter than ``min_seconds`` joins its nearest neighbour."""
+    lines = [list(s) for s in sorted(spans)]
+    changed = True
+    while changed and len(lines) > 1:
+        changed = False
+        for i, (a, b) in enumerate(lines):
+            if b - a >= min_seconds:
+                continue
+            j = i - 1 if i == len(lines) - 1 or (i > 0 and a - lines[i - 1][1] <= lines[i + 1][0] - b) else i + 1
+            lo, hi = min(i, j), max(i, j)
+            lines[lo] = [min(lines[lo][0], lines[hi][0]), max(lines[lo][1], lines[hi][1])]
+            del lines[hi]
+            changed = True
+            break
+    return [(round(a, 3), round(b, 3)) for a, b in lines]
+
+
+def plan_line_gain(measured_lufs: float, target_lufs: float = LINE_TARGET_LUFS,
+                   tolerance_lu: float = LINE_TOLERANCE_LU, max_gain_db: float = MAX_LINE_GAIN_DB) -> dict[str, Any]:
+    """One line's gain: 0 inside target +- tolerance, else to the target, clamped."""
+    desired = float(target_lufs) - float(measured_lufs)
+    # a "line" this quiet is no speech (ASR phantom / gated out): never pump the room tone up
+    wanted = 0.0 if abs(desired) <= tolerance_lu or float(measured_lufs) < LINE_QUIET_FLOOR_LUFS else desired
+    gain = max(-max_gain_db, min(max_gain_db, wanted))
+    return {"measured_lufs": round(float(measured_lufs), 3), "desired_gain_db": round(desired, 3),
+            "gain_db": round(gain, 3), "clamped": abs(gain - wanted) > 1e-6,
+            "predicted_lufs": round(float(measured_lufs) + gain, 3)}
+
+
+def line_gain_expression(lines: list[dict[str, Any]], ramp: float = LINE_RAMP_S) -> str:
+    """ffmpeg volume expression (t = source seconds of the unit clip): each line's gain from the midpoint after the
+    previous line to the midpoint before the next one, linear ``ramp`` between; the first / last line's gain holds
+    before / after.  Gains in dB, applied as amplitude."""
+    rows = sorted(lines, key=lambda r: r["span"][0])
+    if not rows:
+        return "1"
+    terms = [f"{float(rows[0]['gain_db']):.3f}"]
+    for prev, nxt in zip(rows, rows[1:]):
+        step = float(nxt["gain_db"]) - float(prev["gain_db"])
+        if abs(step) < 1e-6:
+            continue
+        mid = (float(prev["span"][1]) + float(nxt["span"][0])) / 2.0
+        half = min(ramp, max(1e-3, float(nxt["span"][0]) - float(prev["span"][1]))) / 2.0
+        terms.append(f"({step:.3f})*clip((t-{mid - half:.4f})/{2 * half:.4f},0,1)")
+    return f"pow(10,({'+'.join(terms)})/20)"
+
+
 def plan_gain(measured_lufs: float, target_lufs: float, max_gain_db: float = MAX_UNIT_GAIN_DB) -> dict[str, Any]:
     desired = float(target_lufs) - float(measured_lufs)
     gain = max(-max_gain_db, min(max_gain_db, desired))
@@ -163,13 +223,16 @@ def measure_spans(path: Path, spans: list[tuple[float, float]], *, ffmpeg: str =
             "true_peak_dbtp": -120.0 if tp.lower().endswith("inf") else float(tp)}
 
 
-def render_levelled(source: Path, picture: Path, out: Path, gain_db: float, *, ffmpeg: str = "ffmpeg",
+def render_levelled(source: Path, picture: Path, out: Path, gain_db: float | str, *, ffmpeg: str = "ffmpeg",
                     ceiling_dbtp: float = UNIT_TRUE_PEAK_CEILING_DBTP) -> dict[str, Any]:
     """Remux: ``picture``'s video stream copied bit-exact + ``source``'s whole audio stream with a static gain and a
-    4x-oversampled peak limiter (48 kHz PCM, .mov).  One file carries the unit's picture and sound, as the speaking
+    4x-oversampled peak limiter (48 kHz PCM, .mov).  ``gain_db`` may be a per-line volume expression
+    (:func:`line_gain_expression`, amplitude, evaluated per 256-sample frame).  One file carries the unit's picture and sound, as the speaking
     unit audio contract requires (audio_postproduction_contract SPEAKING_AUDIO_VIDEO_SOURCE_MISMATCH)."""
     limit = 10 ** (ceiling_dbtp / 20.0)
-    chain = (f"aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,volume={gain_db:.3f}dB,"
+    volume = (f"asetnsamples=n=256:p=0,volume='{gain_db}':eval=frame" if isinstance(gain_db, str)
+              else f"volume={float(gain_db):.3f}dB")
+    chain = (f"aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,{volume},"
              f"aresample=192000,alimiter=limit={limit:.6f}:attack=5:release=50:level=false{_alimiter_latency(ffmpeg)},aresample=48000")
     out.parent.mkdir(parents=True, exist_ok=True)
     run = subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(picture), "-i", str(source),
@@ -207,15 +270,31 @@ def build_levelling_report(
             measured = measure_fn(clip, spans)
             target = float(targets[role])
             plan = plan_gain(measured["integrated_loudness_lufs"], target)
+            gain: float | str = plan["gain_db"]
+            lines: list[dict[str, Any]] = []
+            if method == "SPEECH_WINDOWS":
+                # per-line match (device 1101 E24): each line to LINE_TARGET_LUFS, not one gain for the unit
+                for span in line_spans(spans):
+                    lines.append({"span": list(span), **plan_line_gain(
+                        measure_fn(clip, [span])["integrated_loudness_lufs"])})
+                gains = sorted(r["gain_db"] for r in lines)
+                plan = {**plan, "gain_db": gains[len(gains) // 2], "unit_gain_plan_db": plan["gain_db"]}
+                method, gain = "PER_LINE", line_gain_expression(lines)
+                row["line_target_lufs"], row["line_tolerance_lu"] = LINE_TARGET_LUFS, LINE_TOLERANCE_LU
             row.update(method=method, spans=[list(s) for s in spans], input=measured, target_lufs=target, **plan)
-            if abs(plan["gain_db"]) < UNCHANGED_BELOW_DB:
+            if lines:
+                row["lines"] = lines
+            if (all(abs(r["gain_db"]) < UNCHANGED_BELOW_DB for r in lines) if lines
+                    else abs(plan["gain_db"]) < UNCHANGED_BELOW_DB):
                 row["status"] = "UNCHANGED"
             elif render_fn is not None:
                 target_path = out_dir / f"{uid}.mov"
                 target_path.parent.mkdir(parents=True, exist_ok=True)
                 picture = Path((pictures or {}).get(uid) or clip)
-                rendered = render_fn(clip, picture, target_path, plan["gain_db"])
+                rendered = render_fn(clip, picture, target_path, gain)
                 after = measure_fn(target_path, spans)
+                for line in lines:
+                    line["output_lufs"] = measure_fn(target_path, [tuple(line["span"])])["integrated_loudness_lufs"]
                 row.update(status="APPLIED", source_sha256=sha256_file(clip), picture_source=str(picture),
                            picture_sha256=sha256_file(picture), output=str(target_path),
                            output_sha256=sha256_file(target_path), render=rendered, output_measured=after)
@@ -231,6 +310,9 @@ def build_levelling_report(
             "policy": {"id": "CAMERA_GRAMMAR_V1_UNIT_AUDIO_LEVELLING", "role_targets_lufs": dict(targets),
                        "max_gain_db": MAX_UNIT_GAIN_DB, "true_peak_ceiling_dbtp": UNIT_TRUE_PEAK_CEILING_DBTP,
                        "dialogue_measure": "ASR speech windows (>= 0.5 s) else the whole cut window",
+                       "dialogue_lines": {"target_lufs": LINE_TARGET_LUFS, "tolerance_lu": LINE_TOLERANCE_LU,
+                                          "max_gain_db": MAX_LINE_GAIN_DB, "ramp_s": LINE_RAMP_S,
+                                          "min_line_s": MIN_LINE_SECONDS},
                        "scope": "static gain + peak limiter on the unit's own native audio; picture untouched; "
                                 "duration unchanged"},
             "applied_units": sorted(uid for uid, r in units.items() if r.get("status") == "APPLIED"),

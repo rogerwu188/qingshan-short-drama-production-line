@@ -85,7 +85,8 @@ def min_keep_seconds() -> float:
 
 REASONS = ("TRIM_TAIL_UNSCRIPTED", "TRIM_HEAD_UNSCRIPTED", "DROP_REPEAT", "SILENT_SPEECH_WINDOW", "MIN_LENGTH_HOLD",
            "TRIM_HEAD_TO_LINE", "TRIM_TAIL_TO_LINE",  # these two: plain [first word - lead, last word + pad]
-           "PEAK_WINDOW", "HEAD_WINDOW")  # silent units cut to the craft-standard length (apply_peak_windows)
+           "PEAK_WINDOW", "HEAD_WINDOW",  # silent units cut to the craft-standard length (apply_peak_windows)
+           "TRIM_H3_INTERNAL_CUT")  # a fragment of the video model's own internal cut removed (h3_internal_cut_trim)
 
 try:  # traditional -> simplified (faster-whisper often answers zh in traditional characters)
     import opencc as _opencc  # type: ignore

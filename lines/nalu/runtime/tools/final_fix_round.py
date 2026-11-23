@@ -605,7 +605,8 @@ def edit_measure_findings(measure: Any) -> list[dict[str, Any]]:
     ``s7_edit_measure``) as findings of the round: fragments under the minimum shot and speakers on screen who do not
     speak -> EDIT_FRAGMENT, lines ending < 0.15 s before a cut and cuts inside a line -> DIALOGUE_TAIL_GUARD.  Free
     fixes (S7 re-edit); a finding at a cut S7 made itself (``s7_cut``) is a trigger of the round
-    (:func:`triggered`), one inside the video model's own take is recorded with it."""
+    (:func:`triggered`), one inside the video model's own take is recorded with it -- except a fragment of the video
+    model's own internal cut that S7 did not trim (h3_internal_cut_trim, device 1101 E24): P1 and a trigger."""
     if not isinstance(measure, dict):
         return []
     out = []
@@ -625,9 +626,10 @@ def edit_measure_findings(measure: Any) -> list[dict[str, Any]]:
             else:
                 a = b = _num(row.get("at"))
                 detail = f"line {row.get('line_start')}-{row.get('line_end')}"
+            h3_fragment = key == "fragments" and not row.get("s7_cut")
             out.append({"source": EDIT_SOURCE, "item": "QA-EDIT-FRAGMENT" if kind == "EDIT_FRAGMENT"
-                        else "QA-DIALOGUE-TAIL-CUT", "kind_hint": kind, "severity": "P2",
-                        "s7_cut": bool(row.get("s7_cut")),
+                        else "QA-DIALOGUE-TAIL-CUT", "kind_hint": kind, "severity": "P1" if h3_fragment else "P2",
+                        "s7_cut": bool(row.get("s7_cut")), **({"trigger": True} if h3_fragment else {}),
                         "text": f"S7 measured: {what} ({detail})" + ("" if row.get("s7_cut") else
                                                                        " inside the video model's own take"),
                         **({"window": [round(a, 3), round(b if b is not None else a, 3)]} if a is not None else {}),
@@ -878,7 +880,7 @@ def triggered(rejected: bool, mapped: list[dict[str, Any]]) -> bool:
     report merely lists problems is not a trigger."""
     return bool(rejected) or any(f.get("source") in CONFIRMED_SOURCES
                                  or (f.get("source") == EDIT_SOURCE and f.get("s7_cut"))
-                                 or (f.get("source") in (S6_SOURCE, STACKED_SOURCE, PLAN_SOURCE)
+                                 or (f.get("source") in (S6_SOURCE, STACKED_SOURCE, EDIT_SOURCE, PLAN_SOURCE)
                                      and f.get("trigger"))
                                  for f in mapped)
 
