@@ -733,7 +733,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/final_fix_round.py",
-      "sha256": "c24040c63ca38729ad11f24433f0624c9732174a20e79ee695b764b44e3f09c5"
+      "sha256": "6648ada6d647fb404eed6433e9b8a1c9f77104c893a16ddaf652077be9cc9aa8"
     },
     {
       "path": "lines/nalu/runtime/tools/final_qa_evidence_bundle.py",
@@ -813,7 +813,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "1b3156e33a75449a3d9e92fa9200176b321e19d277709917918841a5986dfec8"
+      "sha256": "5ea23669ca7da8fe5a29ec525b38de3123ddd8162c30068117725c7a19ea84e1"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -1037,7 +1037,7 @@
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
-      "sha256": "af94e190f687ff1d2d7f307dd3f58c5c89bb3a08eae62fb2409f1610065f894d"
+      "sha256": "ee942d0c8d60d64ce34039d338a4580c0a54e3a79630fddbf432f36e278dec3a"
     },
     {
       "path": "skills/nalu-claude-code/scripts/apply_runtime_fixups.py",
@@ -1053,7 +1053,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "ced3a3fe9eaeb131b949dfda34cb5811f1f8dec809676dc96fcf97d0ee96d978"
+      "sha256": "26bec818c577e2f23be589acb00a4cbc0d4169f725ca53518cf5085d4272030e"
     },
     {
       "path": "skills/nalu-claude-code/scripts/collective_provision.py",
@@ -8605,7 +8605,7 @@
     },
     {
       "path": "tools/tests/test_nalu_final_review_plan_parity.py",
-      "sha256": "e6b1bb466f2031c2d6c746ebc00d2e69ed1fe8fe7a7e3d6582fd1c2b22add1c9"
+      "sha256": "0a52ba17a568d00dbe0a6829413ecd4a42433a410e0a2e0c97d4e382707c32e0"
     },
     {
       "path": "tools/tests/test_nalu_gemini_multipass.py",

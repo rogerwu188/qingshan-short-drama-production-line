@@ -1147,6 +1147,18 @@ def ensure_poster(ep: str, brief: dict[str, Any]) -> dict[str, Any] | None:
     return result
 
 
+def release_hold(ep: str) -> str:
+    """'RELEASE_HELD:<classes>' when the engine held the episode's X2C release (final_fix_round.json
+    ``release_hold``, owner 2026-11-23: a short runtime or unresolved burned text), else ''.  Never raises."""
+    engine, _ = roots()
+    try:
+        work = Path(os.environ.get("NALU_WORK_ROOT") or (engine / "workflow" / "nalu"))
+        hold = (read_json(work / ep / "assembly" / "final_qa" / "final_fix_round.json") or {}).get("release_hold")
+        return str(hold.get("hold") or "") if isinstance(hold, dict) and hold.get("status") == "RELEASE_HELD" else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def publish_next() -> dict[str, Any] | None:
     """Send the earliest finished-but-unsent episode (one per tick, in episode order).
 
@@ -1165,6 +1177,8 @@ def publish_next() -> dict[str, Any] | None:
         st = (parse_log(Path(s.get("log") or "")).get("nalu_status") or {}).get("state")
         mp4 = runtime / "deliverables" / ep / f"{ep}_final_9x16.mp4"
         if st == "FINAL_CUT_READY" and mp4.is_file() and ep not in sent and not alive(s.get("pid")):
+            if release_hold(ep):  # held (redo candidate): never sent, never retried, the line goes on
+                continue
             ready.append(ep)
     if not ready:
         return None

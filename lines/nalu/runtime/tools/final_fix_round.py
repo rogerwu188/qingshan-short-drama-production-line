@@ -93,9 +93,11 @@ locations, reversed roles, invented people, missing beats, 56 s against a 110 s 
   the plan sentence, ranked with the P0 classes) and a P0 NO is a TRIGGER of the round on its own
   (:func:`plan_parity_findings`); a planned unit missing from the cut is recorded (a redo cannot put it back);
 * the record carries the OBJECTIVE defects left at release -- runtime vs target, unresolved burned text, stray
-  voices in planned-silent units, plan NO units (:func:`objective_defects`) -- and the release policy switch
-  ``release_block_objective_defects`` (:func:`release_policy`; default OFF pending the owner's decision: recorded,
-  never blocks).
+  voices in planned-silent units, plan NO units (:func:`objective_defects`) -- and the release policy
+  (:func:`release_policy`; owner 2026-11-23, option iii: ``release_block_objective_defects`` ON, scoped to
+  RELEASE_BLOCK_CLASSES = runtime < 0.85 x target and unresolved burned text that is not ACCEPT_CORRECT).  A hold
+  never stalls the line: RELEASE_HELD:<classes> is recorded, the X2C publisher skips the episode, it is queued as a
+  redo candidate and production moves on to the next episode.
 
 Pure functions (no I/O except :func:`write_record`); nalu_pipeline wires them into S7 / S6 / S8.
 """
@@ -1439,12 +1441,19 @@ def plan_parity_summary(parity: Any) -> dict[str, Any]:
 
 
 RELEASE_POLICY_ENV = "NALU_RELEASE_BLOCK_OBJECTIVE_DEFECTS"
-#: the owner's decision on release blocking is pending (2026-11-23): OFF = objective defects are recorded and the
-#: line proceeds; ON = a release with any objective defect is blocked at S7.  The one-line policy switch.
-RELEASE_BLOCK_OBJECTIVE_DEFECTS = False
+RELEASE_CLASSES_ENV = "NALU_RELEASE_BLOCK_CLASSES"
+#: owner decision 2026-11-23 (option iii): the release is HELD only for these objective defects; every other one is
+#: recorded.  A hold never stalls the line: the episode is finished as usual (S7 / S8), not sent to X2C, recorded as
+#: RELEASE_HELD:<classes> and queued as a redo candidate; production moves on to the next episode.
+RELEASE_BLOCK_OBJECTIVE_DEFECTS = True
+RELEASE_BLOCK_CLASSES = frozenset({"RUNTIME_SHORT", "BURN_UNRESOLVED"})
+OBJECTIVE_CLASSES = ("RUNTIME_SHORT", "BURN_UNRESOLVED", "STRAY_VOICES", "PLAN_NO_UNITS")
+RELEASE_HELD = "RELEASE_HELD"
 #: a cut shorter than this share of the brief's target runtime is an objective defect (E24: 56 s of 110 s)
-RUNTIME_MIN_RATIO = 0.75
+RUNTIME_MIN_RATIO = 0.85
 _BURN_KINDS = ("BURNED_TEXT", "REFERENCE_SHEET_LEAK")
+#: a burn the S7 burned-text handling accepted (the burned line IS the correct cue) does not hold the release
+BURN_ACCEPTED = "ACCEPT_CORRECT"
 
 
 def release_block_objective_defects(env: dict[str, str] | None = None) -> bool:
@@ -1456,9 +1465,45 @@ def release_block_objective_defects(env: dict[str, str] | None = None) -> bool:
     return RELEASE_BLOCK_OBJECTIVE_DEFECTS
 
 
+def release_block_classes(env: dict[str, str] | None = None) -> frozenset[str]:
+    """The classes that hold the release: RELEASE_BLOCK_CLASSES, or ``NALU_RELEASE_BLOCK_CLASSES`` (comma list of
+    OBJECTIVE_CLASSES, ``all`` or ``none``) to narrow or widen it."""
+    raw = str((os.environ if env is None else env).get(RELEASE_CLASSES_ENV) or "").strip()
+    if not raw:
+        return RELEASE_BLOCK_CLASSES
+    if raw.lower() == "all":
+        return frozenset(OBJECTIVE_CLASSES)
+    if raw.lower() == "none":
+        return frozenset()
+    return frozenset(c.strip().upper() for c in raw.split(",") if c.strip().upper() in OBJECTIVE_CLASSES)
+
+
 def _suspect_decision(row: dict[str, Any]) -> str:
     """The reviewer's decision on a local suspect when it gave one, else Gemini's (checklist or Gemini record)."""
     return str(row.get("reviewer") or row.get("decision") or row.get("gemini") or "NOT_ANSWERED").upper()
+
+
+def burn_accepted(row: dict[str, Any] | None) -> bool:
+    """A burn the S7 burned-text handling accepted: an ACCEPT_CORRECT verdict on the row, or our copy suppressed
+    because the burned line is the cue's own line (``duplicate_suppressed``, v5)."""
+    row = row if isinstance(row, dict) else {}
+    if any(str(row.get(k) or "").upper() == BURN_ACCEPTED for k in ("burn_verdict", "verdict", "decision", "status",
+                                                                     "state", "resolution")):
+        return True
+    return bool(row.get("duplicate_suppressed") or row.get("accept_correct")) or \
+        "our copy was suppressed in S7" in str(row.get("text") or "")
+
+
+def _burn_source(record: dict[str, Any], row: dict[str, Any]) -> dict[str, Any] | None:
+    """The finding an unresolved burn row came from (same kind and unit, or a window within DEDUPE_S)."""
+    pool = [*(record.get("findings") or []), *((record.get("second_review") or {}).get("findings") or [])]
+    for f in pool:
+        if f.get("kind") != row.get("kind"):
+            continue
+        if (row.get("unit_id") and f.get("unit_id") == row.get("unit_id")) or \
+                (row.get("window") and f.get("window") and _near(row["window"], f["window"], DEDUPE_S)):
+            return f
+    return None
 
 
 def objective_defects(record: dict[str, Any] | None, *, runtime_s: float | None = None,
@@ -1468,20 +1513,27 @@ def objective_defects(record: dict[str, Any] | None, *, runtime_s: float | None 
 
     runtime           the cut's content runtime vs the brief's target (short below RUNTIME_MIN_RATIO)
     unresolved_burns  burned text / sheet leak findings the round left unresolved, plus local OCR text runs that
-                      neither Gemini nor the reviewer dismissed (not within 1 s of one already listed)
+                      neither Gemini nor the reviewer dismissed (not within 1 s of one already listed); ``blocking``:
+                      not ACCEPT_CORRECT (:func:`burn_accepted`) and, for an OCR run, CONFIRMED by a reviewer
     stray_voices      ASR speech in planned-silent units nobody dismissed
     plan_no_units     units pass D judged NOT delivered (plan_not_in_cut: planned units missing from the cut,
                       listed, not counted)
-    ``count`` sums the four; ``classes`` names those present."""
+    ``count`` sums the four; ``classes`` names those present; ``blocking_classes`` those that may hold the release
+    (RUNTIME_SHORT when short, BURN_UNRESOLVED when a blocking burn is left -- the policy decides)."""
     record = record if isinstance(record, dict) else {}
     runtime: dict[str, Any] = {}
     if _num(runtime_s) is not None and _num(target_s):
         ratio = round(float(runtime_s) / float(target_s), 3)
         runtime = {"runtime_seconds": round(float(runtime_s), 2), "target_seconds": round(float(target_s), 2),
                    "ratio": ratio, "min_ratio": RUNTIME_MIN_RATIO, "short": ratio < RUNTIME_MIN_RATIO}
-    burns = [{**{k: r.get(k) for k in ("kind", "unit_id", "window", "state") if r.get(k) is not None},
-              "source": "FINAL_FIX_UNRESOLVED"}
-             for r in (record.get("unresolved") or unresolved(record)) if r.get("kind") in _BURN_KINDS]
+    burns = []
+    for r in (record.get("unresolved") or unresolved(record)):
+        if r.get("kind") not in _BURN_KINDS:
+            continue
+        accepted = burn_accepted(r) or burn_accepted(_burn_source(record, r))
+        burns.append({**{k: r.get(k) for k in ("kind", "unit_id", "window", "state") if r.get(k) is not None},
+                      "source": "FINAL_FIX_UNRESOLVED", "blocking": not accepted,
+                      **({"accepted": BURN_ACCEPTED} if accepted else {})})
     stray = []
     for row in suspect_checks or []:
         sus = row.get("suspect") or {}
@@ -1492,8 +1544,11 @@ def objective_defects(record: dict[str, Any] | None, *, runtime_s: float | None 
             w = sus.get("window")
             if any(_near(w, b.get("window"), DEDUPE_S) for b in burns if b.get("window")):
                 continue
+            accepted = burn_accepted(row) or burn_accepted(sus)
             burns.append({"kind": "BURNED_TEXT", "window": w, "text": sus.get("text"), "where": sus.get("where"),
-                          "decision": decision, "source": "LOCAL_OCR"})
+                          "decision": decision, "source": "LOCAL_OCR",
+                          "blocking": decision == "CONFIRMED" and not accepted,
+                          **({"accepted": BURN_ACCEPTED} if accepted else {})})
         elif sus.get("kind") == "stray_voice":
             stray.append({"unit": sus.get("unit"), "window": sus.get("window"), "heard": sus.get("heard"),
                           "decision": decision, "source": "LOCAL_ASR"})
@@ -1502,22 +1557,40 @@ def objective_defects(record: dict[str, Any] | None, *, runtime_s: float | None 
                 | ({"window": [r.get("start"), r.get("end")]} if r.get("start") is not None else {})
                 for r in units if r.get("delivered") == "NO"]
     missing = [r.get("unit_id") for r in units if r.get("delivered") == "NOT_IN_CUT"]
-    classes = [name for name, present in (("RUNTIME_SHORT", runtime.get("short")), ("UNRESOLVED_BURNS", burns),
-                                          ("STRAY_VOICES", stray), ("PLAN_NO_UNITS", no_units)) if present]
+    present = {"RUNTIME_SHORT": bool(runtime.get("short")), "BURN_UNRESOLVED": bool(burns),
+               "STRAY_VOICES": bool(stray), "PLAN_NO_UNITS": bool(no_units)}
+    blocking = {"RUNTIME_SHORT": bool(runtime.get("short")),
+                "BURN_UNRESOLVED": any(b.get("blocking") for b in burns),
+                "STRAY_VOICES": bool(stray), "PLAN_NO_UNITS": bool(no_units)}
     return {"runtime": runtime, "unresolved_burns": burns, "stray_voices": stray, "plan_no_units": no_units,
             "plan_not_in_cut": missing,
-            "count": int(bool(runtime.get("short"))) + len(burns) + len(stray) + len(no_units), "classes": classes}
+            "count": int(bool(runtime.get("short"))) + len(burns) + len(stray) + len(no_units),
+            "classes": [c for c in OBJECTIVE_CLASSES if present[c]],
+            "blocking_classes": [c for c in OBJECTIVE_CLASSES if blocking[c]]}
 
 
 def release_policy(objective: dict[str, Any] | None, env: dict[str, str] | None = None) -> dict[str, Any]:
-    """The release decision on the objective defects: ``blocks`` only when the switch is ON (default OFF)."""
+    """The release decision on the objective defects (owner 2026-11-23, option iii).  ``blocks`` = the switch is ON
+    and a defect of a blocking class is present; ``hold`` is then RELEASE_HELD:<classes>.  A hold is recorded and
+    the episode skipped by the X2C publisher and queued for a redo -- it never stops the line."""
     on = release_block_objective_defects(env)
-    would = bool((objective or {}).get("count"))
-    return {"release_block_objective_defects": on, "would_block": would, "blocks": on and would,
-            "classes": list((objective or {}).get("classes") or []),
-            "switch": f"{RELEASE_POLICY_ENV} (env) / final_fix_round.RELEASE_BLOCK_OBJECTIVE_DEFECTS",
-            "note": ("owner decision pending: OFF = recorded, the line proceeds" if not on else
-                     "ON: a release with objective defects is blocked at S7")}
+    scope = release_block_classes(env)
+    held = [c for c in (objective or {}).get("blocking_classes") or [] if c in scope]
+    blocks = on and bool(held)
+    return {"release_block_objective_defects": on, "block_classes": sorted(scope), "held_classes": held,
+            "would_block": bool(held), "blocks": blocks, "classes": list((objective or {}).get("classes") or []),
+            "action": RELEASE_HELD if blocks else "RELEASE",
+            **({"hold": f"{RELEASE_HELD}:{','.join(held)}"} if blocks else {}),
+            "switch": f"{RELEASE_POLICY_ENV} on|off, {RELEASE_CLASSES_ENV}=<classes>|all|none "
+                      "(final_fix_round.RELEASE_BLOCK_OBJECTIVE_DEFECTS / RELEASE_BLOCK_CLASSES)",
+            "note": "owner 2026-11-23: hold the X2C release only for a short runtime or unresolved burned text; "
+                    "the line never waits (redo candidate, next episode proceeds)"}
+
+
+def release_hold(record: dict[str, Any] | None) -> str:
+    """'RELEASE_HELD:<classes>' when the record's release policy holds the episode, else ''."""
+    policy = (record or {}).get("release_policy") if isinstance(record, dict) else None
+    return str((policy or {}).get("hold") or "") if (policy or {}).get("blocks") else ""
 
 
 def objective_summary(record: dict[str, Any] | None) -> dict[str, Any]:
@@ -1533,6 +1606,8 @@ def objective_summary(record: dict[str, Any] | None) -> dict[str, Any]:
     policy = record.get("release_policy") or {}
     if policy:
         out["release_policy"] = {k: policy.get(k) for k in ("release_block_objective_defects", "would_block", "blocks")}
+        if policy.get("blocks"):
+            out["release_hold"] = policy.get("hold")
     return out
 
 
@@ -1544,8 +1619,9 @@ def objective_note(record: dict[str, Any] | None) -> str:
         parts.append(str(s["plan_parity"].get("note") or ""))
     obj = s.get("objective_defects") or {}
     if obj.get("count"):
-        parts.append(f"objective defects {obj['count']} ({','.join(obj.get('classes') or [])})"
-                     + (" RELEASE BLOCKED" if (s.get("release_policy") or {}).get("blocks") else ""))
+        parts.append(f"objective defects {obj['count']} ({','.join(obj.get('classes') or [])})")
+    if s.get("release_hold"):
+        parts.append(f"{s['release_hold']} (not sent to X2C; redo candidate)")
     return "; ".join(p for p in parts if p)
 
 
@@ -1566,14 +1642,17 @@ def objective_lines(record: dict[str, Any] | None) -> list[str]:
         lines.append(f"* objective defects at release: {obj.get('count', 0)}"
                      + (f" — runtime {rt.get('runtime_seconds')} s vs target {rt.get('target_seconds')} s "
                         f"({rt.get('ratio')}{', SHORT' if rt.get('short') else ''})" if rt else "")
-                     + f"; unresolved burns {len(obj.get('unresolved_burns') or [])}, stray voices "
+                     + f"; unresolved burns {len(obj.get('unresolved_burns') or [])} "
+                       f"(blocking {sum(1 for b in obj.get('unresolved_burns') or [] if b.get('blocking'))}), stray voices "
                        f"{len(obj.get('stray_voices') or [])}, plan NO units {len(obj.get('plan_no_units') or [])}"
                      + (f", not in cut {len(obj['plan_not_in_cut'])}" if obj.get("plan_not_in_cut") else ""))
     if policy:
         lines.append(f"* release policy `release_block_objective_defects` = "
-                     f"{'ON' if policy.get('release_block_objective_defects') else 'OFF'} — would block: "
-                     f"{'yes' if policy.get('would_block') else 'no'}; blocks: {'yes' if policy.get('blocks') else 'no'} "
-                     f"({policy.get('switch')})")
+                     f"{'ON' if policy.get('release_block_objective_defects') else 'OFF'} for "
+                     f"{', '.join(policy.get('block_classes') or []) or 'no class'} — "
+                     + (f"**{policy.get('hold')}**: not sent to X2C, queued as a redo candidate; the line goes on"
+                        if policy.get("blocks") else "release")
+                     + f" ({policy.get('switch')})")
     return lines
 
 

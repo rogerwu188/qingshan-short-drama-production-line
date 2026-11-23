@@ -7,7 +7,9 @@ Covers: pass D's prompt carries the per-unit plan (generation contract + release
 the ASR of planned-silent units are pass A / C suspects; ``unit_parity`` parsing and the merged ``plan_parity``;
 routing of P0 NO units into the final fix round (paid PLAN_MISMATCH, a trigger, ranked with the P0s); the per-unit
 parity record (final_cut_shot_plan_parity, final_fix_round.json, fleet note, checkpoint); the objective defects and
-the release policy switch (default OFF)."""
+the owner's release policy (2026-11-23, option iii): hold the X2C release only for runtime < 0.85 x target or
+unresolved burned text that is not ACCEPT_CORRECT, never stall the line (redo backlog, publisher skips the episode,
+the tick moves on), env override."""
 from __future__ import annotations
 
 import hashlib
@@ -356,13 +358,14 @@ class ObjectiveDefectTest(_Review):
         obj = self.objective()
         self.assertTrue(obj["runtime"]["short"])
         self.assertEqual(obj["runtime"]["ratio"], round(56.4 / 110, 3))
-        self.assertEqual([(b["source"], b["window"]) for b in obj["unresolved_burns"]],
-                         [("LOCAL_OCR", [7.5, 8.2])])                           # S1 was dismissed
+        self.assertEqual([(b["source"], b["window"], b["blocking"]) for b in obj["unresolved_burns"]],
+                         [("LOCAL_OCR", [7.5, 8.2], True)])                     # S1 dismissed, S2 confirmed
         self.assertEqual([(v["unit"], v["heard"]) for v in obj["stray_voices"]], [("VU-003", "丁师兄去死吧")])
         self.assertEqual([u["unit_id"] for u in obj["plan_no_units"]], ["E24-VU-001"])
         self.assertEqual(obj["plan_not_in_cut"], ["E24-VU-004"])
         self.assertEqual(obj["count"], 4)
-        self.assertEqual(obj["classes"], ["RUNTIME_SHORT", "UNRESOLVED_BURNS", "STRAY_VOICES", "PLAN_NO_UNITS"])
+        self.assertEqual(obj["classes"], ["RUNTIME_SHORT", "BURN_UNRESOLVED", "STRAY_VOICES", "PLAN_NO_UNITS"])
+        self.assertEqual(obj["blocking_classes"], obj["classes"])
         # an unresolved burned finding of the round and the OCR run at the same time are one burn
         rec = {"status": "DONE", "unresolved": [{"kind": "BURNED_TEXT", "unit_id": "E24-VU-003",
                                                  "window": [7.6, 8.0], "state": "PERSISTS"}]}
@@ -372,18 +375,48 @@ class ObjectiveDefectTest(_Review):
                    "suspect": {"kind": "stray_voice", "unit": "VU-003"}}]
         self.assertEqual(ffr.objective_defects({}, suspect_checks=checks)["stray_voices"], [])
 
-    def test_release_policy_switch_defaults_off(self):
-        self.assertFalse(ffr.RELEASE_BLOCK_OBJECTIVE_DEFECTS)
+    def test_release_policy_holds_only_short_runtime_and_unresolved_burns(self):
+        self.assertTrue(ffr.RELEASE_BLOCK_OBJECTIVE_DEFECTS)
+        self.assertEqual(ffr.RELEASE_BLOCK_CLASSES, {"RUNTIME_SHORT", "BURN_UNRESOLVED"})
+        self.assertEqual(ffr.RUNTIME_MIN_RATIO, 0.85)
+        held = ffr.release_policy(self.objective(), env={})
+        self.assertEqual((held["blocks"], held["held_classes"], held["hold"]),
+                         (True, ["RUNTIME_SHORT", "BURN_UNRESOLVED"], "RELEASE_HELD:RUNTIME_SHORT,BURN_UNRESOLVED"))
+        # (1) runtime alone: 0.84 x target holds, 0.85 does not
+        short = ffr.objective_defects({}, runtime_s=92.4, target_s=110.0)
+        self.assertEqual(ffr.release_policy(short, env={})["hold"], "RELEASE_HELD:RUNTIME_SHORT")
+        ok = ffr.objective_defects({}, runtime_s=93.5, target_s=110.0)
+        self.assertFalse(ffr.release_policy(ok, env={})["blocks"])
+        # (2) burn alone: an unresolved burned finding of the round holds ...
+        rec = {"status": "DONE", "unresolved": [{"kind": "BURNED_TEXT", "unit_id": "U3", "window": [7.6, 8.0],
+                                                 "state": "PERSISTS"}]}
+        burn = ffr.objective_defects(rec, runtime_s=100, target_s=110)
+        self.assertEqual(ffr.release_policy(burn, env={})["hold"], "RELEASE_HELD:BURN_UNRESOLVED")
+        # ... unless the burned-text handling accepted it (ACCEPT_CORRECT / our copy suppressed for the cue's line)
+        accepted = {**rec, "findings": [{"kind": "BURNED_TEXT", "unit_id": "U3", "burn_verdict": "ACCEPT_CORRECT"}]}
+        obj = ffr.objective_defects(accepted, runtime_s=100, target_s=110)
+        self.assertEqual((obj["classes"], obj["blocking_classes"]), (["BURN_UNRESOLVED"], []))
+        self.assertFalse(ffr.release_policy(obj, env={})["blocks"])
+        # an OCR run only Gemini did not dismiss (NOT_ANSWERED) is recorded, not held
+        ocr = [{"id": "S1", "decision": "NOT_ANSWERED", "suspect": {"kind": "burned_text", "window": [1.0, 2.0]}}]
+        self.assertFalse(ffr.release_policy(ffr.objective_defects({}, suspect_checks=ocr), env={})["blocks"])
+        # stray voices / plan NO units are record-only
+        rest = ffr.objective_defects({}, runtime_s=100, target_s=110, plan_parity=self.record["plan_parity"],
+                                     suspect_checks=self.record["suspect_checks"][2:])
+        self.assertEqual(rest["blocking_classes"], ["STRAY_VOICES", "PLAN_NO_UNITS"])
+        self.assertFalse(ffr.release_policy(rest, env={})["blocks"])
+
+    def test_env_override_disables_or_widens_the_hold(self):
         obj = self.objective()
-        off = ffr.release_policy(obj, env={})
-        self.assertEqual((off["release_block_objective_defects"], off["would_block"], off["blocks"]),
-                         (False, True, False))
-        on = ffr.release_policy(obj, env={ffr.RELEASE_POLICY_ENV: "on"})
-        self.assertTrue(on["blocks"])
-        self.assertFalse(ffr.release_policy({"count": 0}, env={ffr.RELEASE_POLICY_ENV: "1"})["blocks"])
-        with mock.patch.object(ffr, "RELEASE_BLOCK_OBJECTIVE_DEFECTS", True):      # the one-line switch
-            self.assertTrue(ffr.release_policy(obj, env={})["blocks"])
-            self.assertFalse(ffr.release_policy(obj, env={ffr.RELEASE_POLICY_ENV: "off"})["blocks"])
+        self.assertFalse(ffr.release_policy(obj, env={ffr.RELEASE_POLICY_ENV: "off"})["blocks"])
+        self.assertFalse(ffr.release_policy(obj, env={ffr.RELEASE_CLASSES_ENV: "none"})["blocks"])
+        wide = ffr.release_policy(obj, env={ffr.RELEASE_CLASSES_ENV: "all"})
+        self.assertEqual(wide["held_classes"], ["RUNTIME_SHORT", "BURN_UNRESOLVED", "STRAY_VOICES", "PLAN_NO_UNITS"])
+        only = ffr.release_policy(obj, env={ffr.RELEASE_CLASSES_ENV: "plan_no_units, bogus"})
+        self.assertEqual(only["hold"], "RELEASE_HELD:PLAN_NO_UNITS")
+        with mock.patch.object(ffr, "RELEASE_BLOCK_OBJECTIVE_DEFECTS", False):     # the one-line switch
+            self.assertFalse(ffr.release_policy(obj, env={})["blocks"])
+            self.assertTrue(ffr.release_policy(obj, env={ffr.RELEASE_POLICY_ENV: "on"})["blocks"])
 
     def test_record_note_and_checkpoint_carry_parity_and_objective_defects(self):
         rec = {"status": "NOT_NEEDED", "findings": [], "plan_parity": ffr.plan_parity_summary(self.record["plan_parity"])}
@@ -392,18 +425,20 @@ class ObjectiveDefectTest(_Review):
         note = ffr.status_note(rec)
         self.assertIn("final-fix: not needed", note)
         self.assertIn("plan parity: 1/4 delivered", note)
-        self.assertIn("objective defects 4 (RUNTIME_SHORT,UNRESOLVED_BURNS,STRAY_VOICES,PLAN_NO_UNITS)", note)
-        self.assertNotIn("RELEASE BLOCKED", note)
+        self.assertIn("objective defects 4 (RUNTIME_SHORT,BURN_UNRESOLVED,STRAY_VOICES,PLAN_NO_UNITS)", note)
+        self.assertIn("RELEASE_HELD:RUNTIME_SHORT,BURN_UNRESOLVED (not sent to X2C; redo candidate)", note)
         s = ffr.summary(rec)
         self.assertEqual(s["plan_parity"]["no_units"], ["E24-VU-001"])
-        self.assertEqual(s["release_policy"]["blocks"], False)
+        self.assertEqual((s["release_policy"]["blocks"], s["release_hold"]),
+                         (True, "RELEASE_HELD:RUNTIME_SHORT,BURN_UNRESOLVED"))
         lines = "\n".join(ffr.checkpoint_lines(rec))
         self.assertIn("plan parity: 1/4 delivered — NO: E24-VU-001", lines)
         self.assertIn("runtime 56.4 s vs target 110.0 s", lines)
-        self.assertIn("`release_block_objective_defects` = OFF", lines)
+        self.assertIn("`release_block_objective_defects` = ON", lines)
+        self.assertIn("**RELEASE_HELD:RUNTIME_SHORT,BURN_UNRESOLVED**: not sent to X2C", lines)
         self.assertEqual(ffr.status_note({}), "")
 
-    def test_pipeline_records_parity_and_objective_defects_without_blocking(self):
+    def test_pipeline_holds_the_release_without_stalling_the_line(self):
         from types import SimpleNamespace
         root = self.root / "pipe"
         asm = root / "assembly"
@@ -423,11 +458,21 @@ class ObjectiveDefectTest(_Review):
         res = SimpleNamespace(details={"shot_plan_parity": {"report": "x"}})
         with mock.patch.dict(os.environ, {"NALU_RUNTIME_ROOT": str(root / "runtime")}), \
                 mock.patch.object(P, "RUNTIME", root / "runtime"):
-            os.environ.pop(ffr.RELEASE_POLICY_ENV, None)
+            for name in (ffr.RELEASE_POLICY_ENV, ffr.RELEASE_CLASSES_ENV):
+                os.environ.pop(name, None)
             out = P.s7_review_plan_parity(ctx, res, {"final_video_sha256": _digest(cand)})
+            again = P.s7_review_plan_parity(ctx, res, {"final_video_sha256": _digest(cand)})   # re-entry
         self.assertEqual(out["status"], "RECORDED")
-        self.assertEqual(out["release_policy"], {"release_block_objective_defects": False, "would_block": True,
-                                                 "blocks": False})
+        self.assertEqual(out["release_hold"], "RELEASE_HELD:RUNTIME_SHORT,BURN_UNRESOLVED")
+        self.assertEqual(again["release_hold"], out["release_hold"])
+        rec = json.loads((asm / "final_qa" / "final_fix_round.json").read_text())
+        self.assertEqual(rec["release_hold"]["status"], "RELEASE_HELD")
+        backlog = json.loads((root / "runtime" / "series" / "REDO_BACKLOG.json").read_text())
+        self.assertEqual(backlog["episodes"][EP]["status"], "REDO_CANDIDATE")
+        self.assertEqual(backlog["episodes"][EP]["hold"], "RELEASE_HELD:RUNTIME_SHORT,BURN_UNRESOLVED")
+        status = (root / "runtime" / "series" / "STATUS.md").read_text()
+        self.assertEqual(status.count(f"RELEASE_HELD:RUNTIME_SHORT,BURN_UNRESOLVED {EP}"), 1)      # once
+        self.assertNotIn("blockers", vars(res))                                 # nothing for S7 to stop on
         rec = json.loads((asm / "final_qa" / "final_fix_round.json").read_text())
         self.assertEqual(rec["plan_parity"]["note"], "plan parity: 1/4 delivered")
         self.assertEqual(rec["objective_defects"]["runtime"]["target_seconds"], 110.0)   # default brief target
@@ -437,7 +482,74 @@ class ObjectiveDefectTest(_Review):
         self.assertIn("plan parity: 1/4 delivered", (asm / f"{EP}_FINAL_CUT_SHOT_PLAN_PARITY.md").read_text())
         self.assertEqual(res.details["shot_plan_parity"]["unit_parity"]["no_units"], ["E24-VU-001"])
         self.assertEqual(res.details["shot_plan_parity"]["report"], "x")
-        self.assertTrue(any("S7_OBJECTIVE_DEFECTS" in line and "release_block=OFF" in line for line in said))
+        self.assertTrue(any("S7_OBJECTIVE_DEFECTS" in line and "release=RELEASE_HELD" in line for line in said))
+
+
+# ===================================================================================== 5. never stall the line
+class HoldDoesNotStallTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        scripts = ROOT / "skills" / "nalu-claude-code" / "scripts"
+        if str(scripts) not in sys.path:
+            sys.path.insert(0, str(scripts))
+        import codex_production as cp  # noqa: PLC0415
+        import publish_x2creel as px  # noqa: PLC0415
+        import publish_x2c_matrix as mx  # noqa: PLC0415
+        self.cp, self.px, self.mx = cp, px, mx
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _episode(self, runtime: Path, work: Path, ep: str, hold: str | None) -> None:
+        d = runtime / "claude_code" / ep
+        d.mkdir(parents=True)
+        (d / "session.json").write_text(json.dumps({"log": str(d / "run.jsonl"), "pid": None}))
+        mp4 = runtime / "deliverables" / ep / f"{ep}_final_9x16.mp4"
+        mp4.parent.mkdir(parents=True)
+        mp4.write_bytes(b"v")
+        fq = work / ep / "assembly" / "final_qa"
+        fq.mkdir(parents=True)
+        rec = {"status": "DONE", **({"release_hold": {"status": "RELEASE_HELD", "hold": hold}} if hold else {})}
+        (fq / "final_fix_round.json").write_text(json.dumps(rec))
+
+    def test_publisher_skips_a_held_episode_and_sends_the_next(self):
+        runtime, work = self.root / "runtime", self.root / "work"
+        self._episode(runtime, work, "E24", "RELEASE_HELD:RUNTIME_SHORT")
+        self._episode(runtime, work, "E25", None)
+        sent: list = []
+        env = {"NALU_RUNTIME_ROOT": str(runtime), "NALU_ENGINE_ROOT": str(ROOT), "NALU_WORK_ROOT": str(work)}
+        with mock.patch.dict(os.environ, env), \
+                mock.patch.object(self.cp, "parse_log", return_value={"nalu_status": {"state": "FINAL_CUT_READY"}}), \
+                mock.patch.object(self.cp, "alive", return_value=False), \
+                mock.patch.object(self.cp, "ensure_poster", return_value=None), \
+                mock.patch.object(self.mx, "matrix_mode", return_value=False), \
+                mock.patch.object(self.px, "load_state", return_value={"episodes": {}}), \
+                mock.patch.object(self.px, "cmd_publish",
+                                  side_effect=lambda a: sent.append(a.episode) or {"status": "PUBLISHED"}):
+            self.assertEqual(self.cp.release_hold("E24"), "RELEASE_HELD:RUNTIME_SHORT")
+            self.assertEqual(self.cp.release_hold("E25"), "")
+            out = self.cp.publish_next()
+            self.assertEqual((out["episode"], sent), ("E25", ["E25"]))      # E24 is never sent ...
+            with mock.patch.object(self.px, "load_state", return_value={"episodes": {"E25": {}}}):
+                self.assertIsNone(self.cp.publish_next())                  # ... nor retried: nothing left to send
+            self.assertEqual(sent, ["E25"])
+
+    def test_s8_approves_a_held_episode_so_the_tick_moves_on(self):
+        from types import SimpleNamespace
+        root = self.root / "s8"
+        (root / "final_qa").mkdir(parents=True)
+        final = root / "deliver" / "E24_final_9x16.mp4"
+        final.parent.mkdir(parents=True)
+        final.write_bytes(b"v")
+        hold = {"status": "RELEASE_HELD", "hold": "RELEASE_HELD:BURN_UNRESOLVED"}
+        (root / "final_qa" / "final_fix_round.json").write_text(json.dumps({"status": "DONE", "release_hold": hold}))
+        p = SimpleNamespace(assembly=root, final_mp4=final, checkpoint=root / "CHECKPOINT.md",
+                            approval=root / "approvals" / "E24.APPROVED.json")
+        ctx = _Ctx(episode="E24", p=p, state={"stages": {"S7": {"status": "PASS"}}}, lines=[], paid_order=None)
+        out = P.s8_auto_approve(ctx)
+        self.assertEqual(out["status"], "APPROVED")                          # S8 never waits on a hold
+        self.assertEqual(json.loads(p.approval.read_text())["release_hold"], hold)
 
 
 if __name__ == "__main__":

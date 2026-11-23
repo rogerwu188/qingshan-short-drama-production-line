@@ -192,6 +192,7 @@ $P $S/publish_x2creel.py status                           # 本地记录 + X2C �
   `publish_x2creel.py forget --episode <被顶的集>`（自动备份本地记录）再 `publish` 重发。`forget` 只在这种情况或线主要求重发时用。
 - 分类必须从 X2C 自己的列表里选，且语言要对：X2C 的分类按语言分组（`target_language` zh / en）。先跑 `publish_x2creel.py categories --lang <剧集语言>`，把选中项的显示名 `name` 逐字写进简报 `genre`，`genre_lang` 写剧集语言（英文剧 = en）。不要用 `name_key`（X2C 英文列表的 name_key 与行错位）。脚本只做精确匹配，**没有兜底分类**：不在该语言列表里返回 `CATEGORY_NOT_IN_X2C_LIST`（附可选列表），分类语言与剧集语言不符返回 `CATEGORY_LANGUAGE_MISMATCH`；心跳都记成【需要处理】，不会发行。
 - 返回 `BLOCKED: X2C_API_KEY_MISSING` 时请线主发 X2C key（§3），收到后重跑；其余 `ERROR` 记进 `series/STATUS.md`，下一次心跳重试，不阻塞下一集生产。
+- **发行暂扣（线主 2026-11-23）**：成片时长 < 目标 0.85 或终修后仍有未解决的烧字（ACCEPT_CORRECT 除外）时，引擎在 `final_fix_round.json` 记 `RELEASE_HELD:<类别>`，心跳不发这一集、也不重试，写进 `series/REDO_BACKLOG.json` 待日后重做；S8 照常批准，下一集照常开拍，不等线主。开关：`NALU_RELEASE_BLOCK_OBJECTIVE_DEFECTS=off` 关闭，`NALU_RELEASE_BLOCK_CLASSES=<类别>|all|none` 收窄/放宽。
 - 只用 X2C 分发 API 的 1、2、3、4、5、6 步（分类、上传 URL、发布、追加、查询、列出），不用 3.5（Developer JWT 代发布）。
 - **设备矩阵模式（X2C「StoryClaw 设备矩阵 API」，线主 2026-11-06 起默认）**：上面的命令（及心跳发行）默认走 `publish_x2c_matrix.py`；
   已经用旧 open-api 发过集的那部剧继续用旧接口直到做完，`X2C_API_MODE=open` 强制旧接口。本机须在 X2C 后台「设备矩阵映射」登记，否则返回 404 `DEVICE_NOT_FOUND`（记进 STATUS，不阻塞生产）。设备 SN 没配环境变量时自动读本机硬件序列号

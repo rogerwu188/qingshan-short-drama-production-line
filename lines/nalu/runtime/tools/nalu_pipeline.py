@@ -12027,13 +12027,52 @@ def s7_review_plan_parity(ctx: Any, res: Any, final_audience: dict[str, Any]) ->
             record, runtime_s=timeline.get("content_runtime_seconds"), target_s=target, plan_parity=parity,
             suspect_checks=checks)
         record["release_policy"] = _ffr.release_policy(record["objective_defects"])
+        hold = _ffr.release_hold(record)
+        if hold:
+            record["release_hold"] = {"status": _ffr.RELEASE_HELD, "hold": hold, "final_video_sha256": cand_sha,
+                                      "held_at": now(), "redo_backlog": str(series_redo_backlog(
+                                          ctx, hold, record, cand_sha))}
+        else:
+            record.pop("release_hold", None)
         _ffr.write_record(path, record)
         out = {"status": "RECORDED", "record": str(path), **_ffr.objective_summary(record)}
         ctx.say(f"S7_OBJECTIVE_DEFECTS episode={ctx.episode} {_ffr.objective_note(record) or 'none'} "
-                f"release_block={'ON' if record['release_policy']['release_block_objective_defects'] else 'OFF'}")
+                f"release={hold or 'RELEASE'}")
     except Exception as exc:  # noqa: BLE001 - diagnostic: never blocks by accident
         out = {"status": "ERROR", "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
     return out
+
+
+REDO_BACKLOG_NAME = "REDO_BACKLOG.json"
+
+
+def series_redo_backlog(ctx: Any, hold: str, record: dict[str, Any], cand_sha: str) -> Path:
+    """Queue a RELEASE_HELD episode as a redo candidate (owner 2026-11-23: held, never waited on): one row per
+    episode in ``<runtime>/series/REDO_BACKLOG.json`` (replaced when the cut changes) and one STATUS.md line per
+    hold, so the episode can be regenerated later while production goes on.  Best effort."""
+    series = RUNTIME / "series"
+    path = series / REDO_BACKLOG_NAME
+    try:
+        series.mkdir(parents=True, exist_ok=True)
+        backlog = read_json(path, {}) or {}
+        rows = backlog.setdefault("episodes", {})
+        prior = rows.get(ctx.episode) or {}
+        obj = record.get("objective_defects") or {}
+        rows[ctx.episode] = {"status": "REDO_CANDIDATE", "hold": hold, "final_video_sha256": cand_sha,
+                             "queued_at": prior.get("queued_at") if prior.get("final_video_sha256") == cand_sha
+                             else now(), "runtime": obj.get("runtime") or {},
+                             "burn_units": sorted({str(b.get("unit_id")) for b in obj.get("unresolved_burns") or []
+                                                   if b.get("blocking") and b.get("unit_id")}),
+                             "plan_no_units": [u.get("unit_id") for u in obj.get("plan_no_units") or []]}
+        write_json(path, {"schema": "nalu.series_redo_backlog.v1", **backlog, "updated_at": now()})
+        status = series / "STATUS.md"
+        line = f"{hold} {ctx.episode}: not sent to X2C, queued for a redo ({path.name}); next episode proceeds"
+        if line not in (status.read_text(encoding="utf-8") if status.is_file() else ""):
+            with status.open("a", encoding="utf-8") as fh:
+                fh.write(f"- {now()} {line}\n")
+    except OSError as exc:
+        ctx.say(f"   redo backlog not written ({type(exc).__name__})")
+    return path
 
 
 def promote_final_candidate(p: Any) -> dict[str, Any]:
@@ -13716,15 +13755,11 @@ def _stage_s7_pass(ctx: Ctx) -> StageResult:
         res.blockers = (["FINAL_FIX_ROUND_S7_RERUN"] if final_fix["action"] == "S7_RERUN"
                         else [f"FINAL_FIX_ROUND_S6_REDO_PENDING:{','.join(final_fix.get('units') or [])}"])
         return res
-    # 7c. per-unit plan parity + objective defects at release (2026-11-23, device 1101 E24); the release policy
-    # switch release_block_objective_defects is OFF by default (owner decision pending): recorded, never blocks
+    # 7c. per-unit plan parity + objective defects at release (2026-11-23, device 1101 E24).  Owner policy (option
+    # iii): a short runtime or unresolved burned text HOLDS the X2C release -- recorded as RELEASE_HELD:<classes> and
+    # queued as a redo candidate; S7 / S8 finish as usual and the line moves on (never waits on the owner)
     objective = s7_review_plan_parity(ctx, res, final_audience)
     res.details["objective_defects"] = objective
-    if (objective.get("release_policy") or {}).get("blocks"):
-        res.status = BLOCKED
-        res.blockers = ["RELEASE_BLOCKED_OBJECTIVE_DEFECTS:" + ",".join(
-            (objective.get("objective_defects") or {}).get("classes") or [])]
-        return res
 
     # ------------------------------------------- 8. final-package QA (D-9/D-12)
     final_qa = s7_qa(ctx, res)
@@ -13951,6 +13986,8 @@ def s8_auto_approve(ctx: Any) -> dict[str, Any]:
         "final_video_sha256": sha256_file(p.final_mp4),
         "final_fix_round": _ffr.summary(record) if record else {"status": "NONE"},
         "unresolved_findings": record.get("unresolved") or _ffr.unresolved(record),
+        # owner 2026-11-23: a held release is still approved and delivered -- only the X2C publisher skips it
+        **({"release_hold": record["release_hold"]} if record.get("release_hold") else {}),
         "publication_allowed": publication,
         "release_scope": ("DELIVERABLE_AND_PUBLICATION_PER_ORDER" if publication
                           else "DELIVERABLE_ONLY_NO_PLATFORM_PUBLICATION"),
