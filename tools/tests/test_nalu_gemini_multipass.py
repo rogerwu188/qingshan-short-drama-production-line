@@ -162,7 +162,9 @@ class PromptTest(_Base):
         self.assertIn("角色A", b["prompt"])
         self.assertIn("青灰短衫", b["prompt"])
         self.assertIn('"scene":"S01"', b["prompt"])
-        self.assertEqual(b["body"]["generationConfig"]["thinkingConfig"], {"thinkingBudget": 3072})
+        # B runs on Pro since 2026-11-23: Pro thinks dynamically (the 3072 budget stays on Flash)
+        self.assertNotIn("thinkingConfig", b["body"]["generationConfig"])
+        self.assertEqual(record["passes"]["B"]["model"], "gemini-3.1-pro-preview")
         # C: sound classes + the tail / music suspects, low resolution
         self.assertEqual(c["body"]["generationConfig"]["mediaResolution"], "MEDIA_RESOLUTION_LOW")
         for cls in ("QA-LIPSYNC", "QA-VOICE-INCONSISTENT", "QA-LOUDNESS-JUMP", "QA-DIALOGUE-TAIL-CUT"):
@@ -248,7 +250,7 @@ class BudgetTest(unittest.TestCase):
     def test_over_budget_episode_skips_without_a_call(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            req = _pack_and_request(root, duration=30000)   # even A alone on Flash at 1 fps LOW is over 25
+            req = _pack_and_request(root, duration=30000)   # even A alone on Flash at 1 fps LOW is over 55
             calls: list = []
             record = gvr.run(request_path=req, out=root / "g.json", post=_post(calls), transcoder=_transcode,
                              environ={"HOPSAPI_API_KEY": "k"}, context={"cards": []})

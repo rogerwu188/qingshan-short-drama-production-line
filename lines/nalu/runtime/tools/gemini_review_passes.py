@@ -50,9 +50,11 @@ the local ASR suspects was as good on Flash): A, B, D on ``gemini-3.1-pro-previe
 to every pass without its own override.  A Pro pass answered with a 4xx policy / model-unavailable status is
 retried once on gemini-3.8-flash (``model_fallback`` in the pass record); each pass records its ``model``.
 
-Budget: ``NALU_GEMINI_REVIEW_BUDGET`` (alias ``NALU_GEMINI_REVIEW_MAX_CREDITS``; default 25.0 since 2026-11-23,
+Budget: ``NALU_GEMINI_REVIEW_BUDGET`` (alias ``NALU_GEMINI_REVIEW_MAX_CREDITS``; default 55.0 since 2026-11-23,
 review cost is not a concern during the quality-fix period) per episode, split across the passes, each priced at
-its own model (Pro: + an expected ~8k thinking tokens per pass, billed as output).  Every pass is
+its own model (Pro: + an expected ~8k thinking tokens per pass, billed as output).  55 runs A, B, D on Pro at their
+preferred settings up to ~120 s (estimate ~42 credits at 60 s, ~51 at 110 s); longer episodes step down the
+model-aware ladder (pass_ladder).  Every pass is
 estimated before anything is sent; while the total is over the cap the lowest-priority pass that can still step
 down is degraded (D, then C, then B, then A: fps and media resolution), and when no pass can step down any more the
 lowest-priority pass is skipped (D -> C -> B; A last).  The recorded cost is computed from each response's usage.
@@ -76,7 +78,7 @@ from typing import Any, Callable
 
 SCHEMA_PASSES = "nalu.gemini_video_review.multipass.v1"
 MODE_ENV = "NALU_GEMINI_REVIEW_MODE"
-MAX_CREDITS_DEFAULT = 25.0
+MAX_CREDITS_DEFAULT = 55.0
 BUDGET_ENVS = ("NALU_GEMINI_REVIEW_BUDGET", "NALU_GEMINI_REVIEW_MAX_CREDITS")
 PRO_MODEL = "gemini-3.1-pro-preview"
 FLASH_MODEL = "gemini-3.8-flash"
@@ -968,14 +970,19 @@ def plan_budget(model: str | dict[str, str] | None, prices: dict[str, tuple[floa
             break
         active.remove(victim)
         skipped[victim] = "BUDGET_SKIPPED"
-    # the greedy descent can overshoot (a whole Pro step at once): give the slack back, highest priority first
+    # the greedy descent can overshoot (a whole Pro step at once): give the slack back, highest priority first --
+    # but never Pro to a lower-priority pass while a higher-priority one was stepped down to FALLBACK_MODEL
+    demoted = False
     for p in reversed(DEGRADE_ORDER):
         while p in active and step[p] > 0:
             step[p] -= 1
-            if sum(est(q) for q in active) <= cap:
+            if sum(est(q) for q in active) <= cap and not (demoted and ladders[p][step[p]][0] != FALLBACK_MODEL
+                                                           and ladders[p][step[p] + 1][0] == FALLBACK_MODEL):
                 continue
             step[p] += 1
             break
+        if p in active and ladders[p][step[p]][0] != models[p]:
+            demoted = True
     plan: dict[str, Any] = {}
     for p in passes:
         if p in skipped:

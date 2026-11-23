@@ -26,7 +26,7 @@ specialist passes in parallel -- A picture / AI artefacts at 720p HIGH media res
 the identity cards and the scene list, C sound, D director / craft with the storyboard and the craft standard --
 A, B, D on gemini-3.1-pro-preview and C on gemini-3.8-flash (2026-11-23; ``NALU_GEMINI_REVIEW_MODEL_A``..``_D``,
 ``NALU_GEMINI_REVIEW_MODEL`` for every pass without its own) -- under ``NALU_GEMINI_REVIEW_BUDGET`` (alias
-``NALU_GEMINI_REVIEW_MAX_CREDITS``, default 25.0) and merges them into the same record (ids G1.. / S1.., plus
+``NALU_GEMINI_REVIEW_MAX_CREDITS``, default 55.0) and merges them into the same record (ids G1.. / S1.., plus
 ``pass`` and ``scope_hint`` per finding and ``passes`` per pass).  ``single`` is the original one-call Pass B above
 (default cap 1.5).
 
@@ -62,7 +62,7 @@ DEFAULT_BASE_URL = "https://hopsapi.com/v1"
 DEFAULT_FPS = 2.0
 FPS_STEPS = (2.0, 1.5, 1.0)
 MAX_CREDITS_DEFAULT = 1.5          # single pass
-MULTIPASS_MAX_CREDITS_DEFAULT = 25.0  # == gemini_review_passes.MAX_CREDITS_DEFAULT (2026-11-23)
+MULTIPASS_MAX_CREDITS_DEFAULT = 55.0  # == gemini_review_passes.MAX_CREDITS_DEFAULT (2026-11-23)
 MODE_ENV = "NALU_GEMINI_REVIEW_MODE"
 MODES = ("multipass", "single")
 DEFAULT_MODE = "multipass"

@@ -1,5 +1,5 @@
 """Per-pass Gemini models for the multi-pass final review (owner 2026-11-23, E24 A/B: Pro on picture / identity /
-director, Flash on sound; budget 25 credits; Pro refused -> one Flash retry).
+director, Flash on sound; budget 55 credits; Pro refused -> one Flash retry).
 
 Offline: Gemini is a fake ``post``, the transcoder writes bytes, no ffmpeg / network / paid call."""
 from __future__ import annotations
@@ -45,12 +45,12 @@ class ModelSelectionTest(unittest.TestCase):
                          {"A": "a", "B": "cli", "C": "cli", "D": "cli"})
 
     def test_budget_default_and_env(self):
-        self.assertEqual(mp.budget_cap({}), 25.0)
-        self.assertEqual(gvr.MULTIPASS_MAX_CREDITS_DEFAULT, 25.0)
+        self.assertEqual(mp.budget_cap({}), 55.0)
+        self.assertEqual(gvr.MULTIPASS_MAX_CREDITS_DEFAULT, 55.0)
         self.assertEqual(mp.budget_cap({"NALU_GEMINI_REVIEW_MAX_CREDITS": "12"}), 12.0)
         self.assertEqual(mp.budget_cap({"NALU_GEMINI_REVIEW_BUDGET": "40",
                                         "NALU_GEMINI_REVIEW_MAX_CREDITS": "12"}), 40.0)
-        self.assertEqual(mp.budget_cap({"NALU_GEMINI_REVIEW_BUDGET": "junk"}), 25.0)
+        self.assertEqual(mp.budget_cap({"NALU_GEMINI_REVIEW_BUDGET": "junk"}), 55.0)
 
 
 class EstimateTest(unittest.TestCase):
@@ -63,7 +63,7 @@ class EstimateTest(unittest.TestCase):
         self.assertAlmostEqual(flash, tokens_in * 50.25e-6 + mp.PASSES["A"]["expected_out"] * 251.25e-6, places=2)
         self.assertEqual(mp.expected_output_tokens("D", PRO) - mp.expected_output_tokens("D", FLASH), 8000)
 
-    def test_plan_fits_25_at_110s_and_keeps_pass_a_on_pro_at_its_preferred_settings(self):
+    def test_a_25_credit_budget_keeps_pass_a_on_pro_and_steps_b_d_down_to_flash(self):
         for duration in (60.0, 110.0):
             plan = mp.plan_budget(mp.resolve_pass_models({}), gvr.PRICES, duration=duration, cap=25.0,
                                   prompt_chars=CHARS, images=CARDS)
@@ -75,14 +75,26 @@ class EstimateTest(unittest.TestCase):
             # a Pro pass that does not fit steps down to Flash before losing resolution
             self.assertEqual((p["B"]["model"], p["B"]["res"], p["B"]["model_planned"]), (FLASH, "HIGH", PRO))
 
-    def test_preferred_settings_when_the_budget_allows(self):
-        plan = mp.plan_budget(mp.resolve_pass_models({}), gvr.PRICES, duration=110.0, cap=60.0,
+    def test_default_budget_runs_a_b_d_on_pro_at_preferred_settings(self):
+        for duration in (60.0, 110.0):
+            plan = mp.plan_budget(mp.resolve_pass_models({}), gvr.PRICES, duration=duration, cap=mp.budget_cap({}),
+                                  prompt_chars=CHARS, images=CARDS)
+            p = plan["passes"]
+            self.assertLessEqual(plan["estimated_credits"], 55.0)
+            self.assertEqual({k: (v["model"], v["fps"], v["res"]) for k, v in p.items()},
+                             {"A": (PRO, 2.0, "HIGH"), "B": (PRO, 2.0, "HIGH"), "C": (FLASH, 2.0, "LOW"),
+                              "D": (PRO, 2.0, "DEFAULT")})
+            self.assertTrue(all(v["degraded_steps"] == 0 for v in p.values()))
+
+    def test_long_episode_steps_down_the_model_aware_ladder_under_the_default(self):
+        plan = mp.plan_budget(mp.resolve_pass_models({}), gvr.PRICES, duration=240.0, cap=mp.budget_cap({}),
                               prompt_chars=CHARS, images=CARDS)
         p = plan["passes"]
-        self.assertEqual({k: (v["model"], v["fps"], v["res"]) for k, v in p.items()},
-                         {"A": (PRO, 2.0, "HIGH"), "B": (PRO, 2.0, "HIGH"), "C": (FLASH, 2.0, "LOW"),
-                          "D": (PRO, 2.0, "DEFAULT")})
-        self.assertTrue(all(v["degraded_steps"] == 0 for v in p.values()))
+        self.assertLessEqual(plan["estimated_credits"], 55.0)
+        self.assertTrue(all("skipped" not in v for v in p.values()), p)
+        self.assertEqual((p["A"]["model"], p["A"]["fps"], p["A"]["res"]), (PRO, 2.0, "HIGH"))
+        # B stepped down to Flash: the slack never goes back to D's Pro step (lower priority)
+        self.assertEqual((p["B"]["model"], p["D"]["model"], p["D"]["model_planned"]), (FLASH, FLASH, PRO))
 
     def test_pass_ladder_steps_a_pro_pass_down_to_flash(self):
         self.assertEqual(mp.pass_ladder("D", PRO), ((PRO, 2.0, "DEFAULT"), (FLASH, 2.0, "DEFAULT"),
