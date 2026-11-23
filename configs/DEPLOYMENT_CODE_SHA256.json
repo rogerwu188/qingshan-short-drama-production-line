@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2549,
+  "file_count": 2550,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -477,7 +477,7 @@
     },
     {
       "path": "lines/nalu/docs/PIPELINE_RUNBOOK.md",
-      "sha256": "541ef9524a6a22f025720a179f841cc8b7875416b0840f57db521abc6a08443a"
+      "sha256": "2e035db48e1547b9ce4ca04a9f34ced859bde4e5f0d7cb280697b2ee847c645b"
     },
     {
       "path": "lines/nalu/docs/PORT_PARITY_REPORT.md",
@@ -813,7 +813,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "e722f97a5fec7931cefdd8b5cb5a727413ba3f61be11ef80ea896b3c2676209d"
+      "sha256": "5e8e729498c661b3a2fda06279e19c2499cd027b37ed893bacf01125e463f6be"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -5269,7 +5269,7 @@
     },
     {
       "path": "tools/h3_burn_retry.py",
-      "sha256": "6a4cf11da4a73a50032d4bb1bd09dd2bc4c018a94e6b0d47c420987bf05cbd3d"
+      "sha256": "243292ead440e57fbe3d3fbb9e2720581d39ff1d8780ca2aeef80f1880447b78"
     },
     {
       "path": "tools/h3_camera_wobble.py",
@@ -6961,7 +6961,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "7b74bed95e56dd2aa994a5c47543bc14672d09796643b274cb7a23d966c2a6ec"
+      "sha256": "4d8833da7d748911d9f6ffe0ac40f1b2968f396836114c4bc4d07948837fa792"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -8033,7 +8033,7 @@
     },
     {
       "path": "tools/tests/test_final_fix_misroute_and_sheet_leak.py",
-      "sha256": "e46725efb1ea71ee02ee2f527ff2a830e2be0cf990c67226266625bbe1f4f546"
+      "sha256": "d504a493a87337bb984d3728afd5dd7fe0fe0a98597fe5194582eb3ce56d3372"
     },
     {
       "path": "tools/tests/test_final_package_blocker_gate.py",
@@ -8597,7 +8597,7 @@
     },
     {
       "path": "tools/tests/test_nalu_final_fix_round_v2.py",
-      "sha256": "b2afc67e037c7a209e0a33d53af66f1149617ab0cda009e6d53855e04b2dc158"
+      "sha256": "c4d25fea02ce0e751c59bb23761fdce1d411b1c5d06c288b1805b4edab185160"
     },
     {
       "path": "tools/tests/test_nalu_gemini_multipass.py",
@@ -9204,8 +9204,12 @@
       "sha256": "4f053769a723fadf837f1601c6480c514f84018371fe035ce6caa023c8ae9e1d"
     },
     {
+      "path": "tools/tests/test_s6_burn_retry_converge.py",
+      "sha256": "83389d0d4c9e10166d9a8cd0285729d13b2aa630d291e783897e7e3f6c537693"
+    },
+    {
       "path": "tools/tests/test_s6_burned_text_retry.py",
-      "sha256": "b7fc8a45a9c66591e9a316d271f48763476f9882c6ffffc1b58d6c5919137654"
+      "sha256": "36735383e78587daaeb15d7c79a1e86f605517bb004fdb8c6439ef04db0af599"
     },
     {
       "path": "tools/tests/test_s6_chain_step_latency.py",

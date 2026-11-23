@@ -365,6 +365,12 @@ class BurnRedoLoopTest(unittest.TestCase):
         row = self.land("U3", "U3-take1")[0]
         self.assertEqual((row["action"], row["reason"], row["budget_left"]), ("KEEP_BEST", "FINAL_FIX_BUDGET_CAP", 6.0))
         self.assertTrue((self.p.video_media / "U3.mp4").is_file())       # kept, nothing parked
+        # the cap arithmetic is logged and recorded (E23 2026-11-22: read as a misjudgment next to headroom 1341)
+        self.assertIn("FINAL_FIX_BURN_UNRESOLVED unit=U3 retry=0/2 reason=FINAL_FIX_BUDGET_CAP kept_take=",
+                      "\n".join(self.said))
+        self.assertIn("cost=8 round_budget_left=6.0 round_cap=30 episode_headroom=500", "\n".join(self.said))
+        self.assertEqual(self.state()["U3"]["burn_unresolved_budget"],
+                         {"cost": 8, "round_budget_left": 6.0, "round_cap": 30, "episode_headroom": 500})
         self.assertEqual(ffr.round_budget_left({"paid": {"planned_credits": 16}},
                                                json.loads(P.final_fix_redo_path(self.ctx).read_text()), 30), 6.0)
 

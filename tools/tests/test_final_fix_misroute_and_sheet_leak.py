@@ -312,7 +312,7 @@ class BurnRetrySheetTest(unittest.TestCase):
             self.assertIn(br.SHEET_RETRY_SENTENCES[index], text)
             self.assertEqual(br.strip_retry_sentence(text), (base, index))
             self.assertNotRegex(br.SHEET_RETRY_SENTENCES[index], r"\d|[A-Z]{3,}")
-        self.assertEqual(br.apply_retry_sentence(base, 1), base.rstrip("\n") + "\n" + br.RETRY_SENTENCES[1] + "\n")
+        self.assertEqual(br.apply_retry_sentence(base, 1), br.RETRY_SENTENCES[1] + "\n" + base)  # burn: leads
         self.assertTrue(br.sheet_retry({"attempts": [{"retry": 1, br.SHEET_LEAK_FLAG: True}]}))
         self.assertFalse(br.sheet_retry({"attempts": [{"retry": 1}]}))
 

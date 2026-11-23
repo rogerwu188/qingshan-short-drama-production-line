@@ -6621,8 +6621,14 @@ def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
             continue
         state = read_json(state_path, {}) or {"schema": "nalu.s6_wave_state.v1", "waves": []}
         rec = dict((state.get(_br.STATE_KEY) or {}).get(uid) or {})
-        if clip_sha in (rec.get("checks") or {}):
+        pending_attempt = _s6_burn_attempt_awaiting_take(rec)
+        if clip_sha in (rec.get("checks") or {}) and not pending_attempt:
             continue  # this exact take was already measured and decided
+        if clip_sha in (rec.get("checks") or {}):
+            # a submitted retry came back byte-identical to an earlier take (E23 device 1101, 2026-11-22): used to
+            # be skipped as "already measured", leaving the record RETRY_SUBMITTED and the burned take unflagged
+            ctx.say(f"{_br.SAME_RENDER_LOG} unit={uid} retry={pending_attempt.get('retry')} "
+                    f"take={clip_sha[:12]} (byte-identical to an earlier take)")
         det = _br.detect(clip)
         _s6_burn_note_fail_open(ctx, uid, det)
         # a take that shows the unit's identity sheet as its picture is never CLEAN (JA-01 E04 VU-007 2026-11-21:
@@ -6642,8 +6648,13 @@ def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
             continue  # clean first take: nothing to record
         rec.setdefault("checks", {})[clip_sha] = check
         takes = list(rec.get("takes") or [])
+        # per-attempt request evidence (2026-11-22): the content fingerprint of the request that rendered this take
+        # (prompt sha + every sent reference sha, from the bound transaction) and the returned clip sha
+        request = _s6_take_request(ctx, uid)
+        landed = _s6_burn_note_take(ctx, uid, attempts, takes, request, clip_sha, det)
         takes.append({"sha256": clip_sha, "retry": len(attempts), "burned_frames": int(det.get("burned_frames") or 0),
                       "status": det.get("status"), "path": str(clip),
+                      **({"request": request} if request else {}), **landed,
                       **({_br.SHEET_LEAK_FLAG: True} if det.get(_br.SHEET_LEAK_FLAG) else {}),
                       **({_br.WOBBLE_FLAG: True, "wobble_pct": float((wob.get("metrics") or {}).get("excursion_pct")
                                                                       or 0.0)} if wobble else {})})
@@ -6762,6 +6773,82 @@ def s6_burn_check_landed(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
     return out
 
 
+def _s6_burn_attempt_awaiting_take(rec: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The unit's latest burn-retry attempt when it was submitted and no take of it was measured yet, else None."""
+    attempts = list((rec or {}).get("attempts") or [])
+    last = attempts[-1] if attempts else None
+    if isinstance(last, dict) and last.get("submitted_at") and not last.get("landed_clip_sha256"):
+        return last
+    return None
+
+
+def _s6_take_request(ctx: Ctx, uid: str) -> dict[str, Any] | None:
+    """The request content fingerprint (h3_burn_retry.request_fingerprint) of the unit's newest bound transaction in
+    the durable store -- the request that rendered the take that just landed.  None when unknown; never raises."""
+    try:
+        import h3_burn_retry as _br  # noqa: PLC0415
+        from datetime import datetime  # noqa: PLC0415
+        best, best_at = None, None
+        store = video_store_dir(ctx.episode)
+        for path in (store.glob(f"{uid}__*.json") if store.is_dir() else []):
+            row = read_json(path, {}) or {}
+            if row.get("state") != "SUBMITTED_TASK_ID_BOUND" or not row.get("task_id"):
+                continue
+            stamp = str(row.get("response_recorded_at") or row.get("intent_recorded_at") or "")
+            try:
+                at = datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                continue
+            if best_at is None or at > best_at:
+                best, best_at = row, at
+        fp = _br.request_fingerprint(best)
+        if fp is None:
+            return None
+        return {**fp, "task_id": best.get("task_id"),
+                "perturbation": next((n.get("burn_retry_perturbation", {}).get("method")
+                                      for n in best.get("reference_encoding_notes") or []
+                                      if isinstance(n, dict) and n.get("burn_retry_perturbation")), None)}
+    except Exception:  # noqa: BLE001 - evidence only
+        return None
+
+
+def _s6_burn_note_take(ctx: Ctx, uid: str, attempts: list[dict[str, Any]], takes: list[dict[str, Any]],
+                       request: dict[str, Any] | None, clip_sha: str, det: dict[str, Any]) -> dict[str, Any]:
+    """Per-attempt evidence of a landed burn-retry take (2026-11-22, E23 device 1101: five units, three takes each,
+    near-identical burned-frame counts).  Compares the take's request fingerprint and returned clip with the
+    previous take of the unit and says ``S6_BURN_RETRY_SAME_REQUEST`` (the provider got the identical request
+    again: the retry could not render anything new) / ``S6_BURN_RETRY_SAME_RENDER`` (byte-identical clip).  Marks
+    the pending attempt with the landed clip.  Returns the take-row fields; mutates ``attempts`` in place."""
+    import h3_burn_retry as _br  # noqa: PLC0415
+    texts = sorted({str(h.get("text") or "") for h in det.get("hits") or []})
+    out: dict[str, Any] = {"burn_texts": texts}
+    previous = takes[-1] if takes else None
+    if previous is None or not attempts:
+        return out
+    delta = _br.request_delta(previous.get("request"), request)
+    out["request_delta"] = delta
+    same_render = any(t.get("sha256") == clip_sha for t in takes)
+    same_burn = (int(previous.get("burned_frames") or 0) == int(det.get("burned_frames") or 0)
+                 and det.get("status") == "BURNED" and texts == previous.get("burn_texts"))
+    last = attempts[-1]
+    if not last.get("landed_clip_sha256"):
+        last.update(landed_clip_sha256=clip_sha, landed_burned_frames=det.get("burned_frames"),
+                    request_digest=(request or {}).get("digest"), request_delta=delta,
+                    perturbation=(request or {}).get("perturbation"),
+                    **({"same_render": True} if same_render else {}), **({"same_burn": True} if same_burn else {}))
+    if delta["status"] == "SAME":
+        out["same_request"] = True
+        last["same_request"] = True
+        ctx.say(f"{_br.SAME_REQUEST_LOG} unit={uid} retry={last.get('retry')} request={str(request.get('digest'))[:12]}"
+                " -- the retry sent the identical prompt and reference bytes; nothing new could render")
+    if same_render:
+        out["same_render"] = True
+    if same_burn:
+        ctx.say(f"S6_BURN_RETRY_SAME_BURN unit={uid} retry={last.get('retry')} frames={det.get('burned_frames')} "
+                f"request_changed={','.join(delta.get('changed') or []) or delta['status']}")
+    return out
+
+
 def _wob_summary(det: dict[str, Any] | None) -> dict[str, Any]:
     import h3_camera_wobble as _wobm  # noqa: PLC0415
     return _wobm.summary(det)
@@ -6871,8 +6958,11 @@ def s6_final_fix_burn_check(ctx: Ctx, uid: str, clip: Path, clip_sha: str) -> di
                                                    "elapsed_ms", "error") if det.get(k) is not None},
                         "at": now(), "retry": len(retries), "hits": (det.get("hits") or [])[:6]}
     takes = list(rec.get("burn_takes") or [])
+    request = _s6_take_request(ctx, uid)  # per-attempt request evidence, as in S6 (2026-11-22)
+    landed = _s6_burn_note_take(ctx, uid, retries, takes, request, clip_sha, det)
     takes.append({"sha256": clip_sha, "retry": len(retries), "burned_frames": int(det.get("burned_frames") or 0),
-                  "status": det.get("status"), "path": str(clip)})
+                  "status": det.get("status"), "path": str(clip), **({"request": request} if request else {}),
+                  **landed})
     retry_max = _ffr.burn_retry_max()
     cost, budget_left, headroom = 0, None, None
     if det.get("status") == "BURNED" and len(retries) < retry_max:
@@ -6926,12 +7016,21 @@ def s6_final_fix_burn_check(ctx: Ctx, uid: str, clip: Path, clip_sha: str) -> di
             for take in takes:
                 if take.get("sha256") == best["sha256"]:
                     take["path"] = str(clip)
+        # the cap arithmetic is recorded with the decision (E23 device 1101, 2026-11-22: FINAL_FIX_BUDGET_CAP next to
+        # an episode headroom of 1341 read as a misjudgment; the round cap NALU_FINAL_FIX_BUDGET_CREDITS minus the
+        # planned redos minus earlier retries is the limit, the episode headroom is a second, separate one)
+        budget = ({"cost": decision.get("cost"), "round_budget_left": decision.get("budget_left"),
+                   "round_cap": _ffr.budget_credits(), "episode_headroom": headroom}
+                  if decision["reason"] in ("FINAL_FIX_BUDGET_CAP", "BUDGET_HEADROOM_SHORT") else None)
         rec.update(burn_status="UNRESOLVED", burn_unresolved_reason=decision["reason"],
                    kept_take_sha256=best["sha256"], kept_take_burned_frames=best.get("burned_frames"),
-                   kept_take_retry=best.get("retry"), status="LANDED")
+                   kept_take_retry=best.get("retry"), status="LANDED", **({"burn_unresolved_budget": budget}
+                                                                          if budget else {}))
         checks.setdefault(best["sha256"], {})["kept_as_best"] = True
         ctx.say(f"FINAL_FIX_BURN_UNRESOLVED unit={uid} retry={len(retries)}/{retry_max} reason={decision['reason']} "
-                f"kept_take={str(best['sha256'])[:12]} burned_frames={best.get('burned_frames')}")
+                f"kept_take={str(best['sha256'])[:12]} burned_frames={best.get('burned_frames')}"
+                + (f" cost={budget['cost']} round_budget_left={budget['round_budget_left']} "
+                   f"round_cap={budget['round_cap']} episode_headroom={budget['episode_headroom']}" if budget else ""))
         row["kept_take_sha256"] = best["sha256"]
     rec.update(burn_checks=checks, burn_takes=takes, updated_at=now())
     state = read_json(path, {}) or {}

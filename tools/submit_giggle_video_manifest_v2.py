@@ -1628,12 +1628,17 @@ def _final_fix_burn_retry(task: dict[str, Any]) -> int:
         return 0
 
 
-def _burn_retry_perturb_strong(data: bytes, index: int, retry: int) -> tuple[bytes, dict[str, Any]]:
+def _burn_retry_module():
     try:
-        from tools.h3_burn_retry import perturb_start_frame_strong
+        from tools import h3_burn_retry
     except ModuleNotFoundError:
-        from h3_burn_retry import perturb_start_frame_strong
-    return perturb_start_frame_strong(data, index, retry)
+        import h3_burn_retry  # type: ignore
+    return h3_burn_retry
+
+
+def _burn_retry_perturb_strong(data: bytes, index: int, retry: int,
+                               steps: dict[int, tuple[float, int]] | None = None) -> tuple[bytes, dict[str, Any]]:
+    return _burn_retry_module().perturb_start_frame_strong(data, index, retry, steps)
 
 
 def _burn_retry_perturb(data: bytes, index: int) -> tuple[bytes, dict[str, Any]]:
@@ -1695,16 +1700,26 @@ def _hopsapi_reference_uploads(task: dict[str, Any]) -> tuple[list[dict[str, Any
             note = {**note, "start_frame_aspect": aspect}
         if index == 1 and (_burn_retry_index(task) or _final_fix_round(task)):
             # S6 burned-text retry (owner 2026-11-19): HopsAPI returns a byte-identical clip for identical request
-            # bytes, so @Image1 is re-encoded with an imperceptible retry-indexed change; recorded in the note.
+            # bytes, so @Image1 is re-encoded with a retry-indexed change; recorded in the note.
             # A final-fix redo (owner 2026-11-20) takes the next index after the burn retries.
             perturb_index = (max(_burn_retry_index(task), 2) + _final_fix_round(task) if _final_fix_round(task)
                              else _burn_retry_index(task))
             fix_retry = _final_fix_burn_retry(task) if _final_fix_round(task) else 0
-            # a final-fix redo still burned (2026-11-20): retry n escalates to a 1-2 % crop/scale + new JPEG quality
-            data, perturbation = (_burn_retry_perturb_strong(data, perturb_index, fix_retry) if fix_retry
-                                  else _burn_retry_perturb(data, perturb_index))
+            # a final-fix redo still burned (2026-11-20): retry n escalates to a 1-2 % crop/scale + new JPEG quality.
+            # E23 device 1101 (2026-11-22): the one-pixel nudge changed the bytes but not the render (five units,
+            # three takes each, near-identical burned-frame counts) -> every S6 retry and the final-fix redo itself
+            # send a scale-jittered @Image1 (h3_burn_retry.S6_STEPS)
+            if fix_retry:
+                data, perturbation = _burn_retry_perturb_strong(data, perturb_index, fix_retry)
+            elif _final_fix_round(task):
+                data, perturbation = _burn_retry_perturb_strong(data, perturb_index, 1,
+                                                                {1: _burn_retry_module().S6_FINAL_FIX_REDO_STEP})
+            else:
+                data, perturbation = _burn_retry_perturb_strong(data, perturb_index, perturb_index,
+                                                                _burn_retry_module().S6_STEPS)
             note = {**note, "burn_retry_perturbation": perturbation}
-        if index > 1 and _sheet_crop_requested(task) and _is_sheet(value):
+        if index > 1 and _is_sheet(value) and (
+                _sheet_crop_requested(task) or _burn_retry_index(task) >= _burn_retry_module().SHEET_CROP_FROM):
             # a retry / redo after the take showed the identity sheet as its picture (JA-01 E04 VU-007, 2026-11-21):
             # the sheet is sent as its front-view crop (face close-up panel); the compiled task, prompt and source
             # reference shas are unchanged, the note records it (sent_reference_sha256 = the bytes H3 received)
@@ -1812,6 +1827,14 @@ def _post_hopsapi_with_lease(task: dict[str, Any], receipt_dir: Path, transactio
         "provider_request_sha256": hashlib.sha256(json.dumps(
             payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest(),
         "provider_request_input": {k: v for k, v in payload["input"].items() if k != "prompt"},
+        # content fingerprint (2026-11-22): prompt + every sent reference sha, never the upload URLs -- S6 compares
+        # it across burn retries (S6_BURN_RETRY_SAME_REQUEST)
+        "sent_prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        "request_content_fingerprint": _burn_retry_module().request_content_fingerprint(
+            prompt=prompt, sent_reference_sha256=[row["sha256"] for row in images],
+            sent_audio_sha256=[row.get("sha256") for row in audios], duration=payload["input"].get("duration"),
+            resolution=payload["input"].get("resolution"), aspect_ratio=payload["input"].get("aspect_ratio"),
+            model=payload.get("model")),
     }
     if scope_evidence is not None:
         intent["prompt_scope_conflict_gate"] = scope_evidence["gate"]
