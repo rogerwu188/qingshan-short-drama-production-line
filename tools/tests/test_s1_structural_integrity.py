@@ -552,3 +552,63 @@ class IntegrityLoopTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ActionTemplateIntegrityTest(unittest.TestCase):
+    """Deep review 1485 E09 (JA anime, 2026-11-23): one primary_action / blocking / exit / gesture template on all
+    38 shots of five scenes; H3 rendered one stock raised-index-finger gesture for every line."""
+
+    @staticmethod
+    def e09_like() -> dict:
+        shots = []
+        for k, scene in enumerate(("E09-S01", "E09-S02", "E09-S03", "E09-S04")):
+            for i in range(1, 4):
+                cid = CHARS[(k + i) % 3][0]
+                s = shot(f"{scene}-0{i}", scene, [cid],
+                         f"{NAME[cid]} grabs the desk or clenches a fist while delivering the line, visibly "
+                         "changing the scene state.", line="你说什么", location=f"LOC-{k}")
+                s["blocking"] = s["prompt_spec"]["action"]["primary_action"]
+                s["completion_state"] = "the speaker finishes the gesture as the threat escalates"
+                s["prompt_spec"]["performance"] = {"body_action": "one distinct gesture driven by the conflict"}
+                shots.append(s)
+        return base_contract(shots)
+
+    def test_shot_action_template_is_integrity(self):
+        fails = sp.boilerplate_failures(self.e09_like())
+        for key in ("primary_action", "blocking", "completion_state", "body_action"):
+            self.assertIn(f"BOILERPLATE_TEXT:{key}:12/12", fails)
+        self.assertTrue(any(f.startswith("BOILERPLATE_PHRASE:grabs the desk or clenches a fist") for f in fails))
+        report = sp.evaluate(self.e09_like(), environ={})
+        self.assertIn("BOILERPLATE_TEXT:primary_action:12/12", report["integrity_failures"])
+
+    def test_neutral_entry_pose_template_is_advisory_only(self):
+        c = valid_contract()
+        for s in c["shots"]:
+            s["entry_state"] = "Someone is visible with both arms lowered before the action begins."
+        self.assertEqual(sp.evaluate(c, environ={})["integrity_failures"], [])
+        self.assertFalse([f for f in sp.boilerplate_failures(c) if "entry_state" in f])
+
+
+class SceneContiguityTest(unittest.TestCase):
+    """1485 E09: the scenes' silent closing shots were appended after the last scene (a 9 s end montage)."""
+
+    def test_shot_filed_after_a_later_scene_is_integrity(self):
+        c = valid_contract()
+        scenes = [s["scene_id"] for s in c["shots"]]
+        self.assertEqual(sp.scene_order_failures(c), [])
+        first = dict(c["shots"][0])
+        first["shot_id"] = first["shot_id"] + "-CLOSE"
+        c["shots"].append(first)                      # scene 1's closing beat filed at the very end
+        if len(set(scenes)) < 2:
+            self.skipTest("valid contract has one scene")
+        fails = sp.scene_order_failures(c)
+        self.assertEqual(fails, [f"SCENE_NOT_CONTIGUOUS:{first['scene_id']}:{first['shot_id']}"])
+        report = sp.evaluate(c, environ={})
+        self.assertIn(fails[0], report["integrity_failures"])
+
+    def test_declared_intercut_may_return(self):
+        c = valid_contract()
+        back = dict(c["shots"][0])
+        back["intercut"] = True
+        c["shots"].append(back)
+        self.assertEqual(sp.scene_order_failures(c), [])
