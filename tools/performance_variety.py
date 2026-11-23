@@ -22,6 +22,12 @@ never chosen unless the beat itself calls for it (shrug / helpless / pleading wo
 ``performance.business_en`` always wins (its family is still counted); a Chinese ``body_action`` is mapped to its
 family's English phrase when its words name one.
 
+The tracker is shared by every character: the window and the scene cap count gesture families whoever speaks
+(JA-01 E08 on device 1485, 2026-11-22: "the same raised right index finger in many shots" -- three speakers, one
+gesture).  Pointing / a raised index finger is never a default either: the ``point`` family is chosen only when the
+script itself calls for pointing, and generic placeholder business ("delivers the line with a clear anime gesture
+and visible posture change") counts as no business at all (:func:`is_generic_gesture`), so it is replaced.
+
 Only English, language- and style-agnostic wording; nothing here gates anything.
 """
 from __future__ import annotations
@@ -38,6 +44,9 @@ SCENE_CAP = 2
 STOCK_FAMILY = "palms_open"
 #: Never-line item of a prompt that carries business (h3_director_prompt_v2)
 NEVER_STOCK = "repeated stock hand-spreading gestures (both palms spread outward, open-arms shrugs)"
+#: second Never-line item of a prompt that carries business (V1 + V2 renderers; JA-01 E08 2026-11-22)
+NEVER_POINTING = "raised index fingers or repeated pointing gestures"
+POINT_FAMILY = "point"
 
 FACE, HANDS, BODY = "face", "hands", "body"
 #: family -> (phrase, framing need, intents).  Phrases are body-only: they never invent a prop or a garment detail.
@@ -63,6 +72,11 @@ VOCAB: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "lean_back": ("leans back a little", BODY, ("smug", "cold", "surprise")),
     "shoulders_drop": ("lets the shoulders drop slightly", BODY, ("sad", "neutral", "fear")),
     "weight_shift": ("shifts weight onto one foot", BODY, ("neutral", "doubt", "shy")),
+    "look_down_up": ("looks down for a moment, then up at the listener", FACE, ("sad", "shy", "fear", "pleading")),
+    "turn_away": ("turns half away, then back on the last word", BODY, ("cold", "anger", "sad", "smug")),
+    "square_shoulders": ("squares the shoulders", BODY, ("determined", "anger", "cold")),
+    "clasp_hands": ("clasps the hands loosely in front", HANDS, ("shy", "pleading", "neutral", "fear")),
+    "hair_touch": ("brushes a strand of hair back from the face", HANDS, ("shy", "doubt", "smug", "neutral")),
     STOCK_FAMILY: ("spreads both palms outward", HANDS, ("pleading",)),
 }
 #: listeners: reactive, mouth closed (never a mouth movement H3 could lip-sync)
@@ -99,6 +113,17 @@ _INTENT_WORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
 #: the beat itself asks for the stock gesture
 _STOCK_CALLED = re.compile(r"shrug|helpless|spread(?:s|ing)? (?:both |his |her |their )?(?:hands|palms|arms)"
                            r"|open[- ]arm|摊手|摊开双手|耸肩|无奈|肩をすく|両手を広げ|어깨를 으쓱", re.IGNORECASE)
+#: the beat itself asks for pointing (the only case the ``point`` family / a raised finger may be used)
+_POINT_CALLED = re.compile(r"\bpoint(?:s|ed|ing)?\b|index finger|指着|指向|指了指|手指指|指さ|指差|가리키|손가락질",
+                           re.IGNORECASE)
+#: placeholder business that names no concrete movement (H3 renders it as one stock gesture, a raised index finger)
+_GENERIC_GESTURE = re.compile(
+    r"(?:clear|big|strong|expressive|emphatic|visible|anime|dramatic|appropriate|natural)\s+(?:\w+\s+)?gestures?\b"
+    r"|\bgestures?\s+(?:emphatically|clearly|while (?:speaking|talking)|to emphasi[sz]e)"
+    r"|\b(?:delivers|says|speaks) (?:the|his|her|their) line with\b|\bvisible posture change\b"
+    r"|\b(?:raises|lifts|holds up) (?:a|one|the|his|her|their) (?:right |left )?(?:index )?finger\b"
+    r"|\bindex finger\b|\bgesture settles\b"
+    r"|明显的(?:动漫|动画)?手势|清晰的(?:动漫|动画)?手势|做出手势|竖起食指|伸出食指", re.IGNORECASE)
 #: any text that names the stock gesture (authored business is counted as that family)
 _STOCK_TEXT = re.compile(r"(?:spread|open|throw)s?\w* (?:out )?(?:both |his |her |their )?(?:hands|palms|arms)"
                          r"|palms? (?:spread|out|up)|open[- ]arm|shrug|摊手|摊开|張開雙手|张开双手|张开双臂|両手を広げ",
@@ -156,6 +181,17 @@ def family_of(text: Any) -> str | None:
     return None
 
 
+def is_generic_gesture(text: Any) -> bool:
+    """True when ``text`` is placeholder performance ("delivers the line with a clear anime gesture and visible posture
+    change", "gesture settles ...", "raises one index finger") instead of one concrete, beat-motivated movement."""
+    return bool(_GENERIC_GESTURE.search(str(text or "")))
+
+
+def pointing_called(*texts: Any) -> bool:
+    """The script itself asks for pointing (then the ``point`` family / a raised finger is allowed)."""
+    return bool(_POINT_CALLED.search(" ".join(str(t or "") for t in texts)))
+
+
 def _scale_allows(need: str, scale: str) -> bool:
     scale = str(scale or "").upper()
     if need == FACE:
@@ -198,16 +234,18 @@ class Tracker:
         self.scene_counts.setdefault(scene, Counter())[family] += 1
 
     def choose(self, *, intent: str, scale: str, scene: str, seed: int, stock_called: bool = False,
-               mannerisms: Iterable[str] = ()) -> tuple[str, str]:
+               mannerisms: Iterable[str] = (), point_called: bool = False) -> tuple[str, str]:
         """(family, phrase).  Order: the character's mannerisms, then the families of this intent, then any family
         the framing shows; within each tier the first one neither repeated in the window nor capped in the scene
         (rotated by ``seed`` so equal beats differ); last resort the least-used allowed family."""
         tiers: list[list[tuple[str, str]]] = []
-        own = [(f"mannerism:{i}", m) for i, m in enumerate(_english(x) for x in mannerisms or []) if m]
+        own = [(f"mannerism:{i}", m) for i, m in enumerate(_english(x) for x in mannerisms or [])
+               if m and not is_generic_gesture(m) and (point_called or not pointing_called(m))]
         if own:
             tiers.append(own)
         allowed = [(f, VOCAB[f][0]) for f in VOCAB
-                   if _scale_allows(VOCAB[f][1], scale) and (f != STOCK_FAMILY or stock_called)]
+                   if _scale_allows(VOCAB[f][1], scale) and (f != STOCK_FAMILY or stock_called)
+                   and (f != POINT_FAMILY or point_called)]
         if stock_called:
             tiers.append([(f, p) for f, p in allowed if f == STOCK_FAMILY])
         tiers.append([(f, p) for f, p in allowed if intent in VOCAB[f][2]])
@@ -219,7 +257,7 @@ class Tracker:
             for f, p in tier[start:] + tier[:start]:
                 if not self.blocked(f, scene) and not self.capped(f, scene):
                     return f, p
-        pool = [x for x in allowed if x[0] != STOCK_FAMILY] or allowed
+        pool = [x for x in allowed if x[0] not in (STOCK_FAMILY, POINT_FAMILY)] or allowed
         counts = self.scene_counts.get(scene, Counter())
         return min(pool, key=lambda fp: (fp[0] in self.recent[-(self.window - 1):], counts[fp[0]], fp[0]))
 
@@ -241,7 +279,8 @@ def _speaker_id(spec: dict[str, Any]) -> str:
 
 
 def assign_episode(shots: list[dict[str, Any]], entities: dict[str, dict[str, Any]] | None = None, *,
-                   window: int = WINDOW, scene_cap: int = SCENE_CAP) -> dict[str, Any]:
+                   window: int = WINDOW, scene_cap: int = SCENE_CAP,
+                   performance_by_shot: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     """In place over editorial shots (``{shot_id, scene_id, prompt_spec}``, episode order): every dialogue shot whose
     speaker is on screen gets ``prompt_spec.action.performance_business_en`` (+ ``performance_business_family``) and,
     when other people are visible, ``listener_business_en``.  Returns the receipt (one row per dialogue shot)."""
@@ -262,28 +301,43 @@ def assign_episode(shots: list[dict[str, Any]], entities: dict[str, dict[str, An
         if not speaker or speaker not in visible:
             continue  # an offscreen / V.O. speaker has no body on screen
         performance = action.get("performance") if isinstance(action.get("performance"), dict) else {}
+        if not performance and isinstance((performance_by_shot or {}).get(sid), dict):
+            # an episode outside CAMERA_GRAMMAR_V1 keeps the writer's performance out of its manifest; it is still
+            # read here (emotion / business_en / body_action), never copied into the spec
+            performance = (performance_by_shot or {})[sid]
         scale = str((spec.get("camera_plan") or {}).get("shot_scale") or shot.get("shot_size") or "")
         beat_text = " ".join(str(x or "") for x in (performance.get("delivery_en"), performance.get("body_action"),
                                                     action.get("primary_action"), dialogue))
         intent = intent_of(performance.get("emotion"), performance.get("delivery_en"), dialogue)
         stock_called = bool(_STOCK_CALLED.search(beat_text))
+        # pointing only when the script's action text asks for it (delivery / body action / primary action -- never
+        # the spoken words, "what's the point?"), never because a placeholder primary_action said "gesture"
+        point_called = pointing_called(performance.get("delivery_en"), performance.get("body_action"),
+                                       "" if is_generic_gesture(action.get("primary_action"))
+                                       else action.get("primary_action"))
         authored = _english(performance.get("business_en"))
         source = "AUTHORED_BUSINESS_EN"
         family = family_of(authored) if authored else None
+        if authored and is_generic_gesture(authored):
+            authored, family, source = "", None, "AUTHORED_GENERIC_REPLACED"
         if authored and family == STOCK_FAMILY and not stock_called:
             authored, family, source = "", None, "AUTHORED_STOCK_REPLACED"
+        if authored and family == POINT_FAMILY and not point_called:
+            authored, family, source = "", None, "AUTHORED_POINTING_REPLACED"
         if not authored:
             mapped = family_of(performance.get("body_action"))
             if (mapped and mapped in VOCAB and _scale_allows(VOCAB[mapped][1], scale)
-                    and (mapped != STOCK_FAMILY or stock_called)
+                    and (mapped != STOCK_FAMILY or stock_called) and (mapped != POINT_FAMILY or point_called)
                     and not tracker.blocked(mapped, scene) and not tracker.capped(mapped, scene)):
                 family, authored, source = mapped, VOCAB[mapped][0], "AUTHORED_BODY_ACTION_MAPPED"
         if not authored:
             ent = entities.get(speaker) or {}
             family, authored = tracker.choose(intent=intent, scale=scale, scene=scene, seed=_seed(sid, speaker),
-                                              stock_called=stock_called, mannerisms=ent.get("mannerisms") or [])
+                                              stock_called=stock_called, mannerisms=ent.get("mannerisms") or [],
+                                              point_called=point_called)
             source = ("MANNERISM" if family.startswith("mannerism:") else
-                      source if source == "AUTHORED_STOCK_REPLACED" else "VOCABULARY")
+                      source if source in ("AUTHORED_STOCK_REPLACED", "AUTHORED_GENERIC_REPLACED",
+                                           "AUTHORED_POINTING_REPLACED") else "VOCABULARY")
             if family.startswith("mannerism:"):
                 family = f"mannerism:{speaker}:{family.split(':', 1)[1]}"
         tracker.use(family, scene)
@@ -298,6 +352,7 @@ def assign_episode(shots: list[dict[str, Any]], entities: dict[str, dict[str, An
                 action["listener_business_en"] = listeners
         rows.append({"shot_id": sid, "scene_id": scene, "speaker_id": speaker, "intent": intent, "scale": scale,
                      "family": family, "business_en": authored, "source": source,
+                     **({"pointing_scripted": True} if point_called else {}),
                      **({"listeners": listeners} if listeners else {})})
     return {"schema": SCHEMA, "policy": POLICY, "window": window, "scene_cap": scene_cap, "rows": rows,
             "violations": variety_violations(rows, window=window, scene_cap=scene_cap)}
@@ -318,7 +373,28 @@ def variety_violations(rows: list[dict[str, Any]], *, window: int = WINDOW, scen
         out.extend(f"SCENE_CAP:{scene}:{fam}:{n}" for fam, n in counts.items() if fam and n > scene_cap)
     out.extend(f"STOCK_GESTURE:{r['shot_id']}" for r in rows
                if r.get("family") == STOCK_FAMILY and r.get("source") != "AUTHORED_BUSINESS_EN")
+    out.extend(f"UNSCRIPTED_POINTING:{r['shot_id']}" for r in rows
+               if r.get("family") == POINT_FAMILY and not r.get("pointing_scripted"))
     return out
+
+
+def placeholder_beat_texts(texts: Iterable[Any], names: Iterable[Any] = (), *, minimum: int = 3) -> list[str]:
+    """Boilerplate across beats: the texts (names masked) that repeat verbatim ``minimum``+ times, plus every generic
+    gesture placeholder.  JA-01 E08: every dialogue beat said "<Name> delivers the line with a clear anime gesture and
+    visible posture change", entry "standing facing the immediate conflict", exit "gesture settles while the conflict
+    remains visible" -- the same three sentences on every line, whoever spoke."""
+    masks = sorted({str(n).strip() for n in names or [] if str(n or "").strip()}, key=len, reverse=True)
+
+    def norm(text: Any) -> str:
+        value = " ".join(str(text or "").split()).strip().lower()
+        for name in masks:
+            value = value.replace(name.lower(), "<name>")
+        return value.rstrip(".;, ")
+
+    counts = Counter(norm(t) for t in texts or [] if norm(t))
+    out = [t for t, n in counts.items() if n >= minimum and len(t) >= 12]
+    out += [norm(t) for t in texts or [] if is_generic_gesture(t) and norm(t) not in out]
+    return list(dict.fromkeys(out))
 
 
 def business_sentence(label: str, business: Any) -> str:
@@ -328,6 +404,42 @@ def business_sentence(label: str, business: Any) -> str:
         return ""
     text = re.sub(rf"^{re.escape(label)}\s+", "", text, flags=re.IGNORECASE)
     return f"While speaking, {label} {text[0].lower() + text[1:]}."
+
+
+def concrete_action(label: str, business: Any) -> str:
+    """The beat's action sentence built from its own business (replaces a generic placeholder primary_action):
+    "Alpha adjusts one cuff with the other hand" ('' without English business)."""
+    text = _english(business)
+    if not text:
+        return ""
+    if label:
+        text = re.sub(rf"^{re.escape(label)}\s+", "", text, flags=re.IGNORECASE)
+        return f"{label} {text[0].lower() + text[1:]}"
+    return text[0].upper() + text[1:]
+
+
+def concrete_exit(label: str) -> str:
+    """Replacement for a placeholder exit state ("gesture settles while the conflict remains visible")."""
+    who = f"{label}'s" if label else "The speaker's"
+    return f"{who} movement finishes naturally and the posture stays where it ended"
+
+
+def deplaceholder_beat(translated: dict[str, Any], label: str, business: Any) -> tuple[dict[str, Any], bool]:
+    """(beat, replaced): a copy of one English beat whose generic gesture placeholders (primary_action / exit_state)
+    are rebuilt from the beat's own business.  Without English business, or without placeholders, the beat is
+    returned unchanged (same object) -- prompt bytes of such beats never move."""
+    if not _english(business):
+        return translated, False
+    action = str(translated.get("primary_action") or "")
+    exit_state = str(translated.get("exit_state") or "")
+    if not (is_generic_gesture(action) or is_generic_gesture(exit_state)):
+        return translated, False
+    out = dict(translated)
+    if is_generic_gesture(action):
+        out["primary_action"] = concrete_action(label, business)
+    if is_generic_gesture(exit_state):
+        out["exit_state"] = concrete_exit(label)
+    return out, True
 
 
 def listener_sentence(label: str, business: Any) -> str:

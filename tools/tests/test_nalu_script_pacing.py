@@ -85,7 +85,13 @@ def punchy_contract(lang: str = "zh") -> dict:
         for k in range(6):
             n += 1
             sid = f"{scene}-{k + 1:02d}"
-            if k in (1, 4):
+            if k == 0 and s:
+                # each new place is SHOWN (an arrival / establishing beat): the move is motivated, not a relocated
+                # conversation (JA-01 E08)
+                shots.append(shot(sid, scene, 4.0, "", dims=("POSITION",), beat_role="TRANSITION",
+                                  blocking=("林岚走进" if lang == "zh" else "Lin walks in") , location=location,
+                                  scale="WIDE"))
+            elif k in (1, 4):
                 shots.append(shot(sid, scene, 3.5, lines[n % len(lines)], dims=("CONTACT",), blocking=grab,
                                   location=location))
             elif k == 2:
@@ -225,7 +231,7 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(m["location_count"], 1)
         report = sp.evaluate(c)
         codes = {f.split(":", 1)[0] for f in report["failures"]}
-        for code in ("DIALOGUE_ONLY_TOO_HIGH", "VISUAL_ACTION_TOO_LOW", "VISUAL_BEATS_TOO_FEW", "SCENE_STATIC",
+        for code in ("DIALOGUE_ONLY_TOO_HIGH", "VISUAL_ACTION_TOO_LOW", "VISUAL_BEATS_TOO_FEW", "VISUAL_VARIETY_LOW",
                      "SCENE_TALK_ONLY"):
             self.assertIn(code, codes, report["failures"])
             self.assertIn(code, report["fixes"])
@@ -248,13 +254,18 @@ class MetricsTest(unittest.TestCase):
         c = punchy_contract("zh")
         for s in c["shots"]:
             s["prompt_spec"]["space"] = {"location": "LOC-OFFICE"}
-        self.assertTrue(any(f.startswith("SCENE_STATIC") for f in sp.evaluate(c)["failures"]))
+        failures = sp.evaluate(c)["failures"]
+        # one place under five scene_ids, no time skip: the scenes are one scene (merge) ...
+        self.assertIn("SCENE_SPLIT_SAME_LOCATION:E03-S01>E03-S02", failures)
+        # ... but the in-place variety (action, inserts, movement) still satisfies the visual-variety target
+        self.assertFalse(any(f.startswith("VISUAL_VARIETY_LOW") for f in failures), failures)
         for i, s in enumerate(c["shots"]):                          # one place, but night falls: a time change
             s["prompt_spec"]["scene_state"] = {"time": "day" if i < 15 else "night"}
-        self.assertFalse(any(f.startswith("SCENE_STATIC") for f in sp.evaluate(c)["failures"]))
-        two = {"shots": [shot(f"x{i}", "S1" if i < 20 else "S2", 6.0, "", blocking="林岚奔跑。",
-                              location=f"L{i // 20}") for i in range(23)]}
-        self.assertTrue(any(f.startswith("SCENE_STATIC:scenes=2") for f in sp.evaluate(two)["failures"]))
+        changes = sp.measure(c)["scene_changes"]
+        self.assertEqual([c["kind"] for c in changes][1:3], ["SAME_PLACE_SPLIT", "MOTIVATED_TIME_CHANGE"])
+        two = {"shots": [shot(f"x{i}", "S1" if i < 20 else "S2", 6.0, "", cast=[], location=f"L{i // 20}")
+                         for i in range(23)]}
+        self.assertTrue(sp.measure(two)["scene_changes"][0]["motivated"])  # a new place opened on its establishing view
 
     def test_source_action_beats_are_suggested(self) -> None:
         source = ("林岚走进院子。「你来做什么？」周默问。她一把夺过他手里的账本，转身冲出门去。\n"

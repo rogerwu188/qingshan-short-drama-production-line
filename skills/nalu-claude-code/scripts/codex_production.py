@@ -206,7 +206,8 @@ def gemini_step(gemini: Path | None) -> str:
    脸与皮肤漂移、背景随人晃、手、声音性别不对 → 付费重做该单元；声音类 → 免费 S7 重混/重剪；导演/剪辑类 → 记录并进知识库。
    你自己也必查这两条（Gemini 没报也要看）：**声音性别**——每个说话镜头，画面里开口的人是女性/男性，听到的声音是不是同性别
    （女角色配男声是硬伤，写 problems，带时间点和是谁）；**表演单调**——人物说话时有没有具体的小动作（整理袖口、握住桌沿、移开视线再看回、
-   上前半步、抱臂、碰项链、歪头、轻呼一口气），还是干站着念台词、或多个镜头反复同一个手势（如双手向两侧摊开），听的人是不是僵住不动；
+   上前半步、抱臂、碰项链、歪头、轻呼一口气），还是干站着念台词、或多个镜头反复同一个手势（如双手向两侧摊开、竖起食指/指着对方；
+   不同角色用同一个手势也算），听的人是不是僵住不动；
    单调就写 problems（`CRAFT-ACTING-MONOTONY`，kb_scope 写 global：这是导演问题，不分语言）。
    每一条 G/S 都要在 `qa_defect_checklist.gemini_verification` 里给结论：`[{{"id": "G1", "decision": "CONFIRMED|DISMISSED", "reason": "你看到/测到了什么"}}]`；
    CONFIRMED 的同时给 `"kb_scope": "global|language"` 和一句 `"kb_scope_reason"`（判法同第 3 步 problems 的 kb_scope；

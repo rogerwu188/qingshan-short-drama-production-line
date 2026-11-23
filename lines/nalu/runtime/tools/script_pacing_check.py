@@ -19,7 +19,16 @@ cumulative ``target_seconds``) -- no model, no network, no paid call:
                            handing over ...) / episode seconds                                          >= 0.30
   visual_beat_count        silent visual beats (action / insert / establishing / transition / movement)
                                                                                   >= max(3, ceil(D / 30))
-  scene changes            scenes per 2 minutes >= 3 and >= 2 locations (or a time change)
+  visual variety           MOTIVATED scene changes + in-place variety (movement / action / insert / establishing
+                           shots, reaction action, new arrivals, blocking changes)          >= max(4, ceil(D / 24))
+  scene changes            each change of location must be motivated: a time change, or a shown transition /
+                           arrival / travel beat, or a new set of participants (a new event).  A continuing
+                           conversation (overlapping speakers, no time skip, no transition) stays in ONE place and
+                           ONE scene_id (CONVERSATION_SPLIT_ACROSS_LOCATIONS); two consecutive scene_ids in the same
+                           place without a time skip are one scene (SCENE_SPLIT_SAME_LOCATION).  JA-01 E08 on device
+                           1485 (2026-11-22): the "scenes per 2 minutes" target of the first version made the writer
+                           relocate one three-person conversation council hall -> market -> courtyard, and every
+                           speaker's shots had a different background.  Unmotivated changes never count.
   longest_line             sentences and spoken units of the longest line (<= 2 sentences, language cap)
   monologue runs           one speaker's back-to-back lines > 12 s without an interjection or action
   scenes_without_action    scenes where no shot shows a physical action (talk-only scenes)
@@ -100,9 +109,18 @@ TARGETS = {
     "visual_action_ratio_min": 0.30,     # >= 30 % of screen time shows action / non-talking visual storytelling
     "visual_beat_every_seconds": 30.0,   # silent visual beats >= max(MIN, ceil(D / 30))
     "min_visual_beats": 3,
-    "scenes_per_2min_min": 3.0,          # >= 3 scenes per 2 minutes ...
-    "min_locations": 2,                  # ... over >= 2 locations (or a time change between scenes)
+    # visual variety (replaces "scenes per 2 minutes", JA-01 E08): motivated scene changes + in-place variety events
+    "visual_variety_every_seconds": 24.0,
+    "min_visual_variety": 4,
 }
+#: a person entering the scene (an arrival is in-place variety)
+_ENTER_WORDS = re.compile(r"\b(?:enter(?:s|ed)?|arriv(?:es|ed|ing)|walks? in|steps? in|comes? in|bursts? in)\b"
+                          r"|走进|进来|进门|赶到|赶来|闯进|闯入|入って|現れ|들어오|나타나", re.IGNORECASE)
+#: shot kinds that add visual variety inside one location (reaction action, movement, inserts, establishing views)
+VARIETY_KINDS = frozenset({"ACTION", "MOVEMENT", "INSERT", "ESTABLISHING", "TRANSITION", "TALK_WITH_ACTION"})
+#: a shown change of place / time: the new scene opens on (or the old one ends with) one of these silent shots
+TRANSITION_KINDS = frozenset({"TRANSITION", "ESTABLISHING", "MOVEMENT", "ACTION"})
+TRANSITION_ROLES = frozenset({"TRANSITION", "ARRIVAL", "TRAVEL", "TIME_SKIP", "ESTABLISHING", "EXIT", "ENTRANCE"})
 
 # --------------------------------------------------------------------------- storyboard (visual) classification
 #: a line spoken WHILE one of these happens is not a talking head (grab / shove / strike / hand over / break / run
@@ -221,12 +239,16 @@ def shot_kind(shot: dict[str, Any], speaking: bool) -> str:
     return "STATIC_REACTION"
 
 
-def _location(shot: dict[str, Any]) -> tuple[str, str]:
+def _location(shot: dict[str, Any], scene_row: dict[str, Any] | None = None) -> tuple[str, str]:
+    """(location, time) of one shot: the shot's own declaration, else its scene's ``scene_states`` row (the
+    generation contract keeps the location on the scene, ``shot_scene_overrides`` aside)."""
     spec = shot.get("prompt_spec") if isinstance(shot.get("prompt_spec"), dict) else {}
     space = spec.get("space") if isinstance(spec.get("space"), dict) else {}
     state = spec.get("scene_state") if isinstance(spec.get("scene_state"), dict) else {}
-    return (_clean(space.get("location") or shot.get("location_id") or shot.get("location")),
-            _clean(state.get("time") or shot.get("time_of_day")))
+    scene_row = scene_row or {}
+    return (_clean(space.get("location") or shot.get("location_id") or shot.get("location")
+                   or scene_row.get("location_id") or scene_row.get("location")),
+            _clean(state.get("time") or shot.get("time_of_day") or scene_row.get("time_id") or scene_row.get("time")))
 
 _SENTENCE_END = re.compile(r"[。！？!?…]+|\.(?:\s+|$)")
 _OPEN_END = re.compile(r"[？?…—―-]\s*[」』\"'”’]?\s*$")
@@ -333,6 +355,10 @@ def line_unit_cap(language: str) -> int:
 def timeline(contract: dict[str, Any], language: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     cursor = 0.0
+    scene_rows = {_clean(r.get("scene_id")): r for r in (contract or {}).get("scene_states") or []
+                  if isinstance(r, dict) and _clean(r.get("scene_id"))}
+    overrides = (contract or {}).get("shot_scene_overrides") if isinstance(
+        (contract or {}).get("shot_scene_overrides"), dict) else {}
     for index, shot in enumerate((contract or {}).get("shots") or []):
         if not isinstance(shot, dict):
             continue
@@ -350,12 +376,23 @@ def timeline(contract: dict[str, Any], language: str) -> list[dict[str, Any]]:
         dims = {_clean(d).upper() for d in shot.get("state_delta_dimensions") or []}
         speaker = _clean(role.get("dialogue_speaker_id")) or (lines[0]["speaker"] if lines else "")
         kind = shot_kind(shot, bool(lines))
-        location, time_of_day = _location(shot)
+        scene_row = dict(scene_rows.get(_clean(shot.get("scene_id"))) or {})
+        override = overrides.get(_clean(shot.get("shot_id"))) if isinstance(
+            overrides.get(_clean(shot.get("shot_id"))), dict) else {}
+        scene_row.update({k: v for k, v in override.items() if k in ("location_id", "time_id") and v})
+        location, time_of_day = _location(shot, scene_row)
         out.append({"index": index, "shot_id": _clean(shot.get("shot_id")) or f"SHOT-{index + 1}",
                     "scene_id": _clean(shot.get("scene_id")) or "SCENE", "start": round(cursor, 3),
                     "end": round(cursor + seconds, 3), "seconds": seconds, "lines": lines,
                     "speaker": speaker if lines else "", "kind": kind,
                     "location": location, "time_of_day": time_of_day,
+                    "cross_cut": bool(override.get("location_id")),
+                    "cast": sorted({_clean(c.get("character_id") or c.get("character")) for c in spec.get("cast") or []
+                                    if isinstance(c, dict) and _clean(c.get("character_id") or c.get("character"))
+                                    and _clean(c.get("face_visibility")).upper() != "OFFSCREEN_VOICE_ONLY"}),
+                    "enters": bool(_ENTER_WORDS.search(action_text(shot))),
+                    "subspace": _clean((spec.get("space") or {}).get("subspace") if isinstance(spec.get("space"), dict)
+                                       else "") or _clean(shot.get("subspace_id") or shot.get("zone_id")),
                     # measured from the storyboard (shot_kind), not from the writer's state labels
                     "physical": kind in PHYSICAL_KINDS,
                     "speaking_action": kind == "TALK_WITH_ACTION",
@@ -377,6 +414,176 @@ def _at(ref: Any, rows: list[dict[str, Any]]) -> float | None:
                 return hit["start"]
         return _num(ref.get("at_seconds"))
     return None
+
+
+# --------------------------------------------------------------------------- scene changes (JA-01 E08)
+def _speakers(rows: list[dict[str, Any]]) -> set[str]:
+    return {_clean(ln.get("speaker")) for r in rows for ln in r["lines"] if _clean(ln.get("speaker"))} | {
+        _clean(r.get("speaker")) for r in rows if _clean(r.get("speaker"))}
+
+
+def _shown_transition(prev_rows: list[dict[str, Any]], rows: list[dict[str, Any]]) -> bool:
+    """The change of place is SHOWN: the new scene opens on a silent transition / establishing / arrival / movement
+    shot (or a declared transition / arrival role), or the old scene ends on a silent exit / movement shot."""
+    head = rows[:2]
+    if any(r["beat_role"] in TRANSITION_ROLES for r in head):
+        return True
+    if rows and not rows[0]["lines"] and rows[0]["kind"] in TRANSITION_KINDS:
+        return True
+    tail = prev_rows[-1] if prev_rows else None
+    return bool(tail and not tail["lines"] and (tail["kind"] in ("TRANSITION", "MOVEMENT", "ACTION")
+                                                or tail["beat_role"] in TRANSITION_ROLES))
+
+
+#: how many speaking shots on each side of a scene boundary decide "the same conversation goes on"
+BOUNDARY_SPEAKING_SHOTS = 4
+#: ``pacing.scene_plan[].change_reason`` values that declare a time jump told by a line or a caption (craft S-04)
+TIME_SKIP_REASONS = frozenset({"TIME_SKIP", "TIME_JUMP", "LATER"})
+
+
+def continuing_conversation(prev_rows: list[dict[str, Any]], rows: list[dict[str, Any]]) -> list[str]:
+    """The speakers who carry one conversation across the boundary: the last speaking shots of the old scene and the
+    first of the new one share two or more speakers (or the very same single speaker on both sides).  One shared
+    person is not a continuing conversation (craft S-04: she is thrown out, hard cut, she already sits at the rival's
+    desk -- a new event with a new partner)."""
+    tail = [r for r in prev_rows if r["lines"]][-BOUNDARY_SPEAKING_SHOTS:]
+    head = [r for r in rows if r["lines"]][:BOUNDARY_SPEAKING_SHOTS]
+    a, b = _speakers(tail), _speakers(head)
+    shared = sorted(a & b)
+    if len(shared) >= 2 or (shared and a == b):
+        return shared
+    return []
+
+
+def scene_changes(rows: list[dict[str, Any]], scene_plan: dict[str, dict[str, Any]] | None = None
+                  ) -> list[dict[str, Any]]:
+    """Every boundary between consecutive scene_ids, classified:
+
+    MOTIVATED_TIME_CHANGE      the scene's time changes (scene_states time), or the writer declares a time jump
+                               told by a line / caption (``pacing.scene_plan[].change_reason: TIME_SKIP``, craft S-04)
+    MOTIVATED_SHOWN            a new place opened by a shown transition / arrival / establishing beat
+    MOTIVATED_NEW_EVENT        a new place and no conversation carried over the cut (:func:`continuing_conversation`)
+    CONVERSATION_SPLIT         a new place, the same people still talking, no time skip, nothing shown -- one
+                               continuing conversation relocated (E08: council hall -> market -> courtyard)
+    SAME_PLACE_SPLIT           the same place and time under a new scene_id: one scene split in two (E08 S01/S02)
+    Cross-cut shots (``shot_scene_overrides``) belong to their scene; a scene's place is its first shot's."""
+    scenes: list[tuple[str, list[dict[str, Any]]]] = []
+    for r in rows:
+        if scenes and scenes[-1][0] == r["scene_id"]:
+            scenes[-1][1].append(r)
+        else:
+            scenes.append((r["scene_id"], [r]))
+    out: list[dict[str, Any]] = []
+    for (prev_id, prev_rows), (scene_id, cur_rows) in zip(scenes, scenes[1:]):
+        if prev_id == scene_id:
+            continue
+        place = lambda rs: next((x["location"] for x in rs if x["location"] and not x["cross_cut"]), "")  # noqa: E731
+        when = lambda rs: next((x["time_of_day"] for x in rs if x["time_of_day"]), "")  # noqa: E731
+        a_loc, b_loc, a_time, b_time = place(prev_rows), place(cur_rows), when(prev_rows), when(cur_rows)
+        overlap = continuing_conversation(prev_rows, cur_rows)
+        shown = _shown_transition(prev_rows, cur_rows)
+        plan_row = (scene_plan or {}).get(scene_id) or {}
+        declared_skip = (_clean(plan_row.get("change_reason")).upper() in TIME_SKIP_REASONS
+                         or plan_row.get("time_skip") is True)
+        time_change = bool(a_time and b_time and a_time != b_time) or declared_skip
+        if time_change:
+            kind = "MOTIVATED_TIME_CHANGE"
+        elif not a_loc or not b_loc:
+            kind = "UNKNOWN_LOCATION"
+        elif a_loc == b_loc:
+            kind = "SAME_PLACE_SPLIT"
+        elif shown:
+            kind = "MOTIVATED_SHOWN"
+        elif not overlap:
+            kind = "MOTIVATED_NEW_EVENT"
+        else:
+            kind = "CONVERSATION_SPLIT"
+        out.append({"from_scene": prev_id, "to_scene": scene_id, "from_location": a_loc, "to_location": b_loc,
+                    "at": cur_rows[0]["start"], "kind": kind, "motivated": kind.startswith("MOTIVATED"),
+                    "shared_speakers": overlap[:6], "shown_transition": shown, "time_change": time_change})
+    return out
+
+
+def in_place_variety(rows: list[dict[str, Any]]) -> dict[str, int]:
+    """Visual variety that needs no new location: movement / action / insert / establishing / transition shots and
+    lines spoken with action (reaction action), new arrivals (someone enters an ongoing scene) and blocking changes
+    (the shot moves to another subspace of the same place)."""
+    shots = sum(1 for r in rows if r["kind"] in VARIETY_KINDS)
+    arrivals = blocking = 0
+    seen: dict[str, set[str]] = {}
+    last_subspace: dict[str, str] = {}
+    for r in rows:
+        cast = set(r.get("cast") or [])
+        if r["scene_id"] in seen:
+            # someone visibly ENTERS an ongoing scene (a reverse shot of a person who was there all along is not one)
+            if cast - seen[r["scene_id"]] and (r["beat_role"] in ("ARRIVAL", "ENTRANCE") or r.get("enters")):
+                arrivals += len(cast - seen[r["scene_id"]])
+            seen[r["scene_id"]] |= cast
+        else:
+            seen[r["scene_id"]] = set(cast)
+        sub = r.get("subspace") or ""
+        if sub and last_subspace.get(r["scene_id"]) not in (None, sub):
+            blocking += 1
+        if sub:
+            last_subspace[r["scene_id"]] = sub
+    return {"variety_shots": shots, "arrivals": arrivals, "blocking_changes": blocking}
+
+
+# --------------------------------------------------------------------------- placeholder acting (JA-01 E08)
+#: per-shot performance text the writer authors; a template copied onto every line is not direction
+PERFORMANCE_TEXT_FIELDS = (("shot", "entry_state"), ("shot", "completion_state"), ("action", "primary_action"),
+                           ("action", "start_state"), ("action", "completion_state"), ("action", "contact_point"),
+                           ("action", "force_feedback"))
+
+
+def _performance_variety():
+    try:
+        import performance_variety as _pv  # noqa: PLC0415 -- repo tools/ (on the engine path)
+        return _pv
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        root_tools = str(_HERE.parents[3] / "tools")
+        if root_tools not in sys.path:
+            sys.path.append(root_tools)
+        import performance_variety as _pv  # noqa: PLC0415
+        return _pv
+    except Exception:  # noqa: BLE001 -- the check is optional when the module is absent
+        return None
+
+
+def placeholder_acting(contract: dict[str, Any]) -> list[str]:
+    """Speaking-shot performance text that is a template (the same sentence, names masked, on 3+ lines) or a generic
+    gesture placeholder.  JA-01 E08: every line was "<Name> delivers the line with a clear anime gesture and visible
+    posture change", entry "standing facing the immediate conflict", exit "gesture settles while the conflict remains
+    visible" -- H3 rendered one raised index finger for all of them."""
+    pv = _performance_variety()
+    if pv is None:
+        return []
+    names: set[str] = set()
+    for row in (contract or {}).get("character_entities") or []:
+        if isinstance(row, dict):
+            names |= {_clean(row.get(k)) for k in ("canonical_name", "english_name", "character_id", "name")}
+    texts: list[str] = []
+    states: list[str] = []   # entry / exit states legitimately chain (shot n's exit = shot n+1's entry): generic only
+    lang = contract_language(contract)
+    for shot in (contract or {}).get("shots") or []:
+        if not isinstance(shot, dict):
+            continue
+        spec = shot.get("prompt_spec") if isinstance(shot.get("prompt_spec"), dict) else {}
+        dialogue = spec.get("dialogue") if spec.get("dialogue") not in (None, "", []) else shot.get("dialogue")
+        rows = _rows(dialogue)
+        if not rows:
+            continue
+        names |= {split_line(r, lang)[0] for r in rows}
+        action = spec.get("action") if isinstance(spec.get("action"), dict) else {}
+        for where, key in PERFORMANCE_TEXT_FIELDS:
+            value = _clean((shot if where == "shot" else action).get(key))
+            if value:
+                (texts if key in ("primary_action", "contact_point", "force_feedback") else states).append(value)
+    found = pv.placeholder_beat_texts(texts, names - {""})
+    found += [t for t in pv.placeholder_beat_texts(states, names - {""}, minimum=10 ** 6) if t not in found]
+    return found[:6]
 
 
 # --------------------------------------------------------------------------- measure
@@ -505,6 +712,14 @@ def measure(contract: dict[str, Any], language: str | None = None) -> dict[str, 
 
     required = max(TARGETS["min_turns"], int(duration // TARGETS["turn_every_seconds"])) if duration else \
         TARGETS["min_turns"]
+    changes = scene_changes(rows, {_clean(p.get("scene_id")): p for p in pacing.get("scene_plan") or []
+                                   if isinstance(p, dict)})
+    motivated = [c for c in changes if c["motivated"]]
+    variety = in_place_variety(rows)
+    variety_count = len(motivated) + sum(variety.values())
+    required_variety = max(TARGETS["min_visual_variety"],
+                           math.ceil(duration / TARGETS["visual_variety_every_seconds"])) if duration else \
+        TARGETS["min_visual_variety"]
     return {
         "language": lang, "duration_seconds": duration, "shot_count": len(rows), "scene_count": len(scenes),
         "turns": turns, "turn_count": len(turns), "required_turns": required,
@@ -523,6 +738,14 @@ def measure(contract: dict[str, Any], language: str | None = None) -> dict[str, 
         "location_count": len(locations) if locations else None, "locations": locations[:8],
         "time_change": len(times_of_day) > 1,
         "scenes_per_2min": round(len(scenes) * 120.0 / duration, 2) if duration else 0.0,
+        "scene_changes": changes[:24], "motivated_scene_changes": len(motivated),
+        "motivated_scene_changes_per_2min": round(len(motivated) * 120.0 / duration, 2) if duration else 0.0,
+        "conversation_splits": [f"{c['from_scene']}>{c['to_scene']}" for c in changes
+                                if c["kind"] == "CONVERSATION_SPLIT"],
+        "same_place_splits": [f"{c['from_scene']}>{c['to_scene']}" for c in changes if c["kind"] == "SAME_PLACE_SPLIT"],
+        "in_place_variety": variety, "visual_variety_count": variety_count,
+        "placeholder_acting": placeholder_acting(contract),
+        "required_visual_variety": required_variety,
         "speech_share_ref": round(speech_seconds / duration, 3) if duration else 0.0,
         "longest_line": longest, "line_unit_cap": cap, "long_lines": long_lines[:12],
         "long_line_count": len(long_lines), "monologue_runs": monologues[:8],
@@ -547,8 +770,22 @@ FIXES = {
                              "or lines spoken while something physical happens (grab, shove, hand over, break, run)",
     "VISUAL_BEATS_TOO_FEW": "add silent visual beats: an action shot, a prop insert, an establishing view of the new "
                             "place, a transition (one every ~30 s)",
-    "SCENE_STATIC": "move the story through places: >= 3 scenes per 2 minutes over >= 2 locations (or a clear "
-                    "time jump); cut a talk scene into a walk-and-talk / a new place",
+    "VISUAL_VARIETY_LOW": "give the eye something new every ~20-25 s -- inside the same place is fine: a character "
+                          "moves or crosses the room, someone arrives, a prop insert, a reaction with action, a "
+                          "blocking change; change place only for a story reason (time skip, travel / arrival shown, "
+                          "a new event) -- never relocate a conversation to fake a scene change",
+    "CONVERSATION_SPLIT_ACROSS_LOCATIONS": "one continuing conversation (same people, same thread, no time skip) stays "
+                                           "in ONE location and ONE scene_id: merge the scenes back into the first "
+                                           "place; only if the story really moves on, open the new place on a silent "
+                                           "establishing / arrival shot, or make it a real time jump (scene time "
+                                           "changes, or scene_plan change_reason TIME_SKIP told by a line)",
+    "PERFORMANCE_PLACEHOLDER": "write each speaking shot's entry / action / exit from THAT line: one concrete movement "
+                               "(a head tilt, a look away, a step, crossing the arms, touching a prop, a posture shift) "
+                               "and the listener's reaction; never one template sentence on every line, never 'a clear "
+                               "gesture' / 'visible posture change', no pointing or raised index finger unless the story "
+                               "needs it",
+    "SCENE_SPLIT_SAME_LOCATION": "two consecutive scene_ids in the same place without a time skip are one scene: "
+                                 "merge them (one scene_id, one scene_states row)",
     "LINE_TOO_LONG": "at most 2 short sentences per line; split or cut the rest",
     "BACK_TO_BACK_MONOLOGUE": "break the run with an interjection, a physical action or a reaction",
     "SCENE_TALK_ONLY": "give the scene a physical action that changes something (grab, shove, hand over, leave)",
@@ -585,13 +822,16 @@ def evaluate(contract: dict[str, Any], language: str | None = None,
         failures.append(f"VISUAL_ACTION_TOO_LOW:{m['visual_action_ratio']:.2f}<{t['visual_action_ratio_min']:.2f}")
     if m["duration_seconds"] and m["visual_beat_count"] < m["required_visual_beats"]:
         failures.append(f"VISUAL_BEATS_TOO_FEW:{m['visual_beat_count']}<{m['required_visual_beats']}")
-    if m["duration_seconds"]:
-        few_scenes = m["scenes_per_2min"] < t["scenes_per_2min_min"]
-        one_place = (m["location_count"] is not None and m["location_count"] < t["min_locations"]
-                     and not m["time_change"])
-        if few_scenes or one_place:
-            failures.append(f"SCENE_STATIC:scenes={m['scene_count']}({m['scenes_per_2min']:.1f}/2min),"
-                            f"locations={m['location_count'] if m['location_count'] is not None else '?'}")
+    if m["duration_seconds"] and m["visual_variety_count"] < m["required_visual_variety"]:
+        # motivated scene changes and in-place variety count; a relocated conversation does not (JA-01 E08)
+        failures.append(f"VISUAL_VARIETY_LOW:{m['visual_variety_count']}<{m['required_visual_variety']}"
+                        f"(motivated_scene_changes={m['motivated_scene_changes']})")
+    for pair in m["conversation_splits"][:4]:
+        failures.append(f"CONVERSATION_SPLIT_ACROSS_LOCATIONS:{pair}")
+    for pair in m["same_place_splits"][:4]:
+        failures.append(f"SCENE_SPLIT_SAME_LOCATION:{pair}")
+    if m["placeholder_acting"]:
+        failures.append(f"PERFORMANCE_PLACEHOLDER:{len(m['placeholder_acting'])}")
     if m["dialogue_only_ratio_declared"] + 0.25 < m["dialogue_only_ratio"]:
         # the writer's state labels claim far more action than the storyboard shows (E07: 0.00 declared)
         warnings.append(f"DECLARED_ACTION_NOT_IN_STORYBOARD:{m['dialogue_only_ratio_declared']:.2f}"
@@ -619,7 +859,7 @@ def evaluate(contract: dict[str, Any], language: str | None = None,
     codes = sorted({c.split(":", 1)[0] for c in failures})
     suggestions = []
     if source_texts and {"VISUAL_ACTION_TOO_LOW", "VISUAL_BEATS_TOO_FEW", "SCENE_TALK_ONLY", "DIALOGUE_ONLY_TOO_HIGH",
-                         "SCENE_STATIC"} & set(codes):
+                         "VISUAL_VARIETY_LOW"} & set(codes):
         suggestions = source_action_beats(source_texts, m["language"])
     fixes = {c: FIXES[c] for c in codes if c in FIXES}
     if suggestions:
@@ -768,7 +1008,8 @@ def summary(report: dict[str, Any], decision: dict[str, Any] | None = None) -> d
                 "max_turn_gap_seconds", "max_turn_gap_window", "dialogue_only_ratio", "speech_share_ref",
                 "longest_line", "long_line_count", "scenes_without_action", "scene_count",
                 "dialogue_only_ratio_declared", "visual_action_ratio", "visual_beat_count", "required_visual_beats",
-                "location_count", "scenes_per_2min", "time_change")},
+                "location_count", "scenes_per_2min", "time_change", "motivated_scene_changes",
+                "conversation_splits", "same_place_splits", "visual_variety_count", "required_visual_variety")},
             "policy_basis": report.get("policy_basis"),
             **({"grandfathered": report["grandfathered"]} if report.get("grandfathered") else {}),
             "source_action_beats": list(report.get("source_action_beats") or [])[:6],

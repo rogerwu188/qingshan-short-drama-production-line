@@ -33,6 +33,7 @@ if str(_pathlib.Path(__file__).resolve().parents[4] / "tools") not in _sys.path:
     _sys.path.append(str(_pathlib.Path(__file__).resolve().parents[4] / "tools"))
 import voice_over_narration as _vo  # V.O. narration: VOICE_ONLY_NO_PLATE lines stay out of the video
 import performance_variety as _pv  # PERFORMANCE_VARIETY_V1: varied physical business per dialogue beat
+import scene_location_lock as _sll  # SCENE_LOCATION_LOCK_V1: one scene, one place (JA-01 E08)
 import argparse
 import copy
 import hashlib
@@ -1047,10 +1048,24 @@ def location_materials(location: Any, vcc: dict[str, Any], element_names: list[s
             if value.strip()][:4] or ["夯土与粗布材质"]
 
 
+def performance_variety_grandfathered(editorial_path: Path) -> bool:
+    """True when this episode's editorial manifest was already built without PERFORMANCE_VARIETY_V1 (before the layer
+    ran on every path): the layer stays off for it, so its prompts -- and any take already paid against them -- keep
+    their bytes.  A first build, or a manifest that already carries the layer, is not grandfathered."""
+    try:
+        previous = json.loads(Path(editorial_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(previous, dict) or not previous.get("shots"):
+        return False
+    return "performance_variety" not in previous
+
+
 def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                     index: SpaceIndex, engine: Engine, episode: str,
                     contract_path: Path, gsm_path: Path,
-                    root: Path, requirements: dict[str, Any] | None = None
+                    root: Path, requirements: dict[str, Any] | None = None,
+                    variety_grandfathered: bool = False,
                     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     # dialogue language set by main() via Engine.set_dialogue_language (stand-in engines: zh)
     language = getattr(engine, "language", "zh")
@@ -1562,9 +1577,17 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
 
     # PERFORMANCE_VARIETY_V1 (line owner 2026-11-20, JA-01 E02: talking without small movements, always the same
     # both-palms-out gesture): every on-screen speaker gets one concrete, beat-motivated business, never the same
-    # gesture family within 4 dialogue units or more than twice per scene; listeners get reactive business.
-    # CAMERA_GRAMMAR_V1 episodes only (the DIRECTOR_PROMPT_V2 renderer reads the English fields).
-    variety = _pv.assign_episode(shots, entities) if camera_grammar else None
+    # gesture family within 4 dialogue units or more than twice per scene (whoever speaks); listeners get reactive
+    # business.  ALL paths since 2026-11-22 (JA-01 E08, device 1485: the episode was outside CAMERA_GRAMMAR_V1, its V1
+    # prompts carried "<Name> delivers the line with a clear anime gesture" on every line and H3 raised the same
+    # index finger each time) -- both H3 renderers read the English fields.  An episode whose editorial manifest was
+    # already built without the layer keeps it off (its prompts, and any paid take bound to them, never move).
+    variety = None
+    if camera_grammar or not variety_grandfathered:
+        performance_by_shot = {str(s.get("shot_id")): ((s.get("prompt_spec") or {}).get("action") or {}).get("performance")
+                               for s in contract.get("shots") or []
+                               if isinstance(((s.get("prompt_spec") or {}).get("action") or {}).get("performance"), dict)}
+        variety = _pv.assign_episode(shots, entities, performance_by_shot=performance_by_shot)
     manifest = {
         "schema": "qingshan.editorial_seedance_manifest.v2_performance_complete",
         "episode": episode,
@@ -1591,6 +1614,13 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
             "rows": duration_report}} if duration_report else {}),
         "shots": shots,
         **({"performance_variety": variety} if variety else {}),
+        **({"performance_variety_grandfathered": "EDITORIAL_BUILT_BEFORE_ALL_PATH_VARIETY"}
+           if variety is None and variety_grandfathered else {}),
+        # SCENE_LOCATION_LOCK_V1 (JA-01 E08): every shot of a scene takes its place from the scene row; the marker
+        # also opts the episode into the tail-rejected unit's scene location reference (append_h3_scene_location_
+        # references).  Grandfathered episodes keep their reference sets.
+        **({"scene_location_lock": _sll.scene_location_receipt(shots, contract.get("shot_scene_overrides"))}
+           if not variety_grandfathered else {}),
     }
     if any(shot["prompt_spec"].get("voice_over") for shot in shots):
         manifest["voice_over_character_ids"] = sorted(vo_ids)
@@ -2135,7 +2165,9 @@ def main() -> int:
     # ---------------------------------------------------------------- stage b
     editorial, splits = build_editorial(contract, plan_rows, index, engine, episode,
                                         contract_path, gsm_path, root,
-                                        requirements=requirements)
+                                        requirements=requirements,
+                                        variety_grandfathered=performance_variety_grandfathered(
+                                            out_dir / f"{prefix}EDITORIAL_SEEDANCE_MANIFEST_V1.json"))
     beat_failures: list[str] = []
     for shot in editorial["shots"]:
         try:
@@ -2496,6 +2528,8 @@ def main() -> int:
         missing_cards = append_h3_prop_plates(
             compile_anchor, json.loads(plan_path.read_text(encoding="utf-8")), editorial, episode=episode)
         compile_anchor["h3_prop_reference_cards_missing"] = missing_cards
+        compile_anchor["h3_scene_location_references"] = append_h3_scene_location_references(
+            compile_anchor, json.loads(plan_path.read_text(encoding="utf-8")), editorial, episode=episode)
         compile_anchor["source_gated_anchor_plan_sha256"] = sha256_file(anchor_path)
         compile_anchor["planned_reference_image_count"] = sum(
             int(u.get("planned_reference_image_count") or 0) for u in compile_anchor.get("units") or [])
@@ -3023,6 +3057,8 @@ def write_full_h3_compile_anchor(full_anchor_path: Path, full_plan_path: Path, e
         compile_anchor, full_plan, editorial, episode=episode)
     compile_anchor["h3_prop_reference_cards_missing"] = append_h3_prop_plates(
         compile_anchor, full_plan, editorial, episode=episode)
+    compile_anchor["h3_scene_location_references"] = append_h3_scene_location_references(
+        compile_anchor, full_plan, editorial, episode=episode)
     compile_anchor["source_gated_anchor_plan_sha256"] = sha256_file(Path(full_anchor_path))
     compile_anchor["planned_reference_image_count"] = sum(
         int(u.get("planned_reference_image_count") or 0) for u in compile_anchor.get("units") or [])
@@ -3151,6 +3187,73 @@ def _locked_prop_plate(prop_id: str, *, episode: str) -> Path | None:
         if path.is_file() and declared and sha256_file(path) == declared:
             return path
     return None
+
+
+def _locked_scene_plate(location_id: str, *, episode: str) -> Path | None:
+    """The LOCKED (qa PASS) stage-3(a) location plate of ``location_id`` from this episode's scoped asset library,
+    sha-verified (the plate the keyframes of that scene were drawn on); None when there is none."""
+    library_path = _scoped_asset_library_path(episode)
+    cache_key = str(library_path.resolve())
+    if cache_key not in _ASSET_LIBRARY_CACHE:
+        _ASSET_LIBRARY_CACHE[cache_key] = (
+            json.loads(library_path.read_text(encoding="utf-8")) if library_path.is_file() else {})
+    scenes = (_ASSET_LIBRARY_CACHE[cache_key].get("assets") or {}).get("scenes") or {}
+    row = scenes.get(location_id) or next(
+        (r for r in scenes.values() if isinstance(r, dict)
+         and location_id in {str(r.get(k) or "") for k in ("location_id", "contract_asset_id", "entity_id")}), {})
+    if not isinstance(row, dict) or str(row.get("status") or "") != "LOCKED" \
+            or str((row.get("qa") or {}).get("status") or "") != "PASS":
+        return None
+    for artifact in row.get("artifacts") or []:
+        if not isinstance(artifact, dict):
+            continue
+        path = Path(str(artifact.get("path") or ""))
+        declared = str(artifact.get("sha256") or "")
+        if path.is_file() and declared and sha256_file(path) == declared:
+            return path
+    return None
+
+
+def append_h3_scene_location_references(anchor_plan: dict[str, Any], plan: dict[str, Any],
+                                        editorial: dict[str, Any], *, episode: str) -> list[dict[str, Any]]:
+    """SCENE_LOCATION_LOCK_V1 (JA-01 E08 2026-11-22: shot / reverse-shot of one conversation showed three different
+    places).  A unit whose predecessor tail was rejected (OWN_KEYFRAME_TAIL_REJECTED, #286) opens on its own keyframe
+    with no picture of the scene's place beside it; it gets one "background / location only" reference after its
+    identity and prop plates -- the scene's LOCKED location plate, else the scene's own keyframe that shows nobody
+    outside this unit's cast (scene_location_lock.location_reference_for_unit).  No entity binding (it identifies
+    nobody), never over the provider's reference cap.  Only episodes whose editorial carries the
+    ``scene_location_lock`` marker (built by this engine); returns the rows attached."""
+    if "scene_location_lock" not in (editorial or {}):
+        return []
+    shot_ids_by_unit = {str(u.get("unit_id")): list(u.get("editorial_shot_ids") or []) for u in plan.get("units") or []}
+    attached: list[dict[str, Any]] = []
+    for unit in anchor_plan.get("units") or []:
+        uid = str(unit.get("unit_id"))
+        paths = list(unit.get("reference_image_paths") or [])
+        if len(paths) >= VIDEO_REFERENCE_MAX:
+            continue
+        ref = _sll.location_reference_for_unit(
+            unit, shot_ids_by_unit.get(uid, []), editorial,
+            scene_plate=lambda location: _locked_scene_plate(location, episode=episode))
+        if not ref:
+            continue
+        decision = unit.setdefault("anchor_count_decision", {})
+        roles = list(decision.get("anchor_roles") or [])
+        keys = list(unit.get("reference_image_task_keys") or [])
+        entities: list[Any] = list(unit.get("reference_entity_bindings") or [])
+        entities += [None] * (len(paths) - len(entities))
+        paths.append(ref["path"]); roles.append(_sll.LOCATION_REFERENCE_ROLE)
+        keys.append(f"SCENE_LOCATION:{ref['scene_id']}:{ref.get('source_shot_id') or ref['location_id']}")
+        entities.append(None)
+        unit["reference_image_paths"] = paths
+        unit["reference_image_task_keys"] = keys
+        unit["planned_reference_image_count"] = len(paths)
+        decision["anchor_roles"] = roles
+        decision["planned_reference_image_count"] = len(paths)
+        unit["reference_entity_bindings"] = entities
+        unit["scene_location_reference"] = ref
+        attached.append({"unit_id": uid, **ref})
+    return attached
 
 
 def append_h3_prop_plates(anchor_plan: dict[str, Any], plan: dict[str, Any], editorial: dict[str, Any],
@@ -3316,14 +3419,15 @@ def render_h3_final_prompts(transaction: dict[str, Any], *, out_dir: Path, root:
         final_index_path.write_text(json.dumps(index, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     request_path = answers_path.with_name(answers_path.stem + ".REQUEST.json")
     if pending:
-        from tools.h3_english_contract_io import ANSWERS_SCHEMA, REQUEST_SCHEMA
+        from tools.h3_english_contract_io import ANSWERS_SCHEMA, BEAT_TEXT_RULE, REQUEST_SCHEMA
         existing = json.loads(request_path.read_text(encoding="utf-8")) if request_path.is_file() else {}
         keep = [r for r in existing.get("units") or [] if r.get("answer_key") not in {p["answer_key"] for p in pending}]
         request_path.write_text(json.dumps({
             "schema": REQUEST_SCHEMA, "answers_file": str(answers_path), "answers_schema": ANSWERS_SCHEMA,
             "instructions": existing.get("instructions") or (
                 "Fill `english` for every unit (same shape, non-empty, no Chinese), store it in the answers file "
-                "under its answer_key with execution_semantics_sha256 copied, keep existing entries, re-run."),
+                "under its answer_key with execution_semantics_sha256 copied, keep existing entries, re-run. "
+                + BEAT_TEXT_RULE),
             "units": keep + pending}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     status = "PASS" if not pending and not failed else "BLOCKED"
     blocking = []

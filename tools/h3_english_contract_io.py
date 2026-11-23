@@ -131,6 +131,11 @@ def request_row(unit: dict[str, Any], plan: dict[str, Any] | None = None) -> dic
         s = {k: merged.get(k) for k in ("entry_state", "primary_action", "exit_state", *OPTIONAL_BEAT_FIELDS,
                                         "dialogue") if merged.get(k)}
         s["secondary_feedback"] = list(merged.get("secondary_feedback") or [])
+        business = _beat_business(unit, rendered.get("source_index") or beat.get("source_index"))
+        if business:
+            # PERFORMANCE_VARIETY_V1 (JA-01 E08): the beat's concrete business, so the translation describes THIS
+            # beat's movement instead of a placeholder ("delivers the line with a clear gesture")
+            s["performance_business_en"] = business
         t = {k: "" for k in ("entry_state", "primary_action", "exit_state")}
         for key in OPTIONAL_BEAT_FIELDS:
             if merged.get(key):
@@ -180,6 +185,27 @@ def request_row(unit: dict[str, Any], plan: dict[str, Any] | None = None) -> dic
         "source": src,
         "english": tpl,
     }
+
+
+def _beat_business(unit: dict[str, Any], source_index: Any) -> str:
+    try:
+        position = int(source_index) - 1
+    except (TypeError, ValueError):
+        return ""
+    specs = unit.get("ordered_prompt_specs") or []
+    spec = specs[position] if 0 <= position < len(specs) and isinstance(specs[position], dict) else {}
+    return str(((spec.get("action") or {}) if isinstance(spec.get("action"), dict) else {})
+               .get("performance_business_en") or "").strip()
+
+
+#: the part of the translator instructions that forbids placeholder acting (JA-01 E08 2026-11-22)
+BEAT_TEXT_RULE = (
+    "Every beat's entry_state / primary_action / exit_state / contact_point / force_feedback describes THAT beat's own "
+    "visible movement and state (use the beat's performance_business_en when given); never a template repeated across "
+    "beats or units, never a generic placeholder such as 'delivers the line with a clear gesture', 'visible posture "
+    "change', 'gesture settles', and never a raised or pointing index finger unless the source itself says pointing. "
+    "All units of one scene describe the same place in space_weather_fact (the scene's location, not a new one per "
+    "shot). ")
 
 
 def source_digest(source: dict[str, Any], template: dict[str, Any]) -> str:
@@ -268,6 +294,7 @@ def bind_or_request(units: list[dict[str, Any]], answers_path: Path) -> list[dic
                 "characters) as a faithful English rendering of `source`: concrete visible states, actions, "
                 "framings and sounds; character names in pinyin as in the identity references; never add or "
                 "drop an event. Dialogue stays out of these fields (it is rendered verbatim in Chinese). "
+                + BEAT_TEXT_RULE +
                 "Write the answers file as {\"schema\": answers_schema, \"units\": {<answer_key>: "
                 "{\"execution_semantics_sha256\": <copied>, \"source_digest\": <copied>, \"english\": {...}}}} — keep "
                 "every existing entry, add one per requested answer_key — then re-run the same stage."),

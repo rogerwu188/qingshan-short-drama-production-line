@@ -156,13 +156,27 @@ an episode already past a paid stage that relies on the default is grandfathered
   family, shot scale, cast, props), never the `state_delta_dimensions` labels: a line spoken with only a gesture, a
   lean or a step is a talking head. Talking heads stay under ~60 % of the episode; >= 30 % of the screen time is
   action / insert / establishing / transition shots or lines spoken during a physical action; at least one silent
-  visual beat every ~30 s; >= 3 scenes per 2 minutes over >= 2 locations (or a clear time jump). Turn exposition
-  into visible action and reaction (the S1 report suggests action sentences from the adapted chapters). At most 2
-  short sentences per line; no back-to-back monologue over ~12 s.
+  visual beat every ~30 s; visual variety about every 20-25 s, which one place can give (a character crosses the
+  room, someone arrives, a prop insert, a reaction with action, a blocking change). Turn exposition into visible
+  action and reaction (the S1 report suggests action sentences from the adapted chapters). At most 2 short sentences
+  per line; no back-to-back monologue over ~12 s.
+- **Scene changes are motivated; one conversation = one place = one scene_id.** Change location only for a story
+  reason -- a time skip (the scene's time changes), the characters travel / arrive (shown: a silent transition,
+  arrival or establishing shot opens the new scene), or a new event with other participants. A continuing
+  conversation (same people, same thread, no time skip) never jumps to another location_id between lines, and two
+  consecutive scene_ids in the same place without a time skip are one scene (merge them). Only motivated changes
+  count toward the pacing target; relocating a conversation to fake a scene change is reported
+  (`CONVERSATION_SPLIT_ACROSS_LOCATIONS`, `SCENE_SPLIT_SAME_LOCATION`) and must be revised.
+- **Every speaking shot's performance is written from its own line.** `entry_state` / `primary_action` /
+  `completion_state` / `contact_point` / `force_feedback` name one concrete movement of THAT beat (a head tilt, a look
+  away and back, a half step, turning away, crossing the arms, adjusting a sleeve or hair, a prop in hand) and the
+  listener's reaction; never one template sentence copied onto every line ("<Name> delivers the line with a clear
+  gesture and visible posture change"), never "a clear gesture", and no pointing / raised index finger unless the
+  story needs it (`PERFORMANCE_PLACEHOLDER`).
 - **Free S1 self-check and revision.** S1 measures these numbers (`lines/nalu/runtime/tools/script_pacing_check.py`:
   turns per minute, seconds to first conflict, longest gap between turns, talking-head share, visual-action share,
-  silent visual beats, scene / location changes, longest line, scenes without action, open ending, adapted plot
-  events). A failing script gets `SCRIPT_PACING_REVISE:round=n/2`: revise
+  silent visual beats, motivated scene changes and visual variety, conversations split across locations,
+  placeholder acting, longest line, scenes without action, open ending, adapted plot events). A failing script gets `SCRIPT_PACING_REVISE:round=n/2`: revise
   your own layers and rerun S1 — no owner, no paid call. After two revisions the engine admits the script and records
   the gaps; the numbers also go to the final review's director pass as context.
 
