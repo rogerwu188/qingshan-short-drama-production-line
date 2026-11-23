@@ -62,7 +62,7 @@ DEFAULT_BASE_URL = "https://hopsapi.com/v1"
 DEFAULT_FPS = 2.0
 FPS_STEPS = (2.0, 1.5, 1.0)
 MAX_CREDITS_DEFAULT = 1.5          # single pass
-MULTIPASS_MAX_CREDITS_DEFAULT = 55.0  # == gemini_review_passes.MAX_CREDITS_DEFAULT (2026-11-23)
+MULTIPASS_MAX_CREDITS_DEFAULT = 80.0  # == gemini_review_passes.MAX_CREDITS_DEFAULT (2026-11-23: + tail pass E, A at 3 fps)
 MODE_ENV = "NALU_GEMINI_REVIEW_MODE"
 MODES = ("multipass", "single")
 DEFAULT_MODE = "multipass"
