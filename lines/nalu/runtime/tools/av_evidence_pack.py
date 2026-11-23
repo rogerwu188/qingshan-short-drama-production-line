@@ -69,6 +69,15 @@ GARBLED_MIN_READS = 2
 GARBLED_UNKNOWN_FRAC = 0.5          # share of a read's CJK characters found in no ASR / caption text
 CJK = re.compile(r"[一-鿿]")
 PUNCT = "，。！？、…；：,.!?"
+#: kana / hangul / Latin letters (deep review 1485 E09, 2026-11-23: H3 burned the romanised line 「SeinMa, Ee miyte!」
+#: into the caption band of a Japanese episode; the pack counted hanzi only, so Latin / all-kana / Hangul burns were
+#: LOW_CONFIDENCE and anything in the caption band was OURS whatever it said)
+KANA_HANGUL = re.compile(r"[\u3041-\u30ff\uac00-\ud7af]")
+LATIN = re.compile(r"[A-Za-z]")
+LATIN_MIN_LETTERS = 3               # 1-2 Latin letters are texture reads
+CAPTION_TIME_SLACK_S = 0.25         # a caption counts as on screen this close to its ASS start / end
+FOREIGN_MIN_GLYPHS = 2
+FOREIGN_MAX_OVERLAP = 0.34          # share of a read's glyphs found in the caption on screen: below = not our caption
 
 # --- lone caption row (pixel): bright stroke pixels under a one-row caption, narrower than this many glyphs
 LONE_ROW_MAX_GLYPHS = 1.6
@@ -240,12 +249,54 @@ def box_geometry(box: Any, width: int, height: int) -> tuple[float, float, float
     return min(xs) / width, min(ys) / height, max(xs) / width, max(ys) / height
 
 
+def glyph_counts(text: str) -> tuple[int, int]:
+    """(CJK + kana + hangul glyphs, Latin letters) of an OCR read."""
+    return len(CJK.findall(text or "")) + len(KANA_HANGUL.findall(text or "")), len(LATIN.findall(text or ""))
+
+
+def _glyphs(text: str) -> list[str]:
+    return [c for c in str(text or "") if CJK.match(c) or KANA_HANGUL.match(c) or LATIN.match(c)]
+
+
+def foreign_to_caption(text: str, caption: str | None) -> bool:
+    """A caption-band read that is NOT our caption on screen: no caption is shown at that moment, a Latin-script read
+    under a caption without Latin letters (H3's romanised line), or a read sharing almost no glyphs with the
+    caption.  Misreads of our own caption (a wrong kanji, a dropped mark) share most glyphs and stay ours."""
+    read = _glyphs(text)
+    if len(read) < FOREIGN_MIN_GLYPHS:
+        return False
+    caption = str(caption or "")
+    if not _glyphs(caption):
+        return True
+    n_cjk, n_lat = glyph_counts(text)
+    if n_lat >= LATIN_MIN_LETTERS and n_cjk == 0 and not LATIN.search(caption):
+        return True
+    ref = {c.lower() for c in _glyphs(caption)}
+    shared = sum(1 for c in read if c.lower() in ref)
+    return len(read) >= 4 and shared / len(read) < FOREIGN_MAX_OVERLAP
+
+
+def caption_lookup(captions: list[dict[str, Any]]) -> Callable[[float], str] | None:
+    """t -> the text of every caption on screen within CAPTION_TIME_SLACK_S of t ("" when none), or None without
+    captions (no ASS: the caption band is assumed ours, the old behaviour)."""
+    if not captions:
+        return None
+
+    def at(t: float) -> str:
+        return "".join(c["text"] for c in captions
+                       if c["start"] - CAPTION_TIME_SLACK_S <= t <= c["end"] + CAPTION_TIME_SLACK_S)
+    return at
+
+
 def classify_box(t: float, text: str, score: float, geom: tuple[float, float, float, float], duration: float,
                  caption_text_at: Callable[[float], str] | None = None) -> str:
-    """OURS | BURNED | TITLE_CARD | END_CARD | SCENE_TEXT | LOW_CONFIDENCE."""
+    """OURS | BURNED | TITLE_CARD | END_CARD | SCENE_TEXT | LOW_CONFIDENCE.  Glyphs are hanzi, kana, hangul and
+    Latin letters (>= LATIN_MIN_LETTERS of them); with ``caption_text_at`` a caption-band read that is not the
+    caption on screen (:func:`foreign_to_caption`) is BURNED, not ours."""
     x0, y0, x1, y1 = geom
     h, yc = y1 - y0, (y0 + y1) / 2
-    n = len(CJK.findall(text))
+    n_cjk, n_lat = glyph_counts(text)
+    n = n_cjk + (n_lat if n_lat >= LATIN_MIN_LETTERS else 0)
     if n < 1 or score < OCR_LOW_SCORE:
         return "LOW_CONFIDENCE"
     if t < TITLE_CARD_S and TITLE_CARD_Y[0] < yc < TITLE_CARD_Y[1]:
@@ -253,7 +304,11 @@ def classify_box(t: float, text: str, score: float, geom: tuple[float, float, fl
     if duration and t > duration - END_CARD_S:
         return "END_CARD"
     if CAPTION_BAND_Y[0] <= yc <= CAPTION_BAND_Y[1] and h <= CAPTION_MAX_H:
+        if caption_text_at is not None and score >= OCR_MIN_SCORE and foreign_to_caption(text, caption_text_at(t)):
+            return "BURNED"
         return "OURS"
+    if n_cjk == 0 and score < OCR_MIN_SCORE:
+        return "LOW_CONFIDENCE"       # a low-confidence Latin read is texture, never a garbled-glyph candidate
     if h >= BURNED_MIN_H and (n >= 2 or h < BURNED_MAX_H * 1.3):
         # big glyphs the OCR reads with low confidence are typically garbled model glyphs
         return "BURNED" if score >= OCR_MIN_SCORE else ("BURNED_LOW_CONFIDENCE" if n >= 2 else "LOW_CONFIDENCE")
@@ -577,12 +632,31 @@ def _insightface_detector() -> Callable[[Any], list[dict[str, Any]]] | None:
     return detect
 
 
-def _rapidocr() -> Callable[[Any], list[tuple[Any, str, float]]] | None:
+def caption_language(text: str) -> str:
+    """ja when the captions carry kana, ko for hangul, else zh (the recogniser choice only)."""
+    if re.search(r"[\u3041-\u30ff]", text or ""):
+        return "ja"
+    return "ko" if re.search(r"[\uac00-\ud7af]", text or "") else "zh"
+
+
+def _rapidocr(lang: str = "zh") -> Callable[[Any], list[tuple[Any, str, float]]] | None:
+    """RapidOCR with the recogniser of the caption language (tools/ocr_lang_models: the bundled one misses kana),
+    falling back to the bundled recogniser."""
     try:
         from rapidocr_onnxruntime import RapidOCR  # noqa: PLC0415
     except Exception:  # noqa: BLE001
         return None
-    engine = RapidOCR()
+    engine = None
+    if lang in ("ja", "ko"):
+        try:
+            tools = str(Path(__file__).resolve().parents[4] / "tools")
+            if tools not in sys.path:
+                sys.path.append(tools)
+            import ocr_lang_models as _olm  # noqa: PLC0415
+            engine = _olm.engine(lang)[0]
+        except Exception:  # noqa: BLE001 -- the bundled recogniser still reads Latin and hanzi
+            engine = None
+    engine = engine or RapidOCR()
 
     def ocr(frame: Any) -> list[tuple[Any, str, float]]:
         return [(box, str(text), float(score)) for box, text, score in (engine(frame)[0] or [])]
@@ -722,8 +796,9 @@ def build(video: Path, *, shots: list[dict[str, Any]] | None = None, asr: Any = 
     captions = ass_captions(ass_text)
     reference_text = "".join(r["text"] for r in rows) + "".join(c["text"] for c in captions)
     anime = str(render_style or "").lower() == "anime"
+    caption_at = caption_lookup(captions)
     if ocr_fn is None:
-        ocr_fn = _rapidocr()
+        ocr_fn = _rapidocr(caption_language("".join(c["text"] for c in captions)))
         if ocr_fn is None:
             errors["burned_text"] = "RAPIDOCR_UNAVAILABLE"
     if face_fn is None and not anime:
@@ -760,7 +835,7 @@ def build(video: Path, *, shots: list[dict[str, Any]] | None = None, asr: Any = 
                 caption_rows = []
                 for box, text, score in boxes:
                     geom = box_geometry(box, width, height)
-                    kind = classify_box(t, text, score, geom, duration)
+                    kind = classify_box(t, text, score, geom, duration, caption_at)
                     if kind in ("BURNED", "BURNED_LOW_CONFIDENCE"):
                         burned_hits.append((t, text if kind == "BURNED" else LOWCONF_MARK + text,
                                             (geom[1] + geom[3]) / 2, geom[3] - geom[1]))
