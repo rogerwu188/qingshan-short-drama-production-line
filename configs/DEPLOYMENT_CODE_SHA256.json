@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2565,
+  "file_count": 2566,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -8386,6 +8386,10 @@
     {
       "path": "tools/tests/test_intake_source_formats.py",
       "sha256": "bb8b4bccaccb188e9bbdd3debb989bea7ef21b190190835e03d2bc1673a0030c"
+    },
+    {
+      "path": "tools/tests/test_ja_anime_s7_polish.py",
+      "sha256": "9693a0d4ed6edb214b7d82fc0f43d95103669b4da21d7f41637464680656ebc9"
     },
     {
       "path": "tools/tests/test_keyframe_appearance_lock.py",
