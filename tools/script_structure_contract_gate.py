@@ -660,6 +660,207 @@ def check_lexicon(
     )
 
 
+# --------------------------------------------------------------------------- S1 integrity: schema / episode ids / source
+
+
+#: the writer contract schema (agent_factory/claude_writer_v2/schemas); the CLI validates every contract against it
+SCHEMA_PATH = Path(__file__).resolve().parents[1] / "agent_factory" / "claude_writer_v2" / "schemas" / \
+    "generation_contract.schema.json"
+SCHEMA_ERROR_LIMIT = 12
+
+
+def load_contract_schema(path: Optional[Path] = None) -> Optional[dict[str, Any]]:
+    candidate = Path(path) if path else SCHEMA_PATH
+    try:
+        data = json.loads(candidate.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _type_ok(value: Any, kind: str) -> bool:
+    if kind == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if kind == "integer":
+        return (isinstance(value, int) and not isinstance(value, bool)) or (
+            isinstance(value, float) and value.is_integer())
+    if kind == "null":
+        return value is None
+    return isinstance(value, {"object": dict, "array": list, "string": str, "boolean": bool}.get(kind, object))
+
+
+def schema_errors(value: Any, schema: Any, path: str = "$", out: Optional[list[str]] = None) -> list[str]:
+    """The JSON-Schema subset the writer contract schema uses (type, const, enum, pattern, minLength, minimum,
+    maximum, exclusiveMinimum, required, properties, additionalProperties, items, minItems, oneOf, anyOf).
+    Stdlib only: the fleet venv carries no jsonschema.  Keywords outside the subset are ignored."""
+    out = [] if out is None else out
+    if not isinstance(schema, dict):
+        return out
+    kind = schema.get("type")
+    if kind and not any(_type_ok(value, k) for k in ([kind] if isinstance(kind, str) else kind)):
+        out.append(f"{path}:TYPE_NOT_{kind if isinstance(kind, str) else '_'.join(kind)}")
+        return out
+    if "const" in schema and value != schema["const"]:
+        out.append(f"{path}:CONST")
+    if "enum" in schema and value not in schema["enum"]:
+        out.append(f"{path}:ENUM:{str(value)[:40]}")
+    if isinstance(value, str):
+        if "pattern" in schema and not re.search(schema["pattern"], value):
+            out.append(f"{path}:PATTERN:{value[:40]}")
+        if len(value) < int(schema.get("minLength") or 0):
+            out.append(f"{path}:MIN_LENGTH")
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if "minimum" in schema and value < schema["minimum"]:
+            out.append(f"{path}:MINIMUM")
+        if "maximum" in schema and value > schema["maximum"]:
+            out.append(f"{path}:MAXIMUM")
+        if "exclusiveMinimum" in schema and value <= schema["exclusiveMinimum"]:
+            out.append(f"{path}:EXCLUSIVE_MINIMUM")
+    if isinstance(value, dict):
+        for key in schema.get("required") or []:
+            if key not in value:
+                out.append(f"{path}:REQUIRED:{key}")
+        props = schema.get("properties") or {}
+        extra = schema.get("additionalProperties")
+        for key, item in value.items():
+            if key in props:
+                schema_errors(item, props[key], f"{path}.{key}", out)
+            elif isinstance(extra, dict):
+                schema_errors(item, extra, f"{path}.{key}", out)
+            elif extra is False:
+                out.append(f"{path}:ADDITIONAL:{key}")
+    if isinstance(value, list):
+        if len(value) < int(schema.get("minItems") or 0):
+            out.append(f"{path}:MIN_ITEMS")
+        if isinstance(schema.get("items"), dict):
+            for index, item in enumerate(value):
+                schema_errors(item, schema["items"], f"{path}[{index}]", out)
+    if isinstance(schema.get("oneOf"), list):
+        matched = sum(1 for branch in schema["oneOf"] if not schema_errors(value, branch, path, []))
+        if matched != 1:
+            out.append(f"{path}:ONE_OF:{matched}")
+    if isinstance(schema.get("anyOf"), list):
+        if not any(not schema_errors(value, branch, path, []) for branch in schema["anyOf"]):
+            out.append(f"{path}:ANY_OF")
+    return out
+
+
+def check_schema(contract: dict[str, Any], schema: Optional[dict[str, Any]]) -> dict[str, Any]:
+    """The contract validates against generation_contract.schema.json (E24 2026-11-23: the schema existed but S1
+    never applied it).  ``schema`` None = not requested (library callers); an unreadable schema file is UNVERIFIED,
+    never a pass."""
+    if schema is None:
+        return _result(unverified=["schema: NOT_REQUESTED"])
+    if not schema:
+        return _result(unverified=["schema: UNREADABLE"])
+    errors = schema_errors(contract, schema)
+    return _result([f"SCHEMA_INVALID:{e}" for e in errors[:SCHEMA_ERROR_LIMIT]],
+                   measurements={"schema_error_count": len(errors)})
+
+
+_ANY_SHOT_ID_RE = re.compile(r"^(E\d+)-S\d+-\d+$")
+#: subtrees whose shot ids are, by meaning, about OTHER episodes (the previous episode's end state, a recap source)
+CARRY_IN_KEYS = frozenset({"carry_in", "carry_in_from", "previous_episode", "prior_episode", "arc_ledger",
+                           "continuity_from_previous", "carry_in_entities"})
+_CARRY_IN_MARKERS = ("carry_in", "carried_in", "is_carry_in", "cross_episode")
+
+
+def _shot_id_values(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [v for v in value if isinstance(v, str)]
+    return []
+
+
+def check_episode_shot_ids(contract: dict[str, Any]) -> dict[str, Any]:
+    """Every ``*shot_id`` / ``*shot_ids`` value belongs to THIS episode unless the row marks it as a carry-in.
+
+    E24 (device 1101, 2026-11-23): ``internal_transition_authoring`` was copied from E18 (E18-S01-01 -> E18-S01-02),
+    so the transition rows described another episode's shots.  A cross-episode reference is legitimate only when the
+    row says so: the row carries ``episode: <that episode>`` (a recap / prop acquired earlier), a truthy
+    ``carry_in`` / ``cross_episode`` marker, or it sits under a carry-in key (``carry_in``, ``arc_ledger`` ...)."""
+    episode = _clean(contract.get("episode") or contract.get("episode_id")).upper()
+    failures: list[str] = []
+    checked = 0
+    if not episode:
+        return _result(unverified=["episode_shot_ids: EPISODE_UNDECLARED"])
+
+    def walk(node: Any, path: str, carried: bool) -> None:
+        nonlocal checked
+        if isinstance(node, dict):
+            row_episode = _clean(node.get("episode") or node.get("source_episode")).upper()
+            row_carried = carried or any(node.get(k) is True for k in _CARRY_IN_MARKERS)
+            for key, value in node.items():
+                key_l = str(key).lower()
+                if key_l in CARRY_IN_KEYS:
+                    walk(value, f"{path}.{key}", True)
+                    continue
+                if key_l.endswith("shot_id") or key_l.endswith("shot_ids"):
+                    for sid in _shot_id_values(value):
+                        match = _ANY_SHOT_ID_RE.match(_clean(sid))
+                        if not match:
+                            continue
+                        checked += 1
+                        owner = match.group(1).upper()
+                        if owner != episode and not row_carried and owner != row_episode:
+                            failures.append(f"FOREIGN_EPISODE_SHOT_ID:{path}.{key}:{_clean(sid)}")
+                    if isinstance(value, (dict, list)) and not _shot_id_values(value):
+                        walk(value, f"{path}.{key}", row_carried)
+                    continue
+                walk(value, f"{path}.{key}", row_carried)
+        elif isinstance(node, list):
+            for index, item in enumerate(node):
+                walk(item, f"{path}[{index}]", carried)
+
+    walk(contract, "$", False)
+    compact = [re.sub(r"\[\d+\]", "[]", f) for f in failures]
+    return _result(_dedupe(compact)[:SCHEMA_ERROR_LIMIT],
+                   measurements={"episode": episode, "shot_ids_checked": checked,
+                                 "foreign_shot_ids": len(failures)})
+
+
+_CHAPTER_FILE_RE = re.compile(r"ch(?:apter)?[_-]?0*(\d+)", re.IGNORECASE)
+
+
+def _chapter_no(value: Any) -> Optional[int]:
+    text = _clean(value)
+    is_file = "/" in text or "." in text
+    match = _CHAPTER_FILE_RE.search(Path(text).name if is_file else text)
+    if match:
+        return int(match.group(1))
+    if is_file:  # a file without a chapter number in its name (a narrative, a whole-book file) binds no chapter
+        return None
+    digits = re.sub(r"\D", "", text)
+    return int(digits) if digits and len(digits) <= 5 else None
+
+
+def check_source_binding(contract: dict[str, Any]) -> dict[str, Any]:
+    """``source_binding.source_file`` (and every ``source_files[].path``) is one of ``source_binding.source_chapters``.
+
+    E24: source_chapters 21-25 while source_file was ch0018.md -- the script was bound to a chapter it does not
+    adapt, so every source check (key quotes, dialogue register, action beats) read the wrong text."""
+    binding = contract.get("source_binding")
+    if not isinstance(binding, dict):
+        return _result(measurements={"declared": False})
+    chapters = {_chapter_no(c) for c in binding.get("source_chapters") or []}
+    chapters.discard(None)
+    primary = _chapter_no(binding.get("primary_source_chapter")) if binding.get("primary_source_chapter") else None
+    files = [_clean(binding.get("source_file"))] + [
+        _clean(row.get("path")) if isinstance(row, dict) else _clean(row) for row in binding.get("source_files") or []]
+    failures: list[str] = []
+    if primary is not None and chapters and primary not in chapters:
+        failures.append(f"SOURCE_PRIMARY_CHAPTER_NOT_IN_SOURCE_CHAPTERS:{primary}")
+    for path in dict.fromkeys(f for f in files if f):
+        number = _chapter_no(path)
+        if number is None or not chapters:
+            continue
+        if number not in chapters:
+            failures.append(f"SOURCE_FILE_NOT_IN_SOURCE_CHAPTERS:{Path(path).name}:{sorted(chapters)[:8]}")
+    return _result(failures, measurements={"declared": True, "source_chapters": sorted(chapters),
+                                           "files": [Path(f).name for f in files if f]})
+
+
 # --------------------------------------------------------------------------- evaluate
 
 
@@ -669,7 +870,10 @@ def evaluate(
     lexicon: Optional[dict[str, Any]] = None,
     *,
     dialogue_cps: float = DEFAULT_DIALOGUE_CPS,
+    schema: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
+    """``schema``: the generation-contract JSON schema to validate against (the CLI always passes the repo schema;
+    a library caller that passes none gets ``schema: NOT_REQUESTED`` in ``unverified``)."""
     timeline = build_timeline(contract)
     checks = {
         "hook": check_hook(contract, timeline),
@@ -679,6 +883,10 @@ def evaluate(
         "prop_source": check_prop_source(contract, timeline),
         "entity_introduction": check_entity_introduction(contract, timeline),
         "lexicon": check_lexicon(contract, lexicon, timeline),
+        # S1 integrity (E24 2026-11-23): never part of a taste loop -- a contract that fails these is not a script
+        "schema": check_schema(contract, schema),
+        "episode_shot_ids": check_episode_shot_ids(contract),
+        "source_binding": check_source_binding(contract),
     }
     failures: list[str] = []
     warnings: list[str] = []
@@ -718,10 +926,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--manifest")
     parser.add_argument("--lexicon")
     parser.add_argument("--dialogue-cps", type=float, default=DEFAULT_DIALOGUE_CPS)
+    parser.add_argument("--schema", default=str(SCHEMA_PATH),
+                        help="generation-contract JSON schema (default: the repo schema)")
+    parser.add_argument("--no-schema", action="store_true", help="skip the schema validation")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
+    schema = None if args.no_schema else (load_contract_schema(Path(args.schema)) or {})
     report = evaluate(_load(args.contract) or {}, _load(args.manifest), _load(args.lexicon),
-                      dialogue_cps=args.dialogue_cps)
+                      dialogue_cps=args.dialogue_cps, schema=schema)
     text = json.dumps(report, ensure_ascii=False, indent=2)
     if args.out:
         Path(args.out).write_text(text + "\n", encoding="utf-8")

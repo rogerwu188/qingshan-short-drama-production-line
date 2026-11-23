@@ -123,8 +123,8 @@
               "listener_id": {"type": "string"},
               "text": {"type": "string"},
               "emotion": {
-                "enum": ["calm", "plead", "threat", "mock", "joy", "fear"],
-                "description": "C2：每句情绪，映射为演绎条款（响度/语速/气息），生成后 emotion_dynamics 检测"
+                "type": "string",
+                "description": "C2：每句情绪，映射为演绎条款（响度/语速/气息），生成后 emotion_dynamics 检测。推荐 calm / plead / threat / mock / joy / fear；单字中文情绪（急、冷、惊…）与其它英文词（tense、happy…）同样有效——S1 只校验它是字符串"
               }
             }
           }
@@ -141,11 +141,12 @@
       "properties": {
         "hook": {
           "type": "object",
-          "required": ["type", "at_seconds", "line_or_shot_id"],
+          "required": ["type", "at_seconds"],
           "properties": {
             "type": {"enum": ["dialogue", "shock", "question"]},
             "at_seconds": {"type": "number", "minimum": 0, "maximum": 5},
-            "line_or_shot_id": {"type": "string", "minLength": 1}
+            "line_or_shot_id": {"type": "string", "minLength": 1, "description": "type == shock 时必填（钩子镜 id）；dialogue / question 可省略（旧写法 shot_id 同样接受）"},
+            "shot_id": {"type": "string"}
           }
         },
         "beat_sheet": {
@@ -180,10 +181,11 @@
       "description": "A3：character_entities[].role == antagonist 或分镜出现伏击/埋伏/截时必填；motive_setup.ref 必须早于 first_action_shot_id",
       "items": {
         "type": "object",
-        "required": ["group_id", "member_ids", "first_action_shot_id", "motive_setup"],
+        "required": ["group_id", "first_action_shot_id", "motive_setup"],
         "properties": {
           "group_id": {"type": "string", "minLength": 1},
-          "member_ids": {"type": "array", "items": {"type": "string"}},
+          "member_ids": {"type": "array", "items": {"type": "string"}, "description": "成员 character_id（旧写法 character_ids 同样接受）"},
+          "character_ids": {"type": "array", "items": {"type": "string"}},
           "first_action_shot_id": {"type": "string", "pattern": "^E\\d+-S\\d+-\\d+$"},
           "motive_setup": {
             "type": "object",
@@ -214,7 +216,7 @@
       "description": "B3′：非主角人物与钩子窗口（5 s）后首次出现的非人物实体必须声明 setup 或 payoff",
       "items": {
         "type": "object",
-        "required": ["entity_id", "first_shot_id"],
+        "required": ["entity_id"],
         "properties": {
           "entity_id": {"type": "string", "minLength": 1},
           "first_shot_id": {"type": "string", "pattern": "^E\\d+-S\\d+-\\d+$"},
@@ -287,7 +289,7 @@
             "type": "object",
             "required": ["locomotion", "eye_color", "silhouette_ref"],
             "properties": {
-              "locomotion": {"enum": ["biped", "quadruped"]},
+              "locomotion": {"enum": ["biped", "quadruped", "slithering", "flying"]},
               "eye_color": {"type": "string", "minLength": 1},
               "silhouette_ref": {"type": "string", "minLength": 1}
             },

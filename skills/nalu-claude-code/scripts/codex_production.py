@@ -1267,16 +1267,40 @@ PACING_REVISE_MESSAGE = ("S1 的 SCRIPT_PACING_REVISE 不是阻塞，是给你�
                          "然后重跑 S1→S3；最多两轮，之后引擎自动放行。不要问线主，不要报 BLOCKED。")
 
 
-def pacing_revision_pending(episode: str, session: dict[str, Any]) -> str:
-    """The pacing revision round ('round=1/2') S1 is waiting on that the session was not yet resumed for, or ''."""
+INTEGRITY_REVISE_MESSAGE = ("S1 的 SCRIPT_INTEGRITY_REVISE 是剧本结构完整性问题（不是口味，不会被自动放行）："
+                            "读 runtime/pipeline_state/<EP>.json 的 stages.S1.blockers 与 details（script_length / "
+                            "character_entity_contract / script_structure_contract_gate / direction_policy_gate / "
+                            "script_pacing.integrity_failures 及 fixes），按 WRITER_CONTRACT.md 改本集叙事正典和四层剧本"
+                            "（补足时长、两人互动的动作把双方都写进 cast、未定义的角色 id、每场自己的地点/环境声/轴线、"
+                            "多人场至少两个双人或群像镜头），然后重跑 S1→S3。免费，不问线主；同一份剧本重跑不算一轮，"
+                            "4 轮仍不完整时引擎记录 SCRIPT_INTEGRITY_ADMITTED_AFTER_EXHAUSTION 后自动放行，不要报 BLOCKED。")
+
+
+def _s1_blockers(episode: str) -> list[Any]:
     try:
         state = read_json(roots()[1] / "runtime" / "pipeline_state" / f"{episode}.json")
-        blockers = ((state.get("stages") or {}).get("S1") or {}).get("blockers") or []
+        return ((state.get("stages") or {}).get("S1") or {}).get("blockers") or []
     except Exception:  # noqa: BLE001
-        return ""
+        return []
+
+
+def pacing_revision_pending(episode: str, session: dict[str, Any]) -> str:
+    """The pacing revision round ('round=1/2') S1 is waiting on that the session was not yet resumed for, or ''."""
+    blockers = _s1_blockers(episode)
     rnd = next((str(b).split("SCRIPT_PACING_REVISE:", 1)[1] for b in blockers
                 if str(b).startswith("SCRIPT_PACING_REVISE:round=")), "")
     return rnd if rnd and rnd not in (session.get("pacing_revise_resumed") or []) else ""
+
+
+def integrity_revision_pending(episode: str, session: dict[str, Any]) -> str:
+    """The S1 integrity round ('round=1/4') the session was not yet resumed for, or ''.  The engine caps the loop
+    (nalu_pipeline.S1_INTEGRITY_MAX_ROUNDS) and then admits the script (SCRIPT_INTEGRITY_ADMITTED_AFTER_EXHAUSTION,
+    no round marker left), and
+    each round label is resumed once -- an unrevised script never resumes twice, so this cannot repeat forever."""
+    blockers = _s1_blockers(episode)
+    rnd = next((str(b).split("SCRIPT_INTEGRITY_REVISE:", 1)[1] for b in blockers
+                if str(b).startswith("SCRIPT_INTEGRITY_REVISE:round=")), "")
+    return rnd if rnd and rnd not in (session.get("integrity_revise_resumed") or []) else ""
 
 
 def tick(system: bool = False) -> dict[str, Any]:
@@ -1382,6 +1406,18 @@ def tick(system: bool = False) -> dict[str, Any]:
         session["pacing_revise_resumed"] = sorted(set(session.get("pacing_revise_resumed") or []) | {rnd})
         write_json(d / "session.json", session)
         did.append(f"resume_pacing_revision:{rnd}:{out.get('status')}")
+        if out.get("status") == "STARTED":
+            return res
+        reason = f"RESUME_FAILED:{out.get('reason') or out.get('status')}"
+    elif state == "BLOCKED" and integrity_revision_pending(ep, session):
+        # S1 integrity (E24 2026-11-23): a structurally broken script goes back to its writer, free; resumed once per
+        # integrity round, the engine stops issuing rounds after S1_INTEGRITY_MAX_ROUNDS
+        rnd = integrity_revision_pending(ep, session)
+        out = resume(ep, INTEGRITY_REVISE_MESSAGE)
+        session = read_json(d / "session.json")
+        session["integrity_revise_resumed"] = sorted(set(session.get("integrity_revise_resumed") or []) | {rnd})
+        write_json(d / "session.json", session)
+        did.append(f"resume_integrity_revision:{rnd}:{out.get('status')}")
         if out.get("status") == "STARTED":
             return res
         reason = f"RESUME_FAILED:{out.get('reason') or out.get('status')}"

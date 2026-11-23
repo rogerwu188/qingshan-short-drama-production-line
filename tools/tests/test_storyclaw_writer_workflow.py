@@ -91,6 +91,9 @@ class StoryClawWriterWorkflowTests(unittest.TestCase):
         role["primary_actor_id"] = "CHAR-LEAD"
         role["entity_states"] = {"CHAR-LEAD": "moving then stopped"}
         role["entity_presence"] = {"CHAR-LEAD": "VISIBLE_AND_IDENTITY_LOCKED"}
+        # the renamed fixture must not keep a reference to the old id anywhere (S1 integrity: every CHAR-* id
+        # referenced in a contract is defined -- E24's CHAR-AYE / CHAR-MUYUNER)
+        contract = json.loads(json.dumps(contract, ensure_ascii=False).replace("CHAR-PASSERBY", "CHAR-LEAD"))
         outputs["generation_contract"].write_text(
             json.dumps(contract, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",

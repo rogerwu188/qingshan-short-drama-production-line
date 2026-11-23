@@ -66,6 +66,8 @@
   "blocking": {
     "missing_inputs": true,
     "unanswered_script_review": true,
+    "independent_script_review": false,
+    "independent_script_review_note": "E24 2026-11-23: a review counts only with a named reviewer other than the writer and the request sha256 (recorded as writer_capability.inputs.script_review.independent). Ships OFF (record-only): the unattended Codex line has no engine-launched script reviewer, so the writer could never clear the block. Turn on here or with NALU_SCRIPT_REVIEW_INDEPENDENCE=block once one exists. The contract's own script_review field is never evidence.",
     "open_rule8_items": true,
     "ledger_failures": false,
     "creative_judgement_blocking": false,

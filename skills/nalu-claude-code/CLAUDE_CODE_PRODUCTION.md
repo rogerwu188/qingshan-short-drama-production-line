@@ -111,6 +111,12 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
      （`failures` + `fixes`）。不合格时 S1 报 `SCRIPT_PACING_REVISE:round=n/2`：**这不是阻塞，是给你的改稿要求**——改叙事正典和四层（不改门禁、不问线主、不报 BLOCKED），
      重跑 S1→S3；最多两轮，第二轮改完仍不合格引擎自动放行并记录差距。本地可先自测：`$P $T/script_pacing_check.py check --contract <合同>`（免费）。
      测得的节奏数据会交给终审的导演/剪辑专审作参考。
+   - **S1 结构完整性（不是口味，不会自动放行；1101 E24 2026-11-23）**：S1 报 `SCRIPT_INTEGRITY_REVISE:round=n/4` 时同样是给你的免费改稿要求——
+     按 `agent_factory/storyclaw_portable/WRITER_CONTRACT.md`「S1 structural integrity」一节改叙事正典和四层再重跑 S1：时长 ≥ 简报 target_seconds × 0.85
+     （`SCRIPT_TOO_SHORT`）；动作碰到的人都在该镜 cast 里（或声明画外），互动镜 target ≠ 主体；所有 `CHAR-*` 都在 character_entities 里定义；
+     shot_id 只用本集的（跨集要标 `carry_in`），转场行自己写不抄旧集；source_file 属于 source_chapters；每场自己的地点/环境声/轴线/scene_plan，不写系列模板句；
+     CU+MCU ≤ 80 %，两人以上的场至少两个双人/群像镜头（说话单元可用过肩后脑勺的听者，说话的仍只有一人）。同一份剧本重跑不算一轮；
+     4 轮仍不完整则引擎记录 `SCRIPT_INTEGRITY_ADMITTED_AFTER_EXHAUSTION:<codes>`（S1 结果、CHECKPOINT、STATUS.md）后自动放行，不停线、不报 BLOCKED。
 避开已知坑：首帧要看得见的道具别设计成「从怀里掏出」；古装灯写「无罩敞口油盏」；每个说话角色男女/音色要能区分；不写全黑画面。
 
 ## 2. 四层剧本（免费）

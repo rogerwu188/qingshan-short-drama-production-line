@@ -179,6 +179,41 @@ an episode already past a paid stage that relies on the default is grandfathered
   placeholder acting, longest line, scenes without action, open ending, adapted plot events). A failing script gets `SCRIPT_PACING_REVISE:round=n/2`: revise
   your own layers and rerun S1 — no owner, no paid call. After two revisions the engine admits the script and records
   the gaps; the numbers also go to the final review's director pass as context.
+- **S1 structural integrity (never admitted; device 1101 E24, 2026-11-23).** E24 shipped as a 56 s episode: 22
+  one-person CU/MCU singles in one location, one framing / ambience / axis sentence on every shot, transition rows
+  copied from E18, listener ids nobody defined, "Lingyao presses a dagger to Wang Defa throat" with cast = Lingyao.
+  These are not taste: S1 reports `SCRIPT_INTEGRITY_REVISE:round=n/4` with the failures, you revise your own layers
+  and rerun S1 (free, no owner); the same bytes rerun never use a round; after four failing revisions the engine
+  admits the script and records `SCRIPT_INTEGRITY_ADMITTED_AFTER_EXHAUSTION:<codes>` (S1 result, CHECKPOINT, fleet
+  note) so the line never stalls -- the gaps stay on the record. Write so none of these fire:
+  - **Length:** the shots' `target_seconds` total at least 0.85 × the brief's `target_seconds` (110 s → ≥ 94 s;
+    `SCRIPT_TOO_SHORT`) and at most 1.3 ×. Short? Adapt more plot events and the interactions the scenes miss.
+  - **Every person an action touches is in the frame.** A name in `primary_action` that is the clause's subject or the
+    one acted on / stood with (grab, pull, press … to, bind, hand, beside, behind; 抓住/拉住/抵住/扶着/站在…身旁) must be
+    in that shot's `cast`, or declared off-screen (`role_semantic_disambiguation.entity_presence[id]:
+    OFFSCREEN_VOICE_ONLY`, or written "… offscreen left" / "画外…"). A look or a line toward someone absent stays legal
+    ("toward Holmes offscreen right", "向武松劝酒"). When `interaction_mode` is not `NONE`, `target_entity_id` is the
+    other person (never the subject) and is in the cast. Every `CHAR-*` id used anywhere (audio speaker / listener,
+    antagonist groups, introductions) is defined in `character_entities` (or in `offscreen_character_entities` for a
+    person who is only mentioned); a listener is never the speaker (`CHARACTER_ENTITY_CONTRACT_FAIL`).
+  - **Shot ids, source and schema:** every `*shot_id` is this episode's unless the row is marked `"carry_in": true`
+    or names its `episode` (a recap, a prop acquired earlier); write this episode's transitions, never copy another
+    episode's rows; `source_binding.source_file` is one of `source_binding.source_chapters`; the contract validates
+    against `agent_factory/claude_writer_v2/schemas/generation_contract.schema.json`
+    (`SCRIPT_STRUCTURE_CONTRACT_FAIL:FOREIGN_EPISODE_SHOT_ID / SOURCE_FILE_NOT_IN_SOURCE_CHAPTERS / SCHEMA_INVALID`).
+  - **Per-scene place, sound and axis — no series boilerplate.** Each scene gets its own `location_id`, its own
+    `sound.ambience` (what is heard THERE), its own axis and its own `pacing.scene_plan` objective / conflict /
+    physical action; never one sentence copied onto every shot of several scenes, never "the declared subject /
+    location / beat" templates (`SCRIPT_INTEGRITY_FAIL:BOILERPLATE_TEXT / BOILERPLATE_PHRASE`). If a beat happens on a
+    boat, in a shop or in the street, that is a scene in that place — two scene_ids "in the same place" whose action
+    names another place is `SCENE_SPLIT_LOCATION_CONTRADICTS_ACTION` (not admitted).
+  - **Coverage (line owner 2026-11-23, `direction_policy_gate` DP9):** CU + MCU at most 80 % of the shots; every
+    scene with two or more characters has at least two shots with two or more of them in frame — a silent two-shot /
+    group action or blocking shot, or a speaking unit with the listener over the speaker's shoulder
+    (`DIRECTION_POLICY_INTEGRITY_FAIL:DP9_*`).
+  - **Script review:** `contract.script_review` written by you is never evidence. The review that counts is
+    `writer_capability/<EP>_SCRIPT_REVIEW_REPORT.json` from `script_review.py` with an independent `reviewer` (not the
+    writer) and the `request_sha256` of the request it read (recorded at S1 as `script_review_independence`).
 
 ## Camera grammar (CAMERA_GRAMMAR_V1)
 
@@ -197,9 +232,17 @@ blocking check; direct the episode the way people watch films:
 - Do not cut on every line of a dialogue scene, and do not put two people in frame while one of them speaks
   (line owner 2026-10-23; four lab runs: H3 turns/pushes the camera to the speaker, drops the listener, and ghosts
   or duplicates a person who is both in the opening frame and a face reference). One H3 unit carries one speaker.
-  (1) Speaking shots show only the speaker: a single, or an over-the-shoulder with a sliver of the listener, speaker
-  centred and the only front face; one speaker's consecutive lines stay in one shot. (2) Two-shots only when nobody
-  speaks: a silent stand-off, a physical reaction. (3) Rhythm: the first shot is already the conflict (no silent
+  The one-speaker rule governs SPEAKING units only. (1) Speaking shots show the speaker as the only front face and
+  the only one speaking: a single, or (line owner 2026-11-23) an over-the-shoulder whose non-speaking listener is a
+  back-of-head / shoulder figure — list that listener in `cast` with `face_visibility: "BACK_AND_SHOULDERS_ONLY"`
+  (the `<PART>_ONLY` / `FACE_OUT_OF_FRAME` vocabulary the H3 prompt renderer reads as "only X's back and shoulders in
+  frame; X's face is not shown" -- a free-text value such as `BACK_OF_HEAD_OTS` is NOT read and would put a second
+  full face in the prompt) and as `dialogue_listener_id`; one speaker's consecutive lines stay in one shot.
+  (2) Two-shots / group shots whenever nobody speaks: a silent stand-off, a physical reaction, and EVERY silent
+  action unit whose action has a target — list both people in `cast` (each with its `face_visibility`), the other
+  person as `target_entity_id` with `interaction_mode` ≠ `NONE`, and a prop card (`props.reference_cards` /
+  `non_character_entities`) for every named prop the action uses (the dagger, the ledger, the handkerchief). Every
+  scene with two or more characters needs at least two such two-person / group shots (DP9 above). (3) Rhythm: the first shot is already the conflict (no silent
   two-shot first), play the lines in singles, cut tighter at the turn, give the hardest line the tightest shot, and
   after every payoff cut to the loser's or an onlooker's silent close-up reaction. (4) L-cut: a silent reaction shot that directly follows a
   dialogue shot (next unit) may set `prompt_spec.transition.sound_bridge_from_previous_seconds` (0.3–2.0): S7 cuts the
