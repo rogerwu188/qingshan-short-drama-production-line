@@ -51,6 +51,7 @@ def build(
     stabilized_clips=None,
     unit_audio_levelling=None,
     audio_cut_crossfade_seconds=None,
+    text_removal=None,
 ):
     if generation_contract is None:
         raise ValueError("generation_contract is required for automatic audio-profile binding")
@@ -172,6 +173,18 @@ def build(
         except ImportError:
             from s7_audio_smoothing import applied_sources as _levelled_applied  # type: ignore
         levelled = _levelled_applied(json.loads(_abs(unit_audio_levelling).read_text(encoding="utf-8")))
+
+    # Local burned-text removal (S7 report, tools/burned_text_removal.py; line owner 2026-11-23, last resort after
+    # every paid redo): unit -> cleaned copy of the clip this builder would use for the unit's picture (same frames,
+    # fps and audio stream).  Applied LAST, only when the row's source is exactly that picture file (path + sha on
+    # disk) and the cleaned file still has its recorded sha; anything else keeps the picture as it was.
+    text_removed = {}
+    if text_removal:
+        try:
+            from tools.burned_text_removal import applied_sources as _removal_applied
+        except ModuleNotFoundError:
+            from burned_text_removal import applied_sources as _removal_applied  # type: ignore
+        text_removed = _removal_applied(json.loads(_abs(text_removal).read_text(encoding="utf-8")))
 
     video_clips = []
     audio_clips = []
@@ -325,9 +338,22 @@ def build(
                           "role": level_row.get("role"), "report": str(_abs(unit_audio_levelling))}
             clip_metadata["unit_audio_levelling"] = level_meta
             picture_source = level_meta["levelled_source"]
+        removal_row = text_removed.get(source_id)
+        removal_meta = None
+        if removal_row is not None \
+                and str(Path(str(removal_row.get("source"))).resolve()) == str(Path(picture_source).resolve()) \
+                and removal_row.get("source_sha256") == sha256(Path(picture_source)) \
+                and _abs(removal_row["output"]).is_file() \
+                and removal_row.get("output_sha256") == sha256(_abs(removal_row["output"])):
+            removal_meta = {"picture_source": picture_source, "picture_sha256": removal_row["source_sha256"],
+                            "cleaned_source": str(_abs(removal_row["output"])),
+                            "cleaned_sha256": removal_row["output_sha256"],
+                            "stage": removal_row.get("stage"), "strict_verdict": removal_row.get("strict_verdict"),
+                            "report": str(_abs(text_removal))}
+            clip_metadata["burned_text_removal"] = removal_meta
         video_clips.append({
             "id": f"{episode}-{source_id}-VIDEO",
-            "source": picture_source,
+            "source": removal_meta["cleaned_source"] if removal_meta else picture_source,
             "start": round(cursor, 6),
             "in": source_in,
             "duration": duration,
@@ -339,6 +365,9 @@ def build(
                              if push_in_meta and audio_source.resolve() == source.resolve() else str(audio_source))
         if level_meta is not None:
             audio_clip_source = level_meta["levelled_source"]
+        if removal_meta is not None and str(Path(audio_clip_source).resolve()) == str(Path(picture_source).resolve()):
+            # the cleaned clip carries the picture file's audio stream copied: picture and sound keep one source
+            audio_clip_source = removal_meta["cleaned_source"]
         audio_clips.append({
             "id": f"{episode}-{source_id}-AUDIO",
             # the compensated clip carries the same audio stream (copied); one source for picture and sound
@@ -371,6 +400,7 @@ def build(
             **({"push_in_compensation": push_in_meta} if push_in_meta is not None else {}),
             **({"unit_recut": recut_meta} if recut_meta is not None else {}),
             **({"clip_stabilization": stab_meta} if stab_meta is not None else {}),
+            **({"burned_text_removal": removal_meta} if removal_meta is not None else {}),
         })
         cursor += duration
 
@@ -498,6 +528,7 @@ def main():
     parser.add_argument("--push-in-compensation", help="Optional S7 push-in compensation report (CAMERA_GRAMMAR_V1): use each compensated locked-camera clip (picture + its copied native audio)")
     parser.add_argument("--stabilized-clips", help="Optional S7 lock-off/smoothing summary (clip_lockoff_stabilize.py --summary, Roger 2026-10-30 E12 item 2): use each LOCK_OFF/SMOOTH derived clip for the unit's picture and its bit-exact copied sound")
     parser.add_argument("--unit-recut", help="Optional S7 unit re-cut report (nalu.unit_recut_report.v1, Roger 2026-10-30 E12 item 3): use each APPLIED derived clip for the unit's picture and sound (in=0, report duration), overriding measured-edit / head / tail trims")
+    parser.add_argument("--text-removal", help="Optional S7 burned-text removal report (tools/burned_text_removal.py, line owner 2026-11-23): use each APPLIED cleaned copy of the unit's picture (same frames and audio) when its source path + sha match the picture this builder chose")
     args = parser.parse_args()
     print(json.dumps(build(
         args.episode,
@@ -518,6 +549,7 @@ def main():
         stabilized_clips=args.stabilized_clips,
         unit_audio_levelling=args.unit_audio_levelling,
         audio_cut_crossfade_seconds=args.audio_cut_crossfade_seconds,
+        text_removal=args.text_removal,
     ), ensure_ascii=False))
 
 

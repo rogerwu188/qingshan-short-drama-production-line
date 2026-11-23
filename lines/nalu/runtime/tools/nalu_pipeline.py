@@ -11081,6 +11081,190 @@ def s7_wobble_stabilize_units(ctx: Ctx) -> list[str]:
     return sorted(out)
 
 
+def s7_text_removal_path(ctx: Any) -> Path:
+    return ctx.p.assembly / f"{ctx.episode}_TEXT_REMOVAL.json"
+
+
+def s7_text_removal_plan(ctx: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(targets, skipped) of the local burned-text removal (tools/burned_text_removal.plan_targets) from the S6 wave
+    state, the final-fix redo state and the final-fix round record.  Read-only."""
+    import burned_text_removal as _btr
+    import final_fix_round as _ffr
+    import h3_burn_retry as _br
+    state = read_json(_wave_state_path(ctx), {}) or {}
+    shas: dict[str, str | None] = {}
+
+    def clip_sha(uid: str) -> str | None:
+        if uid not in shas:
+            shas[uid] = sha256_file(ctx.p.video_media / f"{uid}.mp4")
+        return shas[uid]
+    # the strict burned-line verdicts of the last S7 pass (build_burnin_subtitles ``burned_line_checks``); a unit's
+    # verdicts count only when that report is newer than the unit's clip (not a verdict of a superseded take)
+    burnin = ctx.p.assembly / f"{ctx.episode}_BURNIN_SUBTITLES.json"
+    verdicts: dict[str, list[str]] = {}
+    if burnin.is_file():
+        mtime = burnin.stat().st_mtime
+        for uid, rows in _btr.burnin_verdicts(read_json(burnin, {}) or {}).items():
+            clip = ctx.p.video_media / f"{uid}.mp4"
+            if clip.is_file() and clip.stat().st_mtime <= mtime:
+                verdicts[uid] = rows
+    return _btr.plan_targets(s6_records=state.get(_br.STATE_KEY) or {},
+                             redo_records=(read_json(final_fix_redo_path(ctx), {}) or {}).get("units") or {},
+                             round_status=(read_json(final_fix_record_path(ctx), {}) or {}).get("status"),
+                             rounds_enabled=_ffr.rounds() > 0, pending=final_fix_redo_pending(ctx), clip_sha=clip_sha,
+                             line_verdicts=verdicts)
+
+
+def s7_text_removal_picture_source(ctx: Any, uid: str, reports: dict[str, Path | None]) -> Path:
+    """The file the AgentCut builder will use for ``uid``'s picture, mirroring its precedence: unit re-cut > lock-off
+    stabilisation > push-in compensation > the admitted clip, then the audio-levelled remux of that picture.  The
+    builder re-checks path + sha, so a mismatch here only means the cleaned clip is not used (never a wrong one)."""
+    source = ctx.p.video_media / f"{uid}.mp4"
+    src_sha = sha256_file(source)
+
+    def rows(key: str, module: str) -> dict[str, Any]:
+        path = reports.get(key)
+        if not path or not Path(path).is_file():
+            return {}
+        try:
+            mod = __import__(module)
+            return mod.applied_sources(read_json(Path(path), {}) or {}) or {}
+        except Exception:  # noqa: BLE001 - unreadable report: the builder ignores it too
+            return {}
+
+    def matches(row: Any, path: Path, sha: str | None) -> bool:
+        return isinstance(row, dict) and bool(row.get("output")) \
+            and str(Path(str(row.get("source"))).resolve()) == str(path.resolve()) and row.get("source_sha256") == sha
+    recut = rows("unit_recut", "unit_recut").get(uid)
+    stab = rows("stabilized", "clip_lockoff_stabilize").get(uid)
+    push = rows("push_in", "push_in_compensation").get(uid)
+    picture, derived = source, False
+    if matches(recut, source, src_sha):
+        picture, derived = Path(str(recut["output"])), True
+    elif matches(stab, source, src_sha):
+        picture, derived = Path(str(stab["output"])), True
+    elif matches(push, source, src_sha):
+        picture = Path(str(push["output"]))
+    if not derived:
+        level = rows("levelling", "s7_audio_smoothing").get(uid)
+        if matches(level, source, src_sha) \
+                and str(Path(str(level.get("picture_source"))).resolve()) == str(picture.resolve()) \
+                and level.get("picture_sha256") == sha256_file(picture):
+            picture = Path(str(level["output"]))
+    return picture if picture.is_absolute() else ENGINE / picture
+
+
+def s7_burned_text_removal(ctx: Ctx, res: StageResult, reports: dict[str, Path | None]) -> Path | None:
+    """Local burned-text removal, the LAST resort (line owner 2026-11-23, option 2-E; tools/burned_text_removal.py).
+
+    Units whose kept take still carries model-burned text after every paid option (S6 retries UNRESOLVED and the
+    final-fix round settled, or the final-fix burn redo UNRESOLVED) and whose strict burned-line verdict is not
+    ACCEPT_CORRECT (absent = REJECT): the picture file the builder would use is cleaned on the CPU (LaMa keyframes +
+    optical-flow fill), one child process per unit, sequentially.  The original take is never touched; a cleaned copy
+    goes to ``video/_text_removed/<unit>.mp4`` and ``<EP>_TEXT_REMOVAL.json`` (the builder's ``--text-removal``).
+    Bounded: ``NALU_TEXT_REMOVAL_MAX_SECONDS`` (240) per unit, ``NALU_TEXT_REMOVAL_EPISODE_MAX_SECONDS`` (1200) for
+    the episode across S7 passes; a result is cached per (input sha, algorithm) so an S7 re-run spends nothing.
+    Off with ``NALU_TEXT_REMOVAL=0``.  Never blocks: every failure keeps the original picture.  Returns the report
+    path when at least one unit is cleaned."""
+    import burned_text_removal as _btr
+    detail: dict[str, Any] = {}
+    res.details["text_removal"] = detail
+    if not _btr.enabled():
+        detail["status"] = "OPT_OUT"
+        return None
+    if getattr(ctx, "dry", False):
+        detail["status"] = DRY
+        return None
+    try:
+        targets, skipped = s7_text_removal_plan(ctx)
+    except Exception as exc:  # noqa: BLE001 - advisory
+        detail.update(status="PLAN_UNREADABLE", error=f"{type(exc).__name__}: {exc}"[:200])
+        return None
+    detail["skipped"] = skipped
+    if not targets:
+        detail["status"] = "NO_TARGET"
+        return None
+    path = s7_text_removal_path(ctx)
+    report = read_json(path, {}) or {}
+    report = {"schema": _btr.REPORT_SCHEMA, "episode": ctx.episode, "units": dict(report.get("units") or {}),
+              "spent_seconds": float(report.get("spent_seconds") or 0.0)}
+    unit_cap, episode_cap = _btr.max_seconds(), _btr.episode_max_seconds()
+    out_dir = ctx.p.video_media / "_text_removed"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    rows: dict[str, Any] = {}
+    for target in targets:
+        uid = target["unit_id"]
+        source = s7_text_removal_picture_source(ctx, uid, reports)
+        source_sha = sha256_file(source)
+        base = {**target, "source": str(source), "source_sha256": source_sha, "algo_version": _btr.ALGO_VERSION}
+        cached = _btr.cached_row(report, uid, source_sha or "") if source_sha else None
+        if cached is not None:
+            row = {**cached, "cached": True}
+        elif not source_sha:
+            row = {**base, "status": _btr.NOT_APPLIED, "reason": "PICTURE_SOURCE_MISSING"}
+        elif episode_cap - report["spent_seconds"] < 30.0:
+            row = {**base, "status": _btr.NOT_APPLIED, "reason": "EPISODE_BUDGET_SPENT",
+                   "episode_spent_seconds": round(report["spent_seconds"], 1)}
+        else:
+            budget = min(unit_cap, episode_cap - report["spent_seconds"])
+            out = out_dir / f"{uid}.mp4"
+            unit_report = out_dir / f"{uid}.text_removal.json"
+            unit_report.unlink(missing_ok=True)
+            step = ctx.run([VENV, ENGINE / "tools/burned_text_removal.py", source, "--out", out,
+                            "--report", unit_report, "--max-seconds", f"{budget:.0f}", "--threads", _btr.threads()],
+                           name=f"s7_text_removal_{uid}", timeout=int(budget) + 180)
+            res.steps.append(step)
+            report["spent_seconds"] += float(step.get("duration_s") or 0.0)
+            got = read_json(unit_report, {}) or {}
+            if not got.get("status"):
+                got = {"status": _btr.NOT_APPLIED, "reason": "SUBPROCESS_FAILED", "exit_code": step.get("exit_code")}
+            row = {**got, **base, "status": got.get("status"), "reason": got.get("reason"),
+                   "wall_seconds": step.get("duration_s"), "at": now()}
+            if row["status"] != _btr.APPLIED:
+                out.unlink(missing_ok=True)
+        report["units"][uid] = row
+        rows[uid] = {k: row.get(k) for k in ("status", "reason", "stage", "strict_verdict", "seconds", "peak_rss_mb",
+                                             "frames_processed", "burned_frames", "output", "cached")
+                     if row.get(k) is not None}
+        ctx.say(f"S7_TEXT_REMOVAL unit={uid} {row.get('status')} reason={row.get('reason')} "
+                f"seconds={row.get('seconds')} peak_rss_mb={row.get('peak_rss_mb')} "
+                f"frames={row.get('frames_processed')}" + (" (cached)" if row.get("cached") else ""))
+    report["spent_seconds"] = round(report["spent_seconds"], 1)
+    report["recorded_at"] = now()
+    write_json(path, report)
+    applied = sorted(u for u, r in rows.items() if r.get("status") == _btr.APPLIED)
+    detail.update(status="APPLIED" if applied else "NOT_APPLIED", report=str(path), units=rows, applied=applied,
+                  episode_spent_seconds=report["spent_seconds"], episode_cap_seconds=episode_cap)
+    try:  # the episode record keeps the outcome next to the stage details (S8 / fleet status read it)
+        ctx.state["text_removal"] = {"report": str(path), "applied": applied, "units": rows,
+                                     "episode_spent_seconds": report["spent_seconds"], "at": now()}
+    except Exception:  # noqa: BLE001
+        pass
+    if applied:
+        res.receipts.append(str(path))
+    return path if applied else None
+
+
+def s7_text_removal_drop_bands(avoid_bands: Path | None, removal_report: Path | None) -> Path | None:
+    """A unit whose burned line was removed locally no longer needs our caption moved above it (or suppressed):
+    drop it from ``<EP>_S6_RESIDUAL_BURN_BANDS.json``.  Returns the (rewritten) path, or None when nothing is left."""
+    if avoid_bands is None or removal_report is None:
+        return avoid_bands
+    try:
+        import burned_text_removal as _btr
+        cleaned = set(_btr.applied_sources(read_json(removal_report, {}) or {}))
+        payload = read_json(avoid_bands, {}) or {}
+        units = {u: v for u, v in (payload.get("units") or {}).items() if u not in cleaned}
+        if units == (payload.get("units") or {}):
+            return avoid_bands
+        if not units:
+            return None
+        write_json(avoid_bands, {**payload, "units": units, "text_removed_units": sorted(cleaned)})
+    except Exception:  # noqa: BLE001 - advisory placement: the bands as they were
+        return avoid_bands
+    return avoid_bands
+
+
 def s7_camera_motion_gate(ctx: Ctx, res: StageResult) -> dict[str, Any] | None:
     """FINAL-CUT-CAMERA-MOTION: measure the clips that actually made the candidate and apply Roger's targets.
 
@@ -12158,6 +12342,10 @@ def s7_final_fix_round(ctx: Any, res: Any, final_audience: dict[str, Any], revie
                 f"unresolved={len(rec['unresolved'])}" + (f" ({note})" if note else ""))
         return {"action": "PROCEED", "record": str(path), **_ffr.summary(rec)}
 
+    if getattr(ctx, "_text_removal_rerun", False) and record.get("status") in ("NOT_NEEDED", "NO_ACTIONABLE_FIX",
+                                                                                "DISABLED"):
+        # the re-run for the local burned-text removal (stage_s7) never opens a second round on its new cut
+        return {"action": "PROCEED", "record": str(path), **_ffr.summary(record)}
     if record.get("status") in FINAL_FIX_IN_PROGRESS:
         first_sha = (record.get("first_review") or {}).get("final_video_sha256")
         if cand_sha and cand_sha != first_sha:
@@ -13342,7 +13530,39 @@ def stage_s7(ctx: Ctx) -> StageResult:
                                                      "final_fix_round": fix}
         if applied:
             res.details["final_fix_s7_settings"] = applied
+    elif fix.get("action") == "PROCEED" and not getattr(ctx, "_final_fix_rerun", False) \
+            and s7_text_removal_due_after_round(ctx, res):
+        # the round settled without a paid redo for a unit that was waiting for it: the local burned-text removal
+        # (last resort) is due now -- one more assembly pass, like the round's own free-fix re-run
+        ctx._final_fix_rerun = True
+        ctx._text_removal_rerun = True
+        ctx.say("-- S7: re-running assembly once: the final fix round settled, local burned-text removal is due")
+        first = res
+        with _final_fix_env(ctx) as applied:
+            res = _stage_s7_pass(ctx)
+        res.steps = list(first.steps) + list(res.steps)
+        res.details["text_removal_first_pass"] = {"status": first.status, "blockers": first.blockers,
+                                                  "text_removal": (first.details or {}).get("text_removal")}
+        if applied:
+            res.details["final_fix_s7_settings"] = applied
     return res
+
+
+def s7_text_removal_due_after_round(ctx: Any, res: Any) -> bool:
+    """True when this S7 pass left a unit waiting for the final fix round (AWAITING_FINAL_FIX_ROUND) and, with the
+    round now settled, the plan makes it a removal target.  Never raises."""
+    try:
+        import burned_text_removal as _btr
+        if not _btr.enabled() or getattr(ctx, "dry", False):
+            return False
+        waiting = {r.get("unit_id") for r in ((res.details or {}).get("text_removal") or {}).get("skipped") or []
+                   if r.get("reason") == "AWAITING_FINAL_FIX_ROUND"}
+        if not waiting:
+            return False
+        targets, _ = s7_text_removal_plan(ctx)
+        return any(t["unit_id"] in waiting for t in targets)
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _stage_s7_pass(ctx: Ctx) -> StageResult:
@@ -13575,6 +13795,17 @@ def _stage_s7_pass(ctx: Ctx) -> StageResult:
     if recut_report is not None:
         build_argv += ["--unit-recut", recut_report]
         res.details["commands"]["build_agentcut"] = q(build_argv)
+    # 3f. local burned-text removal (line owner 2026-11-23): the last resort for units whose burned line survived
+    # every paid redo and was not accepted as the correct line -- CPU only, bounded, never blocks
+    try:
+        text_removal = s7_burned_text_removal(ctx, res, {"unit_recut": recut_report, "stabilized": stabilized_summary,
+                                                         "push_in": push_in, "levelling": unit_levelling})
+    except Exception as exc:  # noqa: BLE001 - the original pictures are used
+        text_removal = None
+        res.details.setdefault("warnings", []).append(f"TEXT_REMOVAL_FAILED:{type(exc).__name__}")
+    if text_removal is not None:
+        build_argv += ["--text-removal", text_removal]
+        res.details["commands"]["build_agentcut"] = q(build_argv)
     import camera_grammar_policy as _cgp_xf
     if _cgp_xf.active(read_json(p.contract, {}) or {}, episode=ctx.episode):
         import s7_audio_smoothing as _smooth_xf
@@ -13679,6 +13910,8 @@ def _stage_s7_pass(ctx: Ctx) -> StageResult:
     except Exception as exc:  # noqa: BLE001 - advisory placement: captions stay where they were
         avoid_bands = None
         res.details.setdefault("warnings", []).append(f"S6_RESIDUAL_BURN_BANDS_UNREADABLE:{type(exc).__name__}")
+    # a unit cleaned by the local text removal (3f) has no burned line left to avoid
+    avoid_bands = s7_text_removal_drop_bands(avoid_bands, text_removal)
     avoid_argv: list[Any] = ["--avoid-bands", avoid_bands] if avoid_bands is not None else []
     sub_step = ctx.run([VENV, RT_TOOLS / "build_burnin_subtitles.py", "--episode", ctx.episode,
                         "--project", p.agentcut_project, "--asr", asr_json, "--contract", p.contract,
