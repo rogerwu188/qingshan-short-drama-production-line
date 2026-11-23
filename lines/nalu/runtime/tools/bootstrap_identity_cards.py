@@ -121,6 +121,8 @@ AUTHORED_WORLD_FALLBACK_CONTRACT: dict[str, Any] = {
     "forbidden_influences": [
         "drift into another era or culture", "game CG or concept-poster look", "black-gold fantasy poster light",
         "teal-orange blockbuster grade", "unmotivated rim light", "visible text and watermarks",
+        # PERIOD_TRAIT_LOCK (device 1101 E24, 2026-11-23): modern round eyeglasses on a xianxia demon
+        "eyeglasses/spectacles", "modern accessories",
     ],
 }
 
@@ -868,6 +870,8 @@ def build_plan(
         regen_suffix = ""
         if regen:
             regen_suffix = str(regen.get("suffix") or "__DISTINCT_R1")
+            if regen.get("period_findings"):  # PERIOD_TRAIT_LOCK: the glasses phrase leaves the prompt itself
+                base_text = _distinct.strip_period_traits(base_text)
             base_text = base_text.rstrip() + "\n\n" + str(regen["block"]).strip() + "\n"
             base_prompt = ensure_prompt_file(prompt_dir / f"{episode}-{subject_id}{regen_suffix}.txt", base_text)
         views = list(subject.get("card_deliverables") or [BASE_VIEW])

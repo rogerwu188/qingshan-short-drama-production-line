@@ -175,8 +175,9 @@ class SceneLocationTest(unittest.TestCase):
             plate.write_bytes(b"plate")
             ref = sll.location_reference_for_unit(unit, ["E08-S02-04"], ed, scene_plate=lambda loc: plate)
             self.assertEqual((ref["source"], ref["path"]), ("LOCKED_SCENE_PLATE", str(plate)))
-            self.assertIsNone(sll.location_reference_for_unit({**unit, "opening_anchor_contract": {}},
-                                                              ["E08-S02-04"], ed))
+            # H3_LOCATION_FIRST (device 1101 E24): every unit carries the scene's place, not only a tail-rejected one
+            self.assertEqual(sll.location_reference_for_unit({**unit, "opening_anchor_contract": {}},
+                                                             ["E08-S02-04"], ed)["source_shot_id"], "E08-S02-01")
             # wired into the H3 compile anchor: aligned role / key / entity rows, under the reference cap
             anchor = {"units": [{**deepcopy(unit), "reference_image_task_keys": ["E08-S02-04"],
                                  "anchor_count_decision": {"anchor_roles": ["CONTINUITY_DERIVED_ENTRY_STATE"]},

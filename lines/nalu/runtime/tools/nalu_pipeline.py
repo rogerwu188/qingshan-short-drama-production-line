@@ -3090,6 +3090,37 @@ def s3_unlock_locked_card(ctx: Ctx, action: dict[str, Any]) -> dict[str, Any]:
         return {"status": "ERROR", "error": f"{type(exc).__name__}: {str(exc)[:160]}"}
 
 
+def s3_premodern_period(ctx: Ctx) -> bool:
+    """The episode's world is pre-modern (visual_culture_contract.is_premodern_period); False on any error."""
+    try:
+        if str(ENGINE) not in sys.path:
+            sys.path.insert(0, str(ENGINE))
+        from tools.visual_culture_contract import is_premodern_period  # noqa: PLC0415
+        contract = read_json(ctx.p.contract, {}) or {}
+        return is_premodern_period(contract.get("visual_culture_contract"),
+                                   dialogue_language=contract.get("dialogue_language"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def s3_period_recards(ctx: Ctx, subject_ids: list[str]) -> dict[str, list[str]]:
+    """{character: forbidden period phrases in its card prompt} -- this episode's prompt, else the earliest episode's
+    authored card prompt (a LOCKED card).  Never raises."""
+    import character_distinctness as _cd
+    out: dict[str, list[str]] = {}
+    for cid in subject_ids:
+        try:
+            source = ctx.p.prompt_dir / f"{ctx.episode}-{cid}.txt"
+            if not source.is_file():
+                source = s3_card_prompt_source(ctx, cid)
+            found = _cd.period_trait_findings(source.read_text(encoding="utf-8")) if source else []
+        except Exception:  # noqa: BLE001
+            found = []
+        if found:
+            out[cid] = found
+    return out
+
+
 def s3_character_distinctness(ctx: Ctx, res: StageResult, plan_rows: list[dict[str, Any]], *,
                               library: dict[str, Any] | None = None,
                               embedder: Any = "default") -> dict[str, Any]:
@@ -3159,9 +3190,16 @@ def s3_character_distinctness(ctx: Ctx, res: StageResult, plan_rows: list[dict[s
             except Exception as exc:  # noqa: BLE001 -- a card without one face is identity QA's business
                 unmeasured[cid] = f"{type(exc).__name__}:{str(exc)[:80]}"
         policy = _cd.load_policy(p.prompt_dir)
+        # PERIOD_TRAIT_LOCK (device 1101 E24): a pre-modern series regenerates a card whose prompt gave it glasses once
+        period = s3_premodern_period(ctx)
+        period_recards = s3_period_recards(ctx, [c for c in plates if c in regenerable or c in locked_regenerable]) \
+            if period else {}
         report = _cd.evaluate(embeddings, order=[c for c in order if c in plates], cast=cast, policy=policy,
                               regenerable=regenerable, cosine=cosine, unmeasured=unmeasured,
-                              locked_regenerable=locked_regenerable, screen_time=s3_screen_time(ctx))
+                              locked_regenerable=locked_regenerable, screen_time=s3_screen_time(ctx),
+                              period=period, period_recards=period_recards)
+        if period_recards:
+            report["period_recards"] = period_recards
         report["plates"] = {cid: str(path) for cid, path in plates.items()}
         report["locked_regenerable"] = sorted(locked_regenerable)
         if s6_started:
@@ -3190,8 +3228,10 @@ def s3_character_distinctness(ctx: Ctx, res: StageResult, plan_rows: list[dict[s
                                                         plates_dir=p.identity_harvest_dir, episode=ctx.episode,
                                                         policy=policy)
             ctx.say("   S3 distinctness: regenerating " + ", ".join(
+                f"{r['subject_id']} (period traits: {'/'.join(r.get('period_findings') or [])})"
+                if r.get("cosine_before") is None else
                 f"{r['subject_id']} (vs {','.join(r['against'])}, cosine {r['cosine_before']:.2f})"
-                for r in report["regenerate"]) + " once with a face-differentiation prompt")
+                for r in report["regenerate"]) + " once with a face-differentiation / period prompt")
         history = (read_json(out_path, {}) or {}).get("history") or []
         report["history"] = (history + [{k: report.get(k) for k in ("evaluated_at", "status", "too_similar",
                                                                    "regenerate", "advisories")}])[-8:]
@@ -4836,6 +4876,8 @@ def stage_s5(ctx: Ctx) -> StageResult:
             "note": "No new keyframe POST; existing admitted assets are reused by SHA.",
         }
         res.receipts = [str(q1_index), str(p.anchor_plan)]
+        # SCENE_LOCATION_STILL_V1: a location still still missing is made here too (free when none is)
+        res.details["scene_location_stills"] = s5_scene_location_stills(ctx, res)
         return res
 
     # 1) build the keyframe image manifest (free; runs the submitter's precheck)
@@ -5171,7 +5213,43 @@ def s5_finish_q1(ctx: Ctx, res: StageResult) -> StageResult:
     if sfe["status"] != PASS:
         res.status = sfe["status"] if res.status != DRY else DRY
         res.blockers.extend(sfe.get("blockers") or [])
+        return res
+    # 6) SCENE_LOCATION_STILL_V1 (device 1101 E24): one people-free still per scene place, never blocks
+    res.details["scene_location_stills"] = s5_scene_location_stills(ctx, res)
     return res
+
+
+def s5_scene_location_stills(ctx: Ctx, res: StageResult) -> dict[str, Any]:
+    """One image-to-image "this place, every person removed" still per scene location that has no LOCKED plate
+    (scene_location_still.py), so every H3 unit carries its scene's place as a background-only reference
+    (scene_location_lock.location_reference_for_unit).  ~1.2 credits per location (HopsAPI gpt-image-2 planning
+    rate), one to three per episode (owner-approved 2026-11-23).  Only episodes built with SCENE_LOCATION_LOCK_V1
+    (editorial marker); anything but a clean run is recorded and S5 goes on."""
+    try:
+        p = ctx.p
+        editorial = read_json(p.editorial, {}) or {}
+        if "scene_location_lock" not in editorial:
+            return {"status": "NOT_APPLICABLE", "reason": "EPISODE_BUILT_BEFORE_SCENE_LOCATION_LOCK"}
+        tool = RT_TOOLS / "scene_location_still.py"
+        common = ["--episode", ctx.episode, "--editorial", p.editorial, "--keyframe-dir", p.keyframes,
+                  "--runtime-root", RUNTIME, "--engine-root", ENGINE,
+                  "--asset-library", (getattr(p, "scope", None) or {}).get("asset_library") or ""]
+        plan_step = ctx.run([VENV, tool, "plan", *common], name="s5_scene_location_still_plan")
+        res.steps.append(plan_step)
+        planned_rows = (qa_json(plan_step) or {}).get("rows") or []
+        if not planned_rows:
+            return {"status": "NONE_NEEDED"}
+        if image_provider_info()["provider"] != "hopsapi":
+            return {"status": "SKIPPED_PROVIDER_NOT_HOPSAPI", "locations": [r["location_id"] for r in planned_rows]}
+        planned = image_batch_credits(ctx, len(planned_rows))
+        status, step = ctx.paid_step([VENV, tool, "generate", *common], name="s5_scene_location_stills", sid="S5",
+                                     planned_credits=planned, dry_argv=[VENV, tool, "plan", *common],
+                                     note="one image-to-image location still per scene place (no people)")
+        res.steps.append(step)
+        return {"status": status, "planned_credits": planned,
+                "locations": [r["location_id"] for r in planned_rows], "result": qa_json(step) if status == PASS else None}
+    except Exception as exc:  # noqa: BLE001 - never blocks S5
+        return {"status": "ERROR", "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
 
 
 def keyframe_rename_map(manifest: dict[str, Any]) -> list[dict[str, Any]]:
@@ -9927,13 +10005,15 @@ def _owner_accepted_clips(ctx: Ctx, rows: dict[str, dict[str, Any]]) -> dict[str
     return out
 
 
-def s6_q2_auto_redo(ctx: Ctx) -> dict[str, Any]:
+def s6_q2_auto_redo(ctx: Ctx, review: dict[str, Any] | None = None) -> dict[str, Any]:
     """CAMERA_GRAMMAR_V1: the engine's own one controlled redo after an objective Q2 FAIL (q2_auto_redo.py;
     CLAUDE_CODE_PRODUCTION §5).  Runs after ``prepare`` and before the video_q2 review: units it selects get
     their clip parked and the S6 wave loop redoes them (own keyframe for face count / speaker framing, the same
     start frame + the measured problem in the prompt for a push-in; single-unit wave).  A letterboxed / non-9:16
     clip (av_evidence_pack.clip_letterbox, 2026-11-19) is a technical failure, redo-eligible once in every render
-    style and without CAMERA_GRAMMAR_V1 (same start frame).  Never blocks."""
+    style and without CAMERA_GRAMMAR_V1 (same start frame).  With the submitted video_q2 ``review`` (device 1101 E24,
+    2026-11-23) the VLM plan answers -- reversed role, person outside the cast, wrong location, modern object in a
+    pre-modern world -- are objective failures too (q2_auto_redo.with_vlm_failures).  Never blocks."""
     import q2_auto_redo as _redo
     # InsightFace failures need CAMERA_GRAMMAR_V1 and live action; the technical letterbox check (2026-11-19) does not
     technical_only = not _camera_grammar_on(ctx) or ctx_render_style(ctx) == "anime"
@@ -9941,6 +10021,8 @@ def s6_q2_auto_redo(ctx: Ctx) -> dict[str, Any]:
     order = [str(u.get("unit_id") or "") for u in grouping.get("units") or [] if u.get("unit_id")]
     rows = {uid: read_json(ctx.p.q2_dir / uid / "prepare.json", {}) or {} for uid in order
             if (ctx.p.video_media / f"{uid}.mp4").is_file()}
+    if review:
+        rows = _redo.with_vlm_failures(rows, review)
     if not any(_redo.objective_failures(row, technical_only=technical_only) for row in rows.values()):
         if not _camera_grammar_on(ctx):
             return {"status": "NOT_APPLICABLE"}
@@ -10085,6 +10167,18 @@ def s6_q2(ctx: Ctx, res: StageResult) -> dict[str, Any]:
         detail.update(request_review(ctx, res, "video_q2", sub_stage="S6.q2",
                                      note="Q2 content admission: the reviewer looks at the "
                                           "original-resolution clip and its extracted frames"))
+        return detail
+
+    # device 1101 E24: the review's plan answers (role / cast / location / period) are objective failures too --
+    # the same one engine redo per unit, within the episode headroom, before the admission is built
+    vlm_redo = s6_q2_auto_redo(ctx, review=review)
+    detail["vlm_auto_redo"] = vlm_redo
+    if vlm_redo.get("status") == "PARKED_FOR_REDO":
+        units = [row["unit_id"] for row in vlm_redo.get("selected") or []]
+        ctx.say("-- S6.q2: engine redo (VLM plan failure, once per unit): " + ", ".join(units))
+        detail["status"] = BLOCKED
+        detail["blockers"] = ["Q2_AUTO_REDO_PARKED:" + ",".join(units)]
+        detail["q2_auto_redo_parked"] = units
         return detail
 
     build_step = qa_run(ctx, [VIDEO_Q2, "build", "--episode", ctx.episode,

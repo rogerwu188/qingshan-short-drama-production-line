@@ -93,6 +93,46 @@ def is_authored_world(contract: dict[str, Any] | None, *, dialogue_language: Any
     return str(dialogue_language or "zh").strip().lower().startswith("en")
 
 
+#: PERIOD_TRAIT_LOCK (device 1101 E24, 2026-11-23): a pre-modern East-Asian / xianxia line showed a demon and a
+#: townsperson in modern round eyeglasses -- the identity-card trait plan offered glasses, and no lock named them.
+#: Pre-modern = the writer's world is set before modern objects existed; the words below decide it (the contract
+#: has no explicit field).  A negated mention ("no modern objects") is not a modern world.
+_PREMODERN_WORDS = re.compile(
+    r"古|仙|侠|修真|修仙|玄幻|江湖|王朝|朝代|宫廷|皇宫|帝国|先秦|秦汉|汉代|唐|宋|元代|明代|明朝|清代|清朝|三国|战国|春秋|魏晋|"
+    r"朝鲜王朝|高丽|江户|平安时代|战国时代|"
+    r"\b(?:ancient|dynast(?:y|ic)|xianxia|wuxia|cultivation|imperial|feudal|medieval|joseon|goryeo|edo|heian|"
+    r"sengoku|samurai|shogun(?:ate)?|historical|period drama|song dynasty|tang dynasty|ming dynasty|qing dynasty|"
+    r"han dynasty|immortal(?:s)?)\b", re.IGNORECASE)
+_MODERN_WORDS = re.compile(
+    r"现代|当代|都市|民国|科幻|未来|赛博|"
+    r"\b(?:modern|contemporary|urban|present[- ]day|near[- ]future|future|futuristic|sci[- ]?fi|cyberpunk|"
+    r"victorian|edwardian|20th|21st|19\d0s|20\d0s)\b", re.IGNORECASE)
+_NEGATED_MODERN = re.compile(r"(?:\b(?:no|not|without|never|free of)\s+(?:any\s+)?|禁|无|不[见用出]?|没有)"
+                             r"(?:modern|contemporary|现代|当代)\w*", re.IGNORECASE)
+#: what a pre-modern frame must never show (H3 Never line, identity-card forbidden influences)
+PERIOD_FORBIDDEN_ITEMS_EN = ("eyeglasses or spectacles", "modern accessories (wristwatches, earbuds, zips, plastic)",
+                             "phones or screens", "modern clothing", "modern signage or printed text")
+PERIOD_FORBIDDEN_INFLUENCES = ["eyeglasses/spectacles", "modern accessories"]
+
+
+def is_premodern_period(contract: dict[str, Any] | None, *, dialogue_language: Any = None,
+                        episode_number: int | None = None) -> bool:
+    """True when the episode's world is set before modern objects (eyeglasses, phones, modern clothes) exist.
+
+    An explicit ``era_lock: EAST_ASIAN_PERIOD`` is pre-modern unless the writer's own world words say modern
+    (民国 / urban / near-future ...).  Any other contract (AUTHORED_WORLD, or no era_lock) is pre-modern only when its
+    story_world / production_design / profile_id name a pre-modern world (古代 / 仙侠 / dynasty / Joseon ...) and no
+    modern one.  No contract: False (nothing is stripped or banned on a guess)."""
+    if not isinstance(contract, dict):
+        return False
+    text = " ".join(str(contract.get(key) or "") for key in ("story_world", "production_design", "profile_id"))
+    text = _NEGATED_MODERN.sub(" ", text.replace("_", " ").replace("-", " "))
+    modern = bool(_MODERN_WORDS.search(text))
+    if declared_era_lock(contract) == ERA_LOCK_EAST_ASIAN_PERIOD:
+        return not modern
+    return bool(_PREMODERN_WORDS.search(text)) and not modern
+
+
 def authored_world_prompt_block(contract: dict[str, Any] | None, *, language: Any = "en",
                                 render_style: Any = None) -> str:
     """Image-prompt world lock derived from an authored contract: no culture defaults, no East-Asian bans.

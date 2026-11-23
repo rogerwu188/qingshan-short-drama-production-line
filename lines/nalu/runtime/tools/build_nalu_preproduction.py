@@ -3201,26 +3201,31 @@ def _locked_scene_plate(location_id: str, *, episode: str) -> Path | None:
     row = scenes.get(location_id) or next(
         (r for r in scenes.values() if isinstance(r, dict)
          and location_id in {str(r.get(k) or "") for k in ("location_id", "contract_asset_id", "entity_id")}), {})
-    if not isinstance(row, dict) or str(row.get("status") or "") != "LOCKED" \
-            or str((row.get("qa") or {}).get("status") or "") != "PASS":
+    if isinstance(row, dict) and str(row.get("status") or "") == "LOCKED" \
+            and str((row.get("qa") or {}).get("status") or "") == "PASS":
+        for artifact in row.get("artifacts") or []:
+            if not isinstance(artifact, dict):
+                continue
+            path = Path(str(artifact.get("path") or ""))
+            declared = str(artifact.get("sha256") or "")
+            if path.is_file() and declared and sha256_file(path) == declared:
+                return path
+    # SCENE_LOCATION_STILL_V1 (device 1101 E24): no stage-3(a) plate -> the engine's S5 people-free location still
+    try:
+        import scene_location_still as _sls  # noqa: PLC0415
+        return _sls.registered_still(location_id, episode=episode, runtime_root=_np.RUNTIME_ROOT)
+    except Exception:  # noqa: BLE001 - a missing still keeps the scene-keyframe fallback
         return None
-    for artifact in row.get("artifacts") or []:
-        if not isinstance(artifact, dict):
-            continue
-        path = Path(str(artifact.get("path") or ""))
-        declared = str(artifact.get("sha256") or "")
-        if path.is_file() and declared and sha256_file(path) == declared:
-            return path
-    return None
 
 
 def append_h3_scene_location_references(anchor_plan: dict[str, Any], plan: dict[str, Any],
                                         editorial: dict[str, Any], *, episode: str) -> list[dict[str, Any]]:
     """SCENE_LOCATION_LOCK_V1 (JA-01 E08 2026-11-22: shot / reverse-shot of one conversation showed three different
-    places).  A unit whose predecessor tail was rejected (OWN_KEYFRAME_TAIL_REJECTED, #286) opens on its own keyframe
-    with no picture of the scene's place beside it; it gets one "background / location only" reference after its
-    identity and prop plates -- the scene's LOCKED location plate, else the scene's own keyframe that shows nobody
-    outside this unit's cast (scene_location_lock.location_reference_for_unit).  No entity binding (it identifies
+    places).  EVERY unit (H3_LOCATION_FIRST, device 1101 E24 2026-11-23: a teahouse unit cut to the series' paddy field
+    inside one clip; before, only a unit whose predecessor tail was rejected, #286) gets one "background / location
+    only" reference after its identity and prop plates -- the scene's LOCKED location plate or the engine's S5
+    location still, else the scene's own keyframe that shows nobody outside this unit's cast
+    (scene_location_lock.location_reference_for_unit).  No entity binding (it identifies
     nobody), never over the provider's reference cap.  Only episodes whose editorial carries the
     ``scene_location_lock`` marker (built by this engine); returns the rows attached."""
     if "scene_location_lock" not in (editorial or {}):

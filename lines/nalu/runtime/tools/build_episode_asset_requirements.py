@@ -971,6 +971,14 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
 
     # ---------------------------------------------------------------- prompts
     style = style_block(vcc, render_style)
+    # PERIOD_TRAIT_LOCK (device 1101 E24): a pre-modern world's trait plan has no glasses / modern haircuts
+    try:
+        if str(ENGINE_ROOT) not in _sys.path:
+            _sys.path.append(str(ENGINE_ROOT))
+        from tools.visual_culture_contract import is_premodern_period as _premodern  # noqa: PLC0415
+        premodern = _premodern(vcc, dialogue_language=contract.get("dialogue_language"))
+    except Exception:  # noqa: BLE001 - an unreadable world keeps the default trait table
+        premodern = False
     prompts: dict[str, str] = {}
     prompt_rows: list[dict[str, Any]] = []
     reused_ids = {row["asset_id"] for row in reuse_decisions if row["decision"] == "REUSED"}
@@ -995,7 +1003,8 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
         if card_appearance:
             card_row["specification"]["appearance_ch1"] = card_appearance
         contrast = ("" if cid.startswith("GROUP-") else
-                    _distinct.contrast_block(_distinct.cast_row(card_row["specification"], cid), cast_rows))
+                    _distinct.contrast_block(_distinct.cast_row(card_row["specification"], cid), cast_rows,
+                                             period=premodern))
         body, action = character_prompt(card_row, card_wardrobe or wardrobe_desc_by_char[cid], style, contrast)
         name = prompt_filename(episode, cid)
         prompts[name] = body

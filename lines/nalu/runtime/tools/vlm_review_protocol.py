@@ -413,6 +413,36 @@ QUESTIONNAIRES: dict[str, dict[str, dict[str, Any]]] = {
             "question": "If a creature with a card is visible (expectations.creature_cards), does its "
                         "locomotion (biped / quadruped) and eye colour match the card in every frame?  "
                         "NOT_APPLICABLE when no carded creature is visible."},
+        # device 1101 E24 review (2026-11-23): reversed roles, invented people, the wrong place and modern eyeglasses
+        # all passed Q2.  Each answer is compared with the plan; a FAIL is an objective failure that q2_auto_redo
+        # redoes once under the existing redo cap (VLM_OBJECTIVE_FAILURES).
+        "action_roles_as_planned": {
+            "enum": PFN, "maps_to": ["ACTION-SHOT-DESIGN-AND-STATE-HANDOFF"],
+            "question": "Who performs the action, on whom, and who holds the named prop?  Compare with "
+                        "expectations.action_roles (per shot: initiator, target, named_props, prop_holder and the "
+                        "action text).  FAIL when the roles are reversed or swapped (e.g. the blade is held to the "
+                        "initiator's own throat, the target does the action, or someone else holds the named "
+                        "prop) or the named prop is a different object; write who does what to whom and who holds "
+                        "which prop in the observation.  NOT_APPLICABLE when no shot declares an action on "
+                        "someone or a named prop."},
+        "no_person_outside_declared_cast": {
+            "enum": PF, "maps_to": ["ACTION-SHOT-DESIGN-AND-STATE-HANDOFF"],
+            "question": "Are there people not in the declared cast?  FAIL when any person, face, hand or body "
+                        "part appears that is not one of expectations.required_visible_characters (a stranger, a "
+                        "floating or disembodied hand, a kneeling or background figure not declared), at any "
+                        "moment of the clip."},
+        "location_matches_scene": {
+            "enum": PF, "maps_to": ["SCENE-AUTHORITY-LOCK"],
+            "question": "Does the location match the scene?  The place must be expectations.scene_location "
+                        "(e.g. a teahouse interior, a shop, a boat, a street) for the whole clip.  FAIL when it "
+                        "is a different kind of place (e.g. an open field or a palace gate instead of a teahouse) "
+                        "or the clip cuts to another place."},
+        "no_modern_object_in_period_world": {
+            "enum": PFN, "maps_to": ["PERIOD-ANACHRONISM-LOCK"],
+            "question": "Any modern objects?  When expectations.period_setting is PRE_MODERN: FAIL when any "
+                        "eyeglasses or spectacles, phone or screen, modern clothing, modern signage or other "
+                        "modern object or accessory is visible on anyone or anywhere in frame.  NOT_APPLICABLE "
+                        "when expectations.period_setting is NOT_PRE_MODERN."},
         "no_p0_or_p1_defect": {
             "enum": PF, "maps_to": ["DEFECT-TIER-TOLERANCE"],
             "question": "Is the clip free of any blocking (P0/P1) defect?  Answer FAIL and list "
@@ -420,6 +450,16 @@ QUESTIONNAIRES: dict[str, dict[str, dict[str, Any]]] = {
                         "expectations.editorial_shot_ids and its at_seconds timestamp — "
                         "defect_tolerance_gate.py needs the location of every P2."},
     },
+}
+
+#: video_q2 answers that are objective failures against the plan (q2_auto_redo.vlm_objective_failures): question ->
+#: the redo failure key.  A FAIL here means a role reversed, an invented principal, the wrong place or an
+#: anachronistic object -- not a matter of taste.
+VLM_OBJECTIVE_FAILURES = {
+    "action_roles_as_planned": "role_reversed",
+    "no_person_outside_declared_cast": "invented_person",
+    "location_matches_scene": "wrong_location",
+    "no_modern_object_in_period_world": "anachronism",
 }
 
 #: SCRIPT-STAGE independent read (line owner 2026-11-01).  Before the script is
