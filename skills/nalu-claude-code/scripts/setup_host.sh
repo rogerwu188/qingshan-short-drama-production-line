@@ -252,8 +252,8 @@ if grep -q '"language": *"ja' "$RUNTIME/qingshan.json" 2>/dev/null || [ "${NALU_
 fi
 # Local burned-text removal (S7 last resort, owner 2026-11-23, tools/burned_text_removal.py) needs the LaMa ONNX model
 # (208 MB, sha256-pinned) in ~/.cache/nalu/models; fetched once, never fatal: without it S7 keeps the burned take
-# (NOT_APPLIED: MODEL_MISSING).  NALU_TEXT_REMOVAL=0 skips the download.
-if [ "${NALU_TEXT_REMOVAL:-1}" != 0 ]; then
+# (NOT_APPLIED: MODEL_MISSING).  The step is off by default (NALU_TEXT_REMOVAL=1 enables it), and so is the download.
+if [ "${NALU_TEXT_REMOVAL:-0}" = 1 ]; then
   .qingshan-venv/bin/python tools/burned_text_removal.py --check-model >>"$LOG" 2>&1 \
     || { .qingshan-venv/bin/python tools/burned_text_removal.py --fetch-model >>"$LOG" 2>&1 \
          && NOTES+=("LaMa model fetched (local burned-text removal)") \

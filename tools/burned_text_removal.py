@@ -18,7 +18,7 @@ locally instead of shipping the burned line.  Blur boxes were rejected; this mod
   grow with clip length (target peak <= 1 GB RSS with 2 threads).  Same frame count / fps; audio stream copied.
 
 Guards (any one -> ``NOT_APPLIED``, the original take is used; never raises):
-  opt-out (``NALU_TEXT_REMOVAL=0``), model missing / sha mismatch, no text found, text area over
+  opt-out (``NALU_TEXT_REMOVAL`` not 1; default off), model missing / sha mismatch, no text found, text area over
   ``MAX_TEXT_AREA_FRACTION`` of the frame, text boxes on a detected face (InsightFace detection, else OpenCV Haar),
   estimated or actual runtime over the budget (``NALU_TEXT_REMOVAL_MAX_SECONDS``, default 240 per unit), and the
   post-check: the cleaned clip is re-read by the S6 detector (``h3_burn_retry.detect``) -- any text hit left, or a
@@ -71,6 +71,7 @@ ENV_MODEL_URL = "NALU_LAMA_ONNX_URL"
 DEFAULT_MAX_SECONDS = 240.0
 DEFAULT_EPISODE_MAX_SECONDS = 1200.0
 DEFAULT_THREADS = 2
+DEFAULT_ENABLED = "0"
 
 MODEL_NAME = "lama_fp32.onnx"
 MODEL_URL = ("https://huggingface.co/Carve/LaMa-ONNX/resolve/c3c0c9e468934d62e79c329e35d82dd09ff8c444/"
@@ -113,7 +114,9 @@ def _env(env: dict[str, str] | None) -> dict[str, str]:
 
 
 def enabled(env: dict[str, str] | None = None) -> bool:
-    return str(_env(env).get(ENV_FLAG, "1")).strip().lower() not in {"0", "false", "no", "off"}
+    """OFF by default until it is benchmarked on a production mini-PC (maintainer 2026-11-23): ``NALU_TEXT_REMOVAL=1``
+    turns it on (``--benchmark`` always runs)."""
+    return str(_env(env).get(ENV_FLAG, DEFAULT_ENABLED)).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _float_env(env: dict[str, str] | None, key: str, default: float) -> float:

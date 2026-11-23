@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2559,
+  "file_count": 2561,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -661,7 +661,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_burnin_subtitles.py",
-      "sha256": "6481ea5854800441308e9bf6f69e66ec51583497708b3c1ede8ad870d6280239"
+      "sha256": "1cba51c2418eb9983d36617de83230b426a2c9bdc377b553e8c7c298381d10f4"
     },
     {
       "path": "lines/nalu/runtime/tools/build_episode_asset_requirements.py",
@@ -733,7 +733,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/final_fix_round.py",
-      "sha256": "779d1592d9d1a1b3e99473a9b4877cdfde4fef82b0f1d8c825b2bcae28b41bd6"
+      "sha256": "cd53c54c7ec6684b23dda4a5fe30e41f82203323011bb950fe473508e8252d28"
     },
     {
       "path": "lines/nalu/runtime/tools/final_qa_evidence_bundle.py",
@@ -813,7 +813,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "3c6b64ffb83696ad0d72fa0f320d72f7995b5c05385fb232640376adf7d28a2c"
+      "sha256": "e3c0b109a2b27d0d5cef0b65df4e9e45aa5283ededec8a54e5703197ee83db7e"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -1117,7 +1117,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/setup_host.sh",
-      "sha256": "a71158dd01d321cb3f48367178ac7ae9e04ab30357cc271140b38feb67814e38"
+      "sha256": "c5f7d107c8a48729c4c35236f9909bf4516b9f049fcd395fddafd7a66c709c49"
     },
     {
       "path": "skills/qingshan-nalu/SKILL.md",
@@ -1869,7 +1869,7 @@
     },
     {
       "path": "tools/build_agentcut_from_admitted_storyboard_sources.py",
-      "sha256": "3ddc033730b8008243ee0be18881b419d95d98da7d270057653af58b0def3c67"
+      "sha256": "112aa2b301899cfdcb8b9e875e58bc94aca63ef03b4689f1c0f39aa3538ae2e5"
     },
     {
       "path": "tools/build_and_validate_e40_u02_v3_package.py",
@@ -3866,6 +3866,10 @@
     {
       "path": "tools/burned_text_cover.py",
       "sha256": "806cf9deb160c442ba240e82c06b3c3f5e50a0403cd4200c79c492938afe9853"
+    },
+    {
+      "path": "tools/burned_text_removal.py",
+      "sha256": "28b7b47a7f595e0e38fb7e2072df0d64e8dd971e52a7bae0fc18947a9c0955e4"
     },
     {
       "path": "tools/camera_grammar_policy.py",
@@ -7480,6 +7484,10 @@
       "sha256": "0d2093e91e05ddbf830af3da2b326bcab024cd48e471bc0cb2bcd2f2f79b9758"
     },
     {
+      "path": "tools/tests/test_burned_text_removal.py",
+      "sha256": "905a31f39231277c971f42e17581aded441a14a5def1bb11568c095ba164b208"
+    },
+    {
       "path": "tools/tests/test_burnin_orphan_dialogue_line.py",
       "sha256": "d939046b00687cf26fb4d1ccc4a976b5d2ff425bd216bfb0ae5a522220e9b7d8"
     },
@@ -9541,7 +9549,7 @@
     },
     {
       "path": "tools/tests/test_strict_burned_line_check.py",
-      "sha256": "cf0e822a0e64753facc49fb08127bb8291a71e4b2c99a3e9b8df85299fe3d47c"
+      "sha256": "a02c863f1f4d7f40304e05447df2471d7b8c5a1ceede1e5cde464781db046240"
     },
     {
       "path": "tools/tests/test_studio_asset_library.py",

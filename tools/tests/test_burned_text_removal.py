@@ -315,6 +315,8 @@ class RemoveTest(unittest.TestCase):
         paint = Inpaint()
         rep = _run(src, self.tmp / "clean.mp4", inpainter=paint, env={btr.ENV_FLAG: "0"})
         self.assertEqual(rep["reason"], "OPT_OUT")
+        rep = _run(src, self.tmp / "clean2.mp4", inpainter=paint, env={})          # default: OFF
+        self.assertEqual(rep["reason"], "OPT_OUT")
         self.assertEqual(paint.calls, 0)
 
 
@@ -478,7 +480,11 @@ class S7WiringTest(unittest.TestCase):
         self.record.write_text(json.dumps({"status": "DONE"}))
         with mock.patch.dict(os.environ, {btr.ENV_FLAG: "0"}):
             path, res = self.removal()
-        self.assertEqual((path, res.details["text_removal"]["status"]), (None, "OPT_OUT"))
+        self.assertEqual((path, res.details["text_removal"]["status"]), (None, "DISABLED"))
+        env = {k: v for k, v in os.environ.items() if k != btr.ENV_FLAG}
+        with mock.patch.dict(os.environ, env, clear=True):                       # unset = OFF until benchmarked
+            path, res = self.removal()
+        self.assertEqual((path, res.details["text_removal"]["status"]), (None, "DISABLED"))
         self.state["s6_burn_retry"]["VU-1"]["strict_burn"] = {"verdict": "ACCEPT_CORRECT"}
         (self.ctx.p.preprod_reports / "E09_S6_WAVE_STATE.json").write_text(json.dumps(self.state))
         path, res = self.removal()
@@ -533,6 +539,57 @@ class S7WiringTest(unittest.TestCase):
                                         {"final_video_sha256": "new-cut", "report": ""}, False)
         self.assertEqual(out["action"], "PROCEED")
         self.assertEqual(json.loads(self.record.read_text())["status"], "NOT_NEEDED")
+
+
+# ================================================================================================ burn-in + release
+class CleanedUnitCaptionAndReleaseTest(unittest.TestCase):
+    def test_cleaned_unit_is_never_suppressed_and_no_strict_verdict_is_taken(self):
+        import build_burnin_subtitles as bbs  # noqa: PLC0415
+        with tempfile.TemporaryDirectory() as td:
+            removal = Path(td) / "E09_TEXT_REMOVAL.json"
+            removal.write_text(json.dumps({"units": {"VU-1": {"status": "APPLIED"}, "VU-2": {"status": "NOT_APPLIED"}}}))
+            self.assertEqual(bbs.text_removed_units(removal), {"VU-1"})
+            self.assertEqual(bbs.text_removed_units(None), set())
+            bands = Path(td) / "bands.json"
+            bands.write_text(json.dumps({"units": {"VU-1": {"y0": 0.7, "y1": 0.8, "ocr": {"frames": [1]}},
+                                                   "VU-2": {"y0": 0.7, "y1": 0.8, "ocr": {"frames": [2]}}}}))
+            burned = bbs.burned_band_ocr(bands, exclude=bbs.text_removed_units(removal))
+            self.assertEqual(sorted(burned), ["VU-2"])
+            events = [(1.0, 2.0, {"text": "台词"})]
+            report = [{"unit_id": "VU-1", "shot_id": "S1", "text": "台词", "source_start": 0.5, "source_end": 2.0}]
+            with mock.patch("subtitle_text_match.strict_burned_line_check",
+                            side_effect=AssertionError("no strict check on a cleaned unit")):
+                ev, rep, gone, checks = bbs.suppress_already_burned(events, report, burned, "zh")
+            self.assertEqual((len(ev), gone, checks), (1, [], []))
+            src = (REPO / "lines/nalu/runtime/tools/build_burnin_subtitles.py").read_text(encoding="utf-8")
+            body = src[src.index("def main("):]
+            self.assertIn("burned_band_ocr(a.avoid_bands,", body)
+            self.assertIn("exclude=cleaned", body)
+            self.assertIn("if u not in cleaned", body)                           # no avoid band either
+
+    def test_release_hold_does_not_count_a_cleaned_unit(self):
+        import final_fix_round as ffr  # noqa: PLC0415
+        record = {"status": "DONE", "unresolved": [{"kind": "BURNED_TEXT", "unit_id": "VU-1", "window": [0, 4]},
+                                                   {"kind": "BURNED_TEXT", "unit_id": "VU-2", "window": [4, 8]}]}
+        obj = ffr.objective_defects(record, text_removed=["VU-1"])
+        rows = {b["unit_id"]: b for b in obj["unresolved_burns"]}
+        self.assertFalse(rows["VU-1"]["blocking"])
+        self.assertEqual(rows["VU-1"]["resolved_by"], "LOCAL_TEXT_REMOVAL")
+        self.assertTrue(rows["VU-2"]["blocking"])
+        obj = ffr.objective_defects({"status": "DONE", "unresolved": record["unresolved"][:1]}, text_removed=["VU-1"])
+        self.assertNotIn("BURN_UNRESOLVED", obj["blocking_classes"])
+
+    def test_units_in_cut_come_from_the_builder_metadata(self):
+        import nalu_pipeline as P  # noqa: PLC0415
+        with tempfile.TemporaryDirectory() as td:
+            project = Path(td) / "project.json"
+            project.write_text(json.dumps({"timeline": {"videoTracks": [{"clips": [
+                {"metadata": {"source_id": "VU-1", "burned_text_removal": {"cleaned_source": "x"}}},
+                {"metadata": {"source_id": "VU-2"}}]}]}}))
+            ctx = SimpleNamespace(p=SimpleNamespace(agentcut_project=project))
+            self.assertEqual(P.s7_text_removed_in_cut(ctx), ["VU-1"])
+            ctx.p.agentcut_project = Path(td) / "missing.json"
+            self.assertEqual(P.s7_text_removed_in_cut(ctx), [])
 
 
 # ================================================================================================ builder

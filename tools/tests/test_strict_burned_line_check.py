@@ -241,7 +241,7 @@ class BurnInWiringTest(unittest.TestCase):
         self.assertEqual(self.bbs.burned_band_ocr(tmp), {"A": {"frames": []}, "B": {}})
         src = (ROOT / "lines/nalu/runtime/tools/build_burnin_subtitles.py").read_text(encoding="utf-8")
         body = src[src.index("def main("):]
-        self.assertIn("suppress_already_burned(events, report, burned_band_ocr(a.avoid_bands)", body)
+        self.assertIn("suppress_already_burned(events, report, burned_band_ocr(a.avoid_bands", body)
         self.assertIn('"burned_line_checks": line_checks', body)
 
 

@@ -11164,13 +11164,13 @@ def s7_burned_text_removal(ctx: Ctx, res: StageResult, reports: dict[str, Path |
     goes to ``video/_text_removed/<unit>.mp4`` and ``<EP>_TEXT_REMOVAL.json`` (the builder's ``--text-removal``).
     Bounded: ``NALU_TEXT_REMOVAL_MAX_SECONDS`` (240) per unit, ``NALU_TEXT_REMOVAL_EPISODE_MAX_SECONDS`` (1200) for
     the episode across S7 passes; a result is cached per (input sha, algorithm) so an S7 re-run spends nothing.
-    Off with ``NALU_TEXT_REMOVAL=0``.  Never blocks: every failure keeps the original picture.  Returns the report
+    OFF by default: ``NALU_TEXT_REMOVAL=1`` enables it.  Never blocks: every failure keeps the original picture.  Returns the report
     path when at least one unit is cleaned."""
     import burned_text_removal as _btr
     detail: dict[str, Any] = {}
     res.details["text_removal"] = detail
     if not _btr.enabled():
-        detail["status"] = "OPT_OUT"
+        detail["status"] = "DISABLED"
         return None
     if getattr(ctx, "dry", False):
         detail["status"] = DRY
@@ -11243,6 +11243,22 @@ def s7_burned_text_removal(ctx: Ctx, res: StageResult, reports: dict[str, Path |
     if applied:
         res.receipts.append(str(path))
     return path if applied else None
+
+
+def s7_text_removed_in_cut(ctx: Any) -> list[str]:
+    """Units whose picture in the built AgentCut project is the local text removal's cleaned copy (the builder's
+    ``burned_text_removal`` clip metadata, set only after its path + sha checks).  [] when none / unreadable."""
+    try:
+        project = read_json(ctx.p.agentcut_project, {}) or {}
+        out = set()
+        for track in (project.get("timeline") or {}).get("videoTracks") or []:
+            for clip in track.get("clips") or []:
+                meta = clip.get("metadata") or {}
+                if meta.get("burned_text_removal") and meta.get("source_id"):
+                    out.add(str(meta["source_id"]))
+        return sorted(out)
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def s7_text_removal_drop_bands(avoid_bands: Path | None, removal_report: Path | None) -> Path | None:
@@ -12512,7 +12528,7 @@ def s7_review_plan_parity(ctx: Any, res: Any, final_audience: dict[str, Any]) ->
         record["plan_parity"] = _ffr.plan_parity_summary(parity)
         record["objective_defects"] = _ffr.objective_defects(
             record, runtime_s=timeline.get("content_runtime_seconds"), target_s=target, plan_parity=parity,
-            suspect_checks=checks)
+            suspect_checks=checks, text_removed=s7_text_removed_in_cut(ctx))
         record["release_policy"] = _ffr.release_policy(record["objective_defects"])
         hold = _ffr.release_hold(record)
         if hold:
@@ -13919,7 +13935,8 @@ def _stage_s7_pass(ctx: Ctx) -> StageResult:
                         "--out-ass", subtitles_ass_path(ctx), "--out-video", subbed,
                         "--out-report", p.assembly / f"{ctx.episode}_BURNIN_SUBTITLES.json",
                         "--language", ctx_language(ctx), *vo_argv, *split_argv, *cover_argv, *avoid_argv,
-                        *(["--unit-recut", recut_report] if recut_report is not None else [])],
+                        *(["--unit-recut", recut_report] if recut_report is not None else []),
+                        *(["--text-removal", text_removal] if text_removal is not None else [])],
                        name="s7_burnin_subtitles")
     steps.append(sub_step)
     if sub_step["exit_code"] != 0 or not subbed.is_file():
