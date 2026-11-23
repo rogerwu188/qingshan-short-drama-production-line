@@ -10,11 +10,12 @@ for that is ``script_pacing_check.CONVERSATION_SPLIT_ACROSS_LOCATIONS``).  This 
   state (``prompt_spec.space.location`` / ``prompt_spec.scene_state`` come from the scene's ``scene_states`` row;
   only a declared ``shot_scene_overrides`` cross-cut may differ).  The receipt names any shot whose place was not
   taken from its scene -- the engine invariant the keyframe scene plate and the H3 setting text rely on.
-* :func:`location_reference_for_unit` -- a video unit whose predecessor tail was rejected (#286: it opens on its own
-  keyframe, no tail reaches the provider) keeps the scene's place in shot / reverse-shot through one
-  "background / location only" reference: the scene's LOCKED location plate (stage 3(a), no people), else the
-  earliest keyframe of the same scene that shows nobody outside this unit's cast (never another character's face:
-  that is what made H3 morph one speaker into the other in #286).
+* :func:`location_reference_for_unit` -- EVERY video unit (H3_LOCATION_FIRST, device 1101 E24 2026-11-23: a teahouse
+  unit jumped to the series' paddy field inside one clip; until then only a unit whose predecessor tail was rejected,
+  #286) keeps the scene's place through one "background / location only" reference: the scene's LOCKED location
+  plate (stage 3(a), no people) or the engine's S5 location still (scene_location_still.py), else the earliest
+  keyframe of the same scene that shows nobody outside this unit's cast (never another character's face: that is
+  what made H3 morph one speaker into the other in #286).
 """
 from __future__ import annotations
 
@@ -85,14 +86,12 @@ def tail_rejected(unit: dict[str, Any]) -> bool:
 def location_reference_for_unit(unit: dict[str, Any], unit_shot_ids: list[str], editorial: dict[str, Any], *,
                                 scene_plate: Callable[[str], Path | None] | None = None,
                                 keyframe_dir: Path | None = None) -> dict[str, Any] | None:
-    """The scene location reference of one tail-rejected unit, or None.
+    """The scene location reference of one unit (any unit, tail-rejected or not), or None.
 
     {path, source: LOCKED_SCENE_PLATE | SCENE_KEYFRAME, location_id, scene_id, source_shot_id?}.  ``scene_plate``
     resolves a location id to its LOCKED plate (None = no plate); ``keyframe_dir`` (default: the directory of the
     unit's opening reference) holds ``<shot>-keyframe-vN.png``.  A keyframe is used only when everyone it shows is
     on screen in this unit (an empty establishing view qualifies)."""
-    if not tail_rejected(unit):
-        return None
     shots = [s for s in editorial.get("shots") or [] if isinstance(s, dict)]
     by_id = {_clean(s.get("shot_id")): s for s in shots}
     own = [by_id[sid] for sid in unit_shot_ids if sid in by_id]

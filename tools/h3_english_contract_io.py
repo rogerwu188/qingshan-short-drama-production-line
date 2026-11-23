@@ -71,7 +71,8 @@ def _camera_slots(camera_plan: dict[str, Any]) -> tuple[dict[str, str], dict[str
     return source, {k: "" for k in source}
 
 
-def _director_v2_slots(unit: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]] | None:
+def _director_v2_slots(unit: dict[str, Any], plan: dict[str, Any] | None = None
+                       ) -> tuple[dict[str, Any], dict[str, Any]] | None:
     """DIRECTOR_PROMPT_V2 units only: English appearance / wardrobe / creature look per subject and one
     setting sentence, for every such text the unit has only in Chinese.  V1 units get no slot, so their
     request (and its digest) is unchanged."""
@@ -82,9 +83,9 @@ def _director_v2_slots(unit: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
     if not is_director_prompt_v2(unit):
         return None
     try:
-        from tools.h3_director_prompt_v2 import setting_source, subject_sources
+        from tools.h3_director_prompt_v2 import _source_action_texts, named_props, setting_source, subject_sources
     except ModuleNotFoundError:
-        from h3_director_prompt_v2 import setting_source, subject_sources
+        from h3_director_prompt_v2 import _source_action_texts, named_props, setting_source, subject_sources
     src_subjects: dict[str, Any] = {}
     tpl_subjects: dict[str, Any] = {}
     for row in subject_sources(unit):
@@ -101,11 +102,19 @@ def _director_v2_slots(unit: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
     if setting and CJK.search(setting):
         src["setting"] = setting
         tpl["setting"] = ""
+    # H3_PROP_NAMED_DESCRIBED (device 1101 E24): an object the action names without an English description gets one
+    props = {row["key"]: row for row in named_props(unit, _source_action_texts(unit, plan)) if not row["description"]}
+    if props:
+        src["props"] = {key: {"name": row["name"], "declared": row["declared"]} for key, row in props.items()}
+        tpl["props"] = {key: {"description": ""} for key in props}
     if not src:
         return None
     src["instructions"] = ("appearance: face, age, hair and build only; wardrobe: the clothes in words; "
-                           "setting: one or two sentences naming the place and its layout (time, weather and light are "
-                           "stated from other fields)")
+                           "setting: one or two sentences that START with the scene's own location (the first item of "
+                           "the source, e.g. the teahouse, the shop, the boat) and its layout; the series world is "
+                           "era background only and never replaces that place (time, weather and light are stated "
+                           "from other fields); props: one concrete description per object (material, size, colour, "
+                           "shape), the same words for the same object in every unit of the episode")
     return src, tpl
 
 
@@ -167,7 +176,7 @@ def request_row(unit: dict[str, Any], plan: dict[str, Any] | None = None) -> dic
         spatial_tpl.append(row_tpl)
     if spatial_src:
         src["spatial_dialogue"], tpl["spatial_dialogue"] = spatial_src, spatial_tpl
-    director = _director_v2_slots(unit)
+    director = _director_v2_slots(unit, plan)
     if director:
         src["director_v2"], tpl["director_v2"] = director
     rows = _camera_rows(unit, plan)
@@ -205,7 +214,11 @@ BEAT_TEXT_RULE = (
     "beats or units, never a generic placeholder such as 'delivers the line with a clear gesture', 'visible posture "
     "change', 'gesture settles', and never a raised or pointing index finger unless the source itself says pointing. "
     "All units of one scene describe the same place in space_weather_fact (the scene's location, not a new one per "
-    "shot). ")
+    "shot). "
+    "Name only people who are in this unit's visible cast: a person the source mentions who is not in this shot is "
+    "never named in entry_state / primary_action / exit_state -- describe only what the visible people do (e.g. "
+    "'holds her dagger level, its point toward frame left'), so the video model invents no extra person or hand; "
+    "who acts and who holds an object stays exactly as the source says. ")
 
 
 def source_digest(source: dict[str, Any], template: dict[str, Any]) -> str:
@@ -262,7 +275,7 @@ def apply_answers(unit: dict[str, Any], answers: dict[str, Any]) -> dict[str, An
         older = english or any(key == uid or key.startswith(uid + "@") for key in rows)
         row["reason"] = "STALE_SOURCE_CHANGED" if older else "MISSING"
         return row
-    problems = english_problems(english, row["english"])
+    problems = english_problems(english, row["english"]) or _frame_name_problems(unit, plan, english)
     if problems:
         row["reason"] = "ANSWER_INVALID"
         row["problems"] = problems[:20]
@@ -273,6 +286,21 @@ def apply_answers(unit: dict[str, Any], answers: dict[str, Any]) -> dict[str, An
     contract["source_execution_semantics_sha256"] = plan["execution_semantics_sha256"]
     unit["h3_provider_english_contract"] = contract
     return None
+
+
+def _frame_name_problems(unit: dict[str, Any], plan: dict[str, Any], english: dict[str, Any]) -> list[str]:
+    """DIRECTOR_PROMPT_V2 only: names of people the English action text names although the unit does not show them
+    (h3_director_prompt_v2.people_named_outside_frame) -- the writer rewrites them (H3_ACTION_NAMES_ONLY_FRAME)."""
+    try:
+        from tools.provider_scope_projection import is_director_prompt_v2
+        from tools.h3_director_prompt_v2 import english_action_texts, people_named_outside_frame
+    except ModuleNotFoundError:
+        from provider_scope_projection import is_director_prompt_v2
+        from h3_director_prompt_v2 import english_action_texts, people_named_outside_frame
+    if not is_director_prompt_v2(unit) or not isinstance(english, dict):
+        return []
+    return [f"english.beats:NAMES_PERSON_NOT_IN_FRAME:{name}:rewrite without naming {name}; describe only what the "
+            "visible people do" for name in people_named_outside_frame(unit, plan, english_action_texts(english))]
 
 
 def bind_or_request(units: list[dict[str, Any]], answers_path: Path) -> list[dict[str, Any]]:

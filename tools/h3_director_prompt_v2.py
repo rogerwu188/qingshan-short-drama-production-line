@@ -83,6 +83,10 @@ try:
     from tools import performance_variety as _pv
 except ModuleNotFoundError:  # pragma: no cover
     import performance_variety as _pv  # type: ignore
+try:
+    from tools import visual_culture_contract as _vcc
+except ModuleNotFoundError:  # pragma: no cover
+    import visual_culture_contract as _vcc  # type: ignore
 
 
 def _pointing_scripted(unit: dict[str, Any]) -> bool:
@@ -345,8 +349,44 @@ def subject_sources(unit: dict[str, Any]) -> list[dict[str, Any]]:
     return list(rows.values())
 
 
+_LOCATION_ID_PREFIX = re.compile(r"^(?:(?:LOC|LOCATION|SCENE|PLACE|SET|SPACE)[-_])+(?:E\d+[-_])?", re.IGNORECASE)
+
+
+def location_id_words(location_id: Any) -> str:
+    """``LOC-ANCHENG-TEAHOUSE`` -> ``Ancheng teahouse`` (an id made readable; '' for none / UNKNOWN_LOCATION)."""
+    text = str(location_id or "").strip()
+    if not text or text.upper() in {"UNKNOWN_LOCATION", "UNSPECIFIED"}:
+        return ""
+    words = " ".join(w for w in re.split(r"[-_\s]+", _LOCATION_ID_PREFIX.sub("", text)) if w)
+    if CJK.search(words):
+        return words
+    words = words.lower()
+    return words[:1].upper() + words[1:]
+
+
+def scene_location_words(unit: dict[str, Any]) -> str:
+    """The unit's own scene location in words (H3_LOCATION_FIRST, device 1101 E24 2026-11-23): an authored English /
+    Chinese place name on the first shot (``space.location_en`` / ``location_name`` / ``scene_state.room``) when
+    present, else the scene's location id made readable.  '' when the unit declares no location."""
+    specs = unit.get("ordered_prompt_specs") or []
+    first = specs[0] if specs and isinstance(specs[0], dict) else {}
+    space = first.get("space") if isinstance(first.get("space"), dict) else {}
+    scene = first.get("scene_state") if isinstance(first.get("scene_state"), dict) else {}
+    for value in (space.get("location_en"), space.get("location_name"), space.get("location_label"),
+                  scene.get("room_en"), scene.get("room")):
+        text = " ".join(str(value or "").split())
+        if text and not INTERNAL_ID.fullmatch(text):
+            return text
+    return location_id_words(space.get("location"))
+
+
 def setting_source(unit: dict[str, Any]) -> str:
-    """Authored location + light words for the Setting line (any language)."""
+    """Authored location + light words for the Setting line (any language).
+
+    H3_LOCATION_FIRST (device 1101 E24, 2026-11-23: every shot of a teahouse / rouge-shop / boat episode came out as
+    the series' "mountain gate and broad spirit fields"): the unit's OWN scene location leads; the series-wide
+    story_world follows as era context, and the series-wide production_design (which names the series' standing
+    places) is left out whenever the unit has a location of its own."""
     vcc = unit.get("visual_culture_contract") if isinstance(unit.get("visual_culture_contract"), dict) else {}
     specs = unit.get("ordered_prompt_specs") or []
     first = specs[0] if specs else {}
@@ -355,8 +395,10 @@ def setting_source(unit: dict[str, Any]) -> str:
     # the middle-ground layer restates the beat's action: the Action section owns that
     layers = [row for row in design.get("depth_layers") or []
               if isinstance(row, str) and not re.match(r"\s*(?:中景|middle ?ground)", row, re.IGNORECASE)]
-    parts = [vcc.get("story_world"), vcc.get("production_design"), *layers,
-             design.get("key_light") or scene.get("lighting")]
+    location = scene_location_words(unit)
+    parts = [location, *layers, design.get("key_light") or scene.get("lighting"), vcc.get("story_world")]
+    if not location:
+        parts.append(vcc.get("production_design"))
     seen: list[str] = []
     for value in parts:
         value = " ".join(str(value or "").split())
@@ -465,6 +507,168 @@ def offscreen_only_entity_ids(unit: dict[str, Any]) -> set[str]:
                      for member in spec.get("cast") or []
                      if str(member.get("face_visibility") or "").upper() == "OFFSCREEN_VOICE_ONLY"}
     return {cid for cid in declared if cid and not any(_visible_in_spec(spec, cid) for spec in specs)}
+
+
+# ----------------------------------------------------------------------------------------------------------
+# who / what the action names (device 1101 E24 review, 2026-11-23)
+# ----------------------------------------------------------------------------------------------------------
+def frame_entity_ids(unit: dict[str, Any]) -> set[str]:
+    """The subjects "Who is in frame" lists: every cast member / carded being some shot of the unit shows."""
+    specs = [spec for spec in unit.get("ordered_prompt_specs") or [] if isinstance(spec, dict)]
+    return {row["entity_id"] for row in subject_sources(unit)
+            if any(_visible_in_spec(spec, row["entity_id"]) for spec in specs)}
+
+
+def _name_key(value: Any) -> str:
+    text = str(value or "")
+    return re.sub(r"[^a-z]", "", text.lower()) if text.isascii() else ""
+
+
+def _person_name_keys(unit: dict[str, Any], plan: dict[str, Any] | None, cid: str, row: dict[str, Any]) -> set[str]:
+    labels = v1._entity_labels(unit, plan or {})
+    values = [row.get("english_name"), row.get("canonical_name"), *(row.get("aliases") or []), labels.get(cid),
+              _id_label(cid)]
+    return {key for key in (_name_key(v) for v in values) if len(key) >= 4}
+
+
+_OFFSCREEN_WORDS = re.compile(r"off-?screen|out of (?:the )?frame|unseen|\bvoice\b", re.IGNORECASE)
+
+
+def people_named_outside_frame(unit: dict[str, Any], plan: dict[str, Any] | None, texts: list[Any]) -> list[str]:
+    """Names of episode characters that the given English action texts name although "Who is in frame" does not list
+    them (H3 then draws them: E24-VU-001 "Lingyao presses a dagger to Wang Defa's throat" with only Lingyao cast
+    rendered a stranger's hand holding a blade to HER throat).  A capitalised 1-3 word span is matched against each
+    absent character's English name / pinyin aliases / id; a declared offscreen speaker may be named in a sentence
+    that says so (offscreen / out of frame / voice)."""
+    in_frame = frame_entity_ids(unit)
+    catalog = _catalog(unit)
+    # a cast row may carry only the Chinese name: the catalog entry of that name / alias is in frame too
+    in_frame |= {cid for cid, row in catalog.items()
+                 if {str(row.get("canonical_name") or ""), *map(str, row.get("aliases") or [])} & in_frame}
+    keys_in_frame: set[str] = set()
+    for cid in in_frame:
+        keys_in_frame |= _person_name_keys(unit, plan, cid, catalog.get(cid) or {})
+    offscreen = offscreen_only_entity_ids(unit)
+    absent = {cid: _person_name_keys(unit, plan, cid, row) - keys_in_frame
+              for cid, row in catalog.items() if cid not in in_frame}
+    found: list[str] = []
+    for text in texts:
+        for sentence in re.split(r"(?<=[.!?;])\s+", " ".join(str(text or "").split())):
+            words = re.findall(r"[A-Za-z][A-Za-z'’-]*", sentence)
+            spans = {}
+            for i, word in enumerate(words):
+                if not word[:1].isupper():
+                    continue
+                for n in (1, 2, 3):
+                    if i + n <= len(words):
+                        spans[_name_key("".join(re.sub(r"['’]s$", "", w) for w in words[i:i + n]))] = \
+                            " ".join(words[i:i + n])
+            for cid, keys in absent.items():
+                hit = next((spans[k] for k in keys if k in spans), None)
+                if not hit or (cid in offscreen and _OFFSCREEN_WORDS.search(sentence)):
+                    continue
+                label = re.sub(r"['’]s$", "", hit)
+                if label not in found:
+                    found.append(label)
+    return found
+
+
+#: object nouns an action can name without the contract declaring the prop (en word -> zh source words)
+PROP_NOUNS: dict[str, tuple[str, ...]] = {
+    "dagger": ("匕首", "短刀"), "knife": ("小刀", "刀子"), "sword": ("长剑", "宝剑", "佩剑"), "blade": ("刀刃", "刀锋"),
+    "talisman": ("符纸", "符箓", "符咒", "灵符"), "scroll": ("卷轴",), "skull": ("骷髅", "头骨"),
+    "box": ("盒子", "木盒", "锦盒"), "letter": ("信笺", "书信"), "token": ("令牌",), "pendant": ("玉佩",),
+    "hairpin": ("发簪", "簪子"), "handkerchief": ("手帕", "丝帕"), "mirror": ("镜子", "铜镜"), "lantern": ("灯笼",),
+    "spear": ("长枪",), "whip": ("鞭子",), "chain": ("锁链", "铁链"), "tray": ("托盘",), "gourd": ("葫芦",),
+    "pill": ("丹药",), "teacup": ("茶杯",), "bowl": ("碗",), "bottle": ("药瓶", "瓶子"), "rouge": ("胭脂",),
+    "ledger": ("账本", "账簿"),
+}
+
+
+def _prop_rows(unit: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    rows: dict[str, dict[str, Any]] = {}
+    for spec in unit.get("ordered_prompt_specs") or []:
+        for prop in (spec.get("props") or []) if isinstance(spec, dict) else []:
+            pid = str(prop.get("prop_id") or prop.get("prop") or "")
+            if pid and pid not in rows and not is_being_prop(prop):
+                rows[pid] = prop
+    return rows
+
+
+def _prop_names(pid: str, prop: dict[str, Any]) -> list[str]:
+    names = [_en(prop.get("english_name"), 60), _en(prop.get("prop"), 60), _id_label(pid).lower()]
+    return [n.lower() for n in dict.fromkeys(n for n in names if n and len(n) >= 3)]
+
+
+def _prop_description(prop: dict[str, Any]) -> str:
+    for key in ("description_en", "appearance_en", "look_en", "physical_description_en", "note", "physical_function"):
+        text = _en(prop.get(key), 200)
+        if text:
+            return text
+    return ""
+
+
+def named_props(unit: dict[str, Any], texts: list[Any]) -> list[dict[str, Any]]:
+    """Objects the action names (H3_PROP_NAMED_DESCRIBED, device 1101 E24: the talisman became a placard, the dagger a
+    sword and then another blade, the skull a toy on a tray).  One row per object: declared props first
+    ({key: prop id, name, description, declared: True}), then PROP_NOUNS the text names that no declared prop covers
+    ({key: the noun, declared: False}).  Source texts may be Chinese (the zh words of PROP_NOUNS) or English."""
+    joined = " ".join(" ".join(str(t or "").split()) for t in texts)
+    low = joined.lower()
+    out: list[dict[str, Any]] = []
+    covered: set[str] = set()
+    for pid, prop in _prop_rows(unit).items():
+        names = _prop_names(pid, prop)
+        zh = str(prop.get("prop") or "")
+        if any(re.search(r"\b" + re.escape(n) + r"s?\b", low) for n in names) or (zh and CJK.search(zh) and zh in joined):
+            out.append({"key": pid, "name": names[0] if names else pid, "description": _prop_description(prop),
+                        "declared": True})
+            covered |= {w for n in names for w in n.split()}
+            covered |= {noun for noun, zh_words in PROP_NOUNS.items() if zh and any(z in zh for z in zh_words)}
+    for noun, zh_words in PROP_NOUNS.items():
+        if noun in covered:
+            continue
+        if re.search(r"\b" + noun + r"s?\b", low) or any(z in joined for z in zh_words):
+            out.append({"key": noun, "name": noun, "description": "", "declared": False})
+    return out
+
+
+def _source_action_texts(unit: dict[str, Any], plan: dict[str, Any] | None) -> list[str]:
+    texts: list[str] = []
+    for beat in _beats(plan or {}):
+        texts += [str(beat.get(k) or "") for k in ("entry_state", "primary_action", "exit_state", "contact_point")]
+    for spec in unit.get("ordered_prompt_specs") or []:
+        action = spec.get("action") if isinstance(spec, dict) and isinstance(spec.get("action"), dict) else {}
+        texts += [str(action.get(k) or "") for k in ("primary_action", "start_state", "completion_state")]
+    return texts
+
+
+def english_action_texts(contract: dict[str, Any]) -> list[str]:
+    """Every English action-side text of a bound contract (beats, holds, transitions)."""
+    texts: list[str] = []
+    for beat in contract.get("beats") or []:
+        if isinstance(beat, dict):
+            texts += [str(beat.get(k) or "") for k in ("entry_state", "primary_action", "exit_state", "force_origin",
+                                                       "contact_point", "primary_feedback", "force_feedback",
+                                                       "internal_transition_after")]
+            texts += [str(v or "") for v in beat.get("secondary_feedback") or []]
+    texts += [str(contract.get("persistent_state_lock") or "")]
+    texts += [str(v or "") for v in contract.get("shot_state_locks") or []]
+    texts += [str(v or "") for v in (contract.get("transition") or {}).values()]
+    return texts
+
+
+def period_setting(unit: dict[str, Any]) -> bool:
+    """The unit's world is pre-modern (PERIOD_TRAIT_LOCK; visual_culture_contract.is_premodern_period)."""
+    return _vcc.is_premodern_period(unit.get("visual_culture_contract"), dialogue_language=unit.get("dialogue_language"))
+
+
+#: H3 Never items of a pre-modern world (PERIOD_TRAIT_LOCK, device 1101 E24: round eyeglasses on a xianxia demon)
+PERIOD_NEVER_V2 = "; ".join(_vcc.PERIOD_FORBIDDEN_ITEMS_EN)
+#: Look line of a pre-modern AUTHORED_WORLD unit (its world lock is otherwise left out as filler)
+PERIOD_LOOK_V2 = ("Look: keep the period, architecture, dress and props of this pre-modern world exactly as the "
+                  "references and the described facts show; real materials, soft motivated light; no modern object "
+                  "or accessory anywhere in frame.")
 
 
 def _side(label: str, framing: str) -> str:
@@ -676,8 +880,9 @@ def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: se
             lines.append(f"@Image{index} is the previous shot's last frame: continuity of positions, clothing "
                          "and props only; it defines no face.")
         elif role == v1.SCENE_LOCATION_REFERENCE_ROLE:  # SCENE_LOCATION_LOCK_V1 (JA-01 E08)
-            lines.append(f"@Image{index} is this scene's location: keep the same place, background, set dressing and "
-                         "light; it defines no face and puts nobody in frame.")
+            lines.append(f"@Image{index} is this scene's location, for the background and location only: keep the same "
+                         "place, background, set dressing and light for the whole clip; it defines no face and puts "
+                         "nobody in frame.")
         else:
             lines.append(f"@Image{index} is a supporting continuity reference: match only what it shows of the "
                          "setting and props; it defines no face.")
@@ -724,6 +929,18 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     total = (sum(int(counts.get(cid) or 1) for cid in onscreen_ids) if scope.get("visible_character_ids")
              else sum(int(counts.get(s["entity_id"]) or 1) for s in subjects))
     label_by_id = {s["entity_id"]: s["label"] for s in subjects}
+    # H3_ACTION_NAMES_ONLY_FRAME (device 1101 E24): an action that names someone "Who is in frame" does not list makes
+    # H3 invent that person (a stranger's hand, a kneeling armoured figure).  Refused here; the English-contract
+    # binding (h3_english_contract_io.apply_answers) sends the same finding back to the writer first.
+    listener_texts = [str((spec.get("action") or {}).get("listener_reaction_en") or "")
+                      for spec in unit.get("ordered_prompt_specs") or [] if isinstance(spec, dict)
+                      and isinstance(spec.get("action"), dict) and not isinstance(
+                          (spec.get("action") or {}).get("listener_reaction_en"), dict)]
+    outside = people_named_outside_frame(unit, plan, english_action_texts(contract) + listener_texts)
+    if outside:
+        raise ValueError(f"{uid}:H3_ACTION_NAMES_PERSON_NOT_IN_FRAME:" + ",".join(outside))
+    background_declared = bool(director_v2_background_clause(unbound_total,
+                                                             scope.get("anonymous_role_descriptors") or []))
 
     # --- references ------------------------------------------------------------------------------------
     reference_lines = _reference_lines(unit, plan, onscreen=onscreen_ids, people=len(people), beings=len(beings),
@@ -878,8 +1095,11 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     world_lock = _render_style.anime_lock(v1.H3_AUTHORED_WORLD_LOCK) if anime else v1.H3_AUTHORED_WORLD_LOCK
     if stamped and look == neutral_lock:  # no all-caps label H3 could voice (owner 2026-11-01)
         look = _cap(ALL_CAPS_LABEL.sub("", look, count=1).strip())
+    period = period_setting(unit)
     if look != world_lock:  # period locks carry real constraints; the authored-world one is filler
         setting_lines.append(_sentence("Look: " + look.rstrip(".")))
+    elif period:  # ... except in a pre-modern authored world (PERIOD_TRAIT_LOCK, device 1101 E24)
+        setting_lines.append(PERIOD_LOOK_V2)
     # the identity/prop anchor names the cast (stated in "Who is in frame"), the key props (a setting fact) and
     # a reference-lock boilerplate sentence (the References block): only the props are left to state here
     prop_fact = " ".join(
@@ -891,6 +1111,24 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     evidence["ANCHOR.IDENTITY_PROP"] = prop_fact or ""
     if prop_fact:
         setting_lines.append(_sentence(prop_fact))
+    # H3_PROP_NAMED_DESCRIBED (device 1101 E24): every object the action names is described in words; a carded prop
+    # also rides as a reference (append_h3_prop_plates); a named prop without a card is logged (S1 owns that rule)
+    props_v2 = v2_english.get("props") if isinstance(v2_english.get("props"), dict) else {}
+    reference_entities = {str((r if isinstance(r, dict) else {}).get("entity_id") or "")
+                          for r in [*(unit.get("reference_images") or []), *(unit.get("reference_image_sequence") or [])]}
+    prop_sentences: list[str] = []
+    props_log: dict[str, list[str]] = {"named": [], "without_card": [], "without_description": []}
+    for row in named_props(unit, english_action_texts(contract)):
+        props_log["named"].append(row["key"])
+        description = row["description"] or _en((props_v2.get(row["key"]) or {}).get("description"), 200)
+        if not row["declared"] or row["key"] not in reference_entities:
+            props_log["without_card"].append(row["key"])
+        if not description:
+            props_log["without_description"].append(row["key"])
+        elif row["name"].lower() not in prop_fact.lower():
+            prop_sentences.append(f"the {row['name']} is {description[:1].lower() + description[1:]}")
+    if prop_sentences:
+        setting_lines.append(_sentence("Props: " + "; ".join(prop_sentences)))
 
     # --- camera ----------------------------------------------------------------------------------------
     camera, camera_receipt = camera_section(unit, plan, contract, beats)
@@ -1154,9 +1392,12 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         dialogue_lines.append(" ".join(redo_notes))
 
     # --- never -----------------------------------------------------------------------------------------
+    # background figures are allowed only when the projection declares extras (H3_ACTION_NAMES_ONLY_FRAME, E24)
     negatives = [NEVER_V2_STAMPED if stamped else NEVER_V2, "any person, hand or body part" if not subjects else
-                 ("anyone beyond the listed people and background figures" if (unbound_total or background_total)
+                 ("anyone beyond the listed people and background figures" if background_declared
                   else "anyone else in frame")]
+    if period:
+        negatives.append(PERIOD_NEVER_V2)
     for value in contract.get("negative_constraints") or []:
         value = scrub(value)
         if value:
@@ -1249,6 +1490,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         },
         **({"h3_constraint_language": "zh"} if constraint_language == "zh" else {}),
         **({"h3_camera_lock": "strict"} if camera_lock else {}),
+        **({"props_named": props_log} if props_log["named"] else {}),
+        **({"period_lock": "PRE_MODERN"} if period else {}),
     }
 
 

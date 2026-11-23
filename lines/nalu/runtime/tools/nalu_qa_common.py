@@ -982,6 +982,7 @@ class Expectations:
             first = (self.shots.get(shot_ids[0]) or {}).get("prompt_spec") or {} if shot_ids else {}
             last = (self.shots.get(shot_ids[-1]) or {}).get("prompt_spec") or {} if shot_ids else {}
             expectations = dict(plot["expectations"])
+            expectations.update(self.q2_role_location_period(shot_ids))
             expectations.update({
                 "shot_count": len(shot_ids),
                 "cast": cast_rows,
@@ -1013,6 +1014,43 @@ class Expectations:
                          "chronological_index": plot["chronological_index"],
                          "expectations": expectations})
         return rows
+
+    def q2_role_location_period(self, shot_ids: list[str]) -> dict[str, Any]:
+        """Post-gen Q2 facts the role / cast / location / period questions compare the clip with (device 1101 E24
+        review, 2026-11-23): per shot who acts on whom and which props it names (``action_roles``), the scene's
+        place (``scene_location``) and whether the world is pre-modern (``period_setting``)."""
+        id_to_name = {cid: name for name, cid in self.character_name_to_id().items()}
+        for row in (self.contract or {}).get("character_entities") or []:
+            if isinstance(row, dict) and row.get("character_id"):
+                id_to_name.setdefault(str(row["character_id"]), str(row.get("canonical_name") or row["character_id"]))
+        roles: list[dict[str, Any]] = []
+        location_id = ""
+        for shot_id in shot_ids:
+            spec = (self.shots.get(shot_id) or {}).get("prompt_spec") or {}
+            action = spec.get("action") if isinstance(spec.get("action"), dict) else {}
+            role = spec.get("role_semantic_disambiguation") if isinstance(spec.get("role_semantic_disambiguation"), dict) else {}
+            initiator = str(action.get("initiator_entity_id") or action.get("subject_id") or role.get("primary_actor_id") or "")
+            target = str(action.get("target_entity_id") or "")
+            props = [str(p.get("prop") or p.get("prop_id")) for p in spec.get("props") or [] if isinstance(p, dict)
+                     and (p.get("prop") or p.get("prop_id"))]
+            roles.append({"shot_id": shot_id, "action": action.get("primary_action") or "",
+                          "initiator": id_to_name.get(initiator, initiator),
+                          "target": id_to_name.get(target, target) if target and target != initiator else "",
+                          "named_props": props,
+                          "prop_holder": id_to_name.get(str(action.get("prop_holder_id") or initiator),
+                                                        str(action.get("prop_holder_id") or initiator)) if props else ""})
+            location_id = location_id or str(((spec.get("space") or {}) if isinstance(spec.get("space"), dict)
+                                              else {}).get("location") or "")
+        words = re.sub(r"^(?:(?:LOC|LOCATION|SCENE|PLACE|SET|SPACE)[-_])+", "", location_id, flags=re.IGNORECASE)
+        words = " ".join(w for w in re.split(r"[-_\s]+", words) if w).lower()
+        try:
+            period = engine_module("visual_culture_contract").is_premodern_period(
+                (self.contract or {}).get("visual_culture_contract"),
+                dialogue_language=(self.contract or {}).get("dialogue_language"))
+        except Exception:  # noqa: BLE001
+            period = False
+        return {"action_roles": roles, "scene_location": {"location_id": location_id, "words": words},
+                "period_setting": "PRE_MODERN" if period else "NOT_PRE_MODERN"}
 
     # --------------------------------------------------------- post-gen plot
     # ------------------------------------------------------- seq=19 contract-holds
