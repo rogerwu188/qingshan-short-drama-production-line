@@ -210,7 +210,7 @@ _CAMERA_NOTE_POLICY_CACHE: dict[str, dict[str, Any]] = {}
 
 
 def load_camera_note_policy(path: Path | None = None) -> dict[str, Any]:
-    """KEYFRAME_CAMERA_NOTE_SCOPE policy; a missing file keeps the legacy (pre-E11) note."""
+    """KEYFRAME_CAMERA_NOTE_SCOPE policy; a missing file keeps the legacy angle-label note."""
     target = Path(path or CAMERA_NOTE_POLICY_PATH)
     key = str(target)
     if key not in _CAMERA_NOTE_POLICY_CACHE:
@@ -228,6 +228,50 @@ def camera_note_scoped(episode: str, policy: dict[str, Any] | None = None) -> bo
     start = policy.get("active_from_episode")
     number = episode_ordinal(episode)
     return bool(policy) and start is not None and number is not None and number >= int(start)
+
+
+CAMERA_NOTE_DECISION_SCHEMA = "nalu.keyframe_camera_note_scope_decision.v1"
+
+
+def camera_note_decision(episode: str, preproduction_dir: Path, keyframe_dir: Path,
+                         policy: dict[str, Any] | None = None, *, record: bool = True) -> dict[str, Any]:
+    """Sticky per-episode K070 decision (owner 2026-11-23: active from E01).
+
+    An episode below the former start (``in_flight_exemption.legacy_active_from_episode``) that
+    already has generated keyframes keeps the legacy angle label, so paid keyframes stay bound to
+    byte-identical prompts.  The first decision taken while the policy is active is recorded in
+    the preproduction dir and reused, so a fresh episode's later redo builds stay scoped.
+    """
+    policy = load_camera_note_policy() if policy is None else policy
+    if not camera_note_scoped(episode, policy):
+        return {"scoped": False, "reason": "POLICY_INACTIVE", "recorded": False}
+    path = Path(preproduction_dir) / f"{episode}_KEYFRAME_CAMERA_NOTE_SCOPE_DECISION.json"
+    if path.is_file():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = {}
+        if data.get("schema") == CAMERA_NOTE_DECISION_SCHEMA and isinstance(data.get("scoped"), bool):
+            return {"scoped": data["scoped"], "reason": str(data.get("reason") or ""), "recorded": True}
+    legacy = (policy.get("in_flight_exemption") or {}).get("legacy_active_from_episode")
+    number = episode_ordinal(episode)
+    prior = (legacy is not None and number is not None and number < int(legacy)
+             and Path(keyframe_dir).is_dir() and any(Path(keyframe_dir).glob("*-keyframe-v*.png")))
+    decision = ({"scoped": False, "reason": "IN_FLIGHT_KEYFRAMES_PREDATE_ACTIVATION"} if prior
+                else {"scoped": True, "reason": "POLICY_ACTIVE"})
+    if record and Path(preproduction_dir).is_dir():
+        path.write_text(json.dumps({"schema": CAMERA_NOTE_DECISION_SCHEMA, "episode": episode,
+                                    "active_from_episode": policy.get("active_from_episode"), **decision},
+                                   ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {**decision, "recorded": bool(record and Path(preproduction_dir).is_dir())}
+
+
+def episode_camera_note_scoped(inputs: Any) -> bool:
+    """The main() decision when present; otherwise the plain episode gate (library / test callers)."""
+    decision = getattr(inputs, "camera_note_scope", None)
+    if isinstance(decision, dict):
+        return bool(decision.get("scoped"))
+    return camera_note_scoped(inputs.episode)
 
 
 # E12 2026-10-31: the image model drew Qinming bearded (S02-02), Xuyueping young and clean-shaven (S04-01)
@@ -1482,11 +1526,12 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
           if framing_rule and framing_rule.get("picture_range_zh") else []),
         ("camera", f"摄影：{spec.get('camera')}", True),
         ("axis", f"轴线声明：{shot.get('axis')}", True),
-        # K070: E01–E10 keep the legacy multi-shot angle label byte-for-byte; from the policy's
-        # active_from_episode the note is this angle's geometry + this shot's own camera text only.
+        # K070: from the policy's active_from_episode (E01 since 2026-11-23) the note is this angle's
+        # geometry + this shot's own camera text only; an in-flight episode exempted by the sticky
+        # decision keeps the legacy multi-shot angle label byte-for-byte.
         ("authored_camera_note",
          scoped_camera_note(sp_task, subspace, shot, spec)
-         if camera_note_scoped(inputs.episode)
+         if episode_camera_note_scoped(inputs)
          else f"机位说明：{subspace.get('authored_camera_note')}", False),
         ("blank4", "", True),
         ("blocking_head", "【entry 时刻站位（本帧唯一站位依据）】", True),
@@ -2402,6 +2447,7 @@ def main(argv: list[str] | None = None) -> int:
         args.awaited_asset_dir.resolve() if args.awaited_asset_dir else None,
     )
     gate_ref = inputs.scene_authority_gate_ref()
+    inputs.camera_note_scope = camera_note_decision(episode, inputs.dir, keyframe_dir)
     try:
         inputs.provider_reference_exclusions = _pre.load_declaration(
             args.provider_reference_exclusions, episode=episode)
@@ -2460,6 +2506,7 @@ def main(argv: list[str] | None = None) -> int:
         "prompt_dir": str(prompt_dir),
         "keyframe_dir": str(keyframe_dir),
         "keyframe_naming_contract": "{shot_id}-keyframe-v{N}.png (flat dir)",
+        "keyframe_camera_note_scope": inputs.camera_note_scope,
         "inputs": {
             "generation_contract": str(inputs.contract_path),
             "generation_contract_sha256": inputs.contract_sha256,

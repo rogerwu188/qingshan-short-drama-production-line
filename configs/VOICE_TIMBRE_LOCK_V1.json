@@ -1,8 +1,12 @@
 {
   "schema": "nalu.voice_timbre_lock.v1",
   "authority": "Roger 2026-09-28 in-session: E09 角色声线「飘来飘去」→「以后的修改生产线」. Root cause: SD2 re-synthesises every unit's voice with the bound reference audio as a weak hint; the only binding was one clause at the end of 【声音】, and delivery directions such as 压着嗓子/扯着嗓子/声音发颤 told the model to change the voice itself (E09 per-scene F0 medians: 秦铭 119–250 Hz vs band 173–234 Hz).",
-  "active_from_episode": 10,
-  "active_note": "Episodes below this number keep their byte-identical prompts and post-generation verdicts (E01–E09 are paid, admitted or delivered). Raise nothing retroactively.",
+  "active_from_episode": 1,
+  "active_note": "Owner 2026-11-23 (JA E09 deep review: Masked Man 246 Hz vs 128 Hz elsewhere, a male attendant at 258 Hz; repeated wrong-gender voice complaints): active from E01 for every series on the nalu line. Was 10 (Roger 2026-09-28). Expected cost 0–20 credits/episode from guarded unit redos on out-of-range voices; redo caps unchanged.",
+  "in_flight_exemption": {
+    "legacy_active_from_episode": 10,
+    "rule": "An episode below legacy_active_from_episode whose post-generation QA already ran before this activation keeps the advisory (non-enforcing) voice check, so already-paid units are never retroactively rejected. The decision is recorded once per episode in <postgen_dir>/<EP>_VOICE_TIMBRE_LOCK_ACTIVATION.json and reused on every later run."
+  },
   "prompt": {
     "per_line_binding_template": "{speaker}（音色严格同{slot}）",
     "sound_block_header_template": "声线锁定：{bindings}；每句对白只允许改变语气、音量与节奏，不改变音色、音高区间、年龄感和性别感",
