@@ -471,6 +471,14 @@ _BODY_PART_WORDS = {
 }
 _PART_ONLY = re.compile(r"([A-Z]+(?:_AND_[A-Z]+)*)_ONLY(?:_FACE_OUT_OF_FRAME)?")
 _VISIBILITY_FIELDS = ("visible_body_range", "visible_extent", "face_visibility")
+#: OTS_LISTENER_V1 (line owner 2026-11-23): a dialogue unit may show the non-speaking listener as an
+#: over-the-shoulder foreground figure (back of the head and one shoulder, face never shown).  The writer
+#: declares it as BACK_OF_HEAD_ONLY / BACK_OF_HEAD_OTS / OTS_LISTENER (or BACK_AND_SHOULDERS_ONLY for a
+#: listener in a beat with a visible speaker, PR #306).  "HEAD" is no body-part word, so before this
+#: those markers were ignored and the listener was rendered as a fully visible person (two front faces).
+OTS_PART = "back of the head and one shoulder, over-the-shoulder"
+_OTS_MARKER = re.compile(r"(?:^|_)(?:OTS|BACK_OF_(?:THE_)?HEAD)(?:_|$)")
+_OTS_BACK_PARTS = {"back and shoulders", "back and shoulder", "shoulders and back", "shoulder and back"}
 _CUT_TRANSITION_MODES = {"MOTIVATED_CUT", "REACTION_CUT", "MATCH_CUT", "HARD_CUT"}
 _CONTINUOUS_TRANSITION_MODES = {
     "CONTINUOUS_ACTION", "CAMERA_REFRAME", "PAN_REVEAL", "OCCLUSION_REVEAL", "CONTINUOUS_MOVE",
@@ -494,6 +502,8 @@ def partial_visibility_part(value: Any) -> str | None:
     raw = str(value or "").strip().upper()
     if not raw:
         return None
+    if is_ots_visibility(raw):
+        return OTS_PART
     match = _PART_ONLY.fullmatch(raw)
     if match:
         tokens = match.group(1).split("_AND_")
@@ -502,6 +512,20 @@ def partial_visibility_part(value: Any) -> str | None:
     if "FACE_OUT_OF_FRAME" in raw:
         return ""
     return None
+
+
+def is_ots_visibility(value: Any) -> bool:
+    """True for an explicit over-the-shoulder / back-of-head marker (BACK_OF_HEAD_ONLY, BACK_OF_HEAD_OTS,
+    OTS_LISTENER, ..._OTS).  BACK_AND_SHOULDERS_ONLY is a plain partial part; it becomes OTS
+    only for a non-speaking listener in a beat with a visible speaker (``beat_visibility_scopes``)."""
+    return bool(_OTS_MARKER.search(str(value or "").strip().upper()))
+
+
+def ots_clause(label: str) -> str:
+    """The one canonical over-the-shoulder listener sentence (no trailing period)."""
+    return (f"{label} is seen from behind in the foreground, over-the-shoulder: only the back of {label}'s head "
+            f"and one shoulder, slightly out of focus, at the frame edge; {label}'s face is never shown; "
+            f"{label} does not speak")
 
 
 def _english_label(value: Any) -> str:
@@ -540,6 +564,7 @@ def beat_visibility_scopes(unit: dict[str, Any], plan: dict[str, Any]) -> list[l
     if len(scope_beats) != len(beats):
         scope_beats = []
     labels = _entity_labels(unit, plan)
+    speakers = _visible_speaker_ids(plan)
     result: list[list[dict[str, Any]]] = []
     for index in range(len(beats)):
         declared: list[tuple[str, str, str]] = []
@@ -565,6 +590,10 @@ def beat_visibility_scopes(unit: dict[str, Any], plan: dict[str, Any]) -> list[l
             part = partial_visibility_part(value)
             if part is None or cid in rows:
                 continue
+            beat_speakers = speakers[index] if index < len(speakers) else set()
+            if (part in _OTS_BACK_PARTS and beat_speakers and cid not in beat_speakers
+                    and labels.get(cid, "") not in beat_speakers):
+                part = OTS_PART  # a listener from behind while someone else speaks on screen (OTS_LISTENER_V1)
             rows[cid] = {
                 "beat_index": index + 1,
                 "entity_id": cid,
@@ -597,6 +626,8 @@ def _visible_speaker_ids(plan: dict[str, Any]) -> list[set[str]]:
 
 def partial_clause(label: str, part: str) -> str:
     """The one canonical, entity-named partial-visibility clause."""
+    if part == OTS_PART:
+        return f"{label}: {ots_clause(label)}; do not reveal {label}'s face"
     if part:
         return (
             f"{label}: only {label}'s {part} in frame during this beat, "

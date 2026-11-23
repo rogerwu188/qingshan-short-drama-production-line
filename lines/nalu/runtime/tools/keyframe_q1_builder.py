@@ -453,7 +453,9 @@ def face_measurable_ids(request_item: dict[str, Any]) -> list[str]:
 #: there unnoticed.  Only poses with no face pixels at all stay exempt; a declared face that the
 #: detector cannot find is DECLARED_CHARACTER_FACE_NOT_FOUND (a failure), never a skip.
 POSE_EXEMPT_MARKERS = ("BACK_", "HANDS_ONLY", "FACE_OUT_OF_FRAME", "OFFSCREEN_VOICE_ONLY",
-                       "ENTERS_IN_SHOT_NOT_IN_FIRST_FRAME", "FAR_FIGURE", "SMALL_")
+                       "ENTERS_IN_SHOT_NOT_IN_FIRST_FRAME", "FAR_FIGURE", "SMALL_",
+                       # OTS_LISTENER_V1 (2026-11-23): an over-the-shoulder listener shows no face
+                       "OTS_LISTENER", "_OTS")
 POSE_MEASURED_ANYWAY = ("THREE_QUARTER", "PROFILE", "HEAD_DOWN", "UP_TILTED", "HIGH_ANGLE", "TURNED", "COLLAR")
 
 

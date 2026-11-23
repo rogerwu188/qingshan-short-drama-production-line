@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2561,
+  "file_count": 2562,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -673,7 +673,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_keyframe_manifest.py",
-      "sha256": "cd5a32b3eeade0ba34cc53284d5739665ad8d1786ec48ab9634ac5acb51f254a"
+      "sha256": "51f69e13f665856a6c2c9477adc4739713defa24f6891ecb3724985c6547444a"
     },
     {
       "path": "lines/nalu/runtime/tools/build_measured_edit_constraints.py",
@@ -761,7 +761,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/keyframe_q1_builder.py",
-      "sha256": "3aea365730335e4613fff610e93e391fe7cee5788d5f5bc984ffb3d200f40e1c"
+      "sha256": "1933d82c122defd889ba1cdee9bc21013242ba13823d37989ae92ef7ad20aef2"
     },
     {
       "path": "lines/nalu/runtime/tools/knowledge_sync.py",
@@ -825,7 +825,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_qa_common.py",
-      "sha256": "7ac52a7858f71bbbd031cc0cf0202b5967c36528401e9b60bdcb530d177c04b2"
+      "sha256": "304f972a30aba0f5964bfbd7351441bd643c47590b99f1c248c713f8fc83486f"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_qa_defect_checklist.py",
@@ -993,7 +993,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/video_q2_builder.py",
-      "sha256": "a50b55b9d2aaf094361dcc0a9d1ffc117441d3d65a9d45232881633c923c8576"
+      "sha256": "37a51c0191ad6017c56f6e5f9ea6be6e1a904d422cfcb74c5d8082fd3c4c80c8"
     },
     {
       "path": "lines/nalu/runtime/tools/visual_review_policy.py",
@@ -1001,7 +1001,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/vlm_review_protocol.py",
-      "sha256": "769681ec6e5282fa924e3c5fbfb7d3e1a45f6724966142a8eb663d0ab1e1950c"
+      "sha256": "c5bd96991cd8777dcf2cc5e7b9d4a3f34c12129fd4af1c3a3ea0e57e1755ab3a"
     },
     {
       "path": "lines/nalu/runtime/tools/voice_gender.py",
@@ -5297,7 +5297,7 @@
     },
     {
       "path": "tools/h3_director_prompt_v2.py",
-      "sha256": "4cee27285a236b09d6e376b2b95bd166dece28a19c3729c76ae09c5f77714216"
+      "sha256": "53705ccabb058fc03a01a76aee55df352312658076f3b95b5d28da3b02c5371d"
     },
     {
       "path": "tools/h3_english_contract_io.py",
@@ -5321,7 +5321,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "9cc3c8183047dc08c4fdf741e1d42cc89cdbe53bfae6ef69a24c87bd4ff97a95"
+      "sha256": "79722bce5a9e216f5ecff79cfde4a8333f617bad0a585c5685f35d233575621c"
     },
     {
       "path": "tools/h3_reference_sheet_guard.py",
@@ -8254,6 +8254,10 @@
     {
       "path": "tools/tests/test_h3_native_audio_whitelist_gate.py",
       "sha256": "8a01d2824bfc1cff02102c6aecc0ff9af9ee7e5459c4b13f2dd85cc9d9552293"
+    },
+    {
+      "path": "tools/tests/test_h3_ots_listener.py",
+      "sha256": "fa3be2da00b9ce842c826f16d5084a478b846e0caab9af8727b07b8dbeb35201"
     },
     {
       "path": "tools/tests/test_h3_prompt_rune_elisions.py",

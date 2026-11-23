@@ -88,7 +88,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from nalu_qa_common import (  # noqa: E402
     ENGINE, GATE_REGISTRY, REVIEWER_ID, REVIEWER_TYPE,
     REVIEW_METHOD, VENV, Expectations, QaPaths, engine_module, gate_parameters,
-    now, portable, read_json, require_ffmpeg, require_ffprobe, sha256_file, write_json,
+    now, ots_face_hidden, portable, read_json, require_ffmpeg, require_ffprobe, sha256_file, write_json,
 )
 
 import render_style as _render_style  # noqa: E402  per-series live_action | anime
@@ -771,6 +771,10 @@ FACE_COUNT_MIN_HEIGHT_RATIO = 0.04
 FACE_COUNT_MIN_FRAMES_OVER = 2
 NO_FACE_VISIBILITY = ("OFFSCREEN", "HIDDEN", "HANDS", "FACE_OUT_OF_FRAME", "VOICE_ONLY")
 CREATURE_KINDS = {"CREATURE", "ANIMAL"}
+#: OTS_LISTENER_V1 (line owner 2026-11-23): a declared over-the-shoulder listener (back of the head and one
+#: shoulder) is present but shows no face, so it adds no face to the budget (speaker + OTS listener = 1 face);
+#: a second front face is exactly the failure that declaration prevents.  Vocabulary: nalu_qa_common.ots_face_hidden
+#: (legacy OVER_THE_SHOULDER_* / BACK_* codes keep the lenient one face above).
 
 
 def declared_face_budget(expectations: dict[str, Any]) -> tuple[int, list[str]]:
@@ -781,7 +785,7 @@ def declared_face_budget(expectations: dict[str, Any]) -> tuple[int, list[str]]:
         cid = str(row.get("character_id") or "")
         fv = str(row.get("face_visibility") or "VISIBLE_PER_FRAME_CONTENT").upper()
         if (not cid or cid in ids or cid in creatures or str(row.get("kind") or "").upper() in CREATURE_KINDS
-                or any(token in fv for token in NO_FACE_VISIBILITY)):
+                or any(token in fv for token in NO_FACE_VISIBILITY) or ots_face_hidden(fv)):
             continue
         ids.append(cid)
     return len(ids), ids

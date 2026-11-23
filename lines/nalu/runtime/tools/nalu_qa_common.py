@@ -59,6 +59,30 @@ DIALOGUE_QA_POLICY = RT_CONFIGS / "BASIC_DIALOGUE_QA_POLICY.json"
 NALU_WORK = Path(os.environ.get("NALU_WORK_ROOT") or (ENGINE / "workflow/nalu")).expanduser().resolve()
 SCRIPTS = ENGINE / "workflow/claude_writer_agent/scripts"
 
+#: OTS_LISTENER_V1 (line owner 2026-11-23): a dialogue unit may show the non-speaking listener as an
+#: over-the-shoulder foreground figure -- back of the head and one shoulder, face never shown.  The writer
+#: declares it with face_visibility BACK_OF_HEAD_ONLY / BACK_OF_HEAD_OTS / OTS_LISTENER / BACK_AND_SHOULDERS_ONLY.
+OTS_FACE_HIDDEN = re.compile(r"(?:^|_)(?:OTS|BACK_OF_(?:THE_)?HEAD)(?:_|$)"
+                             r"|^BACK_AND_SHOULDERS?_ONLY$|^SHOULDERS?_AND_BACK_ONLY$")
+
+
+def ots_face_hidden(face_visibility: Any) -> bool:
+    """True for a declared over-the-shoulder / back-of-head figure (present in frame, face not shown)."""
+    return bool(OTS_FACE_HIDDEN.search(str(face_visibility or "").strip().upper()))
+
+
+def ots_expectation(cast: list[dict[str, Any]]) -> dict[str, Any]:
+    """The reviewer-facing note for declared OTS figures (empty when none, so other items are unchanged)."""
+    names = sorted({str(row.get("character")) for row in cast or []
+                    if row.get("character") and ots_face_hidden(row.get("face_visibility"))})
+    if not names:
+        return {}
+    return {"over_the_shoulder_characters": names,
+            "over_the_shoulder_note": ("Each name in over_the_shoulder_characters is present as a foreground figure "
+                                       "seen from behind (back of the head and one shoulder) with the face never shown; "
+                                       "that figure counts as the declared character, not an invented or extra person, "
+                                       "and only the other declared faces are visible.")}
+
 
 def require_ffmpeg() -> str:
     """Resolve the deployment's ffmpeg only when a media route needs it."""
@@ -732,6 +756,7 @@ class Expectations:
                     "required_visible_character_ids": sorted(
                         {str(row.get("character_id") or name_to_id.get(str(row.get("character")), ""))
                          for row in visible if row.get("character")} - {""}),
+                    **ots_expectation(cast),
                     "props": spec.get("props") or [],
                     "creature_cards": self.seq19_expectations([shot_id]).get("creature_cards") or {},
                     "required_visible_props": sorted(
@@ -988,6 +1013,7 @@ class Expectations:
                 "cast": cast_rows,
                 "required_visible_characters": sorted(visible_names),
                 "required_visible_character_ids": sorted(visible_ids),
+                **ots_expectation(cast_rows),
                 "required_visible_props": sorted(props),
                 "required_space_anchors": anchors,
                 "space": first.get("space") or {},
