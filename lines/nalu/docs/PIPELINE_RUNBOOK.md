@@ -1206,9 +1206,18 @@ Owner: 「既然 gemini 可以'看'视频，需要做的非常细致」.  Code: 
   3072), **C** sound (432x768 + audio: lip sync, voice consistency / fit, wrong speaker, tails, loudness jumps, BGM,
   SFX, artefacts; the local tail / music suspects; a per-line log whose flags become P3 findings), **D** director /
   craft (432x768 + audio: anonymised storyboard beats, craft standard v1 items pacing first, measured pacing).
-* **Budget** `NALU_GEMINI_REVIEW_MAX_CREDITS` (default 8.0 per episode): estimated before sending; D, C, B, A step
-  down (fps, resolution) lowest priority first, then D → C → B are skipped.  Benchmark 2026-11-20: 6-8 credits per
-  episode, 1.5-5 min wall time (mostly upstream 429 retries).
+* **Models per pass** (owner 2026-11-23, E24 A/B: Pro 30 picture/story findings vs Flash 19; sound equal): A, B, D
+  on `gemini-3.1-pro-preview` (D at 432p 2 fps default media resolution), C on `gemini-3.8-flash`.
+  `NALU_GEMINI_REVIEW_MODEL_A`..`_D` override one pass, `NALU_GEMINI_REVIEW_MODEL` every pass without its own.  A
+  Pro pass answered 400 / 403 / 404 / 424 / 451 is retried once on Flash (`model_fallback`); `gemini_review.json`
+  records `models` and each pass's `model`.
+* **Budget** `NALU_GEMINI_REVIEW_BUDGET` (alias `NALU_GEMINI_REVIEW_MAX_CREDITS`; default 55.0 per episode since
+  2026-11-23; owner: review cost is not a concern during the quality-fix period): estimated before sending, each pass at its model's HopsAPI price (Pro + ~8k thinking tokens per pass
+  as output).  D, C, B, A step down lowest priority first -- a Pro pass keeps Pro down to 1.5 fps, then steps to
+  Flash at full resolution, then fps / resolution -- then D → C → B are skipped; leftover slack is given back
+  highest priority first.  All four at preferred settings estimate ~42 credits at 60 s and ~51 at 110 s, so the
+  default 55 runs A, B, D on Pro 720p 2 fps HIGH / 432p 2 fps; longer episodes (or a lower budget) step down -- at 25
+  only A stays on Pro.
 * **Record**: same `final_reviewer/gemini_review.json` (G/S ids, `item`, times, severity) plus `pass`, `scope_hint`
   (global|language → the KB scope after the reviewer's own `kb_scope`), `passes` (per-pass status, settings, cost,
   shot / line logs), `craft_summary`.  Fix round: burned text, identity / costume (LOOK-DRIFT, QA-IDENTITY-MISMATCH),
