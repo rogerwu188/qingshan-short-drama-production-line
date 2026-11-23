@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2553,
+  "file_count": 2555,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -297,7 +297,7 @@
     },
     {
       "path": "configs/MEASURED_EDIT_POLICY_V1.json",
-      "sha256": "74a4e78c495e8e6a055ab75e5ec8e05f6ff5da4c73507f370144b5c0ad5de65a"
+      "sha256": "67611f777f3f3759eb590841f3db7ad8f4e8b9d4a4490fbf2799b8157b03e243"
     },
     {
       "path": "configs/PLATFORM_RELEASE_AUTOMATION_POLICY_V1.json",
@@ -645,7 +645,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/bgm_cue_shaping.py",
-      "sha256": "d118bc4b414ca1f7651f5677090641bedbf607e3bf0308151229b51959193c16"
+      "sha256": "713f6ccba8292e8ea8786e89f737e6091c4298a0309bcb5634b9b784fcc6cad2"
     },
     {
       "path": "lines/nalu/runtime/tools/bootstrap_identity_cards.py",
@@ -677,7 +677,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_measured_edit_constraints.py",
-      "sha256": "d06aaaf86d065ea4d568ff6bfec6d361d057c92527858e784bce8da9771f3c21"
+      "sha256": "74efd09fcbeecba8a279c2fe257d592829b59894a459d780a4ea438ae5d895bc"
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
@@ -717,7 +717,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/final_cut_audio_bed.py",
-      "sha256": "ba46687c5f20f51ea0ff0ec105db9c9b2e2b1f86494516f1cd9318bdf4631a33"
+      "sha256": "bc8d61abc0fb51bf12b024dfc94c6006aadde02dc02740a51c2fce73c4a2540b"
     },
     {
       "path": "lines/nalu/runtime/tools/final_cut_shot_plan_parity.py",
@@ -733,7 +733,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/final_fix_round.py",
-      "sha256": "c0f7786d3c0a8e494211038ba0237ee6a94c4bba7ed28bfc2d60e23c726b33e6"
+      "sha256": "779d1592d9d1a1b3e99473a9b4877cdfde4fef82b0f1d8c825b2bcae28b41bd6"
     },
     {
       "path": "lines/nalu/runtime/tools/final_qa_evidence_bundle.py",
@@ -805,7 +805,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_opening_title.py",
-      "sha256": "10ddd7173f83b3d117307796d2c282599fc933ac439b0cd08812bedd8e6c8a55"
+      "sha256": "b549e6f984487b80e8beefda68ab84134adee667ca4b501fdacfdc0673a0869f"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_paths.py",
@@ -813,7 +813,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "5ea23669ca7da8fe5a29ec525b38de3123ddd8162c30068117725c7a19ea84e1"
+      "sha256": "e0e3c1f8f78b60130396e76215d34c21c166889199c355c5dcb8b6765264259d"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -833,7 +833,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_selective_bgm.py",
-      "sha256": "a657afc8fb014bdb17a3c4f2f82a62f225198e289d1c7703aa2b44d49dad6997"
+      "sha256": "88dc1d6509ce27e3c62d5247b64e13a75452fc792e71b4b3731ecdbf971e385a"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_series_scope.py",
@@ -865,7 +865,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/post_generation_qa_runner.py",
-      "sha256": "f5d9652cbeaf619912121c4725e9c67b135028450e40ea37c483873e91b33f86"
+      "sha256": "a221edef3f71fa70997dd795b1cad581146218c023f5157eae1eee2ee3ed66a0"
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_finalize.py",
@@ -4733,7 +4733,7 @@
     },
     {
       "path": "tools/final_cut_audience_detectors.py",
-      "sha256": "1f17cf4eaa06abecab31d068d43a84ee38b865760b29d3037e02b353ebe2ddcd"
+      "sha256": "b6b143ba475cf43c1f659070414d6a54da659b022bf41829eb229e416e2075b8"
     },
     {
       "path": "tools/final_cut_audience_gate.py",
@@ -5300,6 +5300,10 @@
       "sha256": "1c10447a857113e0ad832d6cbce2f4ff49873cfdd53aa81e061cac139dff476e"
     },
     {
+      "path": "tools/h3_internal_cut_trim.py",
+      "sha256": "05ea9755e653215e37d1d7e86b8f931bc39a2336db866a9f27eb24ab5cf10351"
+    },
+    {
       "path": "tools/h3_native_audio_whitelist_gate.py",
       "sha256": "8fa7d3326bdfc486338912e1a90ba8ad219e999145566237fce68901c71aa411"
     },
@@ -5801,7 +5805,7 @@
     },
     {
       "path": "tools/performance_cut.py",
-      "sha256": "61ca753138bf6b70f3b65485154ef71844e3440b3e59780e43358fdb448b70bc"
+      "sha256": "fdf7a0a58486b8602594be028d973b6a0d426315717594e322c321856a90c807"
     },
     {
       "path": "tools/performance_tempo_gate.py",
@@ -6661,7 +6665,7 @@
     },
     {
       "path": "tools/s7_audio_smoothing.py",
-      "sha256": "ce1ac86755b02d4e7241d7c947a70555eb9f5eaf874081b1f07fa297de9cc338"
+      "sha256": "bca6ddfefe47dc30eb84b06a9c09e642a3d52dadf866e0c6279f0286b1253ac9"
     },
     {
       "path": "tools/s7_edit_invariants.py",
@@ -6741,7 +6745,7 @@
     },
     {
       "path": "tools/silent_unit_stray_speech.py",
-      "sha256": "f719e5d608cbf87b76eb7a0681111e656ce97dd17cb1f4da50398508716fbd41"
+      "sha256": "5236cac49ec302262fb8dbeac859841626ff85d882f0f76df57b48ad93bcef84"
     },
     {
       "path": "tools/sound_cue_contract.py",
@@ -7321,7 +7325,7 @@
     },
     {
       "path": "tools/tests/test_bgm_cue_shaping.py",
-      "sha256": "13a142906c216179c458ae46d2689292817454a94d5aaf8e55b280a38a5e2bc5"
+      "sha256": "6d603f0ea0d56c3ee9797bf7a4fb50d28c4648553946cd2a3dfc46ac3e53e122"
     },
     {
       "path": "tools/tests/test_bgm_fit_cues_to_cut.py",
@@ -8025,7 +8029,7 @@
     },
     {
       "path": "tools/tests/test_final_cut_audio_bed.py",
-      "sha256": "ec2978416138248cb593eed7a9fe4f9dd79498b7755dda97ed1b9d48b54d7efc"
+      "sha256": "352b612ee0583a6ec2a2de96c43a74de4e5fec219e257d3dd4344d0328340601"
     },
     {
       "path": "tools/tests/test_final_cut_quality_gates.py",
@@ -8485,7 +8489,7 @@
     },
     {
       "path": "tools/tests/test_measured_edit_recall_guard.py",
-      "sha256": "85a3d21426bd28e95eae6ceebd95ca84089cd9a8203ed394efefd2b09481a2ed"
+      "sha256": "bd0316dce28fc081ba7bd02448f33172f83aff333840dafefbff70e691e7943e"
     },
     {
       "path": "tools/tests/test_measured_edit_yields_to_performance_cut.py",
@@ -9245,7 +9249,11 @@
     },
     {
       "path": "tools/tests/test_s7_audio_smoothing.py",
-      "sha256": "4153b2c97c4d821c2bbc4ba0c634a04463248c71713a3c354fa2a74d75f9573f"
+      "sha256": "a0987641cc4349099e938f973d61021ea12a553f868065fe607f2857d9c8d2be"
+    },
+    {
+      "path": "tools/tests/test_s7_av_e24_fixes.py",
+      "sha256": "f01546333b0b8c25e1c5e4b7a849e8d0b5d353bd529ae39f24e6e6585369d662"
     },
     {
       "path": "tools/tests/test_s7_edit_invariants.py",
@@ -9353,7 +9361,7 @@
     },
     {
       "path": "tools/tests/test_silent_unit_stray_speech.py",
-      "sha256": "e23813ee6110337a5483e96281fb2fccb8914a2c6398ec54cff1fae44b5b385a"
+      "sha256": "b335d53434b1e7e5be3545f0e1c8c09b22e4935acdf1e2eb783a0754dd7e2a09"
     },
     {
       "path": "tools/tests/test_sound_cue_contract.py",

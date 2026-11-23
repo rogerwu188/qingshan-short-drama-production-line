@@ -22,8 +22,9 @@ Rules (owner 2026-11-19 spec; music MAY change or stop at a scene or mood change
    (``"sting": true`` or a narrative function containing STING): a short cue is extended to the next boundary
    (or starts at its scene's start) within its source, else dropped.  Two cues of the same source closer than
    the flicker gap are one cue.
-5. Under dialogue the music ducks by ``DUCK_DB`` (-10 dB: the owner's -10..-14 dB meets the authenticity gate's
-   -6..-10 dB at -10), never muted.
+5. Under dialogue the music ducks by ``DUCK_DB`` (-6 dB, the shallow edge of the authenticity gate's -6..-10 dB:
+   device 1101 E24 2026-11-23 -- at -10 dB the music was inaudible under every line and only surfaced in the gaps,
+   which read as stop-start music), never muted.
 
 Pure functions; the S7 BGM plan (nalu_selective_bgm.cmd_plan) applies them before the coverage policy.
 """
@@ -44,7 +45,7 @@ LONG_FADE_OUT_SECONDS = 3.0
 HIT_DECAY_SECONDS = 0.4
 PRELAP_SECONDS = 0.75
 HIT_TOLERANCE_SECONDS = 0.3
-DUCK_DB = -10.0
+DUCK_DB = -6.0
 SOURCE_TAIL_MARGIN_S = 0.5
 
 END_TYPES = ("FADE_OUT", "CROSSFADE", "HIT_STOP")

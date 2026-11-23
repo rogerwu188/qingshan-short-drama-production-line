@@ -19,7 +19,7 @@ def build_measured_edit_constraints(
     out_constraints: Path,
     out_evidence_dir: Path,
     lead_seconds: float = 0.08,
-    trail_seconds: float = 0.12,
+    trail_seconds: float = 0.4,
 ) -> dict:
     """Build measured-edit-constraints file and ASR evidence envelopes.
 
@@ -27,8 +27,13 @@ def build_measured_edit_constraints(
     writes ASR evidence envelopes ({unit_id, media_sha256, result:{status,segments}}) and
     the constraints file (units[] with source_asr_ref/source_asr_sha256/recommended_source_in/out).
 
-    Only generates constraints for units with PASS dialogue_qa.status and non-empty segments.
-    Units without dialogue fall back to full-length (no constraint row written).
+    Only generates constraints for units with PASS dialogue_qa.status and non-empty segments.  A unit whose
+    dialogue QA did not PASS but whose word-timed ASR recalled every scripted line (recall >= RECALL_FOR_TRIM) gets a
+    TAIL-ONLY row (in-point 0, out-point after its last word) instead of full length (device 1101 E24 2026-11-23: the
+    dead tail after the line ran on).  Units without dialogue fall back to full-length (no constraint row written).
+
+    The out-point is the LAST WORD end (word timestamps when present; whisper's segment end runs early on the final
+    syllable, E21) plus ``trail_seconds`` (S7 edit invariant SENTENCE_TAIL_SECONDS 0.4 s), clamped to the clip.
 
     Lead/trail seconds: head/tail padding before first/after last ASR segment (config-driven, not hardcoded).
     """
@@ -74,7 +79,15 @@ def build_measured_edit_constraints(
         if not media_sha:
             skipped.append({"unit_id": uid, "reason": "MEDIA_SHA256_MISSING"})
             continue
-        if status != "PASS" or not segments:
+        RECALL_FOR_TRIM = 0.95
+        tail_only = False
+        if status != "PASS" and segments:
+            recall = dq.get("recall_score")
+            worded = any(seg.get("words") for seg in segments if isinstance(seg, dict))
+            if int(dq.get("expected_line_count") or 0) > 0 and worded and recall is not None \
+                    and float(recall) >= RECALL_FOR_TRIM:
+                tail_only = True
+        if (status != "PASS" and not tail_only) or not segments:
             skipped.append({"unit_id": uid, "reason": "NO_DIALOGUE_OR_NOT_PASS", "status": status, "segments": len(segments)})
             continue
         # A trim is only as good as the speech it was measured from.  The dialogue gate PASSes at
@@ -83,7 +96,6 @@ def build_measured_edit_constraints(
         # the second line (spoken 4.7-7.7 s, -10 dB) vanished from the cut — the final-cut read-back then
         # found its caption over silence.  Below RECALL_FOR_TRIM the segments do not hold every scripted
         # line, so they cannot bound the dialogue: keep the unit at full length instead of guessing.
-        RECALL_FOR_TRIM = 0.95
         recall = dq.get("recall_score")
         if recall is not None and float(recall) < RECALL_FOR_TRIM:
             skipped.append({"unit_id": uid, "reason": "ASR_RECALL_TOO_LOW_TO_BOUND_DIALOGUE",
@@ -148,6 +160,8 @@ def build_measured_edit_constraints(
             },
             "tail_pad_clamped": [row for entry in clamped_units if entry["unit_id"] == uid
                                  for row in entry["segments"]],
+            # the ASR evidence is verified (status PASS) even when the unit's dialogue QA was not: tail-only trim
+            "dialogue_qa_status": status,
         }
         evidence_path = out_evidence_dir / f"{uid}.json"
         evidence_path.write_text(json.dumps(evidence, ensure_ascii=False, indent=1))
@@ -156,6 +170,9 @@ def build_measured_edit_constraints(
 
         starts = [float(seg.get("start") or 0) for seg in segments]
         ends = [float(seg.get("end") or 0) for seg in segments]
+        # word timestamps: the last word's end is the line's real end (a segment end can run early on it)
+        ends += [min(float(w.get("end") or 0), duration) for seg in segments for w in seg.get("words") or []
+                 if isinstance(w, dict) and w.get("end") is not None]
         if not all(math.isfinite(v) and v >= 0 for v in starts + ends):
             skipped.append({"unit_id": uid, "reason": "SEGMENT_TIMING_INVALID"})
             continue
@@ -163,7 +180,7 @@ def build_measured_edit_constraints(
         first_start = min(starts)
         last_end = max(ends)
 
-        source_in = max(0.0, first_start - lead_seconds)
+        source_in = 0.0 if tail_only else max(0.0, first_start - lead_seconds)
         source_out = min(duration, last_end + trail_seconds)
 
         if source_out <= source_in:
@@ -179,6 +196,9 @@ def build_measured_edit_constraints(
             "recommended_source_in_seconds": round(source_in, 3),
             "recommended_source_out_seconds": round(source_out, 3),
             "planned_duration": duration,
+            "trim_basis": "ASR_WORD_ENDS_TAIL_ONLY" if tail_only else "PASS_DIALOGUE_QA_SEGMENTS",
+            "dialogue_qa_status": status,
+            "tail_kept_seconds": round(source_out - last_end, 3),
         })
 
     payload = {
@@ -214,7 +234,7 @@ def main():
     p.add_argument("--out-constraints", required=True)
     p.add_argument("--out-evidence-dir", required=True)
     p.add_argument("--lead-seconds", type=float, default=0.08)
-    p.add_argument("--trail-seconds", type=float, default=0.12)
+    p.add_argument("--trail-seconds", type=float, default=0.4)
     args = p.parse_args()
 
     result = build_measured_edit_constraints(

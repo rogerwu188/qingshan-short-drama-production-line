@@ -3,7 +3,9 @@ proper opening and ending).
 
 The series title (brief ``title``) is drawn large and the episode line (``EPISODE 01 · <episode title>`` /
 ``第一集 · <集名>``) small, centred in the upper third, over the first ``TITLE_SECONDS`` of the
-picture with a fade in/out.  It never changes the duration: the video is re-encoded, the audio stream
+picture with a fade in/out.  Faces in those seconds are detected (InsightFace, the engine's own backend; device 1101
+E24 2026-11-23: the title sat on the heroine's eyes) and the title block moves to the first band that clears them:
+upper third, then the top band, then the lower band above the subtitle band (:func:`choose_title_band`).  It never changes the duration: the video is re-encoded, the audio stream
 is copied.  Nothing here is paid; a missing brief title or font only skips the overlay (the caller
 records the reason) and never blocks S7.
 """
@@ -20,6 +22,13 @@ import nalu_media_tools as _media
 TITLE_SECONDS = 2.5
 FADE_SECONDS = 0.5
 MAX_WIDTH_RATIO = 0.88
+#: candidate centres of the title block (fraction of the frame height), in order of preference
+TITLE_BANDS = (("UPPER_THIRD", 1.0 / 3.0), ("TOP", 0.14), ("LOWER", 0.64))
+#: the burned-in subtitles sit bottom-centre with a 170/1280 px margin: the title block stays above this line
+SUBTITLE_BAND_TOP = 0.76
+TOP_MARGIN = 0.04
+FACE_MARGIN = 0.03          # a face box is grown by this much (fraction of the height) on each side
+FACE_SAMPLE_TIMES = (0.25, 0.75, 1.25, 1.75, 2.25)
 ZH_NUMERALS = "零一二三四五六七八九"
 
 
@@ -103,8 +112,46 @@ def _fit(draw: Any, text: str, font_file: str, size: int, min_size: int, max_wid
     return ImageFont.truetype(font_file, 8), 8, lines
 
 
-def render_overlay_png(series: str, episode_line: str, font_file: str, width: int, height: int, out: Path) -> dict[str, Any]:
-    """Transparent full-frame PNG with the two title lines centred in the upper third."""
+def choose_title_band(height: int, block_height: float, faces: list[list[float]] | None) -> dict[str, Any]:
+    """The title block's top y: the first of ``TITLE_BANDS`` whose block (clamped between the top margin and the
+    subtitle band) overlaps no face box (``[x1, y1, x2, y2]`` px, grown by FACE_MARGIN); none clear -> the band with
+    the least overlap.  Pure."""
+    grow = FACE_MARGIN * height
+    boxes = [(float(b[1]) - grow, float(b[3]) + grow) for b in faces or [] if len(b) >= 4]
+    lo_limit, hi_limit = TOP_MARGIN * height, SUBTITLE_BAND_TOP * height - block_height
+    rows = []
+    for name, centre in TITLE_BANDS:
+        top = min(max(centre * height - block_height / 2.0, lo_limit), max(lo_limit, hi_limit))
+        overlap = sum(max(0.0, min(top + block_height, y2) - max(top, y1)) for y1, y2 in boxes)
+        rows.append({"band": name, "top": int(round(top)), "face_overlap_px": round(overlap, 1)})
+    clear = next((r for r in rows if r["face_overlap_px"] <= 0.0), None)
+    best = clear or min(rows, key=lambda r: r["face_overlap_px"])
+    return {**best, "faces": len(boxes), "candidates": rows, "clear_of_faces": clear is not None}
+
+
+def detect_faces(source: Path, *, times: tuple[float, ...] = FACE_SAMPLE_TIMES) -> list[list[float]]:
+    """Face boxes ([x1, y1, x2, y2] px) on a few frames of the title seconds (InsightFace, CPU)."""
+    try:
+        import push_in_compensation as _pic
+    except ModuleNotFoundError:  # pragma: no cover - engine root on sys.path instead of tools/
+        from tools import push_in_compensation as _pic  # type: ignore
+    app = _pic.face_backend()
+    ffmpeg = _media.require_ffmpeg()
+    boxes = []
+    for t in times:
+        image = _pic.frame_at(Path(source), t, ffmpeg)
+        if image is None:
+            continue
+        for face in app.get(image):
+            if float(getattr(face, "det_score", 0.0)) >= 0.5:
+                boxes.append([round(float(v), 1) for v in face.bbox[:4]])
+    return boxes
+
+
+def render_overlay_png(series: str, episode_line: str, font_file: str, width: int, height: int, out: Path,
+                       faces: list[list[float]] | None = None) -> dict[str, Any]:
+    """Transparent full-frame PNG with the two title lines centred horizontally, in the band that clears ``faces``
+    (upper third when there are none)."""
     from PIL import Image, ImageDraw
 
     image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
@@ -117,7 +164,8 @@ def render_overlay_png(series: str, episode_line: str, font_file: str, width: in
     rows += [(line, small, small_size, (236, 230, 220, 255)) for line in small_lines]
     gap = int(18 * scale)
     total = sum(int(size * 1.25) for _, _, size, _ in rows) + gap
-    y = int(height / 3.0 - total / 2.0)
+    placement = choose_title_band(height, total, faces)
+    y = placement["top"]
     widest = 0.0
     for index, (line, font, size, colour) in enumerate(rows):
         if index == len(big_lines):
@@ -130,7 +178,8 @@ def render_overlay_png(series: str, episode_line: str, font_file: str, width: in
     out.parent.mkdir(parents=True, exist_ok=True)
     image.save(out)
     return {"png": str(out), "title_font_px": big_size, "episode_font_px": small_size,
-            "widest_line_px": round(widest, 1), "max_width_px": round(max_width, 1)}
+            "widest_line_px": round(widest, 1), "max_width_px": round(max_width, 1),
+            "placement": {k: placement[k] for k in ("band", "top", "faces", "clear_of_faces", "candidates")}}
 
 
 def probe_size(source: Path) -> tuple[int, int]:
@@ -166,7 +215,13 @@ def apply_opening_title(*, runtime_root: Path, episode: str, language: str, sour
             return {"status": "SKIPPED", "reason": f"NO_TITLE_FONT:{exc}"}
         width, height = probe_size(source)
         png = out.with_suffix(".title.png")
-        layout = render_overlay_png(series, episode_line, font_file, width, height, png)
+        try:
+            faces, face_note = detect_faces(source), None
+        except Exception as exc:  # noqa: BLE001 -- no face backend: the upper third, as before
+            faces, face_note = [], f"FACE_DETECTION_UNAVAILABLE:{type(exc).__name__}"
+        layout = render_overlay_png(series, episode_line, font_file, width, height, png, faces=faces)
+        if face_note:
+            layout["face_detection"] = face_note
         run = subprocess.run(overlay_argv(source, png, out), capture_output=True, text=True, check=False)
         if run.returncode != 0 or not out.is_file():
             return {"status": "FAILED", "reason": f"OPENING_TITLE_FFMPEG_FAILED:{(run.stderr or '')[-300:]}"}

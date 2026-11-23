@@ -485,7 +485,7 @@ def cmd_plan(a: argparse.Namespace) -> int:
         func = cue["narrative_function"]
         shots = list(cue["shots"])
         t0, t1 = windows[cue_id]
-        # owner 2026-11-19: duck about 10-14 dB under speech, never mute; the authenticity gate accepts -6..-10
+        # never mute; the authenticity gate accepts -6..-10 (device 1101 E24 2026-11-23: -6, music audible under lines)
         duck = _shape.DUCK_DB
         volume = float(cue["volume"])
         # dialogue windows inside the cue, from the per-unit ASR (assembly), on the release timeline

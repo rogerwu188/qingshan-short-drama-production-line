@@ -1,6 +1,6 @@
 """S7 sound smoothing (line owner 2026-10-27, lab Holmes E07: "BGM not continuous between shots, the sound goes
 louder/quieter").  CAMERA_GRAMMAR_V1 only: merged smooth BGM duck, per-unit native-audio levelling (+-6 dB) before
-the AgentCut build, equal-power audio crossfades / fade-throughs at every cut.  Unstamped episodes: byte-identical.
+the AgentCut build (+-9 dB, dialogue per line), equal-power audio crossfades / fade-throughs at every cut.  Unstamped episodes: byte-identical.
 """
 
 from __future__ import annotations
@@ -47,11 +47,11 @@ class BgmDuckTest(unittest.TestCase):
         row = cue(dialogue_duck_db=smooth.STAMPED_DUCK_DB, duck_shape=smooth.duck_shape(cue()["dialogue_windows"]))
         expr = sbgm.duck_expr(row)
         self.assertEqual(expr.count("cos(PI*"), 7)          # one ramp pair per merged window
-        self.assertTrue(expr.startswith("1-(1-0.3162)*"))   # -10 dB (owner 2026-11-19)
+        self.assertTrue(expr.startswith("1-(1-0.5012)*"))   # -6 dB (device 1101 E24: music audible under lines)
         self.assertIn("/0.4,0,1)", expr)                    # 0.4 s down
         self.assertIn("/1.2,0,1)", expr)                    # 1.2 s up
         self.assertGreaterEqual(smooth.STAMPED_DUCK_DB, -10.0)  # bgm_authenticity_gate -6..-10 contract
-        self.assertLessEqual(smooth.STAMPED_DUCK_DB, -10.0)
+        self.assertLessEqual(smooth.STAMPED_DUCK_DB, -6.0)
 
     def test_unstamped_duck_expression_is_unchanged(self) -> None:
         row = cue(dialogue_windows=[{"start": 23.3, "end": 24.22}, {"start": 29.134, "end": 30.114}])
@@ -63,10 +63,10 @@ class BgmDuckTest(unittest.TestCase):
 
 
 class UnitLevellingTest(unittest.TestCase):
-    def test_gain_is_clamped_to_six_db(self) -> None:
-        self.assertEqual(smooth.plan_gain(-40.5, -22.0)["gain_db"], 6.0)
+    def test_gain_is_clamped_to_nine_db(self) -> None:
+        self.assertEqual(smooth.plan_gain(-40.5, -22.0)["gain_db"], 9.0)
         self.assertEqual(smooth.plan_gain(-12.3, -18.0)["gain_db"], -5.7)
-        self.assertTrue(smooth.plan_gain(-10.0, -18.0)["clamped"])
+        self.assertTrue(smooth.plan_gain(-5.0, -18.0)["clamped"])
 
     def test_report_measures_dialogue_on_speech_and_renders(self) -> None:
         measured = []
@@ -92,9 +92,10 @@ class UnitLevellingTest(unittest.TestCase):
                 {"E07-VU-A": [{"start": 0.2, "end": 1.4}, {"start": 1.6, "end": 9.0}]},
                 {"DIALOGUE": -18.0, "AMBIENCE": -22.0}, root / "out", measure_fn=measure, render_fn=render)
             a, b = report["units"]["E07-VU-A"], report["units"]["E07-VU-B"]
-            self.assertEqual(a["method"], "SPEECH_WINDOWS")
+            self.assertEqual(a["method"], "PER_LINE")
             self.assertEqual(a["spans"], [[1.2, 2.4], [2.6, 4.0]])   # source time, clipped to the cut
-            self.assertEqual((a["gain_db"], b["gain_db"]), (-6.0, 6.0))
+            self.assertEqual([line["gain_db"] for line in a["lines"]], [-4.0, -4.0])   # -12 -> -16 LUFS per line
+            self.assertEqual((a["gain_db"], b["gain_db"]), (-4.0, 8.0))
             self.assertEqual(b["method"], "WHOLE_CUT_WINDOW")
             self.assertEqual(report["applied_units"], ["E07-VU-A", "E07-VU-B"])
             applied = smooth.applied_sources(report)

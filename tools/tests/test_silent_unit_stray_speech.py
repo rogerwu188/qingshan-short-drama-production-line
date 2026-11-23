@@ -81,29 +81,22 @@ class RecordAndPlanTests(unittest.TestCase):
         adj = stray.assess([seg(0.0, 1.0)], 5.0)
         self.assertEqual(stray.windows_from_record(record(lines=1, adjudications=[adj])), ([], "UNIT_HAS_DIALOGUE"))
 
-    def test_plan_binds_the_record_to_the_clip_on_disk(self) -> None:
-        adj = stray.assess([seg(0.0, 1.0)], 5.0)
-        clips = {"E01-VU-001": Path("/c/E01-VU-001.mp4"), "E01-VU-002": Path("/c/E01-VU-002.mp4"),
-                 "E01-VU-003": Path("/c/E01-VU-003.mp4")}
-        records = {"E01-VU-001": record(adjudications=[adj]),
-                   "E01-VU-002": record(adjudications=[adj], sha="b" * 64)}
-        report = stray.plan(clips, records, lambda path: "a" * 64)
-        rows = {r["unit_id"]: r for r in report["units"]}
-        self.assertTrue(rows["E01-VU-001"]["muted"])
-        self.assertEqual(rows["E01-VU-002"]["reason"], "QA_RECORD_MEASURED_ANOTHER_CLIP")
-        self.assertEqual(rows["E01-VU-003"]["reason"], "NO_POSTGEN_QA_RECORD")
-        self.assertEqual(report["muted_units"], 1)
-
-    def test_timeline_mapping_honours_in_point_trim_and_skips_recut(self) -> None:
-        report = {"units": [{"unit_id": "U1", "muted": True, "mute_source_windows": [[0.0, 1.0], [3.5, 4.5]]},
-                            {"unit_id": "U2", "muted": True, "mute_source_windows": [[0.0, 1.0]]}]}
+    def test_plan_measures_the_placed_clip_without_the_s6_record(self) -> None:
+        # device 1101 E24: no S6 record / sha binding any more -- the placed clip is measured, a re-cut clip too
         project = {"timeline": {"audioTracks": [{"clips": [
-            {"start": 10.0, "in": 0.5, "duration": 3.5, "metadata": {"source_id": "U1"}},
-            {"start": 20.0, "in": 0.0, "duration": 4.0, "metadata": {"source_id": "U2", "unit_recut": {"x": 1}}},
+            {"source": "/c/U1.mp4", "start": 10.0, "in": 0.5, "duration": 3.5,
+             "metadata": {"source_id": "U1", "dialogue_classification": "NON_SPEAKING"}},
+            {"source": "/c/_recut/U2.mp4", "start": 13.5, "in": 0.0, "duration": 4.0,
+             "metadata": {"source_id": "U2", "dialogue_classification": "NON_SPEAKING", "unit_recut": {"x": 1}}},
         ]}]}}
-        self.assertEqual(stray.timeline_windows(report, project),
+        report = stray.plan(project, lambda src, a, d: {"method": "T", "windows": [[0.0, 1.0], [3.5, 4.5]]},
+                            mode="speech_only")
+        self.assertEqual(report["mute_windows"],
                          [{"unit_id": "U1", "start_seconds": 10.0, "end_seconds": 10.5},
-                          {"unit_id": "U1", "start_seconds": 13.0, "end_seconds": 13.5}])
+                          {"unit_id": "U1", "start_seconds": 13.0, "end_seconds": 13.5},
+                          {"unit_id": "U2", "start_seconds": 13.5, "end_seconds": 14.5},
+                          {"unit_id": "U2", "start_seconds": 17.0, "end_seconds": 17.5}])
+        self.assertEqual(report["muted_units"], 2)
 
     def test_mix_filter_mutes_each_window_with_ramps(self) -> None:
         text = stray.mix_filter([{"start_seconds": 1.0, "end_seconds": 2.0}])

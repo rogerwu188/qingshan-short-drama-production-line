@@ -125,7 +125,7 @@ class PadAndDuckTests(unittest.TestCase):
     def test_duck_gain_follows_the_stated_law(self):
         env = np.array([-60.0, -30.0, -20.0, -16.0, 0.0])
         g = bed.duck_gain_db(env)
-        self.assertEqual(list(np.round(g, 2)), [0.0, 0.0, -9.5, -13.3, -14.0])
+        self.assertEqual(list(np.round(g, 2)), [0.0, 0.0, -8.0, -8.0, -8.0])   # capped at DUCK_MAX_DB 8 (E24)
 
     def test_envelope_attack_and_release_time_constants(self):
         mono = np.concatenate([np.zeros(SR, dtype=np.float32), tone(1, -12), np.zeros(SR, dtype=np.float32)])
