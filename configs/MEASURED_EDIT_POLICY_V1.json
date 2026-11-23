@@ -3,7 +3,7 @@
   "description": "Episode-level opt-in for ASR-driven source trimming (measured edit constraints)",
   "lines": {
     "nalu": {
-      "active_from_episode": 11,
+      "active_from_episode": 1,
       "lead_seconds": 0.08,
       "trail_seconds": 0.4,
       "min_interval_seconds": 2.0
@@ -22,5 +22,5 @@
     "tools/measured_edit_constraints.py",
     "tools/measured_edit_policy.py"
   ],
-  "deployment_coordination": "E01-E10 already delivered, not retroactive. E11 first to use."
+  "deployment_coordination": "nalu: every episode of every series (deep review 1485 E09, 2026-11-23: the gate 'E11+' was written when the line ran one series whose E01-E10 were already delivered; on the fleet every new series starts at E01, so E01-E10 of every device's series shipped without the measured edit -- lines spilled across cuts on JA E09). qingshan keeps its E65 gate."
 }
