@@ -12916,15 +12916,15 @@ def s7_leading_burst_mute(ctx: Ctx, res: StageResult, picture: Path,
 
 
 def s7_silent_unit_stray_speech_mute(ctx: Ctx, res: StageResult, picture: Path) -> Path:
-    """Silent units play ambience only, stray voices muted (fleet 2026-11-13; device 1101 E24 2026-11-23: voices in
+    """Stray voices in silent units muted (fleet 2026-11-13; device 1101 E24 2026-11-23: voices in
     five silent shots shipped because S6 whisper had dropped them), on the rendered native cut, BEFORE the L-cut and
     V.O. mixes so a bridged speaker line or narration is never touched.
 
     Every audio clip of the AgentCut project whose unit carries no on-screen scripted line (s7_speaking_units) is
-    measured where it is placed (source, in-point, duration) with a VAD (tools/silent_unit_stray_speech.py); its
-    native audio is replaced by the speech band removed ambience and each VAD speech window is muted outright.
-    30 ms ramps; video stream copied, duration unchanged.  Every episode; NALU_S7_SILENT_UNIT_AUDIO=off restores the
-    untouched native cut.  Report <EP>_SILENT_UNIT_STRAY_SPEECH.json; any failure only skips the step (recorded),
+    measured where it is placed (source, in-point, duration) with a VAD (tools/silent_unit_stray_speech.py) and each
+    VAD speech window is muted; the rest keeps its full band (foley).  NALU_S7_SILENT_UNIT_AUDIO=ambience also plays
+    the whole unit with the speech band removed; =off restores the untouched native cut.  30 ms ramps; video stream
+    copied, duration unchanged.  Every episode.  Report <EP>_SILENT_UNIT_STRAY_SPEECH.json; any failure only skips the step (recorded),
     never blocks S7."""
     import silent_unit_stray_speech as _stray
     p = ctx.p
@@ -13329,7 +13329,7 @@ def _stage_s7_pass(ctx: Ctx) -> StageResult:
     # 5a. L-cuts (CAMERA_GRAMMAR_V1, authored sound bridges): the speaker's line plays on over the
     # reaction picture; no applied bridge -> the native picture continues unchanged.
     # 5a0. leading vocal burst (CAMERA_GRAMMAR_V1): muted on the native cut before the L-cut mix.
-    # 5a00. silent units: ambience only + VAD-measured stray voices muted (every episode) before the L-cut mix.
+    # 5a00. silent units: VAD-measured stray voices muted (every episode) before the L-cut mix.
     native_source, bridge_blockers = s7_sound_bridge_mix(
         ctx, res, s7_silent_unit_stray_speech_mute(
             ctx, res, s7_leading_burst_mute(ctx, res, p.picture_native, trimmed_asr)))

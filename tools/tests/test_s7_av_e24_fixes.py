@@ -99,7 +99,19 @@ class StrayVoiceTests(unittest.TestCase):
         self.assertEqual(stray.plan(clips, measure, mode="speech_only")["ambience_windows"], [])
         self.assertEqual(stray.plan(clips, measure, mode="off")["ambience_units"], 0)
         self.assertEqual(stray.silent_audio_mode({stray.SILENT_AUDIO_ENV: "OFF"}), "off")
-        self.assertEqual(stray.silent_audio_mode({}), "ambience")
+        self.assertEqual(stray.silent_audio_mode({}), "speech_only")   # default: full band kept (foley)
+        self.assertEqual(stray.silent_audio_mode({stray.SILENT_AUDIO_ENV: "ambience"}), "ambience")
+
+    def test_default_mode_mutes_speech_only_and_keeps_the_full_band(self):
+        with mock.patch.dict("os.environ", {}, clear=False) as env:
+            env.pop(stray.SILENT_AUDIO_ENV, None)
+            rep = stray.plan(project(aclip("U1", 0.0, 0.0, 2.0), aclip("U2", 2.0, 0.0, 2.0)),
+                             lambda src, a, d: {"method": "T", "windows": [[0.5, 1.0]] if "U1" in src else []})
+        self.assertEqual(rep["mode"], "speech_only")
+        self.assertEqual(rep["ambience_windows"], [])
+        self.assertEqual(rep["mute_windows"], [{"unit_id": "U1", "start_seconds": 0.5, "end_seconds": 1.0}])
+        graph = stray.ambience_filter_complex(rep["mute_windows"], rep["ambience_windows"])
+        self.assertIn("volume='0'", graph)           # no ambience path when nothing is replaced
 
     @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg not installed")
     def test_filter_graph_mutes_the_voice_and_keeps_the_rumble(self):
@@ -167,7 +179,8 @@ class StrayVoicePipelineTests(unittest.TestCase):
             ctx = types.SimpleNamespace(episode="E24", p=types.SimpleNamespace(
                 assembly=assembly, agentcut_project=agentcut, contract=root / "missing_contract.json"))
             res = types.SimpleNamespace(steps=[], receipts=[], details={})
-            out = npl.s7_silent_unit_stray_speech_mute(ctx, res, clip)
+            with mock.patch.dict("os.environ", {stray.SILENT_AUDIO_ENV: "ambience"}):
+                out = npl.s7_silent_unit_stray_speech_mute(ctx, res, clip)
             report = json.loads((assembly / "E24_SILENT_UNIT_STRAY_SPEECH.json").read_text())
             self.assertEqual(report["status"], "APPLIED", report)
             self.assertEqual(report["ambience_units"], 1)
@@ -328,11 +341,11 @@ class LineLoudnessTests(unittest.TestCase):
 class BgmLevelTests(unittest.TestCase):
     def test_pad_and_duck_levels(self):
         self.assertEqual(bed.PAD_LEVEL_DBFS, -30.0)
-        self.assertEqual(bed.DUCK_MAX_DB, 8.0)
-        self.assertEqual(shaping.DUCK_DB, -6.0)
-        self.assertEqual(smooth.STAMPED_DUCK_DB, -6.0)
+        self.assertEqual(bed.DUCK_MAX_DB, 10.0)                             # owner 2026-11-19: -10..-14 dB
+        self.assertEqual(shaping.DUCK_DB, -10.0)
+        self.assertEqual(smooth.STAMPED_DUCK_DB, -10.0)
         env = np.array([-60.0, -30.0, -20.0, -3.0])
-        self.assertEqual(float(bed.duck_gain_db(env).min()), -8.0)          # never more than 8 dB under a line
+        self.assertEqual(float(bed.duck_gain_db(env).min()), -10.0)         # never more than 10 dB under a line
         self.assertEqual(float(bed.duck_gain_db(env)[0]), 0.0)              # untouched in the gaps
 
     def test_pad_source_is_rendered_at_the_new_level(self):

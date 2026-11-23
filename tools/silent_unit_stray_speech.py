@@ -17,8 +17,8 @@ S6 therefore records the finding instead of rejecting, as long as the murmur is 
 
 S7 (device 1101 E24, 2026-11-23) no longer depends on the S6 record: :func:`plan` measures the clip actually placed in
 the AgentCut timeline with a VAD (silero from faster-whisper, else a speech-band energy VAD), mutes every speech
-window of a unit with no on-screen scripted line, and plays such a unit as ambience only (speech band removed);
-``NALU_S7_SILENT_UNIT_AUDIO`` = ambience (default) | speech_only | off.
+window of a unit with no on-screen scripted line; ``NALU_S7_SILENT_UNIT_AUDIO`` = speech_only (default) | ambience
+(the whole unit also plays with the speech band removed) | off.
 
 The S6 runner calls :func:`assess`; the S7 caller runs the ffmpeg mix with :func:`ambience_filter_complex`.
 """
@@ -122,11 +122,12 @@ def record_duration(record: dict[str, Any]) -> float | None:
 #: device 1101 E24 (2026-11-23): voices in five silent shots (27.0 / 35.2 / 44.4 / 49.5 / 54.9 s) shipped although
 #: S6 had recorded nothing -- whisper-small + VAD dropped the low-confidence murmur, and the old S7 mute needed an S6
 #: real-speech segment AND the QA record's sha to equal the clip on disk.  S7 now measures the clip it actually
-#: placed in the timeline (AgentCut audio clip source, in-point, duration) with a VAD of its own, and a unit with no
-#: scripted on-screen line plays ambience only: its native audio is replaced by the speech band removed version
-#: (``AMBIENCE_LOWPASS_HZ`` / ``AMBIENCE_HIGHPASS_HZ``), and every VAD speech window inside it is muted outright.
+#: placed in the timeline (AgentCut audio clip source, in-point, duration) with a VAD of its own and mutes every VAD
+#: speech window of a unit with no scripted on-screen line (default ``speech_only``: the full band, foley included,
+#: plays elsewhere).  ``ambience`` also replaces the whole unit by its speech band removed version
+#: (``AMBIENCE_LOWPASS_HZ`` / ``AMBIENCE_HIGHPASS_HZ``).
 SILENT_AUDIO_ENV = "NALU_S7_SILENT_UNIT_AUDIO"
-SILENT_AUDIO_MODES = ("ambience", "speech_only", "off")  # every silent unit / only those with VAD speech / old path
+SILENT_AUDIO_MODES = ("speech_only", "ambience", "off")  # speech windows muted / + speech band removed / untouched
 VAD_THRESHOLD = 0.35          # silero speech probability; below the whisper VAD default 0.5 so a murmur is caught
 VAD_MIN_SPEECH_SECONDS = 0.15
 VAD_MIN_SILENCE_SECONDS = 0.1
@@ -146,7 +147,7 @@ SAMPLE_RATE = 16000
 def silent_audio_mode(environ: dict[str, str] | None = None) -> str:
     import os
     raw = str((os.environ if environ is None else environ).get(SILENT_AUDIO_ENV) or "").strip().lower()
-    return raw if raw in SILENT_AUDIO_MODES else "ambience"
+    return raw if raw in SILENT_AUDIO_MODES else "speech_only"
 
 
 def _runs(flags: Any, hop: float, *, min_run: float, max_gap: float) -> list[list[float]]:
@@ -269,7 +270,7 @@ def plan(project: dict[str, Any], measure_fn: Callable[[str, float, float], dict
                     windows.append([round(lo, 3), round(hi, 3)])
             speech = round(sum(b - a for a, b in windows), 3)
             flagged = any(b - a >= FLAG_SPEECH_SECONDS - 1e-9 for a, b in windows)
-            replace = mode == "ambience" or (mode == "speech_only" and bool(windows))
+            replace = mode == "ambience"   # speech_only: the speech windows are muted, the full band stays
             row.update(vad_method=measured.get("method"), vad_source_windows=windows, speech_seconds=speech,
                        flagged=flagged, ambience_only=replace, muted=bool(windows),
                        reason=("STRAY_SPEECH_MUTED_AMBIENCE_ONLY" if windows and replace else

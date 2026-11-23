@@ -100,11 +100,12 @@ PAD_LOOP_XFADE_S = 4.0
 PAD_EDGE_FADE_S = 1.5
 PAD_LOWPASS_HZ = 500.0
 #: device 1101 E24 (2026-11-23): the music was only audible in the gaps between lines (pad -36 dBFS, ducked up to
-#: 14 dB under every line).  The pad sits at -30 dBFS and ducks at most 8 dB: audible under dialogue, still under it.
+#: 14 dB under every line).  The pad sits at -30 dBFS and ducks at most 10 dB (the owner's 2026-11-19 -10..-14 dB
+#: range): audible under dialogue, still under it.
 PAD_LEVEL_DBFS = -30.0
 DUCK_THRESHOLD_DBFS = -30.0
 DUCK_RATIO = 20.0
-DUCK_MAX_DB = 8.0
+DUCK_MAX_DB = 10.0
 DUCK_ATTACK_S = 0.150
 DUCK_RELEASE_S = 0.600
 

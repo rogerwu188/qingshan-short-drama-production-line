@@ -145,16 +145,16 @@ class ShapeTests(unittest.TestCase):
 
 
 class DuckAndMixTests(unittest.TestCase):
-    def test_duck_is_six_db_and_never_mutes(self):
+    def test_duck_is_ten_db_and_never_mutes(self):
         bgm = load_bgm()
-        self.assertEqual(sh.DUCK_DB, -6.0)   # device 1101 E24: music audible under the lines
+        self.assertTrue(-14.0 <= sh.DUCK_DB <= -10.0)
         self.assertTrue(bgm.DUCK_RANGE_DB[0] <= sh.DUCK_DB <= bgm.DUCK_RANGE_DB[1])   # authenticity gate range
         c = {"timeline_start": 0.0, "dialogue_duck_db": sh.DUCK_DB,
              "dialogue_windows": [{"start": 2.0, "end": 5.0}]}
         expr = bgm.duck_expr(c)
         floor = 10 ** (sh.DUCK_DB / 20)
         self.assertIn(f"{floor:.4f}", expr)
-        self.assertGreater(floor, 0.45)
+        self.assertGreater(floor, 0.25)
 
     def test_mix_defaults_are_soft_fades(self):
         bgm = load_bgm()
@@ -164,7 +164,7 @@ class DuckAndMixTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg not installed")
     def test_ducked_music_under_speech_keeps_level_in_range(self):
-        """Render a 10 s tone cue with the planned duck and fades: under speech it drops ~6 dB, not to silence."""
+        """Render a 10 s tone cue with the planned duck and fades: under speech it drops ~10 dB, not to silence."""
         bgm = load_bgm()
         cue_ = {"timeline_start": 0.0, "dialogue_duck_db": sh.DUCK_DB, "dialogue_windows": [{"start": 4.0, "end": 7.0}]}
         with tempfile.TemporaryDirectory() as td:
