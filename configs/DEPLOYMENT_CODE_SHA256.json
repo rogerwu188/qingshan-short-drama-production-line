@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2557,
+  "file_count": 2558,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -149,7 +149,7 @@
     },
     {
       "path": "agent_factory/claude_writer_v2/schemas/generation_contract.schema.json",
-      "sha256": "8f91af912d7329728fb332a7a3347b575b756b555c45c5ceb8c142a5e3ff27b9"
+      "sha256": "7ac29a7138cb44bb56e9a83c3cbf398292a9f5bb2d980f16b327b41bce5af518"
     },
     {
       "path": "agent_factory/claude_writer_v2/schemas/manifest.schema.json",
@@ -197,7 +197,7 @@
     },
     {
       "path": "agent_factory/storyclaw_portable/WRITER_CONTRACT.md",
-      "sha256": "d960b57796b3a755e4d01081846b17ff79453156442a8665f4abb66af884e25f"
+      "sha256": "628cf335799735281c22cba7d07eabe2da8543d13826f40c6ac237fb83aa6c68"
     },
     {
       "path": "configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json",
@@ -249,7 +249,7 @@
     },
     {
       "path": "configs/DIRECTION_POLICY_V1.json",
-      "sha256": "f4a13927b11705c433d00d692c69ffe04fce7e86d08f88a6d1864dac56f2479d"
+      "sha256": "09edbc64fbb96a2002cec274b5a4dd84e794c9173030bd2126116c3db489b362"
     },
     {
       "path": "configs/DIRECTOR_SCORE_V1.json",
@@ -341,7 +341,7 @@
     },
     {
       "path": "configs/WRITER_CAPABILITY_V1.json",
-      "sha256": "a5c9cf0fd0672859a065110fbd84c74581f0d3b324195fc9aef2b637a2f7a224"
+      "sha256": "0dbacb78a09cf9b70a8e549d5c0300340352e2e43d639334585e077166dbf7c7"
     },
     {
       "path": "configs/WRITER_RULE8_RESPONSE_V1.json",
@@ -813,7 +813,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "59876c706c59e07ea7d99a5853dd3bf5879f60ff9935c7cb6ca0e3493b35a24e"
+      "sha256": "204d67217a07076480de6bab3281d1b445f9154b91cea6210c8567ae3a3191b5"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -937,7 +937,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/script_pacing_check.py",
-      "sha256": "a464bcb80e9dbd25f584b030719d14c2d9da944633e9f92dd73dbb5128a2cc8e"
+      "sha256": "a627bc91d2c3e192c94cb62cc3d8913d4f9f3c90f6c2ffa56f0796965cadb3ad"
     },
     {
       "path": "lines/nalu/runtime/tools/script_review.py",
@@ -1037,7 +1037,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "710d7489b54be2252627ac93e55d077378c8798c1fc2dc54e037c600b5d64c8d"
+      "sha256": "0148033743999a794832b84468d0133c103805e4a3dde4c4da47bea597226428"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -1057,7 +1057,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "26bec818c577e2f23be589acb00a4cbc0d4169f725ca53518cf5085d4272030e"
+      "sha256": "24785a59be7a5b764346043930b749be64a2243ba5aecbe9fb38c31672fdc73d"
     },
     {
       "path": "skills/nalu-claude-code/scripts/collective_provision.py",
@@ -3901,7 +3901,7 @@
     },
     {
       "path": "tools/character_entity_contract.py",
-      "sha256": "1f860533a3158ac722fed582ef5ab0f363a85a55e06bf456ae40c80313441361"
+      "sha256": "52187d70e7094a0c50841e27283979e0374c4739d95a2bc59fc12e8cc3653d46"
     },
     {
       "path": "tools/character_identity_admission_gate.py",
@@ -4273,7 +4273,7 @@
     },
     {
       "path": "tools/direction_policy_gate.py",
-      "sha256": "771501235e7d351410a5ef201f7f0fe2dd060b9965f61b65955823f64e183b7f"
+      "sha256": "5cd373718f4cd2affc597903cf7d346484bc536b25ddb27ccb20b4c59b7e1f90"
     },
     {
       "path": "tools/dramatic_quality_gate.py",
@@ -6697,7 +6697,7 @@
     },
     {
       "path": "tools/script_structure_contract_gate.py",
-      "sha256": "cdeed6cf79b8d1ec850c400d3e36c8aa9085c05891c7cc72407d4cb87bae1639"
+      "sha256": "281d808a582dd03e27ae1c2ed30668854a5c649ee306a77bdb6af858756310c2"
     },
     {
       "path": "tools/sd2_background_ecology_contract.py",
@@ -8789,7 +8789,7 @@
     },
     {
       "path": "tools/tests/test_nalu_script_pacing.py",
-      "sha256": "8db44ef329c707c0a5a92a7f920a89233585b8cf35227c3b92318f9d09dd7454"
+      "sha256": "acf6f463375320a0b4fb933aeb2683dbb6de5ca8d1029802f98be8ec0972b4fc"
     },
     {
       "path": "tools/tests/test_nalu_selective_bgm_s6.py",
@@ -9208,6 +9208,10 @@
       "sha256": "01dd3ed607c493e974319acc46fbbc027b03810309c8147fb788aa904f34310c"
     },
     {
+      "path": "tools/tests/test_s1_structural_integrity.py",
+      "sha256": "c999e2201f5967d2072de240fe8ee85bec4338c04662e61ee8b8d34385c5fe41"
+    },
+    {
       "path": "tools/tests/test_s1_writer_handoff_honesty.py",
       "sha256": "1d7e725a85b96d4c1d5b557f916c965814923365d35fa23682ce6843aa6f1f92"
     },
@@ -9529,7 +9533,7 @@
     },
     {
       "path": "tools/tests/test_storyclaw_writer_workflow.py",
-      "sha256": "b1e84725fac62f80835f0d677db460c1c2993ae0cf48e9667069724276daede0"
+      "sha256": "c77fadad809de6c892dba3e3dc239bc1c1ccfdf1e110e78fafd35c2d3652ae8c"
     },
     {
       "path": "tools/tests/test_strict_burned_line_check.py",
@@ -10197,7 +10201,7 @@
     },
     {
       "path": "tools/writer_capability.py",
-      "sha256": "424f48259cb7016f35dbc6d4c6b85716e198ec36fee2b2e38860dad457ec21f5"
+      "sha256": "279b7129054f599dccdc0edc7883153a8754da2970948f91fa7635b14ef9167c"
     },
     {
       "path": "tools/writer_checkpoint_guard.py",

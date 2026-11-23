@@ -533,7 +533,28 @@ def in_place_variety(rows: list[dict[str, Any]]) -> dict[str, int]:
 #: per-shot performance text the writer authors; a template copied onto every line is not direction
 PERFORMANCE_TEXT_FIELDS = (("shot", "entry_state"), ("shot", "completion_state"), ("action", "primary_action"),
                            ("action", "start_state"), ("action", "completion_state"), ("action", "contact_point"),
-                           ("action", "force_feedback"))
+                           ("action", "force_feedback"),
+                           # E24 (device 1101, 2026-11-23): the framing / ambience / transition text of every shot was
+                           # one series template ("<Name> alone, centered with a full face visible ... in the declared
+                           # location", "Bamboo wind and field insects", "Continue or reveal the declared beat").
+                           # Like entry/exit states these legitimately repeat inside one take, so here they are only
+                           # checked for generic placeholders; the cross-scene copy is boilerplate_failures' job.
+                           ("camera_plan", "start_framing"), ("camera_plan", "end_framing"),
+                           ("camera_plan", "motivation"), ("sound", "ambience"), ("transition", "reason"),
+                           ("transition", "transition_execution"))
+#: fields whose text is the action itself (a repeat is a template); every other field is checked for generic text only
+_ACTION_TEXT_KEYS = frozenset({"primary_action", "contact_point", "force_feedback"})
+
+
+def _field_source(shot: dict[str, Any], spec: dict[str, Any], where: str) -> dict[str, Any]:
+    if where == "shot":
+        return shot
+    if where == "transition":
+        value = spec.get("internal_transition_authoring") or spec.get("transition") or \
+            shot.get("internal_transition_authoring")
+    else:
+        value = spec.get(where)
+    return value if isinstance(value, dict) else {}
 
 
 def _performance_variety():
@@ -576,11 +597,10 @@ def placeholder_acting(contract: dict[str, Any]) -> list[str]:
         if not rows:
             continue
         names |= {split_line(r, lang)[0] for r in rows}
-        action = spec.get("action") if isinstance(spec.get("action"), dict) else {}
         for where, key in PERFORMANCE_TEXT_FIELDS:
-            value = _clean((shot if where == "shot" else action).get(key))
+            value = _clean(_field_source(shot, spec, where).get(key))
             if value:
-                (texts if key in ("primary_action", "contact_point", "force_feedback") else states).append(value)
+                (texts if key in _ACTION_TEXT_KEYS else states).append(value)
     found = pv.placeholder_beat_texts(texts, names - {""})
     found += [t for t in pv.placeholder_beat_texts(states, names - {""}, minimum=10 ** 6) if t not in found]
     return found[:6]
@@ -758,6 +778,202 @@ def measure(contract: dict[str, Any], language: str | None = None) -> dict[str, 
     }
 
 
+# --------------------------------------------------------------------------- S1 integrity (E24, never admitted)
+#: switch for the integrity part of this check (boilerplate, a location contradicted by the action); the taste loop
+#: keeps its own switch.  Integrity failures are never ADMITTED_AFTER_REVISIONS: they go back to the writer until the
+#: S1 integrity round cap (nalu_pipeline.S1_INTEGRITY_MAX_ROUNDS) blocks the episode with a named code.
+INTEGRITY_SWITCH = "NALU_SCRIPT_INTEGRITY"
+INTEGRITY_CODES = frozenset({"BOILERPLATE_TEXT", "BOILERPLATE_PHRASE", "SCENE_SPLIT_LOCATION_CONTRADICTS_ACTION"})
+BOILERPLATE_SHARE = 0.5          # the same text on more than half of the shots ...
+BOILERPLATE_MIN_SCENES = 3       # ... spread over at least three scenes is a series template, not a scene's own text
+BOILERPLATE_MIN_CHARS = 12
+#: per-shot fields the writer must write per scene -- (where, key).  BLOCKING: the ambience (what is heard THERE).
+#: ADVISORY (warnings only): framing, axis, camera motivation, transition reason -- accepted lab scripts (holmes,
+#: huayuan, urban 2026-10/11) legitimately keep one episode-level axis rule or one locked-single framing template, so
+#: a repeat there is not by itself proof that the scene was never written.
+BOILERPLATE_SHOT_FIELDS = (("sound", "ambience"),)
+BOILERPLATE_ADVISORY_SHOT_FIELDS = (("camera_plan", "start_framing"), ("camera_plan", "end_framing"),
+                                    ("camera_plan", "motivation"), ("shot", "axis"), ("shot", "camera"),
+                                    ("transition", "reason"))
+#: per-scene rows (scene_states ambient text): advisory; pacing.scene_plan objective / conflict / action: blocking
+BOILERPLATE_SCENE_FIELDS = (("ambient_life", "motion_trend"), ("ambient_life", "first_frame_state"),
+                            ("ambient_life", "reaction_progression"))
+#: template sentences seen on fleet scripts (device 1101 E18 / E24); any of them on two or more shots is boilerplate
+KNOWN_BOILERPLATE_PHRASES = (
+    "the declared subject", "a declared subject", "in the declared location", "the declared beat is complete",
+    "continue the declared action", "continue or reveal the declared beat", "continue or cut as authored",
+    "the declared starting position", "the declared posture", "hut-to-field axis", "bamboo wind and field insects",
+    "keep the conflict readable", "hold the readable conflict", "the listener reacts visibly",
+    "no unregistered prop handoff", "locked readable framing", "推进调查并制造可见冲突", "嫌疑人或证据阻碍调查",
+    "抓、夺、定身、捆绑或人群逼近")
+_NAME_RUN = re.compile(r"\b[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*")
+
+
+def integrity_enabled(environ: dict[str, str] | None = None) -> bool:
+    env = os.environ if environ is None else environ
+    return str(env.get(INTEGRITY_SWITCH) or "").strip().lower() not in ("off", "0", "false", "no")
+
+
+def _names(contract: dict[str, Any]) -> list[str]:
+    out: set[str] = set()
+    for row in (contract or {}).get("character_entities") or []:
+        if isinstance(row, dict):
+            out |= {_clean(row.get(k)) for k in ("canonical_name", "english_name", "name_en", "character_id")}
+            out |= {_clean(a) for a in row.get("aliases") or []}
+    return sorted((n for n in out if len(n) >= 2), key=len, reverse=True)
+
+
+def _norm_template(text: Any, names: list[str]) -> str:
+    value = _clean(text)
+    for name in names:
+        value = value.replace(name, "<N>")
+    value = _NAME_RUN.sub("<N>", value)
+    return re.sub(r"[\s\W_]+", " ", value.lower(), flags=re.UNICODE).strip()
+
+
+def boilerplate_failures(contract: dict[str, Any], *, advisory: bool = False) -> list[str]:
+    """Series boilerplate in the fields the writer must write per scene (E24: one framing / ambience / axis / scene
+    plan sentence on every shot of five scenes that the story set in a teahouse, a shop, a fishing boat and a street).
+    A field's text (names masked) repeated on > BOILERPLATE_SHARE of the shots AND over >= BOILERPLATE_MIN_SCENES
+    scenes, a scene_plan / scene_states text shared by most scenes, or a known template phrase on 2+ shots."""
+    contract = contract if isinstance(contract, dict) else {}
+    shots = [s for s in contract.get("shots") or [] if isinstance(s, dict)]
+    if len(shots) < 4:
+        return []
+    names = _names(contract)
+    failures: list[str] = []
+    for where, key in (BOILERPLATE_ADVISORY_SHOT_FIELDS if advisory else BOILERPLATE_SHOT_FIELDS):
+        rows: dict[str, list[str]] = {}
+        for shot in shots:
+            spec = shot.get("prompt_spec") if isinstance(shot.get("prompt_spec"), dict) else {}
+            src = _field_source(shot, spec, where)
+            if where == "camera_plan" and not src and isinstance(shot.get("camera_plan"), dict):
+                src = shot["camera_plan"]
+            text = _norm_template(src.get(key), names)
+            if len(text) >= BOILERPLATE_MIN_CHARS:
+                rows.setdefault(text, []).append(_clean(shot.get("scene_id")))
+        for text, scenes in rows.items():
+            if len(scenes) > BOILERPLATE_SHARE * len(shots) and len(set(scenes)) >= BOILERPLATE_MIN_SCENES:
+                failures.append(f"BOILERPLATE_TEXT:{key}:{len(scenes)}/{len(shots)}")
+    scene_rows = [r for r in contract.get("scene_states") or [] if isinstance(r, dict)]
+    plan = pacing_block(contract).get("scene_plan") or []
+    plan_rows = [r for r in plan if isinstance(r, dict)]
+    if advisory:
+        groups = [(f"scene_states.{a}.{k}", [(r.get(a) or {}).get(k) if isinstance(r.get(a), dict) else None
+                                             for r in scene_rows]) for a, k in BOILERPLATE_SCENE_FIELDS]
+    else:
+        groups = [(f"scene_plan.{k}", [r.get(k) for r in plan_rows])
+                  for k in ("objective", "conflict", "physical_action")]
+    for label, values in groups:
+        texts = [_norm_template(v, names) for v in values]
+        texts = [t for t in texts if len(t) >= 6]
+        if len(values) < BOILERPLATE_MIN_SCENES or not texts:
+            continue
+        text, n = max(((t, texts.count(t)) for t in set(texts)), key=lambda x: x[1])
+        if n >= BOILERPLATE_MIN_SCENES and n > BOILERPLATE_SHARE * len(values):
+            failures.append(f"BOILERPLATE_TEXT:{label}:{n}/{len(values)}")
+    if advisory:
+        return failures[:12]
+    hits: dict[str, int] = {}
+    for shot in shots:
+        blob = json.dumps(shot, ensure_ascii=False).lower()
+        for phrase in KNOWN_BOILERPLATE_PHRASES:
+            if phrase.lower() in blob:
+                hits[phrase] = hits.get(phrase, 0) + 1
+    blob = json.dumps({"scene_states": scene_rows, "scene_plan": plan_rows}, ensure_ascii=False).lower()
+    for phrase in KNOWN_BOILERPLATE_PHRASES:
+        if phrase.lower() in blob:
+            hits[phrase] = hits.get(phrase, 0) + blob.count(phrase.lower())
+    for phrase, n in sorted(hits.items(), key=lambda x: -x[1]):
+        if n >= 2:
+            failures.append(f"BOILERPLATE_PHRASE:{phrase}:{n}")
+    return failures[:12]
+
+
+#: place classes an action sentence can put a scene in; a scene whose location does not mention the class while its
+#: action is "on a fishing boat" / "into the street" is not where its location field says (E24: every scene was
+#: LOC-ANCHENG-TEAHOUSE)
+PLACE_CLASSES = {
+    "BOAT": (("boat", "ship", "raft", "barge", "deck", "ferry", "sampan", "canoe"), ("船", "舟", "筏", "甲板", "渡口"),
+             ("chuan", "zhou", "boat", "ship", "ferry", "dock")),
+    "STREET": (("street", "alley", "market", "marketplace", "road", "lane", "square", "plaza", "avenue"),
+               ("街", "巷", "集市", "市集", "闹市", "广场", "路口", "大道"),
+               ("jie", "xiang", "shiji", "street", "market", "road", "lane", "square", "town", "city", "ext")),
+    "SHOP": (("shop", "store", "stall", "pharmacy", "pawnshop", "boutique"), ("店铺", "铺子", "商铺", "胭脂铺", "药铺",
+                                                                             "当铺", "摊位", "摊前"),
+             ("pu", "dian", "shop", "store", "stall", "pharmacy")),
+    "RIVER": (("river", "riverbank", "lake", "lakeshore", "shore", "dock", "pier", "wharf", "harbor", "harbour"),
+              ("河边", "河岸", "江边", "湖边", "岸边", "码头"), ("he", "jiang", "hu", "matou", "river", "lake", "shore", "dock")),
+    "FOREST": (("forest", "woods", "grove", "jungle"), ("树林", "森林", "林间", "竹林"), ("lin", "forest", "wood", "grove")),
+    "MOUNTAIN": (("mountain", "cliff", "peak", "summit", "ridge"), ("山顶", "山崖", "悬崖", "山巅", "山道"),
+                 ("shan", "mountain", "cliff", "peak", "ridge")),
+}
+_EN_PLACE_PREP = r"\b(?:on|onto|aboard|into|in|inside|at|across|through|along|down|up|toward|towards|out to|out into)" \
+                 r"\s+(?:the|a|an)\s+(?:[a-z-]+\s+){0,2}?"
+_ZH_PLACE_PREP = r"(?:在|到|进|进入|上了|登上|走进|来到|冲进|奔向|回到|于)[^，。；,.;临沿隔]{0,4}?"
+
+
+def _place_mentions(text: str) -> list[tuple[str, str]]:
+    """Places an action sentence stands in: a lower-case place noun after a locative preposition ("on a fishing
+    boat", "into the street"; a capitalised name -- "Baker Street" -- is not one), or 在/到/进…<place> in Chinese
+    (临街 / 沿街 are modifiers, not places)."""
+    out: list[tuple[str, str]] = []
+    for place, (en, zh, _ids) in PLACE_CLASSES.items():
+        for word in en:
+            if re.search(r"(?i:" + _EN_PLACE_PREP + r")" + re.escape(word) + r"s?\b", text):
+                out.append((place, word))
+        for word in zh:
+            if re.search(_ZH_PLACE_PREP + r"(?<![临沿隔])" + re.escape(word), text):
+                out.append((place, word))
+    return out
+
+
+def _place_in_location(place: str, location_text: str) -> bool:
+    en, zh, ids = PLACE_CLASSES[place]
+    low = location_text.lower()
+    tokens = re.split(r"[^a-z0-9]+", low)
+    return (place.lower() in low or any(w in low for w in en) or any(w in location_text for w in zh)
+            or any(t.startswith(w) or t.endswith(w) for t in tokens if t for w in ids))
+
+
+def location_contradictions(contract: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, list[str]]:
+    """scene_id -> place words its action text puts it in that its declared location does not hold."""
+    shots = [s for s in (contract or {}).get("shots") or [] if isinstance(s, dict)]
+    by_id = {_clean(s.get("shot_id")): s for s in shots}
+    scene_rows = {_clean(r.get("scene_id")): r for r in (contract or {}).get("scene_states") or [] if isinstance(r, dict)}
+    out: dict[str, list[str]] = {}
+    for r in rows:
+        shot = by_id.get(r["shot_id"]) or {}
+        srow = scene_rows.get(r["scene_id"]) or {}
+        location_text = " ".join(_clean(x) for x in (r["location"], srow.get("location_id"), srow.get("location"),
+                                                    srow.get("location_name"), srow.get("name"),
+                                                    srow.get("description"), shot.get("location_id")))
+        location_text = location_text.replace("-", " ").replace("_", " ")
+        text = " ".join(_clean(x) for x in (action_text(shot), shot.get("completion_state"), shot.get("entry_state")))
+        for place, word in _place_mentions(text):
+            if not _place_in_location(place, location_text):
+                found = out.setdefault(r["scene_id"], [])
+                if word not in found:
+                    found.append(word)
+    return out
+
+
+def integrity_failures(contract: dict[str, Any], language: str | None = None,
+                       metrics: dict[str, Any] | None = None) -> list[str]:
+    """The non-admittable part of the check: boilerplate and a same-place split whose action names another place."""
+    contract = contract if isinstance(contract, dict) else {}
+    m = metrics if metrics is not None else measure(contract, language)
+    rows = timeline(contract, m.get("language") or contract_language(contract, language))
+    failures = boilerplate_failures(contract)
+    contradicted = location_contradictions(contract, rows)
+    for pair in m.get("same_place_splits") or []:
+        a, _, b = pair.partition(">")
+        words = (contradicted.get(a) or []) + (contradicted.get(b) or [])
+        if words:
+            failures.append(f"SCENE_SPLIT_LOCATION_CONTRADICTS_ACTION:{pair}:{'/'.join(words[:3])}")
+    return failures
+
+
 # --------------------------------------------------------------------------- evaluate
 #: failure code -> one-line fix the writer can act on (no story text; language-agnostic)
 FIXES = {
@@ -793,6 +1009,14 @@ FIXES = {
     "ENDING_NOT_OPEN": "end on the cliffhanger itself (pacing.cliffhanger with an open question, last shot)",
     "ADAPTATION_PLAN_MISSING": "write adaptation_plan: source_chapters, plot_events, cut",
     "ADAPTATION_TOO_THIN": "budget the episode by plot events: cover at least the required turns from the source",
+    "BOILERPLATE_TEXT": "write each scene's own start/end framing, ambience, axis, transition and scene plan from "
+                        "THAT scene's place and action (who is where, what is heard there) -- never one series "
+                        "template copied onto every shot (integrity: not admitted after revisions)",
+    "BOILERPLATE_PHRASE": "replace the template sentences ('the declared subject / location / beat', a copied "
+                          "ambience or axis) with the shot's concrete content",
+    "SCENE_SPLIT_LOCATION_CONTRADICTS_ACTION": "the action happens somewhere else than the scene's location_id "
+                                               "(a boat, a shop, a street): give that scene its own location, "
+                                               "ambience and axis, or move the action back (integrity)",
 }
 
 
@@ -828,7 +1052,10 @@ def evaluate(contract: dict[str, Any], language: str | None = None,
                         f"(motivated_scene_changes={m['motivated_scene_changes']})")
     for pair in m["conversation_splits"][:4]:
         failures.append(f"CONVERSATION_SPLIT_ACROSS_LOCATIONS:{pair}")
-    for pair in m["same_place_splits"][:4]:
+    integrity = integrity_failures(contract, language, m)
+    contradicted_pairs = {f.split(":")[1] for f in integrity if f.startswith("SCENE_SPLIT_LOCATION_CONTRADICTS_ACTION:")}
+    for pair in [p for p in m["same_place_splits"] if p not in contradicted_pairs][:4]:
+        # a split whose action names another place is an integrity failure instead (never admitted)
         failures.append(f"SCENE_SPLIT_SAME_LOCATION:{pair}")
     if m["placeholder_acting"]:
         failures.append(f"PERFORMANCE_PLACEHOLDER:{len(m['placeholder_acting'])}")
@@ -861,7 +1088,8 @@ def evaluate(contract: dict[str, Any], language: str | None = None,
     if source_texts and {"VISUAL_ACTION_TOO_LOW", "VISUAL_BEATS_TOO_FEW", "SCENE_TALK_ONLY", "DIALOGUE_ONLY_TOO_HIGH",
                          "VISUAL_VARIETY_LOW"} & set(codes):
         suggestions = source_action_beats(source_texts, m["language"])
-    fixes = {c: FIXES[c] for c in codes if c in FIXES}
+    integrity_on = integrity_enabled(environ) and not in_flight and bool(m["shot_count"])
+    fixes = {c: FIXES[c] for c in codes + sorted({f.split(":", 1)[0] for f in integrity}) if c in FIXES}
     if suggestions:
         fixes["SOURCE_ACTION_BEATS"] = ("dramatise these physical moments of the source chapters as action / insert "
                                         "shots instead of telling them in dialogue: " + " | ".join(suggestions))
@@ -869,6 +1097,9 @@ def evaluate(contract: dict[str, Any], language: str | None = None,
             **({"grandfathered": "IN_FLIGHT_PAST_PAID_STAGE"} if in_flight and basis == "DEFAULT" else {}),
             "authority": "WRITER_REVISION_LOOP" if active else "ADVISORY_NOT_A_GATE",
             "status": "PASS" if not failures else "FAIL", "failures": failures, "warnings": warnings,
+            "integrity_active": integrity_on, "integrity_failures": integrity,
+            "boilerplate_warnings": boilerplate_failures(contract, advisory=True),
+            "integrity_status": "FAIL" if (integrity and integrity_on) else "PASS",
             "fixes": fixes, "source_action_beats": suggestions, "targets": dict(TARGETS), "metrics": m}
 
 
@@ -989,6 +1220,13 @@ def decide(report: dict[str, Any], sha: str, rounds_path: Path, *, max_revisions
             **({"reason": reason} if reason else {})}
 
 
+def integrity_blocker_codes(report: dict[str, Any]) -> list[str]:
+    """S1 blockers for the integrity part (boilerplate, contradicted location).  Never admitted after revisions."""
+    if not report.get("integrity_active"):
+        return []
+    return [f"SCRIPT_INTEGRITY_FAIL:{code}" for code in (report.get("integrity_failures") or [])[:8]]
+
+
 def blocker_codes(report: dict[str, Any], decision: dict[str, Any]) -> list[str]:
     if not decision.get("blocks"):
         return []
@@ -1003,6 +1241,8 @@ def summary(report: dict[str, Any], decision: dict[str, Any] | None = None) -> d
             **({"decision": decision.get("decision"), "revision_round": decision.get("revision_round")}
                if decision else {}),
             "failures": list(report.get("failures") or [])[:12],
+            "integrity_status": report.get("integrity_status"),
+            "integrity_failures": list(report.get("integrity_failures") or [])[:12],
             "metrics": {k: m.get(k) for k in (
                 "duration_seconds", "turn_count", "required_turns", "beats_per_minute", "first_conflict_at",
                 "max_turn_gap_seconds", "max_turn_gap_window", "dialogue_only_ratio", "speech_share_ref",

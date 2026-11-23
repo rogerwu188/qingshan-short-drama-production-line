@@ -1893,29 +1893,153 @@ def writer_capability_record(ctx: "Ctx", p: "Paths") -> dict[str, Any]:
 
 
 SCRIPT_LENGTH_RATIO = 1.3  # authored seconds may exceed the brief by 30 % (S7 cuts to the performance)
+SCRIPT_SHORT_RATIO = 0.85  # E24 (device 1101, 2026-11-23): 62 s planned against a 110 s brief -> a 56 s episode
 SCRIPT_DEFAULT_TARGET_SECONDS = 110.0  # line owner 2026-10-27: an episode is ~1 min 50 s
+#: contract keys a writer may declare the episode's target duration under (the brief wins)
+CONTRACT_TARGET_KEYS = ("target_seconds", "target_duration_seconds", "episode_target_seconds")
 
 
 def script_length_check(ctx: Ctx) -> dict[str, Any]:
-    """Stop an over-long script at S1, while a rewrite is still free (line owner 2026-11-09).
+    """Stop an over-long or a degenerate short script at S1, while a rewrite is still free.
 
-    Field device …1324 E03: 61 units, a 231 s cut against a 110 s brief and 860 credits (E01: 375).  Only
-    CAMERA_GRAMMAR_V1 contracts are checked; the limit is the brief's target_seconds x SCRIPT_LENGTH_RATIO over
-    the sum of the shots' target_seconds.  NALU_SCRIPT_LENGTH_CHECK=off skips it."""
+    Too long (line owner 2026-11-09; field device …1324 E03: 61 units, a 231 s cut against a 110 s brief and 860
+    credits): sum of the shots' target_seconds > target x SCRIPT_LENGTH_RATIO -> BLOCKED (``blocker``).
+    Too short (E24, device 1101, 2026-11-23: 22 shots / 62 s planned for a 110 s brief): planned < target x
+    SCRIPT_SHORT_RATIO -> ``integrity_blocker`` SCRIPT_TOO_SHORT (an S1 integrity failure, returned to the writer;
+    the other S1 gates still run so the writer sees everything at once).  The too-short floor applies only to a
+    target the brief or the contract DECLARES (a lab without a brief is not held to the 110 s default) and never to
+    an episode already past a paid stage.  Only CAMERA_GRAMMAR_V1 contracts are checked;
+    NALU_SCRIPT_LENGTH_CHECK=off skips both."""
     if str(os.environ.get("NALU_SCRIPT_LENGTH_CHECK") or "").lower() == "off" or not _camera_grammar_on(ctx):
         return {"status": "NOT_APPLICABLE"}
     contract = read_json(ctx.p.contract, {}) or {}
     authored = round(sum(float(s.get("target_seconds") or 0) for s in contract.get("shots") or []), 1)
     brief = read_json(RUNTIME / "briefs" / f"{ctx.episode}_PRODUCTION_BRIEF.json", {}) or {}
-    target = float(brief.get("target_seconds") or SCRIPT_DEFAULT_TARGET_SECONDS)
+    declared = brief.get("target_seconds") or next(
+        (contract.get(k) for k in CONTRACT_TARGET_KEYS if contract.get(k)), None)
+    try:
+        declared = float(declared) if declared else None
+    except (TypeError, ValueError):
+        declared = None
+    target = declared or SCRIPT_DEFAULT_TARGET_SECONDS
     limit = round(target * SCRIPT_LENGTH_RATIO, 1)
+    floor = round(target * SCRIPT_SHORT_RATIO, 1)
     out = {"authored_seconds": authored, "target_seconds": target, "limit_seconds": limit,
+           "floor_seconds": floor, "target_declared": declared is not None,
            "shots": len(contract.get("shots") or [])}
+    if authored < floor and declared is not None and not s1_pacing_in_flight(ctx.p):
+        return {**out, "status": BLOCKED,
+                "integrity_blocker": f"SCRIPT_TOO_SHORT:{authored}s<{floor}s (target {target}s): the episode is "
+                                     "short of its brief -- adapt more plot events (take the next source "
+                                     "beats, add the interactions / reactions the scenes are missing) until the "
+                                     "shots' target_seconds reach the floor (free)"}
     if authored <= limit:
         return {**out, "status": PASS}
     return {**out, "status": BLOCKED,
             "blocker": f"SCRIPT_TOO_LONG:{authored}s>{limit}s (target {target}s): rewrite the script layers shorter "
                        "before any paid stage -- merge or cut shots, keep the plot (free)"}
+
+
+#: S1 blockers that are writer-fixable defects of the script itself (integrity, never taste): they return the
+#: script to the writer, free, inside the bounded integrity loop below
+S1_INTEGRITY_PREFIXES = ("SCRIPT_TOO_SHORT", "SCRIPT_TOO_LONG", "SCRIPT_INTEGRITY_FAIL", "DIRECTION_POLICY_INTEGRITY_FAIL",
+                         "CHARACTER_ENTITY_CONTRACT_FAIL", "SCRIPT_STRUCTURE_CONTRACT_FAIL",
+                         "CONTINUITY_STATE_CONTRACT_FAIL", "STATIC_DESIGN_GATE_FAIL",
+                         "WRITER_CAPABILITY_STEP_OWED:SCRIPT_REVIEW_NOT_INDEPENDENT")
+#: distinct failing scripts the writer gets before the episode is held BLOCKED (integrity is not taste: never admitted)
+S1_INTEGRITY_MAX_ROUNDS = 4
+S1_INTEGRITY_LEDGER = "S1_INTEGRITY_ROUNDS.json"
+
+
+def s1_integrity_round(p: Any, layer_shas: dict[str, Any], blockers: list[str]) -> dict[str, Any]:
+    """One S1 decision of the bounded integrity loop.  Each distinct set of layer bytes that fails an integrity
+    check is one round; re-running S1 on the same bytes never uses up a round.  Rounds 1..S1_INTEGRITY_MAX_ROUNDS:
+    REVISE (the writer fixes its own layers, the tick resumes Codex once per round); beyond: EXHAUSTED (still
+    BLOCKED, named code, no further resume).  Never raises."""
+    codes = [b for b in blockers if str(b).startswith(S1_INTEGRITY_PREFIXES)]
+    if not codes:
+        return {"status": PASS, "decision": "PASS", "max_rounds": S1_INTEGRITY_MAX_ROUNDS}
+    try:
+        sha = hashlib.sha256(json.dumps(layer_shas or {}, sort_keys=True).encode("utf-8")).hexdigest()
+        path = Path(getattr(p, "logs")) / S1_INTEGRITY_LEDGER
+        state = read_json(path, {}) or {}
+        rows = [r for r in state.get("rounds") or [] if isinstance(r, dict)]
+        if not any(r.get("layers_sha256") == sha for r in rows):
+            rows.append({"layers_sha256": sha, "codes": [str(c)[:160] for c in codes[:12]],
+                         "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+            write_json(path, {"schema": "nalu.s1_integrity_rounds.v1", "max_rounds": S1_INTEGRITY_MAX_ROUNDS,
+                              "rounds": rows})
+        n = next(i for i, r in enumerate(rows, 1) if r.get("layers_sha256") == sha)
+    except Exception as exc:  # noqa: BLE001 -- the ledger must never break S1; an unknown round stays REVISE 1
+        return {"status": BLOCKED, "decision": "REVISE", "round": 1, "max_rounds": S1_INTEGRITY_MAX_ROUNDS,
+                "codes": codes[:12], "ledger_error": f"{type(exc).__name__}:{str(exc)[:160]}"}
+    decision = "REVISE" if n <= S1_INTEGRITY_MAX_ROUNDS else "EXHAUSTED"
+    return {"status": BLOCKED, "decision": decision, "round": n, "max_rounds": S1_INTEGRITY_MAX_ROUNDS,
+            "codes": codes[:12], "ledger": str(path),
+            "writer_instruction": ("revise the episode's own layers (narrative canonical -> four layers) for the "
+                                   "integrity failures listed, then rerun S1; free, no owner decision"
+                                   if decision == "REVISE" else
+                                   f"{S1_INTEGRITY_MAX_ROUNDS} revisions did not clear the script's integrity "
+                                   "failures: the episode stays BLOCKED for the line agent / maintainer")}
+
+
+def s1_integrity_blockers(decision: dict[str, Any], blockers: list[str]) -> list[str]:
+    """Prefix the S1 blockers with the integrity loop's marker (the tick keys on ``SCRIPT_INTEGRITY_REVISE:round=``)."""
+    if decision.get("decision") == "REVISE":
+        return [f"SCRIPT_INTEGRITY_REVISE:round={decision['round']}/{decision['max_rounds']}"] + list(blockers)
+    if decision.get("decision") == "EXHAUSTED":
+        return [f"SCRIPT_INTEGRITY_ROUNDS_EXHAUSTED:{decision['max_rounds']}"] + list(blockers)
+    return list(blockers)
+
+
+DIRECTION_POLICY_CONFIG = "configs/DIRECTION_POLICY_V1.json"
+
+
+def s1_direction_policy(ctx: Ctx, p: Any, *, in_flight: bool = False) -> tuple[dict[str, Any], list[str]]:
+    """direction_policy_gate at S1 (E24 2026-11-23: it existed but stage_s1 never called it).  The whole report is
+    recorded; only its S1 integrity rules (DP9: CU+MCU <= 80 %, >= 2 two-person / group shots per multi-character
+    scene) block, for every new episode -- an episode already past a paid stage is grandfathered.
+    NALU_DIRECTION_POLICY_S1=off records without blocking.  Never raises."""
+    try:
+        import direction_policy_gate as _dpg  # noqa: PLC0415 -- engine tools/ is on sys.path
+        contract = read_json(p.contract, {}) or {}
+        report = _dpg.evaluate(contract, _dpg.load_policy(ENGINE / DIRECTION_POLICY_CONFIG))
+        out = p.logs / f"{ctx.run_id}_direction_policy_gate.json"
+        write_json(out, report)
+        failures = _dpg.integrity_failures(report)
+        switched_off = str(os.environ.get("NALU_DIRECTION_POLICY_S1") or "").lower() == "off"
+        blocking = bool(failures) and not in_flight and not switched_off
+        row = {"status": report.get("status"), "integrity_status": "FAIL" if failures else PASS,
+               "integrity_failures": failures[:12], "blocking": blocking,
+               "failures": (report.get("failures") or [])[:12], "report": str(out),
+               "measurements": {"DP9": (report.get("measurements") or {}).get("DP9")},
+               **({"grandfathered": "IN_FLIGHT_PAST_PAID_STAGE"} if failures and in_flight else {})}
+        if failures:
+            row["fix"] = ("give every scene with two or more characters at least two shots with both (or all) of "
+                          "them in frame -- a silent two-shot / group action, or the listener over the speaker's "
+                          "shoulder (back of head, face not visible) -- and keep CU+MCU at or under 80 % of shots")
+        return row, ([f"DIRECTION_POLICY_INTEGRITY_FAIL:{f}" for f in failures[:8]] if blocking else [])
+    except Exception as exc:  # noqa: BLE001 -- a policy measurement must never break S1
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}"}, []
+
+
+def script_review_independence_row(writer_capability: dict[str, Any], contract_path: Any) -> dict[str, Any]:
+    """Was the script reviewed by somebody other than the writer?  E24: ``contract.script_review`` said
+    {reviewer: codex, status: PASS} -- the writer's own claim, never evidence.  Only the writer-capability review
+    report counts, and only with an independent reviewer and the request sha (writer_capability.review_independence)."""
+    row = ((writer_capability.get("inputs") or {}).get("script_review") or {}) if isinstance(
+        writer_capability, dict) else {}
+    self_claim = (read_json(Path(contract_path), {}) or {}).get("script_review") if contract_path else None
+    if not row:
+        status = "NOT_APPLICABLE" if writer_capability.get("profile") != "WRITER_CAPABILITY_V1" else "MISSING"
+    elif not row.get("present"):
+        status = "MISSING"
+    else:
+        status = PASS if row.get("independent") else "NOT_INDEPENDENT"
+    return {"status": status, "reviewer": row.get("reviewer"), "request_sha256": row.get("request_sha256"),
+            "failures": row.get("independence_failures") or [],
+            "contract_self_review_ignored": bool(self_claim),
+            "blocks": "SCRIPT_REVIEW_NOT_INDEPENDENT" in (writer_capability.get("blocks_stage") or [])}
 
 
 #: stages whose start means money was spent on the episode: a default-policy pacing revision never reopens it
@@ -1952,19 +2076,26 @@ def s1_script_pacing(ctx: Ctx, p: Any, *, others_ok: bool) -> tuple[dict[str, An
                                 source_texts=_pace.source_texts_for(contract, RUNTIME))
         report_path = p.logs / f"{ctx.run_id}_script_pacing.json"
         write_json(report_path, report)
+        integrity = _pace.integrity_blocker_codes(report)
+        # a taste round is only counted on a script that is structurally whole (integrity is not taste)
         decision = _pace.decide(report, _pace.contract_sha(contract), p.logs / "SCRIPT_PACING_ROUNDS.json",
-                                record=others_ok)
+                                record=others_ok and not integrity)
+        if integrity and decision.get("blocks"):
+            decision = {**decision, "decision": "PENDING_SCRIPT_INTEGRITY", "blocks": False}
         if not others_ok and decision.get("blocks"):
             decision = {**decision, "decision": "PENDING_OTHER_S1_GATES", "blocks": False}
         row = {**_pace.summary(report, decision), "report": str(report_path), "fixes": report.get("fixes") or {}}
         if decision.get("decision") == "REVISE":
             row["writer_instruction"] = ("revise the episode's own layers (narrative canonical -> four layers) "
                                          "for the failures above, then rerun S1; free, no owner decision")
-        if others_ok and decision.get("decision") != "REVISE":
+        if others_ok and not integrity and decision.get("decision") not in ("REVISE", "PENDING_SCRIPT_INTEGRITY"):
             cov = _pace.record_coverage(RUNTIME, ctx.episode, contract)
             if cov:
                 row["source_coverage"] = {k: cov.get(k) for k in ("last_chapter", "next_chapter", "skipped_chapters")}
-        return row, _pace.blocker_codes(report, decision)
+        if integrity:
+            row["integrity_instruction"] = ("SCRIPT_INTEGRITY_FAIL is not taste: never admitted after revisions -- "
+                                            "write each scene's own ambience / scene plan / location; see fixes")
+        return row, _pace.blocker_codes(report, decision) + integrity
     except Exception as exc:  # noqa: BLE001 -- a pacing measurement must never break S1
         return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}"}, []
 
@@ -1980,10 +2111,16 @@ def stage_s1(ctx: Ctx) -> StageResult:
     layer_shas = {name: sha256_file(path) for name, path in p.layers().items()}
 
     length = script_length_check(ctx)
-    if length.get("status") == BLOCKED:
+    if length.get("status") == BLOCKED and length.get("blocker"):
         res = StageResult(BLOCKED, missing_layers=[], layer_sha256=layer_shas, script_length=length)
         res.blockers = [length["blocker"]]
+        res.details = {"s1_integrity": s1_integrity_round(p, layer_shas, res.blockers)}
+        res.blockers = s1_integrity_blockers(res.details["s1_integrity"], res.blockers)
         return res
+    integrity_blockers: list[str] = [length["integrity_blocker"]] if length.get("integrity_blocker") else []
+    in_flight = s1_pacing_in_flight(p)
+    direction_policy, direction_blockers = s1_direction_policy(ctx, p, in_flight=in_flight)
+    integrity_blockers += direction_blockers
 
     # Writer-capability record (line owner 2026-11-01): under WRITER_CAPABILITY_V1 an
     # episode must show an arc ledger, its own adaptation disposition, an answered
@@ -2118,8 +2255,12 @@ def stage_s1(ctx: Ctx) -> StageResult:
     # advisory -> no revision), a failing script is sent back to the writer for at most MAX_REVISIONS revisions,
     # then admitted with the gaps recorded.  A round is only counted when every other S1 gate passed.  Never raises.
     script_pacing, pacing_blockers = s1_script_pacing(
-        ctx, p, others_ok=(status == PASS and not (writer_capability.get("blocks_stage") or [])))
+        ctx, p, others_ok=(status == PASS and not integrity_blockers
+                           and not (writer_capability.get("blocks_stage") or [])))
     if pacing_blockers and status == PASS:
+        status = BLOCKED
+    # S1 integrity (E24 2026-11-23): too short, CU/MCU-only singles, ... -- never admitted, returned to the writer
+    if integrity_blockers and status == PASS:
         status = BLOCKED
     # Line owner 2026-11-01: under WRITER_CAPABILITY_V1 the writing PROCEDURE is required — a missing or unanswered
     # script review / Rule 8 answer / arc ledger / adaptation disposition keeps the script from being marked complete
@@ -2166,8 +2307,13 @@ def stage_s1(ctx: Ctx) -> StageResult:
     if capability_blocks:
         res.blockers = list(getattr(res, "blockers", []) or []) + [f"WRITER_CAPABILITY_STEP_OWED:{code}" for code in capability_blocks]
     res.details["script_pacing"] = script_pacing
+    res.details["script_length"] = length
+    res.details["direction_policy_gate"] = direction_policy
+    res.details["script_review_independence"] = script_review_independence_row(writer_capability, p.contract)
     if pacing_blockers:
         res.blockers = list(getattr(res, "blockers", []) or []) + pacing_blockers
+    if integrity_blockers:
+        res.blockers = list(getattr(res, "blockers", []) or []) + integrity_blockers
     res.details["layers"] = {"source": ctx.p.layers_source, "paths": {k: str(v) for k, v in p.layers().items()}}
     if not scope_ok:
         res.blockers = list(getattr(res, "blockers", []) or []) + [f"PROJECT_SCOPE_FAIL:{code}" for code in scope_check["failures"]]
@@ -2195,6 +2341,11 @@ def stage_s1(ctx: Ctx) -> StageResult:
     if not entity_ok:
         res.blockers.append("CHARACTER_ENTITY_CONTRACT_FAIL:"
                             + ",".join(str(f) for f in (entity_verdict.get("failures") or [])))
+    # The bounded integrity loop: every writer-fixable script defect above sends the script back to the writer
+    # (the tick resumes Codex once per round); after S1_INTEGRITY_MAX_ROUNDS distinct failing scripts the episode
+    # stays BLOCKED under SCRIPT_INTEGRITY_ROUNDS_EXHAUSTED and the tick stops resuming -- the loop terminates.
+    res.details["s1_integrity"] = s1_integrity_round(p, layer_shas, list(getattr(res, "blockers", []) or []))
+    res.blockers = s1_integrity_blockers(res.details["s1_integrity"], list(getattr(res, "blockers", []) or []))
     # Downstream asset confirmation must bind stable S1 evidence.  The main
     # pipeline state is intentionally mutable as S2-S8 advance, so hashing that
     # file would invalidate a valid confirmation on every later stage update.
@@ -2232,6 +2383,10 @@ def stage_s1(ctx: Ctx) -> StageResult:
             "script_structure_contract_gate": PASS if structure_ok else "FAIL",
             "continuity_state_contract_gate": PASS if continuity_ok else "FAIL",
             "project_scope_check": PASS if scope_ok else "FAIL",
+            "script_length": str(length.get("status") or "NOT_APPLICABLE"),
+            "direction_policy_integrity": direction_policy.get("integrity_status") or "NOT_RUN",
+            "script_pacing_integrity": str(script_pacing.get("integrity_status") or "NOT_RUN"),
+            "script_review_independent": res.details["script_review_independence"]["status"],
         },
     })
     res.details["s1_gate_receipt"] = {

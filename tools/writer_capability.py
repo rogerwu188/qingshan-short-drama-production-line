@@ -183,12 +183,21 @@ def inputs(episode: str, *, arc_ledger: Path | str | None = None,
     if review is None:
         rows["script_review"] = {"present": False, "status": "MISSING"}
     else:
+        independence = review_independence(review)
         rows["script_review"] = {
             "present": True,
             "status": review.get("review_state") or review.get("status"),
             "answered": not review.get("unanswered"),
             "escalations": len(review.get("escalations") or []),
             "narrative_sha256": review.get("narrative_sha256"),
+            # E24 (device 1101, 2026-11-23): the report said PASS with reviewer "codex" -- the writer reviewing its
+            # own script.  A review counts only with a named reviewer other than the writer and the sha of the
+            # request the reviewer was given (script_review.py / vlm_review_protocol).
+            "reviewer": review.get("reviewer"),
+            "responder": review.get("responder"),
+            "request_sha256": review.get("request_sha256"),
+            "independent": independence["independent"],
+            "independence_failures": independence["failures"],
             "path": str(script_review_report),
         }
 
@@ -215,6 +224,53 @@ def inputs(episode: str, *, arc_ledger: Path | str | None = None,
         "blocking": {name: bool(blocking.get(name)) for name in blocking if name != "note"},
         "blocks_stage": blocking_policy(rows, blocking),
     }
+
+
+#: identities that are the writer itself, never an independent reviewer
+WRITER_IDENTITIES = frozenset({"", "codex", "writer", "self", "author", "storyclaw-writer", "claude-writer",
+                               "codex-writer", "nalu-writer"})
+INDEPENDENCE_ENV = "NALU_SCRIPT_REVIEW_INDEPENDENCE"
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def review_independence(review: dict[str, Any] | None) -> dict[str, Any]:
+    """Is the script review an independent review?  A named reviewer that is not the writer (nor the writer who
+    answered it), and the sha256 of the review request it read -- matching the request file when that file is named."""
+    import hashlib
+
+    failures: list[str] = []
+    review = review if isinstance(review, dict) else {}
+    reviewer = str(review.get("reviewer") or "").strip()
+    responder = str(review.get("responder") or "").strip()
+    if reviewer.lower() in WRITER_IDENTITIES:
+        failures.append(f"REVIEWER_NOT_INDEPENDENT:{reviewer or 'MISSING'}")
+    elif responder and reviewer == responder:
+        failures.append(f"REVIEWER_IS_RESPONDER:{reviewer}")
+    request_sha = str(review.get("request_sha256") or "").strip().lower()
+    if not _SHA256_RE.match(request_sha):
+        failures.append("REQUEST_SHA256_MISSING")
+    else:
+        path = str(review.get("request_path") or "").strip()
+        if path:
+            candidate = Path(path)
+            if not candidate.is_file():
+                failures.append("REQUEST_FILE_MISSING")
+            elif hashlib.sha256(candidate.read_bytes()).hexdigest() != request_sha:
+                failures.append("REQUEST_SHA256_MISMATCH")
+    return {"independent": not failures, "failures": failures}
+
+
+def independence_blocking(blocking: dict[str, Any], environ: dict[str, str] | None = None) -> bool:
+    """Whether a non-independent review blocks: the config switch ``independent_script_review`` (ships OFF: the
+    unattended Codex line has no engine-launched script reviewer yet, so a block could never be cleared by the
+    writer), overridden by ``NALU_SCRIPT_REVIEW_INDEPENDENCE=block|record``."""
+    env = os.environ if environ is None else environ
+    value = str(env.get(INDEPENDENCE_ENV) or "").strip().lower()
+    if value in ("block", "on", "1", "true"):
+        return True
+    if value in ("record", "off", "0", "false"):
+        return False
+    return blocking.get("independent_script_review") is True
 
 
 def blocking_policy(rows: dict[str, Any], blocking: dict[str, Any]) -> list[str]:
@@ -246,6 +302,9 @@ def blocking_policy(rows: dict[str, Any], blocking: dict[str, Any]) -> list[str]
             rows["script_review"].get("status") == "INCOMPLETE"
             and blocking.get("unanswered_script_review") is True):
         blocks.append("SCRIPT_REVIEW_UNANSWERED")
+    if rows["script_review"].get("present") and rows["script_review"].get("independent") is False \
+            and independence_blocking(blocking):
+        blocks.append("SCRIPT_REVIEW_NOT_INDEPENDENT")
     if rows["rule8_response"].get("present") and (
             (rows["rule8_response"].get("open_items")
              or rows["rule8_response"].get("invalid_items"))

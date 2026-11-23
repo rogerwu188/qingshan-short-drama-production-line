@@ -45,6 +45,15 @@
         "still_applies": "Every non-combat shot keeps the 3 s cap, the 2×6 s exception budget and the 0.75 dialogue ratio exactly as before."
       }
     },
+    "DP9_coverage_floor": {
+      "enabled": true,
+      "doc_ref": "E24 review 2026-11-23 (device 1101); line owner approval 2026-11-23",
+      "status": "NEW — S1 INTEGRITY: blocks every new episode whatever direction_policy.enforced says (nalu_pipeline grandfathers an episode already past a paid stage)",
+      "cu_mcu_max_episode_ratio": 0.80,
+      "min_group_shots_per_multi_character_scene": 2,
+      "group_shot_definition": "two or more characters in frame: a silent two-shot / group action or blocking shot, or a speaking unit whose non-speaking listener is an over-the-shoulder / back-of-head figure in the cast (face not visible); an OFFSCREEN voice does not count",
+      "authority": "Line owner 2026-11-23: dialogue units may show the listener as an over-the-shoulder / back-of-head figure (the speaker remains the only one speaking); every scene with >= 2 characters needs at least 2 two-person (or group) action/blocking shots; CU+MCU <= 80 %."
+    },
     "DP4_performance_instruction": {
       "enabled": true,
       "doc_ref": "R4",

@@ -20,6 +20,9 @@ Only the genuinely new, episode-level/aggregate checks live here:
        silence_reason_exceptions_max_per_episode exceptions of <= silence_reason_seconds_max_each
        each; episode dialogue-time ratio (sum of dialogue-shot seconds / total seconds, from the
        shot table's own planned durations) must be >= dialogue_time_ratio_min.
+  DP9  coverage floor (E24 2026-11-23): CU+MCU <= cu_mcu_max_episode_ratio, and every scene holding >= 2
+       characters has >= min_group_shots_per_multi_character_scene shots with two or more people in frame.  S1
+       blocks on DP9 for every new episode (S1_INTEGRITY_RULES), independent of ``direction_policy.enforced``.
   DP5  audit-only: exposes scan_for_literal_rate_figure() so a compiled prompt can be checked for
        a literal chars/sec figure. (DP4/DP6/DP7/DP8 already exist elsewhere; this gate only checks
        their markers are still present in the contract, it does not re-implement their logic.)
@@ -225,6 +228,63 @@ def _dp3_dialogue_continuity(shots: list[dict[str, Any]], rule: dict[str, Any]) 
                       "dialogue_ratio_denominator_seconds": round(spoken_denominator, 3)}
 
 
+def _visible_cast(shot: dict[str, Any]) -> list[str]:
+    """Characters physically in the frame (an over-the-shoulder / back-of-head listener counts; an off-screen
+    voice does not)."""
+    spec = shot.get("prompt_spec") or {}
+    presence = ((spec.get("role_semantic_disambiguation") or {}).get("entity_presence") or {})
+    out: list[str] = []
+    for row in spec.get("cast") or []:
+        if not isinstance(row, dict):
+            continue
+        cid = str(row.get("character_id") or row.get("character") or "").strip()
+        face = str(row.get("face_visibility") or "").upper()
+        if not cid or face.startswith("OFFSCREEN") or str(presence.get(cid) or "").upper().startswith("OFFSCREEN"):
+            continue
+        if cid not in out:
+            out.append(cid)
+    return out
+
+
+def _dp9_coverage_floor(shots: list[dict[str, Any]], rule: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+    """DP9 (E24, device 1101, 2026-11-23; line owner approval 2026-11-23): every one of 22 shots was a centred
+    single CU/MCU, so no interaction was ever on screen.  CU+MCU <= cu_mcu_max_episode_ratio, and every scene that
+    holds >= 2 characters has >= min_group_shots_per_multi_character_scene shots with two or more people in frame
+    (a silent two-shot / group action, or a speaking unit with the listener over the shoulder / back of head)."""
+    failures: list[str] = []
+    total = len(shots)
+    cu_mcu = sum(1 for sh in shots if str(_camera_plan(sh).get("shot_scale") or sh.get("shot_size") or "").upper()
+                 in CU_MCU)
+    ratio = round(cu_mcu / total, 4) if total else 0.0
+    ceiling = float(rule.get("cu_mcu_max_episode_ratio", 1))
+    if total and ratio > ceiling + 1e-9:
+        failures.append(f"DP9_CU_MCU_RATIO_{ratio}_OVER_{ceiling}")
+    need = int(rule.get("min_group_shots_per_multi_character_scene", 0))
+    scenes: dict[str, dict[str, Any]] = {}
+    for sh in shots:
+        row = scenes.setdefault(str(sh.get("scene_id") or "SCENE"), {"characters": set(), "group": 0, "shots": 0})
+        cast = _visible_cast(sh)
+        row["characters"] |= set(cast)
+        row["shots"] += 1
+        row["group"] += 1 if len(cast) >= 2 else 0
+    per_scene = {}
+    for scene, row in scenes.items():
+        per_scene[scene] = {"characters": len(row["characters"]), "group_shots": row["group"], "shots": row["shots"]}
+        required = min(need, row["shots"])
+        if len(row["characters"]) >= 2 and row["group"] < required:
+            failures.append(f"DP9_MULTI_CHARACTER_SCENE_ALL_SINGLES:{scene}:{row['group']}<{required}")
+    return failures, {"cu_mcu_ratio": ratio, "cu_mcu_max": ceiling, "scenes": per_scene}
+
+
+#: DPn rules whose failures S1 treats as script INTEGRITY (blocking for every new episode, whatever the contract's
+#: ``direction_policy.enforced`` says); every other rule keeps its report-only / enforced-flag behaviour
+S1_INTEGRITY_RULES = ("DP9",)
+
+
+def integrity_failures(report: dict[str, Any]) -> list[str]:
+    return [f for f in report.get("failures") or [] if str(f).startswith(S1_INTEGRITY_RULES)]
+
+
 def _still_wired(contract: dict[str, Any]) -> dict[str, Any]:
     """DP4/DP6/DP7 markers already enforced elsewhere — presence check only, never re-implements
     or blocks on their logic. DP8 (identity reference ordering) lives in S2/keyframe-binding
@@ -263,6 +323,11 @@ def evaluate(contract: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]
     if dp3.get("enabled") and shots:
         f, m = _dp3_dialogue_continuity(shots, dp3)
         failures.extend(f); measurements["DP3"] = m
+
+    dp9 = rules.get("DP9_coverage_floor") or {}
+    if dp9.get("enabled") and shots:
+        f, m = _dp9_coverage_floor(shots, dp9)
+        failures.extend(f); measurements["DP9"] = m
 
     measurements["still_wired"] = _still_wired(contract)
 

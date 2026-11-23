@@ -80,8 +80,9 @@ def punchy_contract(lang: str = "zh") -> dict:
     for s in range(5):
         scene = f"E03-S0{s + 1}"
         location = ("LOC-OFFICE", "LOC-STREET", "LOC-CAR")[s % 3]
-        scene_plan.append({"scene_id": scene, "objective": "get the ledger", "conflict": "he hides it",
-                           "physical_action": "she grabs it"})
+        # each scene writes its own plan (one plan copied onto every scene is S1 integrity boilerplate, E24)
+        scene_plan.append({"scene_id": scene, "objective": f"get ledger page {s + 1}",
+                           "conflict": f"he hides page {s + 1}", "physical_action": f"she grabs page {s + 1}"})
         for k in range(6):
             n += 1
             sid = f"{scene}-{k + 1:02d}"
