@@ -49,6 +49,8 @@ NEVER_POINTING = "raised index fingers or repeated pointing gestures"
 POINT_FAMILY = "point"
 
 FACE, HANDS, BODY = "face", "hands", "body"
+#: appended to a face / body business when the framing shows the hands (they are not part of the gesture)
+HANDS_STILL = "the hands staying relaxed and still"
 #: family -> (phrase, framing need, intents).  Phrases are body-only: they never invent a prop or a garment detail.
 VOCAB: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "glance_away": ("glances away for a beat, then looks back", FACE, ("doubt", "sad", "fear", "shy", "neutral")),
@@ -123,7 +125,15 @@ _GENERIC_GESTURE = re.compile(
     r"|\b(?:delivers|says|speaks) (?:the|his|her|their) line with\b|\bvisible posture change\b"
     r"|\b(?:raises|lifts|holds up) (?:a|one|the|his|her|their) (?:right |left )?(?:index )?finger\b"
     r"|\bindex finger\b|\bgesture settles\b"
-    r"|明显的(?:动漫|动画)?手势|清晰的(?:动漫|动画)?手势|做出手势|竖起食指|伸出食指", re.IGNORECASE)
+    r"|明显的(?:动漫|动画)?手势|清晰的(?:动漫|动画)?手势|做出手势|竖起食指|伸出食指"
+    # JA E10 (device 1485, 2026-11-23, owner: "in the second half they keep spreading both hands at their sides"):
+    # numbered templates that dodge the verbatim-repeat checks ("beat 6 business: shifts weight and grips a nearby
+    # object", "gesture variation 6 tied to the conflict", "grabs the prop ... in response to the exact line: <line>")
+    # and grips on an unnamed object -- with nothing in reach H3 leaves the hands open at the sides
+    r"|\b(?:beat|shot|line|unit)\s*\d+\s*(?:business|action|gesture)\b|\bgesture variation\b"
+    r"|\bin response to the (?:exact )?line\b"
+    r"|\b(?:grips?|grabs?|holds?|clutch(?:es)?|squeezes?|touches?) (?:a|an|the) (?:nearby |nearest |closest )?"
+    r"(?:object|prop|thing|item)\b|\b(?:nearby|nearest|closest) object\b", re.IGNORECASE)
 #: any text that names the stock gesture (authored business is counted as that family)
 _STOCK_TEXT = re.compile(r"(?:spread|open|throw)s?\w* (?:out )?(?:both |his |her |their )?(?:hands|palms|arms)"
                          r"|palms? (?:spread|out|up)|open[- ]arm|shrug|摊手|摊开|張開雙手|张开双手|张开双臂|両手を広げ",
@@ -278,6 +288,40 @@ def _speaker_id(spec: dict[str, Any]) -> str:
     return str(role.get("lip_owner_id") or role.get("dialogue_speaker_id") or "")
 
 
+#: an authored business whose text (numbers and names masked) is on at least this many dialogue shots AND this share
+#: of them is a writer template, not acting (JA E10: "beat <n> business: shifts weight and grips a nearby object" on
+#: all 30 lines); it is replaced like a placeholder so the tracker can vary it
+TEMPLATE_MIN = 3
+TEMPLATE_SHARE = 0.3
+
+
+def _template_key(text: Any) -> str:
+    value = re.sub(r"\d+", "#", " ".join(str(text or "").split()).lower())
+    value = re.sub(r"^(?:beat|shot|line|unit)\s*#\s*(?:business|action|gesture)?\s*[:\-]\s*", "", value)
+    return value.rstrip(".;, ")
+
+
+def authored_templates(shots: Iterable[dict[str, Any]],
+                       performance_by_shot: dict[str, dict[str, Any]] | None = None) -> set[str]:
+    """Template keys of authored English business repeated over the episode's dialogue shots (see TEMPLATE_MIN)."""
+    keys: list[str] = []
+    for shot in shots or []:
+        spec = shot.get("prompt_spec") if isinstance(shot.get("prompt_spec"), dict) else {}
+        action = spec.get("action") if isinstance(spec.get("action"), dict) else {}
+        if not str(spec.get("dialogue") or "").strip():
+            continue
+        perf = action.get("performance") if isinstance(action.get("performance"), dict) else {}
+        extra = (performance_by_shot or {}).get(str(shot.get("shot_id") or ""))
+        perf = {**(extra if isinstance(extra, dict) else {}), **perf}
+        text = _english(perf.get("business_en")) if isinstance(perf, dict) else ""
+        if text:
+            keys.append(_template_key(text))
+    counts = Counter(keys)
+    total = max(1, len([s for s in shots or [] if str(((s.get("prompt_spec") or {}) if isinstance(s, dict) else {})
+                                                        .get("dialogue") or "").strip()]))
+    return {k for k, n in counts.items() if n >= TEMPLATE_MIN and n >= TEMPLATE_SHARE * total}
+
+
 def assign_episode(shots: list[dict[str, Any]], entities: dict[str, dict[str, Any]] | None = None, *,
                    window: int = WINDOW, scene_cap: int = SCENE_CAP,
                    performance_by_shot: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -287,6 +331,7 @@ def assign_episode(shots: list[dict[str, Any]], entities: dict[str, dict[str, An
     entities = entities or {}
     tracker = Tracker(window, scene_cap)
     rows: list[dict[str, Any]] = []
+    templates = authored_templates(shots, performance_by_shot)
     for shot in shots or []:
         spec = shot.get("prompt_spec") if isinstance(shot.get("prompt_spec"), dict) else {}
         dialogue = str(spec.get("dialogue") or "").strip()
@@ -301,10 +346,11 @@ def assign_episode(shots: list[dict[str, Any]], entities: dict[str, dict[str, An
         if not speaker or speaker not in visible:
             continue  # an offscreen / V.O. speaker has no body on screen
         performance = action.get("performance") if isinstance(action.get("performance"), dict) else {}
-        if not performance and isinstance((performance_by_shot or {}).get(sid), dict):
-            # an episode outside CAMERA_GRAMMAR_V1 keeps the writer's performance out of its manifest; it is still
-            # read here (emotion / business_en / body_action), never copied into the spec
-            performance = (performance_by_shot or {})[sid]
+        if isinstance((performance_by_shot or {}).get(sid), dict):
+            # an episode outside CAMERA_GRAMMAR_V1 keeps the writer's performance out of its manifest, and a writer
+            # may file it beside the action (prompt_spec.performance); it is still read here (emotion / business_en /
+            # body_action), never copied into the spec -- the spec's own fields win
+            performance = {**(performance_by_shot or {})[sid], **performance}
         scale = str((spec.get("camera_plan") or {}).get("shot_scale") or shot.get("shot_size") or "")
         beat_text = " ".join(str(x or "") for x in (performance.get("delivery_en"), performance.get("body_action"),
                                                     action.get("primary_action"), dialogue))
@@ -320,6 +366,8 @@ def assign_episode(shots: list[dict[str, Any]], entities: dict[str, dict[str, An
         family = family_of(authored) if authored else None
         if authored and is_generic_gesture(authored):
             authored, family, source = "", None, "AUTHORED_GENERIC_REPLACED"
+        if authored and _template_key(authored) in templates:
+            authored, family, source = "", None, "AUTHORED_TEMPLATE_REPLACED"
         if authored and family == STOCK_FAMILY and not stock_called:
             authored, family, source = "", None, "AUTHORED_STOCK_REPLACED"
         if authored and family == POINT_FAMILY and not point_called:
@@ -337,10 +385,16 @@ def assign_episode(shots: list[dict[str, Any]], entities: dict[str, dict[str, An
                                               point_called=point_called)
             source = ("MANNERISM" if family.startswith("mannerism:") else
                       source if source in ("AUTHORED_STOCK_REPLACED", "AUTHORED_GENERIC_REPLACED",
-                                           "AUTHORED_POINTING_REPLACED") else "VOCABULARY")
+                                           "AUTHORED_POINTING_REPLACED", "AUTHORED_TEMPLATE_REPLACED")
+                      else "VOCABULARY")
             if family.startswith("mannerism:"):
                 family = f"mannerism:{speaker}:{family.split(':', 1)[1]}"
         tracker.use(family, scene)
+        if family in VOCAB and VOCAB[family][1] != HANDS and _scale_allows(HANDS, scale) \
+                and HANDS_STILL not in authored:
+            # JA E10 (owner 2026-11-23): a face / body business leaves the hands unspecified and H3 fills them with
+            # its stock "both hands open at the sides"; say where they are (a positive instruction, not a Never item)
+            authored = f"{authored}, {HANDS_STILL}"
         action["performance_business_en"] = authored
         action["performance_business_family"] = family
         listeners: dict[str, str] = {}
