@@ -38,7 +38,8 @@ Method (numpy/scipy mix, picture stream copied bit-exact)
      drives a gain of −(env_dB − (−30 dBFS)) × 0.95, capped at −14 dB (attack/release = time to 90 % of a step).  Speech on this line peaks at
      ≈ −16 dBFS, so a spoken line ducks the pad by ≈ 13 dB (Roger's −12…−18 dB band); the ambient bed is
      NOT ducked — it is the floor that keeps every frame above −50 dBFS.
-  5. SUM native + bed + pad, then ONE static programme gain (−14 − I of the mix, held back so TP stays
+  5. SUM native + bed + pad (+ the free CC0 foley/SFX bus of foley_sfx_layer.py, ``NALU_SFX`` default ON,
+     fail-open), then ONE static programme gain (−14 − I of the mix, held back so TP stays
      ≤ −1.5 dBTP; same constants as tools/level_native_release_audio.py, detector limit −1.0) — and NO
      gain at all when the summed mix is already within ±0.5 LU of −14 with TP ≤ −1.0 (the normal case
      after the leveller), so the line windows the leveller produced are left untouched.  Not
@@ -562,6 +563,23 @@ def measure_release(media: Path, cuts: list[float], windows: list[dict[str, Any]
             "loudness_detector": {"status": loud["status"], "measured": loud.get("measured"), "failures": loud.get("failures", [])}}
 
 
+# ----------------------------------------------------------------------------- foley / SFX bus
+def foley_bus(native: np.ndarray, segments: list[dict[str, Any]], grouping: dict[str, Any], contract: dict[str, Any],
+              windows: list[dict[str, Any]], under: np.ndarray, seed: int, report_path: Path | None) -> tuple[np.ndarray, dict[str, Any]]:
+    """Free CC0 foley bus keyed to the contract (foley_sfx_layer.py; line owner 2026-11-23, ``NALU_SFX`` default
+    ON).  Fail-open: silence + a status record on any failure, so the mix is then exactly what it was."""
+    try:
+        import foley_sfx_layer as sfx_layer  # noqa: PLC0415
+        sfx, record = sfx_layer.build_sfx_layer(native, segments, grouping, contract, windows, base=under, seed=seed)
+        if report_path is not None:
+            record_path = sfx_layer.record_path_for(Path(report_path))
+            sfx_layer.write_record(record_path, record)
+            record = {**record, "record_path": str(record_path)}
+    except Exception as exc:  # noqa: BLE001
+        return np.zeros((len(native), 2), dtype=np.float32), {"status": "ERROR_FAIL_OPEN", "error": repr(exc)[:300]}
+    return sfx.astype(np.float32), record
+
+
 # ----------------------------------------------------------------------------- main
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -626,19 +644,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         duck_applied = None
 
-    # FOLEY / SFX HOOK -- design only, not implemented (device 1101 E24 2026-11-23: no action sound at all -- blade,
-    # footsteps, silver, crowd; contract sfx: []; owner decision pending).  A foley layer would plug in exactly here,
-    # as a fourth stem summed with native + bed + pad BEFORE the static programme gain, so it is levelled, measured
-    # (measure_release before/after) and muxed like the others:
-    #   inputs   contract shot sfx cues (S1 would author ``sfx: [{shot_id, kind, at_seconds}]``) mapped onto the release
-    #            timeline through ``segments`` (unit output_start + source offset - clip in-point), optionally the
-    #            visual action windows S7 already measures (``--action-windows`` of the audience detectors)
-    #   source   a local licensed one-shot library (free) keyed by ``kind``; no paid generation per episode
-    #   level    peak-normalised one-shots at about -24 dBFS, ducked with the same duck_gain_db(env_db) as the pad so a
-    #            hit never masks a line; mono, centred; 5 ms fades
-    #   report   a ``foley`` block next to ``pad`` (cues placed / skipped, library file + sha per hit)
-    #   stem     ``--stems-dir`` writes foley.wav beside bed.wav / pad_ducked.wav
-    mix = (native.astype(np.float32) + bed + pad).astype(np.float32)
+    sfx, sfx_record = foley_bus(native, segments, grouping, contract, windows, native + bed + pad, a.seed, a.report)
+    mix = (native.astype(np.float32) + bed + pad + sfx).astype(np.float32)
 
     with tempfile.TemporaryDirectory(prefix="audio_bed_") as tmp:
         mix_wav = Path(tmp) / "mix.wav"
@@ -649,6 +656,7 @@ def main(argv: list[str] | None = None) -> int:
             a.stems_dir.mkdir(parents=True, exist_ok=True)
             write_wav_f32(a.stems_dir / "bed.wav", bed)
             write_wav_f32(a.stems_dir / "pad_ducked.wav", pad)
+            write_wav_f32(a.stems_dir / "sfx.wav", sfx)
 
     if video_stream_md5(a.input) != video_stream_md5(a.out):
         a.out.unlink(missing_ok=True)
@@ -666,6 +674,7 @@ def main(argv: list[str] | None = None) -> int:
         "bed_plan": bed_plan, "bed_rms_dbfs": round(lin_to_db(math.sqrt(float(np.mean(bed_mono ** 2)))), 2),
         "bed_min_frame_dbfs": round(float(frame_rms_db(bed_mono).min()), 2),
         "pad_regions": pad_regions, "pad_sources": pad_sources,
+        "sfx_layer": {k: sfx_record.get(k) for k in ("status", "enabled", "library", "counts", "record_path", "error") if k in sfx_record},
         "line_windows": {"source": str(a.line_windows) if a.line_windows else None, **window_stats, "written_to": str(a.windows_out) if a.windows_out else None},
         "before": {k: v for k, v in before.items() if k != "cut_rows"},
         "after": {k: v for k, v in after.items() if k != "cut_rows"},
