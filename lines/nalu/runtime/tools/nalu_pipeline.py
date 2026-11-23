@@ -2097,6 +2097,36 @@ def s1_pacing_in_flight(p: Any) -> bool:
     return False
 
 
+def s1_repair_scene_order(ctx: Any, p: Any) -> dict[str, Any]:
+    """Put shots the writer filed after the last scene back into their own scene (script_pacing_check
+    .repair_scene_order) before S1 hashes and checks the layers -- free and deterministic, so SCENE_NOT_CONTIGUOUS no
+    longer reaches the writer loop or, after an exhausted loop, the cut (owner 2026-11-23: the episode ending was
+    a montage of the scenes' silent closing shots).  Only before any paid stage ran (units follow the shots
+    array); the original contract is kept beside it.  NALU_SCENE_ORDER_REPAIR=0 opts out.  Never raises."""
+    try:
+        if str(os.environ.get("NALU_SCENE_ORDER_REPAIR", "1")).strip().lower() in ("0", "off", "false", "no"):
+            return {"status": "OFF"}
+        if s1_pacing_in_flight(p):
+            return {"status": "SKIPPED_PAID_STAGE_RAN"}
+        import script_pacing_check as _pace  # noqa: PLC0415 -- same directory
+        contract = read_json(p.contract, None)
+        if not isinstance(contract, dict):
+            return {"status": "NO_CONTRACT"}
+        fixed, moved = _pace.repair_scene_order(contract)
+        if not fixed:
+            return {"status": "IN_ORDER"}
+        backup = p.contract.with_name(p.contract.stem + ".pre_scene_order.json")
+        if not backup.exists():
+            backup.write_bytes(p.contract.read_bytes())
+        write_json(p.contract, fixed)
+        row = {"status": "REPAIRED", "moved_shots": moved, "backup": str(backup),
+               "rule": "a returning scene_id shot goes back into its own scene (structure order, else shot number)"}
+        write_json(p.logs / f"{ctx.run_id}_scene_order_repair.json", row)
+        return row
+    except Exception as exc:  # noqa: BLE001 -- a repair must never break S1
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}"}
+
+
 def s1_script_pacing(ctx: Ctx, p: Any, *, others_ok: bool) -> tuple[dict[str, Any], list[str]]:
     """SHORT_DRAMA_PACING_V1 at S1: (episode-record row, blockers).  The policy is the default of every contract
     (an explicit ``pacing_policy: OFF`` opts out; a default-policy episode already past a paid stage is
@@ -2142,6 +2172,7 @@ def stage_s1(ctx: Ctx) -> StageResult:
         res = StageResult(BLOCKED, missing_layers=missing, layer_sha256={})
         res.blockers = [f"SCRIPT_LAYER_MISSING:{path}" for path in missing]
         return res
+    scene_order_repair = s1_repair_scene_order(ctx, p)
     layer_shas = {name: sha256_file(path) for name, path in p.layers().items()}
 
     length = script_length_check(ctx)
@@ -2345,6 +2376,7 @@ def stage_s1(ctx: Ctx) -> StageResult:
     if capability_blocks:
         res.blockers = list(getattr(res, "blockers", []) or []) + [f"WRITER_CAPABILITY_STEP_OWED:{code}" for code in capability_blocks]
     res.details["script_pacing"] = script_pacing
+    res.details["scene_order_repair"] = scene_order_repair
     res.details["script_length"] = length
     res.details["direction_policy_gate"] = direction_policy
     res.details["script_review_independence"] = script_review_independence_row(writer_capability, p.contract)
