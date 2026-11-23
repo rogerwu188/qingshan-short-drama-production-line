@@ -19,7 +19,15 @@ This module holds the three free, local pieces the engine wires together:
 * :func:`perturb_start_frame` -- the send-time @Image1 bytes of retry ``n``: one pixel nudged by one level at a
   retry-indexed position, re-encoded JPEG at quality 92 - n, so the bytes (and the pixels, imperceptibly) differ.
 * :func:`retry_sentence` / :func:`apply_retry_sentence` -- the retry-indexed prompt variation: one plain sentence
-  reinforcing the existing "picture stays clean / no on-screen text" clause, appended as the prompt's last line.
+  reinforcing the existing "picture stays clean / no on-screen text" clause (a burn retry: the FIRST line, and from
+  retry 2 each dialogue literal framed as heard speech; sheet / wobble retries: the last line).
+* :func:`s6_escalation` / :data:`S6_STEPS` (2026-11-22, E23 device 1101 + paid lab probe: H3 renders a
+  near-identical clip for a near-identical request, so the one-pixel nudge and the tail sentence re-rendered the
+  same burned line) -- the ladder: lead sentence + 1.5 % @Image1 scale jitter, then + heard-speech mark + 3 %
+  jitter + identity sheets as front-view crops.
+* :func:`request_content_fingerprint` / :func:`request_delta` -- per-attempt request evidence (prompt sha + every
+  sent reference sha); S6 says ``S6_BURN_RETRY_SAME_REQUEST`` / ``S6_BURN_RETRY_SAME_RENDER`` when a retry could
+  not differ.
 
 The task field ``h3_burn_retry`` (int, 1..max) carries the retry index from the S6 wave state
 (``s6_burn_retry``) through the compile into ``provider_prompt_unit`` and the submitter.  Absent on every other task,
@@ -42,6 +50,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import os
 import sys
 import time
@@ -119,19 +128,44 @@ def retry_sentence(index: int, sheet: bool = False, wobble: bool = False) -> str
     return table.get(index) or table[max(table)]
 
 
+#: burned-text retry >= 2 (escalation, 2026-11-22): appended right after every dialogue literal ``</d>`` so the line
+#: itself is framed as heard speech (E23 device 1101: the burned text WAS the quoted line, at y 0.70-0.77)
+DIALOGUE_HEARD_MARK = ", heard as speech only and never written on screen"
+#: burned-text retry index from which the dialogue literals carry :data:`DIALOGUE_HEARD_MARK`
+DIALOGUE_MARK_FROM = 2
+
+
 def apply_retry_sentence(text: str, index: int, sheet: bool = False, wobble: bool = False) -> str:
-    """``text`` with the retry sentence (the sheet variant after a reference-sheet leak, the locked-off variant
-    after a camera wobble) as its last line (trailing newlines kept); unchanged for index 0."""
+    """``text`` with the retry sentence; unchanged for index 0.
+
+    The sheet variant (after a reference-sheet leak) and the locked-off variant (after a camera wobble) are the
+    prompt's last line (trailing newlines kept).  A BURNED-TEXT retry escalates (2026-11-22, E23 device 1101: five
+    units burned the same line on every retry because the tail sentence barely moved the render): its sentence is
+    the prompt's FIRST line, ahead of the anti-text rule (the E12 lesson: a text ban stated first holds better),
+    and from retry :data:`DIALOGUE_MARK_FROM` on every dialogue literal is followed by
+    :data:`DIALOGUE_HEARD_MARK`.  :func:`strip_retry_sentence` is its exact inverse."""
     sentence = retry_sentence(index, sheet, wobble)
     if not sentence or sentence in text:
         return text
-    core = text.rstrip("\n")
-    return core + "\n" + sentence + text[len(core):]
+    if sheet or wobble:
+        core = text.rstrip("\n")
+        return core + "\n" + sentence + text[len(core):]
+    body = text
+    if index >= DIALOGUE_MARK_FROM and DIALOGUE_HEARD_MARK not in body:
+        body = body.replace("</d>", "</d>" + DIALOGUE_HEARD_MARK)
+    return sentence + "\n" + body
 
 
 def strip_retry_sentence(text: str) -> tuple[str, int]:
     """(``text`` without an engine retry sentence, the retry index found or 0) -- the exact inverse of
-    :func:`apply_retry_sentence`, used to prove a changed prompt differs from a reviewed one only by it."""
+    :func:`apply_retry_sentence`, used to prove a changed prompt differs from a reviewed one only by it.  A tail
+    burn sentence (engines before 2026-11-22) is still recognised."""
+    for index, sentence in RETRY_SENTENCES.items():
+        if text.startswith(sentence + "\n"):
+            body = text[len(sentence) + 1:]
+            if index >= DIALOGUE_MARK_FROM:
+                body = body.replace("</d>" + DIALOGUE_HEARD_MARK, "</d>")
+            return body, index
     for table in (RETRY_SENTENCES, SHEET_RETRY_SENTENCES, WOBBLE_RETRY_SENTENCES):
         for index, sentence in table.items():
             marker = "\n" + sentence
@@ -247,9 +281,33 @@ def perturb_start_frame(data: bytes, index: int) -> tuple[bytes, dict[str, Any]]
 
 #: final-fix burned-text redo retry n -> (crop fraction per side, JPEG quality); escalates per retry (2026-11-20)
 STRONG_STEPS = {1: (0.01, 86), 2: (0.02, 80)}
+#: S6 burned-text retry n -> (crop fraction, JPEG quality) of @Image1 (2026-11-22, E23 device 1101: the one-pixel
+#: nudge of PR #278 changed the request bytes but the renders stayed near-identical -- VU-004 11/11/11, VU-006
+#: 14/14/14 burned frames over three takes); a 1.5 % / 3 % scale jitter moves every latent of the opening frame
+#: while the framing stays the same to the eye
+S6_STEPS = {1: (0.015, 88), 2: (0.03, 83)}
+#: the final-fix redo itself (before any of its own burn retries) follows two failed S6 retries: the S6 maximum
+S6_FINAL_FIX_REDO_STEP = S6_STEPS[max(S6_STEPS)]
+#: S6 burned-text retry index from which the identity sheets go out as their front-view face crop (send time only)
+SHEET_CROP_FROM = 2
 
 
-def perturb_start_frame_strong(data: bytes, index: int, retry: int) -> tuple[bytes, dict[str, Any]]:
+def s6_escalation(index: int) -> dict[str, Any]:
+    """What S6 burned-text retry ``index`` changes in the request (free first, all at the same price): the prompt
+    (retry sentence as the first line; from :data:`DIALOGUE_MARK_FROM` the dialogue literals framed as heard
+    speech), @Image1 (:data:`S6_STEPS` scale jitter) and, from :data:`SHEET_CROP_FROM`, every identity sheet sent
+    as its front-view crop.  Duration and the start keyframe are never changed: the unit's length is bound to the
+    cut and the start frame to the predecessor's tail (continuity), and both would cost more."""
+    if index <= 0:
+        return {"retry": 0}
+    frac, quality = S6_STEPS.get(index) or S6_STEPS[max(S6_STEPS)]
+    return {"retry": index, "prompt": "LEAD_SENTENCE" + ("+DIALOGUE_HEARD_MARK" if index >= DIALOGUE_MARK_FROM
+                                                         else ""),
+            "image1": f"CROP_SCALE_{frac * 100:g}PCT_JPEG_Q{quality}", "sheet_front_crop": index >= SHEET_CROP_FROM}
+
+
+def perturb_start_frame_strong(data: bytes, index: int, retry: int,
+                               steps: dict[int, tuple[float, int]] | None = None) -> tuple[bytes, dict[str, Any]]:
     """A STRONGER @Image1 perturbation for a final-fix burned-text redo retry (line owner 2026-11-20, E18: the
     one-pixel nudge only re-rolls the seed and three of four redone units burned the same line again).
 
@@ -258,7 +316,8 @@ def perturb_start_frame_strong(data: bytes, index: int, retry: int) -> tuple[byt
     re-encodes at a different JPEG quality.  Never raises; falls back to :func:`perturb_start_frame`."""
     if retry <= 0:
         return perturb_start_frame(data, index)
-    frac, quality = STRONG_STEPS.get(retry) or STRONG_STEPS[max(STRONG_STEPS)]
+    table = steps or STRONG_STEPS
+    frac, quality = table.get(retry) or table[max(table)]
     before = hashlib.sha256(data).hexdigest()
     try:
         from PIL import Image  # noqa: PLC0415
@@ -281,11 +340,71 @@ def perturb_start_frame_strong(data: bytes, index: int, retry: int) -> tuple[byt
         if encoded == data:
             raise ValueError("re-encode produced identical bytes")
         return encoded, {"retry": index, "final_fix_burn_retry": retry, "sha256_before": before,
-                         "status": "PERTURBED", "method": f"CROP_SCALE_{round(frac * 100)}PCT_JPEG_Q{quality}",
+                         "status": "PERTURBED", "method": f"CROP_SCALE_{frac * 100:g}PCT_JPEG_Q{quality}",
                          "crop_box": list(box), "size": [w, h], "sha256_after": hashlib.sha256(encoded).hexdigest()}
     except Exception as exc:  # noqa: BLE001 - the plain perturbation still changes the bytes
         encoded, note = perturb_start_frame(data, index + retry)
         return encoded, {**note, "final_fix_burn_retry": retry, "strong_error": f"{type(exc).__name__}: {exc}"[:200]}
+
+
+# ------------------------------------------------------------------------------------ request fingerprint
+#: the request fields that decide what H3 renders (HopsAPI returns a byte-identical clip for an identical request;
+#: upload URLs are NOT part of it -- a new URL for the same bytes renders the same clip)
+FINGERPRINT_FIELDS = ("prompt_sha256", "sent_reference_sha256", "sent_audio_sha256", "duration", "resolution",
+                      "aspect_ratio", "model")
+SAME_REQUEST_LOG = "S6_BURN_RETRY_SAME_REQUEST"
+SAME_RENDER_LOG = "S6_BURN_RETRY_SAME_RENDER"
+
+
+def request_content_fingerprint(*, prompt: str, sent_reference_sha256: list[str], sent_audio_sha256: list[Any],
+                                duration: Any, resolution: Any, aspect_ratio: Any, model: Any) -> dict[str, Any]:
+    """The content fingerprint of one provider request (pure): the sent prompt's sha and every sent reference's
+    sha (the bytes H3 received, after the send-time re-encode / perturbation / crop), never the upload URLs."""
+    row = {"prompt_sha256": hashlib.sha256(str(prompt).encode("utf-8")).hexdigest(),
+           "sent_reference_sha256": [str(v) for v in sent_reference_sha256 or []],
+           "sent_audio_sha256": [str(v) for v in sent_audio_sha256 or [] if v],
+           "duration": duration, "resolution": str(resolution or "").lower() or None,
+           "aspect_ratio": aspect_ratio, "model": model}
+    row["digest"] = hashlib.sha256(json.dumps({k: row[k] for k in FINGERPRINT_FIELDS}, sort_keys=True,
+                                              ensure_ascii=False).encode("utf-8")).hexdigest()
+    return row
+
+
+def request_fingerprint(transaction: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The content fingerprint a submitter transaction recorded (``request_content_fingerprint``), or one rebuilt
+    from its sent shas (transactions written before 2026-11-22: the prompt sha is then the prompt FILE sha, which
+    is the sent prompt -- the submitter refuses any other); None without sent reference shas."""
+    row = transaction or {}
+    recorded = row.get("request_content_fingerprint")
+    if isinstance(recorded, dict) and recorded.get("digest"):
+        return dict(recorded)
+    if not row.get("sent_reference_sha256"):
+        return None
+    out = {"prompt_sha256": row.get("sent_prompt_sha256") or row.get("prompt_sha256"),
+           "sent_reference_sha256": [str(v) for v in row.get("sent_reference_sha256") or []],
+           "sent_audio_sha256": [str(v) for v in row.get("sent_audio_sha256") or [] if v],
+           "duration": (row.get("provider_request_input") or {}).get("duration"),
+           "resolution": str((row.get("provider_request_input") or {}).get("resolution")
+                             or row.get("resolution") or "").lower() or None,
+           "aspect_ratio": (row.get("provider_request_input") or {}).get("aspect_ratio"),
+           "model": row.get("model"), "rebuilt": True}
+    out["digest"] = hashlib.sha256(json.dumps({k: out.get(k) for k in FINGERPRINT_FIELDS}, sort_keys=True,
+                                              ensure_ascii=False).encode("utf-8")).hexdigest()
+    return out
+
+
+def request_delta(previous: dict[str, Any] | None, current: dict[str, Any] | None) -> dict[str, Any]:
+    """What changed between two request fingerprints (pure): {status: CHANGED|SAME|UNKNOWN, changed: [...]}.
+    SAME means the provider got the identical request again -- a retry that cannot render anything new."""
+    if not previous or not current or not previous.get("digest") or not current.get("digest"):
+        return {"status": "UNKNOWN", "changed": []}
+    changed = [k for k in FINGERPRINT_FIELDS if k != "sent_reference_sha256" and previous.get(k) != current.get(k)]
+    before, after = previous.get("sent_reference_sha256") or [], current.get("sent_reference_sha256") or []
+    for i in range(max(len(before), len(after))):
+        if (before[i] if i < len(before) else None) != (after[i] if i < len(after) else None):
+            changed.append(f"image{i + 1}")
+    status = "SAME" if previous["digest"] == current["digest"] else "CHANGED"
+    return {"status": status, "changed": changed if status == "CHANGED" else []}
 
 
 # ------------------------------------------------------------------------------------------------- detection

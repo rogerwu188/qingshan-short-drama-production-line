@@ -1148,9 +1148,19 @@ MiniMax-H3 sometimes burns the spoken line into the clip as a caption (centred, 
   `tail_frame_text_clean` filters (>= 2 CJK/Latin/kana/hangul chars, score >= 0.6, glyph >= 40 px at 720 w,
   horizontal, centred); BURNED = hits in >= 2 consecutive samples.  Fails open.
 * **Retry** (owner: only on detected burned text, at most `NALU_S6_BURN_RETRY_MAX` = 2 per unit, 0 disables):
-  the take is parked to `video/_superseded_<run>_burn_retry<n>/`; the recompile sets `h3_burn_retry` = n, so the
-  prompt gets retry sentence n as its last line (`RETRY_SENTENCES`) and the HopsAPI submitter re-encodes @Image1
-  with an imperceptible retry-indexed change (1 px, JPEG q 92-n; `burn_retry_perturbation` in the upload note).
+  the take is parked to `video/_superseded_<run>_burn_retry<n>/`; the recompile sets `h3_burn_retry` = n and the
+  request escalates (`h3_burn_retry.s6_escalation`; E23 device 1101 2026-11-22: the earlier 1-px nudge + tail
+  sentence changed the request but not the render -- a paid lab probe got the same burned line at a mean frame
+  difference of 2-4/255 from the base take): retry n's sentence (`RETRY_SENTENCES`) is the prompt's FIRST line,
+  from retry 2 every dialogue literal is followed by `DIALOGUE_HEARD_MARK` (", heard as speech only and never
+  written on screen") and the identity sheets are sent as their front-view crop; the HopsAPI submitter sends
+  @Image1 with a 1.5 % / 3 % scale jitter (`S6_STEPS`; the final-fix redo starts at 3 %; `burn_retry_perturbation`
+  in the upload note).  Duration and the start keyframe never change (cut timing, tail continuity, cost).
+* **Per-attempt evidence**: every take records the content fingerprint of the request that rendered it (prompt
+  sha + every SENT reference sha, never the upload URLs; `request_content_fingerprint` in the transaction) and
+  the returned clip sha; `S6_BURN_RETRY_SAME_REQUEST` = the retry sent the identical request, `S6_BURN_RETRY_SAME_RENDER`
+  = a byte-identical clip came back (measured and decided, never skipped), `S6_BURN_RETRY_SAME_BURN` = the same
+  burned frames and text as the previous take (`request_delta` names what did change).
   Everything else is the normal redo path: D-11, budget ledger, durable store, owner-acceptance check.  A
   retry the episode headroom cannot cover is skipped and recorded (`BUDGET_HEADROOM_SHORT`).  The changed
   prompt gets an engine finalization receipt `prompt_batch_finalization/<unit>.burn_retry.json` only when it

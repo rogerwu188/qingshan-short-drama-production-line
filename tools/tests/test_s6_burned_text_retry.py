@@ -153,7 +153,9 @@ class PerturbationTest(unittest.TestCase):
                 unit["h3_burn_retry"] = n
                 text, receipt = h3.render_h3_prompt(unit, plan)
                 self.assertEqual(receipt["h3_burn_retry"]["retry"], n)
-                self.assertTrue(text.rstrip("\n").endswith(br.retry_sentence(n)))
+                # escalation (2026-11-22): the burn sentence leads the prompt; retry 2 frames the line as heard
+                self.assertTrue(text.startswith(br.retry_sentence(n) + "\n"))
+                self.assertEqual(br.DIALOGUE_HEARD_MARK in text, n >= br.DIALOGUE_MARK_FROM and "</d>" in base)
                 self.assertEqual(br.strip_retry_sentence(text), (base, n))
                 self.assertEqual(validate_h3_provider_text_boundary(text, source_id="T")["status"], "PASS")
                 texts.append(text)
