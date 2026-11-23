@@ -293,6 +293,66 @@ class GestureVarietyTest(unittest.TestCase):
         self.assertEqual(io._beat_business(unit, 2), "")
 
 
+class E10HandsSpreadTest(unittest.TestCase):
+    """JA E10 (device 1485, owner 2026-11-23): "in the second half they keep spreading both hands at their sides".
+    The contract carried numbered templates beside the action (prompt_spec.performance.business_en "beat <n>
+    business: shifts weight and grips a nearby object", body "gesture variation <n> tied to the conflict") and every
+    primary_action was "<Name> grabs the prop and changes posture in response to the exact line: <line>" with no
+    prop in the shot."""
+
+    def _shots(self, n=10, scale="MEDIUM_CLOSE_UP"):
+        return [{"shot_id": f"E10-S01-{i:02d}", "scene_id": "S1",
+                 "prompt_spec": {"dialogue": "A: line.", "camera_plan": {"shot_scale": scale},
+                                 "cast": [{"character_id": "CHAR-A"}],
+                                 "role_semantic_disambiguation": {"dialogue_speaker_id": "CHAR-A"},
+                                 "performance": {"business_en": f"beat {i} business: shifts weight and grips a "
+                                                                "nearby object",
+                                                 "body_action": f"gesture variation {i} tied to the conflict"},
+                                 "action": {"primary_action": "A grabs the prop and changes posture in response "
+                                                              "to the exact line: line."}}}
+                for i in range(1, n + 1)]
+
+    def test_numbered_templates_and_unanchored_grips_are_placeholders(self):
+        for text in ("beat 6 business: shifts weight and grips a nearby object", "gesture variation 6 tied to the "
+                     "conflict", "Manaria grabs the prop and changes posture in response to the exact line: x"):
+            self.assertTrue(pv.is_generic_gesture(text), text)
+        for text in ("grabs the sword hilt", "holds the letter out", "shifts weight onto one foot"):
+            self.assertFalse(pv.is_generic_gesture(text), text)
+
+    def test_template_business_is_replaced_and_varied(self):
+        shots = self._shots()
+        by_shot = {s["shot_id"]: s["prompt_spec"]["performance"] for s in shots}
+        self.assertEqual(pv.authored_templates(shots, by_shot), {"shifts weight and grips a nearby object"})
+        rows = pv.assign_episode(shots, performance_by_shot=by_shot)["rows"]
+        self.assertTrue(all(r["source"] != "AUTHORED_BUSINESS_EN" for r in rows))
+        self.assertFalse(any("nearby object" in r["business_en"] for r in rows))
+        self.assertGreaterEqual(len({r["family"] for r in rows}), 5)
+        # a concrete authored business used a couple of times is still the writer's
+        few = self._shots(2)
+        few[0]["prompt_spec"]["performance"]["business_en"] = "adjusts one cuff with the other hand"
+        rows = pv.assign_episode(few, performance_by_shot={s["shot_id"]: s["prompt_spec"]["performance"]
+                                                           for s in few})["rows"]
+        self.assertEqual(rows[0]["source"], "AUTHORED_BUSINESS_EN")
+
+    def test_face_business_says_where_the_hands_are(self):
+        rows = pv.assign_episode(self._shots(12))["rows"]
+        for r in rows:
+            need = pv.VOCAB[r["family"]][1]
+            self.assertEqual(pv.HANDS_STILL in r["business_en"], need != pv.HANDS, r)
+        close = pv.assign_episode(self._shots(4, scale="CLOSE_UP"))["rows"]
+        self.assertFalse(any(pv.HANDS_STILL in r["business_en"] for r in close))   # hands not in frame
+
+    def test_placeholder_action_is_rebuilt_from_the_business(self):
+        beat = {"primary_action": "Rei grabs the prop and changes posture in response to the exact line: x"}
+        out, replaced = pv.deplaceholder_beat(beat, "Rei", "tilts the head slightly")
+        self.assertTrue(replaced)
+        self.assertEqual(out["primary_action"], "Rei tilts the head slightly")
+
+    def test_preproduction_reads_performance_beside_the_action(self):
+        src = (RT / "build_nalu_preproduction.py").read_text(encoding="utf-8")
+        self.assertIn('spec.get("performance")', src)
+
+
 class ReviewersSeeRepeatedGesturesTest(unittest.TestCase):
     def test_monotony_fires_on_the_e08_finding(self):
         self.assertIn("食指", grp.CLASS_TEXT["CRAFT-ACTING-MONOTONY"][1])

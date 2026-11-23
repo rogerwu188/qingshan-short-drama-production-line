@@ -1584,9 +1584,16 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
     # already built without the layer keeps it off (its prompts, and any paid take bound to them, never move).
     variety = None
     if camera_grammar or not variety_grandfathered:
-        performance_by_shot = {str(s.get("shot_id")): ((s.get("prompt_spec") or {}).get("action") or {}).get("performance")
-                               for s in contract.get("shots") or []
-                               if isinstance(((s.get("prompt_spec") or {}).get("action") or {}).get("performance"), dict)}
+        # the writer files performance under prompt_spec.action.performance or beside it (prompt_spec.performance,
+        # JA E09/E10: business_en / body_action live there) -- read both, the action's own fields win
+        performance_by_shot = {}
+        for s in contract.get("shots") or []:
+            spec = (s.get("prompt_spec") or {}) if isinstance(s, dict) else {}
+            act = spec.get("action") if isinstance(spec.get("action"), dict) else {}
+            merged = {**(spec.get("performance") if isinstance(spec.get("performance"), dict) else {}),
+                      **(act.get("performance") if isinstance(act.get("performance"), dict) else {})}
+            if merged:
+                performance_by_shot[str(s.get("shot_id"))] = merged
         variety = _pv.assign_episode(shots, entities, performance_by_shot=performance_by_shot)
     manifest = {
         "schema": "qingshan.editorial_seedance_manifest.v2_performance_complete",
