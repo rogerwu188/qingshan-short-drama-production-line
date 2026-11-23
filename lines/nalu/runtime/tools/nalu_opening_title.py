@@ -24,6 +24,10 @@ FADE_SECONDS = 0.5
 MAX_WIDTH_RATIO = 0.88
 #: candidate centres of the title block (fraction of the frame height), in order of preference
 TITLE_BANDS = (("UPPER_THIRD", 1.0 / 3.0), ("TOP", 0.14), ("LOWER", 0.64))
+#: anime openers (deep review 1485 E09, 2026-11-23): InsightFace finds no anime face, so the title sat in the upper
+#: third straight across the speaker's eyes of the CU/MCU first shot.  Without a measured face an anime title goes
+#: to the lower band (chest height in a CU/MCU, above the subtitles), then the top.
+ANIME_NO_FACE_BANDS = (("LOWER", 0.64), ("TOP", 0.14), ("UPPER_THIRD", 1.0 / 3.0))
 #: the burned-in subtitles sit bottom-centre with a 170/1280 px margin: the title block stays above this line
 SUBTITLE_BAND_TOP = 0.76
 TOP_MARGIN = 0.04
@@ -112,7 +116,8 @@ def _fit(draw: Any, text: str, font_file: str, size: int, min_size: int, max_wid
     return ImageFont.truetype(font_file, 8), 8, lines
 
 
-def choose_title_band(height: int, block_height: float, faces: list[list[float]] | None) -> dict[str, Any]:
+def choose_title_band(height: int, block_height: float, faces: list[list[float]] | None,
+                      bands: tuple[tuple[str, float], ...] = TITLE_BANDS) -> dict[str, Any]:
     """The title block's top y: the first of ``TITLE_BANDS`` whose block (clamped between the top margin and the
     subtitle band) overlaps no face box (``[x1, y1, x2, y2]`` px, grown by FACE_MARGIN); none clear -> the band with
     the least overlap.  Pure."""
@@ -120,7 +125,7 @@ def choose_title_band(height: int, block_height: float, faces: list[list[float]]
     boxes = [(float(b[1]) - grow, float(b[3]) + grow) for b in faces or [] if len(b) >= 4]
     lo_limit, hi_limit = TOP_MARGIN * height, SUBTITLE_BAND_TOP * height - block_height
     rows = []
-    for name, centre in TITLE_BANDS:
+    for name, centre in bands:
         top = min(max(centre * height - block_height / 2.0, lo_limit), max(lo_limit, hi_limit))
         overlap = sum(max(0.0, min(top + block_height, y2) - max(top, y1)) for y1, y2 in boxes)
         rows.append({"band": name, "top": int(round(top)), "face_overlap_px": round(overlap, 1)})
@@ -149,7 +154,8 @@ def detect_faces(source: Path, *, times: tuple[float, ...] = FACE_SAMPLE_TIMES) 
 
 
 def render_overlay_png(series: str, episode_line: str, font_file: str, width: int, height: int, out: Path,
-                       faces: list[list[float]] | None = None) -> dict[str, Any]:
+                       faces: list[list[float]] | None = None,
+                       bands: tuple[tuple[str, float], ...] = TITLE_BANDS) -> dict[str, Any]:
     """Transparent full-frame PNG with the two title lines centred horizontally, in the band that clears ``faces``
     (upper third when there are none)."""
     from PIL import Image, ImageDraw
@@ -164,7 +170,7 @@ def render_overlay_png(series: str, episode_line: str, font_file: str, width: in
     rows += [(line, small, small_size, (236, 230, 220, 255)) for line in small_lines]
     gap = int(18 * scale)
     total = sum(int(size * 1.25) for _, _, size, _ in rows) + gap
-    placement = choose_title_band(height, total, faces)
+    placement = choose_title_band(height, total, faces, bands)
     y = placement["top"]
     widest = 0.0
     for index, (line, font, size, colour) in enumerate(rows):
@@ -202,7 +208,15 @@ def overlay_argv(source: Path, png: Path, out: Path) -> list[str]:
             "-c:a", "copy", "-movflags", "+faststart", str(out)]
 
 
-def apply_opening_title(*, runtime_root: Path, episode: str, language: str, source: Path, out: Path) -> dict[str, Any]:
+def title_bands(render_style: str | None, faces: list[list[float]] | None) -> tuple[tuple[str, float], ...]:
+    """Band preference: an anime opener with no measured face prefers the lower band (ANIME_NO_FACE_BANDS)."""
+    if str(render_style or "").strip().lower() == "anime" and not faces:
+        return ANIME_NO_FACE_BANDS
+    return TITLE_BANDS
+
+
+def apply_opening_title(*, runtime_root: Path, episode: str, language: str, source: Path, out: Path,
+                        render_style: str | None = None) -> dict[str, Any]:
     """Overlay the opening title.  Returns {"status": APPLIED|SKIPPED|FAILED, ...}; never raises."""
     try:
         brief = load_brief(runtime_root, episode)
@@ -219,7 +233,10 @@ def apply_opening_title(*, runtime_root: Path, episode: str, language: str, sour
             faces, face_note = detect_faces(source), None
         except Exception as exc:  # noqa: BLE001 -- no face backend: the upper third, as before
             faces, face_note = [], f"FACE_DETECTION_UNAVAILABLE:{type(exc).__name__}"
-        layout = render_overlay_png(series, episode_line, font_file, width, height, png, faces=faces)
+        bands = title_bands(render_style, faces)
+        layout = render_overlay_png(series, episode_line, font_file, width, height, png, faces=faces, bands=bands)
+        if bands is ANIME_NO_FACE_BANDS:
+            layout["band_preference"] = "ANIME_NO_FACE_LOWER_FIRST"
         if face_note:
             layout["face_detection"] = face_note
         run = subprocess.run(overlay_argv(source, png, out), capture_output=True, text=True, check=False)

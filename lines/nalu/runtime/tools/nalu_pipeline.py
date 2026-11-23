@@ -10668,7 +10668,8 @@ def s7_opening_title(ctx: Ctx, res: StageResult, picture: Path) -> Path:
 
     out = ctx.p.assembly / f"{ctx.episode}_picture_native_subbed_titled.mp4"
     info = _title.apply_opening_title(runtime_root=Path(f"{_np.RUNTIME_ROOT}"), episode=ctx.episode,
-                                      language=ctx_language(ctx), source=picture, out=out)
+                                      language=ctx_language(ctx), source=picture, out=out,
+                                      render_style=ctx_render_style(ctx))
     res.details["opening_title"] = info
     if info.get("status") == "APPLIED":
         return out

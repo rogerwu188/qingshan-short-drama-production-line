@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2565,
+  "file_count": 2566,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -665,7 +665,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_burnin_subtitles.py",
-      "sha256": "1cba51c2418eb9983d36617de83230b426a2c9bdc377b553e8c7c298381d10f4"
+      "sha256": "ffff9911368ca361b9e969d6ed80286039ee8d597a5a5fe9d940101b927d4c73"
     },
     {
       "path": "lines/nalu/runtime/tools/build_episode_asset_requirements.py",
@@ -813,7 +813,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_opening_title.py",
-      "sha256": "b549e6f984487b80e8beefda68ab84134adee667ca4b501fdacfdc0673a0869f"
+      "sha256": "f12f1f238fa8e452701a9a3aa93a4b0c0f6ba22b4f2ad479fe33d8d5fe3a78f8"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_paths.py",
@@ -821,7 +821,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "e3c0b109a2b27d0d5cef0b65df4e9e45aa5283ededec8a54e5703197ee83db7e"
+      "sha256": "5ee9462ab1ccde5d55ac9f9e3faf2d38b899ebec181020ee0075d037b160a7a2"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -8388,6 +8388,10 @@
       "sha256": "bb8b4bccaccb188e9bbdd3debb989bea7ef21b190190835e03d2bc1673a0030c"
     },
     {
+      "path": "tools/tests/test_ja_anime_s7_polish.py",
+      "sha256": "9693a0d4ed6edb214b7d82fc0f43d95103669b4da21d7f41637464680656ebc9"
+    },
+    {
       "path": "tools/tests/test_keyframe_appearance_lock.py",
       "sha256": "58e82d42e535fd3414cff07bbfbef356786a36d5483319ff602209a644f7fa9f"
     },
@@ -9633,7 +9637,7 @@
     },
     {
       "path": "tools/tests/test_subtitle_wrap_kinsoku.py",
-      "sha256": "dbd8dfefc27457009dee8d1ddb5dd963dfdb8e11143e6f979224696dd4c6e1d5"
+      "sha256": "246f30c92d8eb9ebca5ad0cb8aaf4adb2a223e5a9fbe0a6c7d55af75b4444070"
     },
     {
       "path": "tools/tests/test_supervisor_ahash_timeout_adjudicate.py",
