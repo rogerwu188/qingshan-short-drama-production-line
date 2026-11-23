@@ -1521,7 +1521,8 @@ def _burn_source(record: dict[str, Any], row: dict[str, Any]) -> dict[str, Any] 
 
 def objective_defects(record: dict[str, Any] | None, *, runtime_s: float | None = None,
                       target_s: float | None = None, plan_parity: dict[str, Any] | None = None,
-                      suspect_checks: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+                      suspect_checks: list[dict[str, Any]] | None = None,
+                      text_removed: Any = None) -> dict[str, Any]:
     """The objective (measured, not opinion) defects left at release:
 
     runtime           the cut's content runtime vs the brief's target (short below RUNTIME_MIN_RATIO)
@@ -1532,7 +1533,9 @@ def objective_defects(record: dict[str, Any] | None, *, runtime_s: float | None 
     plan_no_units     units pass D judged NOT delivered (plan_not_in_cut: planned units missing from the cut,
                       listed, not counted)
     ``count`` sums the four; ``classes`` names those present; ``blocking_classes`` those that may hold the release
-    (RUNTIME_SHORT when short, BURN_UNRESOLVED when a blocking burn is left -- the policy decides)."""
+    (RUNTIME_SHORT when short, BURN_UNRESOLVED when a blocking burn is left -- the policy decides).
+    ``text_removed``: units whose picture in this cut is the S7 local burned-text removal's cleaned copy
+    (tools/burned_text_removal.py, 2026-11-23) -- their round-unresolved burn is listed, never blocking."""
     record = record if isinstance(record, dict) else {}
     runtime: dict[str, Any] = {}
     if _num(runtime_s) is not None and _num(target_s):
@@ -1544,9 +1547,11 @@ def objective_defects(record: dict[str, Any] | None, *, runtime_s: float | None 
         if r.get("kind") not in _BURN_KINDS:
             continue
         accepted = burn_accepted(r) or burn_accepted(_burn_source(record, r))
+        removed = str(r.get("unit_id") or "") in set(map(str, text_removed or ()))
         burns.append({**{k: r.get(k) for k in ("kind", "unit_id", "window", "state") if r.get(k) is not None},
-                      "source": "FINAL_FIX_UNRESOLVED", "blocking": not accepted,
-                      **({"accepted": BURN_ACCEPTED} if accepted else {})})
+                      "source": "FINAL_FIX_UNRESOLVED", "blocking": not accepted and not removed,
+                      **({"accepted": BURN_ACCEPTED} if accepted else {}),
+                      **({"resolved_by": "LOCAL_TEXT_REMOVAL"} if removed else {})})
     stray = []
     for row in suspect_checks or []:
         sus = row.get("suspect") or {}

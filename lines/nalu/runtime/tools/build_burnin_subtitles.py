@@ -457,16 +457,32 @@ def burned_band_texts(path: Path | None) -> dict[str, list[str]]:
             for uid, row in units.items() if isinstance(row, dict) and row.get("texts")}
 
 
-def burned_band_ocr(path: Path | None) -> dict[str, dict]:
+def burned_band_ocr(path: Path | None, exclude: set[str] | None = None) -> dict[str, dict]:
     """{unit id: per-frame band OCR of the kept take} from ``<EP>_S6_RESIDUAL_BURN_BANDS.json`` (units[uid].ocr:
-    {source, model, lang, frames | error}); a unit listed without it maps to {} (the strict check then rejects)."""
+    {source, model, lang, frames | error}); a unit listed without it maps to {} (the strict check then rejects).
+    ``exclude``: units left out entirely (cleaned by the local text removal: the kept take's OCR no longer describes
+    the picture, so no strict verdict is taken from it and our cue stays)."""
     if not path or not Path(path).is_file():
         return {}
     try:
         units = (json.loads(Path(path).read_text(encoding="utf-8")) or {}).get("units") or {}
     except (OSError, ValueError):
         return {}
-    return {str(uid): dict(row.get("ocr") or {}) for uid, row in units.items() if isinstance(row, dict)}
+    return {str(uid): dict(row.get("ocr") or {}) for uid, row in units.items()
+            if isinstance(row, dict) and str(uid) not in (exclude or set())}
+
+
+def text_removed_units(path: Path | None) -> set[str]:
+    """Units whose picture S7 cleaned locally (``<EP>_TEXT_REMOVAL.json`` rows with status APPLIED,
+    tools/burned_text_removal.py, owner 2026-11-23): their burned line is gone from the picture we caption, so our
+    cue is never suppressed for them and no strict verdict of the original take applies."""
+    if not path or not Path(path).is_file():
+        return set()
+    try:
+        units = (json.loads(Path(path).read_text(encoding="utf-8")) or {}).get("units") or {}
+    except (OSError, ValueError):
+        return set()
+    return {str(uid) for uid, row in units.items() if isinstance(row, dict) and row.get("status") == "APPLIED"}
 
 
 def suppress_already_burned(events: list, report: list, burned: dict[str, dict], language: str = "zh"
@@ -570,6 +586,9 @@ def main() -> int:
     ap.add_argument("--avoid-bands", type=Path,
                     help="<EP>_S6_RESIDUAL_BURN_BANDS.json: captions of these units move clear of the residual "
                          "H3-burned line (above it) instead of stacking on it")
+    ap.add_argument("--text-removal", type=Path,
+                    help="<EP>_TEXT_REMOVAL.json: units cleaned by the local burned-text removal keep their captions "
+                         "(never suppressed, no avoid band, the original take's strict verdict is ignored)")
     ap.add_argument("--unit-recut", type=Path,
                     help="<EP>_UNIT_RECUT.json (Roger 2026-10-30 E12 item 3): per re-cut unit, contract lines whose audio "
                          "the re-cut dropped are not burned in, truncated lines take the override text; the unit's ASR "
@@ -680,7 +699,9 @@ def main() -> int:
     # Owner 2026-11-23: our cue is suppressed ONLY when the strict check proves the burned text is exactly the cue's
     # line, stably, at the time it is spoken (ACCEPT_CORRECT); every other verdict keeps the cue, moved clear by
     # --avoid-bands, and the unit stays a BURNED_TEXT P1 of the final fix round.
-    events, report, suppressed, line_checks = suppress_already_burned(events, report, burned_band_ocr(a.avoid_bands),
+    cleaned = text_removed_units(a.text_removal)  # their burned line is gone from the picture: never suppressed
+    events, report, suppressed, line_checks = suppress_already_burned(events, report, burned_band_ocr(a.avoid_bands,
+                                                                                                      exclude=cleaned),
                                                                      a.language)
     # no overlaps: clamp each caption's end to the next start
     events.sort(key=lambda x: x[0])
@@ -728,7 +749,8 @@ def main() -> int:
                          f"enable='between(t,{b_s:.3f},{b_e:.3f})'[b{j + 1}]")
     avoid: list[tuple[float, float, tuple[int, int, int, int]]] = []
     if a.avoid_bands and a.avoid_bands.is_file():
-        avoid = avoid_rects((json.loads(a.avoid_bands.read_text(encoding="utf-8")) or {}).get("units") or {},
+        avoid = avoid_rects({u: v for u, v in ((json.loads(a.avoid_bands.read_text(encoding="utf-8")) or {})
+                                                .get("units") or {}).items() if u not in cleaned},
                             clips, W, H)
     first_src = f"[b{len(chain)}]" if chain else "[0:v]"
     for i, (s_t, e_t, ln) in enumerate(events):
@@ -776,6 +798,7 @@ def main() -> int:
            "unmapped_dialogue_lines": unmapped_lines,
            **({"suppressed_duplicate_cues": suppressed} if suppressed else {}),
            **({"burned_line_checks": line_checks} if line_checks else {}),
+           **({"text_removed_units": sorted(cleaned)} if cleaned else {}),
            **({"avoid_bands": str(a.avoid_bands), "avoid_rects": [{"start": s0, "end": e0, "y": r[1], "h": r[3]}
                                                                  for s0, e0, r in avoid]} if avoid else {}),
            "font": font_name, "font_file": font_file, "font_source": font_source,

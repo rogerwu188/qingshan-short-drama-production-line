@@ -250,6 +250,15 @@ if grep -q '"language": *"ja' "$RUNTIME/qingshan.json" 2>/dev/null || [ "${NALU_
   .qingshan-venv/bin/python -c "from faster_whisper import download_model; download_model('medium')" >>"$LOG" 2>&1 \
     && NOTES+=("whisper medium ready (Japanese ASR)") || NOTES+=("whisper medium not fetched; Japanese ASR uses small")
 fi
+# Local burned-text removal (S7 last resort, owner 2026-11-23, tools/burned_text_removal.py) needs the LaMa ONNX model
+# (208 MB, sha256-pinned) in ~/.cache/nalu/models; fetched once, never fatal: without it S7 keeps the burned take
+# (NOT_APPLIED: MODEL_MISSING).  The step is off by default (NALU_TEXT_REMOVAL=1 enables it), and so is the download.
+if [ "${NALU_TEXT_REMOVAL:-0}" = 1 ]; then
+  .qingshan-venv/bin/python tools/burned_text_removal.py --check-model >>"$LOG" 2>&1 \
+    || { .qingshan-venv/bin/python tools/burned_text_removal.py --fetch-model >>"$LOG" 2>&1 \
+         && NOTES+=("LaMa model fetched (local burned-text removal)") \
+         || NOTES+=("LaMa model not fetched; local burned-text removal stays off"); }
+fi
 STEP_python=OK
 
 # ---------------------------------------------------------------- 5. codex + provider
