@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2566,
+  "file_count": 2567,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -641,7 +641,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/av_evidence_pack.py",
-      "sha256": "4c284744b4dc0a6dc3d04d3c3e1e71201b004f981832f097e41f487d4ca8528e"
+      "sha256": "4eac85e0fc8621776ebc4d9095b4ba455e1952c663864325b286835e9127c0bd"
     },
     {
       "path": "lines/nalu/runtime/tools/batch_preauthorization.py",
@@ -7326,6 +7326,10 @@
     {
       "path": "tools/tests/test_automation_profile.py",
       "sha256": "a28420f90c936966b01bf632658dae5428c40368e4770fa2f95e03ccfe98de2e"
+    },
+    {
+      "path": "tools/tests/test_av_pack_non_hanzi_burn.py",
+      "sha256": "a82163104524771df9c34d01366f7c0a32862a48a0b5a4dbcd730a79cc6bd2dd"
     },
     {
       "path": "tools/tests/test_basic_dialogue_qa_policy.py",
