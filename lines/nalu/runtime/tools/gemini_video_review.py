@@ -372,6 +372,18 @@ def _pack_summary(request: dict[str, Any]) -> dict[str, Any]:
         return {}
 
 
+def _final_cut_asr(request: dict[str, Any]) -> Any:
+    """The final-cut ASR windows the request is bound to (``evidence.asr``, sha-checked), else None."""
+    row = (request.get("evidence") or {}).get("asr") or {}
+    path = Path(str(row.get("path") or ""))
+    if not row.get("path") or not path.is_file() or (row.get("sha256") and _sha(path) != row.get("sha256")):
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
 def review_mode(environ: dict[str, str] | None = None, mode: str | None = None) -> str:
     raw = str(mode or (os.environ if environ is None else environ).get(MODE_ENV) or DEFAULT_MODE).strip().lower()
     return raw if raw in MODES else DEFAULT_MODE
@@ -493,6 +505,15 @@ def _run_multipass(record: dict[str, Any], finish: Callable[..., dict[str, Any]]
                                         sum(len(v) for v in suspects.values()))
     if wobble:  # S6-measured set motion on locked-off units (tools/h3_camera_wobble, 2026-11-21)
         suspects = {**suspects, "camera_wobble": wobble}
+    # 2026-11-23 (device 1101 E24): local OCR text runs (pass A) and ASR speech in units the plan gives no line
+    # (pass C) are suspects to confirm, not leads -- Gemini missed both where the local measurement had them
+    ocr = _mp.ocr_text_suspects(pack, sum(len(v) for v in suspects.values()))
+    if ocr:
+        suspects = {**suspects, "burned_text": ocr}
+    stray = _mp.stray_voice_suspects(context.get("plan_units") or [], _final_cut_asr(request),
+                                     sum(len(v) for v in suspects.values()))
+    if stray:
+        suspects = {**suspects, "stray_voice": stray}
     if not context.get("cuts"):
         context = {**context, "cuts": [{"start": round(float(r["start_seconds"]), 1),
                                         "end": round(float(r["end_seconds"]), 1)}
@@ -535,6 +556,10 @@ def summary_lines(record: dict[str, Any]) -> list[str]:
         return [f"Gemini 视频终审未运行或失败：{record.get('status')} {record.get('reason') or ''}".strip()]
     out = [f"Gemini 视频终审（{record.get('model')}，{record.get('cost_credits')} credits）："
            f"{len(record.get('findings') or [])} 条发现，{len(record.get('suspect_checks') or [])} 个本地可疑点复核"]
+    parity = record.get("plan_parity") or {}
+    if parity:
+        out.append(f"- {parity.get('note')}" + (f"；NO: {', '.join(str(u) for u in parity.get('no_units') or [])}"
+                                                 if parity.get("no_units") else ""))
     for f in (record.get("findings") or [])[:40]:
         out.append(f"- {f['id']} {f['item']}{(' [' + f['pass'] + ']') if f.get('pass') else ''} {f['start']}-{f['end']}s "
                    f"{f['severity']}: {f['description'][:80]}")

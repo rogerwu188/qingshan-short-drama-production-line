@@ -85,6 +85,20 @@ AND the background move together"):
   sheet); an S6 wobble retry that stayed unresolved and was not stabilised in S7 (``s6_wobble_unresolved``) joins
   the round as a P2 finding of its unit.
 
+v6 (2026-11-23, device 1101 E24: everything shipped although the delivered shots did not match the plan -- wrong
+locations, reversed roles, invented people, missing beats, 56 s against a 110 s brief):
+
+* the multi-pass review's pass D answers per unit whether the PLANNED content was delivered (gemini_review_passes
+  ``plan_parity``, kept by the must-check list); a NO unit is a PLAN_MISMATCH finding of its unit (paid redo carrying
+  the plan sentence, ranked with the P0 classes) and a P0 NO is a TRIGGER of the round on its own
+  (:func:`plan_parity_findings`); a planned unit missing from the cut is recorded (a redo cannot put it back);
+* the record carries the OBJECTIVE defects left at release -- runtime vs target, unresolved burned text, stray
+  voices in planned-silent units, plan NO units (:func:`objective_defects`) -- and the release policy
+  (:func:`release_policy`; owner 2026-11-23, option iii: ``release_block_objective_defects`` ON, scoped to
+  RELEASE_BLOCK_CLASSES = runtime < 0.85 x target and unresolved burned text that is not ACCEPT_CORRECT).  A hold
+  never stalls the line: RELEASE_HELD:<classes> is recorded, the X2C publisher skips the episode, it is queued as a
+  redo candidate and production moves on to the next episode.
+
 Pure functions (no I/O except :func:`write_record`); nalu_pipeline wires them into S7 / S6 / S8.
 """
 from __future__ import annotations
@@ -112,7 +126,7 @@ RECORD = "RECORD_ONLY"
 
 FREE_KINDS = ("STATIC_SHOT_SPLIT", "AUDIO_SMOOTHING", "BGM_FADES", "SUBTITLE_WRAP", "DIALOGUE_TAIL_GUARD",
               "EDIT_FRAGMENT")
-PAID_KINDS = ("BURNED_TEXT", "REFERENCE_SHEET_LEAK", "CAMERA_WOBBLE", "COSTUME_IDENTITY", "FACE_DRIFT", "SKIN_SHEEN", "HAND_ARTIFACT", "VOICE_GENDER_MISMATCH")
+PAID_KINDS = ("BURNED_TEXT", "REFERENCE_SHEET_LEAK", "PLAN_MISMATCH", "CAMERA_WOBBLE", "COSTUME_IDENTITY", "FACE_DRIFT", "SKIN_SHEEN", "HAND_ARTIFACT", "VOICE_GENDER_MISMATCH")
 #: owner order when the round's budget does not cover every paid redo
 PAID_PRIORITY = {kind: rank for rank, kind in enumerate(PAID_KINDS)}
 
@@ -120,6 +134,8 @@ PAID_PRIORITY = {kind: rank for rank, kind in enumerate(PAID_KINDS)}
 ITEM_KIND = {
     "QA-BURNED-TEXT": "BURNED_TEXT",
     "QA-REFERENCE-SHEET-LEAK": "REFERENCE_SHEET_LEAK",
+    # 2026-11-23 (device 1101 E24): the unit did not deliver its planned content (pass D unit_parity NO)
+    "QA-PLAN-MISMATCH": "PLAN_MISMATCH",
     # 2026-11-21 (KO E05, device ...0080): the set moves with the actor on a locked-off shot -> one paid redo with the
     # locked-off sentence (below the P0 classes)
     "QA-CAMERA-WOBBLE": "CAMERA_WOBBLE",
@@ -242,6 +258,9 @@ SENTENCES = {
     "REFERENCE_SHEET_LEAK": ("The identity reference images only show who each person is: the picture is one "
                              "ordinary moment of the scene, with each person appearing once, and never shows a "
                              "character sheet, turnaround views, a face close-up inset or extra copies of anyone."),
+    "PLAN_MISMATCH": ("The clip shows exactly the planned moment: only the people named in it, in the named place, "
+                      "each doing their own planned action with the named objects, nobody added, missing or swapped "
+                      "into another person's role."),
     "FACE_DRIFT": ("Each person keeps exactly the face of their identity reference image from the first frame to the "
                    "last: the same face shape, eyes, nose, hairline and age, with no drift toward another face."),
     "COSTUME_IDENTITY": ("Each person wears exactly the costume colours and garments of their identity reference "
@@ -549,12 +568,16 @@ def collect_findings(report: dict[str, Any] | None, checklist: dict[str, Any] | 
     out.extend(stacked_subtitle_findings(checklist.get("stacked_subtitles")))
     out.extend(edit_measure_findings(checklist.get("s7_edit_measure")))
     out.extend(s6_unresolved_findings(checklist.get("s6_wobble_unresolved")))
+    out.extend(plan_parity_findings(checklist.get("plan_parity")))
     return out
 
 
 S6_SOURCE = "S6_UNRESOLVED"
 EDIT_SOURCE = "S7_EDIT_MEASURE"
 STACKED_SOURCE = "S7_STACKED_SUBTITLE"
+PLAN_SOURCE = "GEMINI_PLAN_PARITY"
+#: a planned unit with no window in the release timeline: recorded (a redo cannot put it back into the cut)
+PLAN_NOT_IN_CUT = "PLAN_UNIT_NOT_IN_CUT"
 
 
 def stacked_subtitle_findings(rows: Any) -> list[dict[str, Any]]:
@@ -647,6 +670,9 @@ def s6_unresolved_findings(rows: Any) -> list[dict[str, Any]]:
                     "severity": "P0" if sheet else "P1" if stacks else "P2",
                     "kind_hint": "REFERENCE_SHEET_LEAK" if sheet else "BURNED_TEXT",
                     **({"trigger": True} if stacks else {}),
+                    # #303's strict decisions travel with the finding: the release hold reads them (burn_accepted)
+                    **({"strict_burn_verdicts": verdicts} if verdicts else {}),
+                    **({"duplicate_suppressed": True} if suppressed else {}),
                     "text": ("S6: the kept take still shows the identity reference sheet" if sheet else
                              "S6: the kept take still carries model-burned text"
                              + (" in the subtitle band" if in_band else "")
@@ -715,7 +741,7 @@ def map_findings(findings: list[dict[str, Any]], segments: list[dict[str, Any]])
 CONFIRMED_SOURCES = ("QA_CHECKLIST_REVIEWER", "GEMINI_CONFIRMED")
 #: which copy of a duplicated finding is kept (confirmed must-check first, so the trigger rule is unchanged)
 SOURCE_RANK = {"QA_CHECKLIST_REVIEWER": 0, "GEMINI_CONFIRMED": 1, "REVIEW_HARD_FAIL": 2, "REVIEW_PROBLEM": 3,
-               S6_SOURCE: 4, STACKED_SOURCE: 5, EDIT_SOURCE: 6}
+               S6_SOURCE: 4, STACKED_SOURCE: 5, EDIT_SOURCE: 6, PLAN_SOURCE: 7}
 DEDUPE_S = 1.0
 _SEVERITY_RANK = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 #: a confirmed finding without a severity (must-check DEFECT, hard fail) ranks as P1
@@ -852,7 +878,8 @@ def triggered(rejected: bool, mapped: list[dict[str, Any]]) -> bool:
     report merely lists problems is not a trigger."""
     return bool(rejected) or any(f.get("source") in CONFIRMED_SOURCES
                                  or (f.get("source") == EDIT_SOURCE and f.get("s7_cut"))
-                                 or (f.get("source") in (S6_SOURCE, STACKED_SOURCE) and f.get("trigger"))
+                                 or (f.get("source") in (S6_SOURCE, STACKED_SOURCE, PLAN_SOURCE)
+                                     and f.get("trigger"))
                                  for f in mapped)
 
 
@@ -1283,11 +1310,17 @@ def summary(record: dict[str, Any] | None) -> dict[str, Any]:
             if (f.get("voice_check") or {}).get("status") == "MAPPING_BUG"]
     if bugs:
         out["voice_mapping_bugs"] = sorted({u for u in bugs if u})
+    out.update(objective_summary(record))
     return out
 
 
 def status_note(record: dict[str, Any] | None) -> str:
-    """One line for the fleet status note, '' when there is no round to report."""
+    """One line for the fleet status note, '' when there is nothing to report: the round, then the plan parity and
+    the objective defects left at release (2026-11-23)."""
+    return "; ".join(x for x in (_round_note(record), objective_note(record)) if x)
+
+
+def _round_note(record: dict[str, Any] | None) -> str:
     s = summary(record)
     if not s["status"] or s["status"] in ("DISABLED",):
         return ""
@@ -1364,7 +1397,273 @@ def checkpoint_lines(record: dict[str, Any] | None) -> list[str]:
             f"{r.get('kind')}{('@' + r['unit_id']) if r.get('unit_id') else ''} [{r.get('state')}]" for r in rest[:12]))
     if s.get("voice_mapping_bugs"):
         lines.append(f"* speaker / voice MAPPING BUG in the voice contract: {', '.join(s['voice_mapping_bugs'])}")
+    lines += objective_lines(record)
     lines.append("")
+    return lines
+
+
+# ---------------------------------------------------------------------- plan parity + objective defects (v6)
+def plan_parity_findings(parity: Any) -> list[dict[str, Any]]:
+    """Pass D's per-unit plan parity (gemini_review_passes.plan_parity_record) as findings of the round: a NO unit
+    is PLAN_MISMATCH of that unit (paid redo with the plan sentence), at its window, with its severity; a P0 NO is
+    a trigger of the round on its own (2026-11-23, E24: role reversed, wrong location, invented people, missing
+    beats -- and nothing triggered).  A planned unit not in the cut is recorded (PLAN_UNIT_NOT_IN_CUT)."""
+    out: list[dict[str, Any]] = []
+    for row in (parity.get("units") or []) if isinstance(parity, dict) else []:
+        if not isinstance(row, dict) or not row.get("unit_id"):
+            continue
+        decision = row.get("delivered")
+        if decision == "NO":
+            sev = severity_of(row.get("severity") or "P1")
+            a, b = _num(row.get("start")), _num(row.get("end"))
+            out.append({"source": PLAN_SOURCE, "item": "QA-PLAN-MISMATCH", "kind_hint": "PLAN_MISMATCH",
+                        "unit_id": str(row["unit_id"]), "severity": sev, **({"trigger": True} if sev == "P0" else {}),
+                        **({"window": [round(a, 3), round(b if b is not None else a, 3)]} if a is not None else {}),
+                        "reasons": list(row.get("reasons") or []),
+                        "text": f"plan parity NO ({', '.join(row.get('reasons') or []) or 'not delivered'}): "
+                                f"{row.get('seen') or ''} {row.get('why') or ''}".strip()[:240]})
+        elif decision == "NOT_IN_CUT":
+            out.append({"source": PLAN_SOURCE, "item": "QA-PLAN-MISMATCH", "kind_hint": PLAN_NOT_IN_CUT,
+                        "unit_id": str(row["unit_id"]), "severity": "P2",
+                        "text": "planned unit is not in the release timeline (its beat is missing from the cut)"})
+    return out
+
+
+def plan_parity_summary(parity: Any) -> dict[str, Any]:
+    """The concise per-unit parity for the record, the episode record and the fleet note."""
+    if not isinstance(parity, dict) or not parity.get("units"):
+        return {}
+    keep = ("unit_id", "start", "end", "delivered", "reasons", "severity", "seen")
+    return {"status": parity.get("status"), "delivered": parity.get("delivered"), "total": parity.get("total"),
+            "counts": dict(parity.get("counts") or {}), "note": parity.get("note"),
+            "no_units": [r.get("unit_id") for r in parity["units"] if r.get("delivered") == "NO"],
+            "p0_no_units": [r.get("unit_id") for r in parity["units"]
+                            if r.get("delivered") == "NO" and severity_of(r.get("severity") or "P1") == "P0"],
+            "units": [{k: r.get(k) for k in keep if r.get(k) not in (None, [], "")} for r in parity["units"]],
+            **({"stale": parity["stale"]} if parity.get("stale") else {})}
+
+
+RELEASE_POLICY_ENV = "NALU_RELEASE_BLOCK_OBJECTIVE_DEFECTS"
+RELEASE_CLASSES_ENV = "NALU_RELEASE_BLOCK_CLASSES"
+#: owner decision 2026-11-23 (option iii): the release is HELD only for these objective defects; every other one is
+#: recorded.  A hold never stalls the line: the episode is finished as usual (S7 / S8), not sent to X2C, recorded as
+#: RELEASE_HELD:<classes> and queued as a redo candidate; production moves on to the next episode.
+RELEASE_BLOCK_OBJECTIVE_DEFECTS = True
+RELEASE_BLOCK_CLASSES = frozenset({"RUNTIME_SHORT", "BURN_UNRESOLVED"})
+OBJECTIVE_CLASSES = ("RUNTIME_SHORT", "BURN_UNRESOLVED", "STRAY_VOICES", "PLAN_NO_UNITS")
+RELEASE_HELD = "RELEASE_HELD"
+#: a cut shorter than this share of the brief's target runtime is an objective defect (E24: 56 s of 110 s)
+RUNTIME_MIN_RATIO = 0.85
+_BURN_KINDS = ("BURNED_TEXT", "REFERENCE_SHEET_LEAK")
+#: a burn the S7 burned-text handling accepted (the burned line IS the correct cue) does not hold the release
+BURN_ACCEPTED = "ACCEPT_CORRECT"
+
+
+def release_block_objective_defects(env: dict[str, str] | None = None) -> bool:
+    raw = str((os.environ if env is None else env).get(RELEASE_POLICY_ENV) or "").strip().lower()
+    if raw in ("1", "on", "true", "yes"):
+        return True
+    if raw in ("0", "off", "false", "no"):
+        return False
+    return RELEASE_BLOCK_OBJECTIVE_DEFECTS
+
+
+def release_block_classes(env: dict[str, str] | None = None) -> frozenset[str]:
+    """The classes that hold the release: RELEASE_BLOCK_CLASSES, or ``NALU_RELEASE_BLOCK_CLASSES`` (comma list of
+    OBJECTIVE_CLASSES, ``all`` or ``none``) to narrow or widen it."""
+    raw = str((os.environ if env is None else env).get(RELEASE_CLASSES_ENV) or "").strip()
+    if not raw:
+        return RELEASE_BLOCK_CLASSES
+    if raw.lower() == "all":
+        return frozenset(OBJECTIVE_CLASSES)
+    if raw.lower() == "none":
+        return frozenset()
+    return frozenset(c.strip().upper() for c in raw.split(",") if c.strip().upper() in OBJECTIVE_CLASSES)
+
+
+def _suspect_decision(row: dict[str, Any]) -> str:
+    """The reviewer's decision on a local suspect when it gave one, else Gemini's (checklist or Gemini record)."""
+    return str(row.get("reviewer") or row.get("decision") or row.get("gemini") or "NOT_ANSWERED").upper()
+
+
+def burn_accepted(row: dict[str, Any] | None) -> bool:
+    """A burn the S7 strict burned-line check accepted (#303, owner 2026-11-23): the row's ``strict_burn_verdicts``
+    (S6 rows / their findings, from ``burned_line_checks`` of <EP>_BURNIN_SUBTITLES.json) hold ACCEPT_CORRECT and no
+    REJECT_*; or a single ``burn_verdict``/``verdict``/... field (a ``burned_line_checks`` row) says ACCEPT_CORRECT.
+    ``duplicate_suppressed`` counts only with an accepting strict verdict (the strict check is the only thing that
+    may suppress our copy); the S6 finding's "our copy was suppressed in S7" text is the legacy marker of the same."""
+    row = row if isinstance(row, dict) else {}
+    verdicts = [str(v).upper() for v in row.get("strict_burn_verdicts") or []]
+    if verdicts:
+        return BURN_ACCEPTED in verdicts and not any(v.startswith("REJECT") for v in verdicts)
+    fields = [str(row.get(k) or "").upper() for k in ("burn_verdict", "verdict", "decision", "status", "state",
+                                                      "resolution")]
+    if any(v.startswith("REJECT") for v in fields):
+        return False
+    if BURN_ACCEPTED in fields or row.get("accept_correct"):
+        return True
+    return "our copy was suppressed in S7" in str(row.get("text") or "")
+
+
+def _burn_source(record: dict[str, Any], row: dict[str, Any]) -> dict[str, Any] | None:
+    """The finding an unresolved burn row came from (same kind and unit, or a window within DEDUPE_S)."""
+    pool = [*(record.get("findings") or []), *((record.get("second_review") or {}).get("findings") or [])]
+    for f in pool:
+        if f.get("kind") != row.get("kind"):
+            continue
+        if (row.get("unit_id") and f.get("unit_id") == row.get("unit_id")) or \
+                (row.get("window") and f.get("window") and _near(row["window"], f["window"], DEDUPE_S)):
+            return f
+    return None
+
+
+def objective_defects(record: dict[str, Any] | None, *, runtime_s: float | None = None,
+                      target_s: float | None = None, plan_parity: dict[str, Any] | None = None,
+                      suspect_checks: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """The objective (measured, not opinion) defects left at release:
+
+    runtime           the cut's content runtime vs the brief's target (short below RUNTIME_MIN_RATIO)
+    unresolved_burns  burned text / sheet leak findings the round left unresolved, plus local OCR text runs that
+                      neither Gemini nor the reviewer dismissed (not within 1 s of one already listed); ``blocking``:
+                      not ACCEPT_CORRECT (:func:`burn_accepted`) and, for an OCR run, CONFIRMED by a reviewer
+    stray_voices      ASR speech in planned-silent units nobody dismissed
+    plan_no_units     units pass D judged NOT delivered (plan_not_in_cut: planned units missing from the cut,
+                      listed, not counted)
+    ``count`` sums the four; ``classes`` names those present; ``blocking_classes`` those that may hold the release
+    (RUNTIME_SHORT when short, BURN_UNRESOLVED when a blocking burn is left -- the policy decides)."""
+    record = record if isinstance(record, dict) else {}
+    runtime: dict[str, Any] = {}
+    if _num(runtime_s) is not None and _num(target_s):
+        ratio = round(float(runtime_s) / float(target_s), 3)
+        runtime = {"runtime_seconds": round(float(runtime_s), 2), "target_seconds": round(float(target_s), 2),
+                   "ratio": ratio, "min_ratio": RUNTIME_MIN_RATIO, "short": ratio < RUNTIME_MIN_RATIO}
+    burns = []
+    for r in (record.get("unresolved") or unresolved(record)):
+        if r.get("kind") not in _BURN_KINDS:
+            continue
+        accepted = burn_accepted(r) or burn_accepted(_burn_source(record, r))
+        burns.append({**{k: r.get(k) for k in ("kind", "unit_id", "window", "state") if r.get(k) is not None},
+                      "source": "FINAL_FIX_UNRESOLVED", "blocking": not accepted,
+                      **({"accepted": BURN_ACCEPTED} if accepted else {})})
+    stray = []
+    for row in suspect_checks or []:
+        sus = row.get("suspect") or {}
+        decision = _suspect_decision(row)
+        if decision == "DISMISSED":
+            continue
+        if sus.get("kind") == "burned_text":
+            w = sus.get("window")
+            if any(_near(w, b.get("window"), DEDUPE_S) for b in burns if b.get("window")):
+                continue
+            accepted = burn_accepted(row) or burn_accepted(sus)
+            burns.append({"kind": "BURNED_TEXT", "window": w, "text": sus.get("text"), "where": sus.get("where"),
+                          "decision": decision, "source": "LOCAL_OCR",
+                          "blocking": decision == "CONFIRMED" and not accepted,
+                          **({"accepted": BURN_ACCEPTED} if accepted else {})})
+        elif sus.get("kind") == "stray_voice":
+            stray.append({"unit": sus.get("unit"), "window": sus.get("window"), "heard": sus.get("heard"),
+                          "decision": decision, "source": "LOCAL_ASR"})
+    units = (plan_parity or {}).get("units") or []
+    no_units = [{k: r.get(k) for k in ("unit_id", "window", "reasons", "severity") if r.get(k) is not None}
+                | ({"window": [r.get("start"), r.get("end")]} if r.get("start") is not None else {})
+                for r in units if r.get("delivered") == "NO"]
+    missing = [r.get("unit_id") for r in units if r.get("delivered") == "NOT_IN_CUT"]
+    present = {"RUNTIME_SHORT": bool(runtime.get("short")), "BURN_UNRESOLVED": bool(burns),
+               "STRAY_VOICES": bool(stray), "PLAN_NO_UNITS": bool(no_units)}
+    blocking = {"RUNTIME_SHORT": bool(runtime.get("short")),
+                "BURN_UNRESOLVED": any(b.get("blocking") for b in burns),
+                "STRAY_VOICES": bool(stray), "PLAN_NO_UNITS": bool(no_units)}
+    return {"runtime": runtime, "unresolved_burns": burns, "stray_voices": stray, "plan_no_units": no_units,
+            "plan_not_in_cut": missing,
+            "count": int(bool(runtime.get("short"))) + len(burns) + len(stray) + len(no_units),
+            "classes": [c for c in OBJECTIVE_CLASSES if present[c]],
+            "blocking_classes": [c for c in OBJECTIVE_CLASSES if blocking[c]]}
+
+
+def release_policy(objective: dict[str, Any] | None, env: dict[str, str] | None = None) -> dict[str, Any]:
+    """The release decision on the objective defects (owner 2026-11-23, option iii).  ``blocks`` = the switch is ON
+    and a defect of a blocking class is present; ``hold`` is then RELEASE_HELD:<classes>.  A hold is recorded and
+    the episode skipped by the X2C publisher and queued for a redo -- it never stops the line."""
+    on = release_block_objective_defects(env)
+    scope = release_block_classes(env)
+    held = [c for c in (objective or {}).get("blocking_classes") or [] if c in scope]
+    blocks = on and bool(held)
+    return {"release_block_objective_defects": on, "block_classes": sorted(scope), "held_classes": held,
+            "would_block": bool(held), "blocks": blocks, "classes": list((objective or {}).get("classes") or []),
+            "action": RELEASE_HELD if blocks else "RELEASE",
+            **({"hold": f"{RELEASE_HELD}:{','.join(held)}"} if blocks else {}),
+            "switch": f"{RELEASE_POLICY_ENV} on|off, {RELEASE_CLASSES_ENV}=<classes>|all|none "
+                      "(final_fix_round.RELEASE_BLOCK_OBJECTIVE_DEFECTS / RELEASE_BLOCK_CLASSES)",
+            "note": "owner 2026-11-23: hold the X2C release only for a short runtime or unresolved burned text; "
+                    "the line never waits (redo candidate, next episode proceeds)"}
+
+
+def release_hold(record: dict[str, Any] | None) -> str:
+    """'RELEASE_HELD:<classes>' when the record's release policy holds the episode, else ''."""
+    policy = (record or {}).get("release_policy") if isinstance(record, dict) else None
+    return str((policy or {}).get("hold") or "") if (policy or {}).get("blocks") else ""
+
+
+def objective_summary(record: dict[str, Any] | None) -> dict[str, Any]:
+    record = record if isinstance(record, dict) else {}
+    out: dict[str, Any] = {}
+    parity = record.get("plan_parity") or {}
+    if parity:
+        out["plan_parity"] = {k: parity.get(k) for k in ("delivered", "total", "note", "no_units") if k in parity}
+    obj = record.get("objective_defects") or {}
+    if obj:
+        out["objective_defects"] = {"count": obj.get("count", 0), "classes": obj.get("classes") or [],
+                                    **({"runtime_ratio": obj["runtime"].get("ratio")} if obj.get("runtime") else {})}
+    policy = record.get("release_policy") or {}
+    if policy:
+        out["release_policy"] = {k: policy.get(k) for k in ("release_block_objective_defects", "would_block", "blocks")}
+        if policy.get("blocks"):
+            out["release_hold"] = policy.get("hold")
+    return out
+
+
+def objective_note(record: dict[str, Any] | None) -> str:
+    """'plan parity: n/m delivered; objective defects k (...)' for the fleet note, '' when not recorded."""
+    s = objective_summary(record)
+    parts = []
+    if s.get("plan_parity"):
+        parts.append(str(s["plan_parity"].get("note") or ""))
+    obj = s.get("objective_defects") or {}
+    if obj.get("count"):
+        parts.append(f"objective defects {obj['count']} ({','.join(obj.get('classes') or [])})")
+    if s.get("release_hold"):
+        parts.append(f"{s['release_hold']} (not sent to X2C; redo candidate)")
+    return "; ".join(p for p in parts if p)
+
+
+def objective_lines(record: dict[str, Any] | None) -> list[str]:
+    """CHECKPOINT lines: per-unit plan parity and the objective defects at release with the policy switch."""
+    record = record if isinstance(record, dict) else {}
+    parity, obj, policy = (record.get("plan_parity") or {}, record.get("objective_defects") or {},
+                           record.get("release_policy") or {})
+    lines: list[str] = []
+    if parity:
+        lines.append(f"* {parity.get('note')}" + (f" — NO: {', '.join(parity.get('no_units') or [])}"
+                                                  if parity.get("no_units") else ""))
+        for row in [r for r in parity.get("units") or [] if r.get("delivered") not in ("YES", None)][:20]:
+            lines.append(f"  * `{row.get('unit_id')}` {row.get('delivered')} {row.get('severity') or ''} "
+                         f"{', '.join(row.get('reasons') or [])} {str(row.get('seen') or '')[:60]}".rstrip())
+    if obj:
+        rt = obj.get("runtime") or {}
+        lines.append(f"* objective defects at release: {obj.get('count', 0)}"
+                     + (f" — runtime {rt.get('runtime_seconds')} s vs target {rt.get('target_seconds')} s "
+                        f"({rt.get('ratio')}{', SHORT' if rt.get('short') else ''})" if rt else "")
+                     + f"; unresolved burns {len(obj.get('unresolved_burns') or [])} "
+                       f"(blocking {sum(1 for b in obj.get('unresolved_burns') or [] if b.get('blocking'))}), stray voices "
+                       f"{len(obj.get('stray_voices') or [])}, plan NO units {len(obj.get('plan_no_units') or [])}"
+                     + (f", not in cut {len(obj['plan_not_in_cut'])}" if obj.get("plan_not_in_cut") else ""))
+    if policy:
+        lines.append(f"* release policy `release_block_objective_defects` = "
+                     f"{'ON' if policy.get('release_block_objective_defects') else 'OFF'} for "
+                     f"{', '.join(policy.get('block_classes') or []) or 'no class'} — "
+                     + (f"**{policy.get('hold')}**: not sent to X2C, queued as a redo candidate; the line goes on"
+                        if policy.get("blocks") else "release")
+                     + f" ({policy.get('switch')})")
     return lines
 
 

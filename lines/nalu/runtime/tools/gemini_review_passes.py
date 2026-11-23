@@ -22,7 +22,20 @@ round and the knowledge base already read (ids G1.. / S1.., ``item``, ``start``/
   D  DIRECTOR / CRAFT         432x768 with audio, fps 2: the script beats + shot list (anonymised) and the key items
                               of NALU_CRAFT_STANDARD_v1 (pacing first): beat delivered, shot grammar, pacing per
                               beat, 3-second hook, ending hook, clarity of who / what / why, emotional beat, subtitle
-                              readability.
+                              readability.  PLAN PARITY (2026-11-23, device 1101 E24: everything shipped although the
+                              delivered shots did not match the plan -- wrong locations, reversed roles, invented
+                              people, missing beats, 56 s vs 110 s): D also gets each unit's PLANNED action, cast,
+                              location, props and dialogue (generation contract + release-timeline window) and
+                              answers ``unit_parity`` per unit: delivered YES / PARTIAL / NO with reasons
+                              (ROLE_REVERSED, WRONG_LOCATION, MISSING_PERSON, MISSING_PROP, INVENTED_PERSON,
+                              MISSING_BEAT ...).  A NO unit becomes a QA-PLAN-MISMATCH finding; the merged record
+                              carries ``plan_parity`` (every planned unit, n/m delivered) for the final fix round
+                              (P0 NO -> paid redo class PLAN_MISMATCH) and final_cut_shot_plan_parity.
+
+Local suspects (2026-11-23, E24: Gemini missed burned text and stray voices that local OCR / ASR caught): the OCR
+text runs of the evidence pack (model-burned text anywhere in the frame + stacked lines in our subtitle band) are
+pass-A suspects (``burned_text``) and the ASR speech heard inside units the plan gives NO dialogue are pass-C
+suspects (``stray_voice``) -- each must be CONFIRMED / DISMISSED, not merely read as a lead.
 
 Per-shot checklist (2026-11-21, line owner: "the Gemini final review should be more detailed"): passes A and B
 answer ``shot_log`` as one row per measured shot with the classes that shot FAILED (``fail``: [] = every class of
@@ -91,7 +104,9 @@ PASSES: dict[str, dict[str, Any]] = {
           "ladder": ((2.0, "HIGH"), (1.5, "HIGH"), (1.0, "HIGH"), (2.0, "LOW"), (1.0, "LOW"))},
     "C": {"name": "SOUND", "audio": True, "scale": (432, 768), "expected_out": 3000,
           "ladder": ((2.0, "LOW"), (1.0, "LOW"))},
-    "D": {"name": "DIRECTOR_CRAFT", "audio": True, "scale": (432, 768), "expected_out": 2400,
+    # + one unit_parity row per unit (2026-11-23) in place of the craft_summary beat rows: +400 for the "seen" text.
+    # The budget split is unchanged: at 100 s A keeps 2 fps HIGH, at 110 s 1.5 fps HIGH (as before plan parity)
+    "D": {"name": "DIRECTOR_CRAFT", "audio": True, "scale": (432, 768), "expected_out": 2800,
           "ladder": ((2.0, "LOW"), (1.0, "LOW"))},
 }
 
@@ -168,6 +183,11 @@ CLASS_TEXT: dict[str, tuple[str, str]] = {
                                    "（如双手向两侧摊开、竖起一根食指/指着对方、同一个耸肩）——不论是不是同一个角色，"
                                    "不同人物用同一个手势也算；听的人僵住不动没有反应。写出重复的是什么动作、谁、出现在哪些时间点。"),
     "CRAFT-SUBTITLE-READABILITY": ("D", "字幕可读性：我方字幕停留太短读不完、压在复杂背景上看不清、与画面里其它文字重叠。"),
+    # 2026-11-23 (device 1101 E24): the blade at the heroine's own throat, a field instead of the rouge shop, a toy
+    # skull on a tray instead of a skeleton on a boat, an armoured stranger instead of the demon -- and it shipped
+    "QA-PLAN-MISMATCH": ("D", "成片和计划不符：对照逐单元计划，这个单元没拍出计划的内容——主被动/角色关系反了（谁拿刀对着谁、谁打谁）、"
+                              "地点不对、计划里的人物或关键道具不在、多出计划里没有的人、计划的动作节拍没有发生。"
+                              "unit_parity 里判 NO 的单元每个单独列一条（start/end 用该单元的时间窗）。"),
 
     "OTHER": ("*", "其它任何观众会注意到的问题。"),
 }
@@ -235,14 +255,17 @@ def _pick_plate(plates: Path, episode: str, char_id: str) -> Path | None:
     return (sheets or heads or found or [None])[0]
 
 
-def episode_context(episode: str, *, work_root: Path | None = None, assembly: Path | None = None) -> dict[str, Any]:
+def episode_context(episode: str, *, work_root: Path | None = None, assembly: Path | None = None,
+                    contract_path: Path | None = None) -> dict[str, Any]:
     """Free, local context for passes B and D from the episode's own files (best effort, {} parts when missing):
 
     cards   [{label, character_id, image, appearance, wardrobe}] -- identity plates of the characters the episode
             shows (S3), names replaced by 角色A/B.. everywhere
     scenes  [{scene, start, end, cast}] -- release-timeline windows of each scene
-    shots   [{unit, scene, start, end, scale, beat}] -- the storyboard per video unit (anonymised beat)"""
-    ctx: dict[str, Any] = {"cards": [], "scenes": [], "shots": [], "source": {}}
+    shots   [{unit, scene, start, end, scale, beat}] -- the storyboard per video unit (anonymised beat)
+    plan_units  [{unit_id, unit, start, end, location, cast, action, props, dialogue, silent, beat}] -- each unit's
+            PLANNED content from the generation contract (:func:`plan_units`; start/end None = not in the cut)"""
+    ctx: dict[str, Any] = {"cards": [], "scenes": [], "shots": [], "plan_units": [], "source": {}}
     try:
         work = Path(work_root) if work_root else None
         if work is None:
@@ -250,6 +273,7 @@ def episode_context(episode: str, *, work_root: Path | None = None, assembly: Pa
                 import nalu_qa_common as _qa  # noqa: PLC0415
                 p = _qa.QaPaths(episode)
                 work, assembly = Path(p.work), Path(p.assembly)
+                contract_path = contract_path or getattr(p, "contract", None)
             except BaseException:  # noqa: BLE001 -- SystemExit from scope resolution included
                 return ctx
         assembly = Path(assembly) if assembly else work / "assembly"
@@ -257,10 +281,13 @@ def episode_context(episode: str, *, work_root: Path | None = None, assembly: Pa
         grouping = _read_json(pre / f"{episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json") or {}
         editorial = _read_json(pre / f"{episode}_EDITORIAL_SEEDANCE_MANIFEST_V1.json") or {}
         timeline = _read_json(assembly / f"{episode}_release_timeline.json") or {}
-        # characters in order of first appearance
+        contract = next((c for c in (_read_json(Path(x)) for x in ([contract_path] if contract_path else [
+            pre / f"{episode}_GENERATION_CONTRACT_v1.json", work / f"{episode}_GENERATION_CONTRACT_v1.json"]))
+            if isinstance(c, dict)), {})
+        # characters in order of first appearance (the editorial manifest first; contract-only casts appended)
         order: list[tuple[str, str]] = []
         shot_cast: dict[str, list[str]] = {}
-        for shot in editorial.get("shots") or []:
+        for shot in [*(editorial.get("shots") or []), *((contract.get("shots") or []) if contract else [])]:
             ids = []
             for row in ((shot.get("prompt_spec") or {}).get("cast") or []):
                 cid, name = str(row.get("character_id") or ""), str(row.get("character") or "")
@@ -268,7 +295,7 @@ def episode_context(episode: str, *, work_root: Path | None = None, assembly: Pa
                     order.append((cid, name))
                 if cid:
                     ids.append(cid)
-            shot_cast[str(shot.get("shot_id"))] = ids
+            shot_cast.setdefault(str(shot.get("shot_id")), ids)
         labels = dict(zip([c for c, _ in order], _labels(len(order))))
         names = {n: labels[c] for c, n in order if n}
         bible = {str(r.get("character_id")): r for r in ((grouping.get("wardrobe_bible") or editorial.get(
@@ -301,8 +328,9 @@ def episode_context(episode: str, *, work_root: Path | None = None, assembly: Pa
         ctx["shots"].sort(key=lambda r: r["start"])
         ctx["scenes"] = sorted(({**r, "start": round(r["start"], 1), "end": round(r["end"], 1),
                                  "cast": sorted(r["cast"])} for r in scenes.values()), key=lambda r: r["start"])
+        ctx["plan_units"] = plan_units(contract, grouping, windows, labels, names, order)
         ctx["source"] = {"grouping": bool(grouping), "editorial": bool(editorial), "timeline": bool(timeline),
-                         "plates": sum(1 for c in ctx["cards"] if c["image"])}
+                         "contract": bool(contract), "plates": sum(1 for c in ctx["cards"] if c["image"])}
     except Exception as exc:  # noqa: BLE001 -- advisory
         ctx["source"]["error"] = f"{type(exc).__name__}:{str(exc)[:120]}"
     return ctx
@@ -318,6 +346,340 @@ def craft_items(engine: Path | None = None) -> list[dict[str, str]]:
     return [{"id": i, "title": str(rows[i].get("title_zh") or ""), "check": str(rows[i].get("reviewer_check_zh")
                                                                                  or "")[:140]}
             for i in wanted if i in rows]
+
+
+# ============================================================================================== plan parity
+#: pass D's per-unit answer (2026-11-23, device 1101 E24)
+PARITY_SCHEMA = "nalu.gemini_plan_parity.v1"
+PARITY_DECISIONS = ("YES", "PARTIAL", "NO")
+PARITY_REASONS = ("ROLE_REVERSED", "WRONG_LOCATION", "MISSING_PERSON", "MISSING_PROP", "INVENTED_PERSON",
+                  "MISSING_BEAT", "WRONG_ACTION", "MISSING_DIALOGUE", "OTHER")
+#: a NO unit with one of these reasons breaks the story: P0 unless the model gave a severity itself
+PARITY_P0_REASONS = frozenset({"ROLE_REVERSED", "WRONG_LOCATION", "INVENTED_PERSON", "MISSING_PERSON", "MISSING_BEAT"})
+NOT_IN_CUT = "NOT_IN_CUT"
+NOT_ANSWERED = "NOT_ANSWERED"
+PLAN_TEXT_MAX = 150
+
+
+def _alias_patterns(order: list[tuple[str, str]], labels: dict[str, str]) -> list[tuple[re.Pattern[str], str]]:
+    """Romanised names in the contract's English action text (``CHAR-WANGDEFA`` -> "Wang Defa", any case / spacing)
+    -> 角色X; ids shorter than four letters are left alone (too many false hits)."""
+    out = []
+    for cid, _name in order:
+        suffix = re.sub(r"[^A-Za-z]", "", cid.split("-", 1)[-1])
+        if len(suffix) >= 4 and cid in labels:
+            out.append((re.compile(r"(?<![A-Za-z])" + r"[\s\-']?".join(map(re.escape, suffix)) + r"(?![A-Za-z])",
+                                   re.IGNORECASE), labels[cid]))
+    return out
+
+
+def plan_text(text: Any, names: dict[str, str], aliases: list[tuple[re.Pattern[str], str]] | None = None,
+              limit: int = PLAN_TEXT_MAX) -> str:
+    """Names (Chinese and romanised) -> 角色A/B, whitespace squeezed, cut to ``limit``; dialogue kept (pass D must
+    hear whether the planned line is spoken)."""
+    out = " ".join(str(text or "").split())
+    for name in sorted(names, key=len, reverse=True):
+        if name:
+            out = out.replace(name, names[name])
+    for pattern, label in aliases or []:
+        out = pattern.sub(label, out)
+    return out[:limit]
+
+
+def _humanise_location(loc: Any) -> str:
+    """``LOC-ANCHENG-TEAHOUSE`` -> ``ancheng teahouse`` (the contract carries ids, the model needs words)."""
+    raw = str(loc or "").strip()
+    if not raw:
+        return ""
+    raw = re.sub(r"^LOC[-_]", "", raw, flags=re.IGNORECASE)
+    return " ".join(w for w in re.split(r"[-_\s]+", raw) if w).lower()[:60]
+
+
+def _prop_names(props: Any) -> list[str]:
+    out = []
+    for row in props if isinstance(props, list) else []:
+        name = (row if isinstance(row, str) else (row.get("name") or row.get("label") or row.get("description")
+                                                  or row.get("prop_id") or "") if isinstance(row, dict) else "")
+        name = " ".join(str(name).split())[:40]
+        if name and name not in out:
+            out.append(name)
+    return out[:6]
+
+
+def _dialogue_lines(spec: dict[str, Any]) -> list[str]:
+    raw = spec.get("dialogue")
+    rows = raw if isinstance(raw, list) else [raw]
+    out = []
+    for r in rows:
+        text = (r.get("text") or r.get("line") or "") if isinstance(r, dict) else str(r or "")
+        if isinstance(r, dict) and r.get("speaker") and text:
+            text = f"{r['speaker']}：{text}"
+        text = " ".join(str(text).split())
+        if text:
+            out.append(text)
+    return out
+
+
+def _spoken(line: str) -> str:
+    """The spoken part of ``角色：台词`` (the plan's speaker prefix dropped)."""
+    return re.split(r"[:：]", line, maxsplit=1)[-1].strip()
+
+
+def plan_units(contract: dict[str, Any] | None, grouping: dict[str, Any] | None,
+               windows: dict[str, tuple[float, float]], labels: dict[str, str], names: dict[str, str],
+               order: list[tuple[str, str]] | None = None) -> list[dict[str, Any]]:
+    """Each video unit's PLANNED content from the generation contract (the unit's editorial shots), in grouping
+    order, with its release-timeline window (None = the unit is not in the cut):
+
+    unit_id, unit, start, end, planned_seconds, scene, location, cast (角色X), action, props, dialogue (角色X：line),
+    silent (no planned line), beat; ``_lines`` (the raw spoken lines, never sent) feeds the stray-voice check."""
+    contract, grouping = contract or {}, grouping or {}
+    shots = {str(s.get("shot_id")): s for s in contract.get("shots") or [] if isinstance(s, dict)}
+    if not shots:
+        return []
+    aliases = _alias_patterns(order or [], labels)
+    out = []
+    for unit in grouping.get("units") or []:
+        uid = str(unit.get("unit_id") or "")
+        rows = [shots[str(sid)] for sid in unit.get("editorial_shot_ids") or [] if str(sid) in shots]
+        if not uid or not rows:
+            continue
+        cast, actions, props, lines, places = [], [], [], [], []
+        for shot in rows:
+            spec = shot.get("prompt_spec") or {}
+            for c in spec.get("cast") or []:
+                label = labels.get(str(c.get("character_id") or "")) or plan_text(c.get("character"), names, aliases, 12)
+                if label and label not in cast:
+                    cast.append(label)
+            action = (spec.get("action") or {}).get("primary_action") or shot.get("blocking") or ""
+            action = plan_text(action, names, aliases)
+            if action and action not in actions:
+                actions.append(action)
+            props += [x for x in _prop_names(spec.get("props") or shot.get("props")) if x not in props]
+            lines += _dialogue_lines(spec)
+            place = _humanise_location(shot.get("location_id") or spec.get("location_id"))
+            if place and place not in places:
+                places.append(place)
+        window = windows.get(uid)
+        planned = _num(unit.get("duration_seconds"))
+        if planned is None:
+            planned = sum(_num(r.get("target_seconds")) or 0.0 for r in rows)
+        out.append({"unit_id": uid, "unit": short_unit(uid),
+                    "start": round(window[0], 2) if window else None, "end": round(window[1], 2) if window else None,
+                    "planned_seconds": round(planned, 2), "scene": str(unit.get("scene_id") or "").split("-")[-1],
+                    "location": " / ".join(places), "cast": cast, "action": " / ".join(actions)[:PLAN_TEXT_MAX * 2],
+                    "props": props, "dialogue": [plan_text(x, names, aliases, 80) for x in lines],
+                    "silent": not lines, "beat": plan_text(unit.get("narrative_beat"), names, aliases, 90),
+                    "_lines": [_spoken(x) for x in lines]})
+    return out
+
+
+def plan_prompt_rows(units: list[dict[str, Any]], window: tuple[float, float] | None = None) -> list[dict[str, Any]]:
+    """The units in the cut (or in the chunk), as pass D reads them: short keys, no internal fields."""
+    rows = [{"unit": u["unit"], "start": u["start"], "end": u["end"], "where": u.get("location") or "",
+             "who": u.get("cast") or [], "does": u.get("action") or "",
+             **({"props": u["props"]} if u.get("props") else {}),
+             "says": u.get("dialogue") or "无台词"} for u in units or [] if u.get("start") is not None]
+    return _clip_rows(rows, window)
+
+
+def _norm_unit(value: Any) -> str:
+    raw = str(value or "").strip().upper()
+    if re.fullmatch(r"\d{1,3}", raw):
+        return f"VU-{int(raw):03d}"
+    return short_unit(raw)
+
+
+def parse_unit_parity(rows: Any) -> list[dict[str, Any]]:
+    """Lenient parse of pass D's ``unit_parity`` rows: unit (VU-nnn), delivered YES|PARTIAL|NO (None if anything
+    else), known reasons only (unknown -> OTHER), seen / why text, severity P0..P3 or None."""
+    out: list[dict[str, Any]] = []
+    for row in rows[:120] if isinstance(rows, list) else []:
+        if not isinstance(row, dict) or not row.get("unit"):
+            continue
+        decision = str(row.get("delivered") or "").strip().upper()
+        raw = row.get("reasons") if isinstance(row.get("reasons"), list) else [row.get("reasons")] \
+            if row.get("reasons") else []
+        reasons: list[str] = []
+        for r in raw:
+            code = re.sub(r"[\s\-]+", "_", str(r or "").strip().upper())
+            code = code if code in PARITY_REASONS else "OTHER"
+            if code not in reasons:
+                reasons.append(code)
+        sev = str(row.get("severity") or "").strip().upper()
+        pacing = str(row.get("pacing") or "").strip().lower()
+        out.append({"unit": _norm_unit(row.get("unit")),
+                    "delivered": decision if decision in PARITY_DECISIONS else None, "reasons": reasons,
+                    "seen": str(row.get("seen") or "")[:120], "why": str(row.get("why") or "")[:200],
+                    "severity": sev if sev in SEVERITIES else None,
+                    **({"pacing": pacing} if pacing in ("ok", "slow", "rushed") else {})})
+    return out
+
+
+_PARITY_RANK = {"NO": 0, "PARTIAL": 1, "YES": 2, None: 3}
+
+
+def fold_unit_parity(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One row per unit (a unit answered in two chunks: the worse answer wins)."""
+    best: dict[str, dict[str, Any]] = {}
+    for row in rows or []:
+        prior = best.get(row["unit"])
+        if prior is None or _PARITY_RANK[row.get("delivered")] < _PARITY_RANK[prior.get("delivered")]:
+            best[row["unit"]] = row
+    return list(best.values())
+
+
+def parity_severity(row: dict[str, Any]) -> str | None:
+    if row.get("severity"):
+        return row["severity"]
+    if row.get("delivered") == "NO":
+        return "P0" if set(row.get("reasons") or []) & PARITY_P0_REASONS else "P1"
+    return "P2" if row.get("delivered") == "PARTIAL" else None
+
+
+def promote_unit_parity(rows: list[dict[str, Any]], units: list[dict[str, Any]],
+                        findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A unit pass D judged NOT delivered with no QA-PLAN-MISMATCH finding over its window becomes one (at the
+    unit's window, its severity), so the Codex reviewer verifies it like any other finding."""
+    windows = {u["unit"]: (u.get("start"), u.get("end")) for u in units or [] if u.get("start") is not None}
+    out: list[dict[str, Any]] = []
+    for row in rows or []:
+        win = windows.get(row["unit"])
+        if row.get("delivered") != "NO" or not win:
+            continue
+        s, e = float(win[0]), float(win[1])
+        if any(f["item"] == "QA-PLAN-MISMATCH" and f["start"] - 0.5 <= e and s <= f["end"] + 0.5 for f in findings):
+            continue
+        out.append({"item": "QA-PLAN-MISMATCH", "start": round(s, 1), "end": round(e, 1),
+                    "severity": parity_severity(row) or "P1",
+                    "description": f"unit_parity: {row['unit']} NO ({','.join(row.get('reasons') or []) or '?'})"
+                                   + (f" {row.get('why')}" if row.get("why") else ""),
+                    "evidence": row.get("seen") or "", "scope_hint": "global", "pass": "D", "unit": row["unit"],
+                    "from_parity": True})
+    return out
+
+
+def plan_parity_record(rows: list[dict[str, Any]] | None, units: list[dict[str, Any]] | None, *,
+                       answered: bool) -> dict[str, Any]:
+    """Every planned unit with its verdict: YES / PARTIAL / NO (pass D), NOT_IN_CUT (no release-timeline window:
+    measured locally) or NOT_ANSWERED; counts and the one-line note ``plan parity: n/m delivered`` (n = YES)."""
+    by = {r["unit"]: r for r in fold_unit_parity(rows or [])}
+    out = []
+    for u in units or []:
+        base = {"unit_id": u.get("unit_id"), "unit": u["unit"], "start": u.get("start"), "end": u.get("end"),
+                "planned_seconds": u.get("planned_seconds")}
+        if u.get("start") is None:
+            out.append({**base, "delivered": NOT_IN_CUT, "reasons": [NOT_IN_CUT]})
+            continue
+        r = by.get(u["unit"])
+        if not r or r.get("delivered") is None:
+            out.append({**base, "delivered": NOT_ANSWERED})
+            continue
+        sev = parity_severity(r)
+        out.append({**base, "delivered": r["delivered"], "reasons": r.get("reasons") or [],
+                    **{k: r[k] for k in ("seen", "why", "pacing") if r.get(k)}, **({"severity": sev} if sev else {})})
+    counts = {k: sum(1 for r in out if r["delivered"] == k) for k in (*PARITY_DECISIONS, NOT_IN_CUT, NOT_ANSWERED)}
+    delivered, total = counts["YES"], len(out)
+    return {"schema": PARITY_SCHEMA, "status": "OK" if answered and any(
+                r["delivered"] in PARITY_DECISIONS for r in out) else "NOT_ANSWERED",
+            "units": out, "counts": counts, "delivered": delivered, "total": total,
+            "no_units": [r["unit_id"] for r in out if r["delivered"] == "NO"],
+            "note": f"plan parity: {delivered}/{total} delivered" if answered else
+            f"plan parity: not reviewed ({counts[NOT_IN_CUT]}/{total} units not in the cut)"}
+
+
+# ============================================================================================== local suspects
+def _window(value: Any) -> tuple[float, float] | None:
+    if isinstance(value, (list, tuple)) and len(value) == 2 and _num(value[0]) is not None:
+        b = _num(value[1])
+        return float(value[0]), float(b if b is not None else value[0])
+    return None
+
+
+def ocr_text_suspects(pack_summary: dict[str, Any] | None, start_id: int, limit: int = 20) -> list[dict[str, Any]]:
+    """The evidence pack's OCR text runs as pass-A suspects (``kind`` burned_text): model-burned text anywhere in
+    the frame (``burned_text_runs``) and two stacked lines in our subtitle band (``stacked_subtitle_runs``).
+    E24 (2026-11-23): Gemini missed burned text local OCR had read; a lead is skimmed, a suspect is answered."""
+    pack_summary = pack_summary or {}
+    out: list[dict[str, Any]] = []
+    for r in (pack_summary.get("stacked_subtitle_runs") or [])[:10]:
+        w = _window(r.get("window"))
+        if w:
+            out.append({"kind": "burned_text", "window": [round(w[0], 2), round(w[1], 2)], "where": "字幕带",
+                        "text": " / ".join(str(t) for t in (r.get("texts") or [])[:2])[:40],
+                        "why": "本地 OCR：字幕带里上下两行是同一句（模型烧进的台词压在我方字幕下）"})
+    for r in pack_summary.get("burned_text_runs") or []:
+        w = _window(r.get("window"))
+        if w and len(out) < limit:
+            out.append({"kind": "burned_text", "window": [round(w[0], 2), round(w[1], 2)], "where": "画面",
+                        "text": str(r.get("text") or "")[:16],
+                        "why": "本地 OCR：画面里有不是我方字幕的字" + ("（乱码）" if r.get("garbled") else "")})
+    for i, row in enumerate(out[:limit]):
+        row["id"] = f"S{start_id + i + 1}"
+    return out[:limit]
+
+
+def asr_rows(asr: Any) -> list[dict[str, Any]]:
+    """{start, end, text, words[(w, s, e)]} from the final-cut ASR windows (list or {segments|windows}); voice-over
+    rows are left out (narration is not an on-screen voice)."""
+    rows = asr if isinstance(asr, list) else ((asr.get("segments") or asr.get("windows") or [])
+                                              if isinstance(asr, dict) else [])
+    out = []
+    for r in rows:
+        if not isinstance(r, dict) or str(r.get("presence") or "") == "VOICE_OVER":
+            continue
+        s, e = _num(r.get("start")), _num(r.get("end"))
+        if s is None or e is None:
+            continue
+        words = [(str(w.get("w") or w.get("word") or w.get("text") or ""), _num(w.get("s", w.get("start"))),
+                  _num(w.get("e", w.get("end")))) for w in r.get("words") or [] if isinstance(w, dict)]
+        out.append({"start": s, "end": e, "text": str(r.get("text") or ""),
+                    "words": [(w, a, b) for w, a, b in words if a is not None and b is not None]})
+    return out
+
+
+_NON_TEXT = re.compile(r"[\s\W_]+", re.UNICODE)
+STRAY_MIN_OVERLAP_S = 0.4
+STRAY_MIN_CHARS = 2
+#: heard text whose characters mostly belong to one planned line is that line spilling over a cut, not a stray voice
+STRAY_PLANNED_SHARE = 0.6
+
+
+def stray_voice_suspects(units: list[dict[str, Any]] | None, asr: Any, start_id: int,
+                         limit: int = 12) -> list[dict[str, Any]]:
+    """Speech the final-cut ASR hears inside units the plan gives NO line (``kind`` stray_voice, pass C): words
+    whose midpoint falls in the unit's window (whole rows overlapping >= STRAY_MIN_OVERLAP_S when there are no word
+    times), at least STRAY_MIN_CHARS characters, not mostly a planned line of the episode (a J-cut tail).
+    E24 (2026-11-23): 「丁师兄/去死吧」 in silent units -- the ASR heard them, Gemini did not report them."""
+    rows = asr_rows(asr)
+    planned = [set(_NON_TEXT.sub("", line)) for u in units or [] for line in u.get("_lines") or []]
+    out: list[dict[str, Any]] = []
+    for u in units or []:
+        if not u.get("silent") or u.get("start") is None or len(out) >= limit:
+            continue
+        a, b = float(u["start"]), float(u["end"])
+        heard, span = [], [None, None]
+        for r in rows:
+            if r["words"]:
+                hits = [(w, s, e) for w, s, e in r["words"] if a <= (s + e) / 2 <= b]
+            else:
+                hits = [(r["text"], r["start"], r["end"])] if min(b, r["end"]) - max(a, r["start"]) >= \
+                    STRAY_MIN_OVERLAP_S else []
+            for w, s, e in hits:
+                heard.append(w)
+                span = [s if span[0] is None else min(span[0], s), e if span[1] is None else max(span[1], e)]
+        text = _NON_TEXT.sub("", "".join(heard))
+        if len(text) < STRAY_MIN_CHARS:
+            continue
+        chars = set(text)
+        if any(len(chars & line) / len(chars) >= STRAY_PLANNED_SHARE for line in planned if line):
+            continue
+        out.append({"kind": "stray_voice", "unit": u["unit"],
+                    "window": [round(max(a, span[0]), 2), round(min(b, span[1]), 2)], "heard": text[:30],
+                    "why": "本地 ASR：计划里这个单元没有台词，却识别到人声（不是本集任何一句计划台词）"})
+    for i, row in enumerate(out):
+        row["id"] = f"S{start_id + i + 1}"
+    return out
 
 
 # ============================================================================================== prompts
@@ -395,7 +757,7 @@ def build_pass_prompt(pid: str, *, duration: float, context: dict[str, Any] | No
     cuts = _clip_rows(context.get("cuts") or [], window)
     if cuts and pid in ("A", "B", "D"):
         lines += ["", "实测镜头切点（逐镜头检查用）：", _json([[r["start"], r["end"]] for r in cuts])]
-    if pid == "A" and leads.get("burned_text_ocr"):
+    if pid == "A" and leads.get("burned_text_ocr") and not suspects.get("burned_text"):  # else a suspect below
         lines += ["", "本地 OCR 线索（可能有误，以你看到的为准）：", _json(_clip_rows(
             [{"start": (r.get("window") or [None, None])[0], "end": (r.get("window") or [None, None])[1],
               "text": r.get("text"), **({"garbled": True} if r.get("garbled") else {})}
@@ -421,8 +783,22 @@ def build_pass_prompt(pid: str, *, duration: float, context: dict[str, Any] | No
                  if c.get("appearance")]
         if cards:
             lines += ["", "角色（用于判断声音是否符合性别年龄）：", _json(cards)]
+    plan_rows = plan_prompt_rows(context.get("plan_units") or [], window) if pid == "D" else []
     if pid == "D":
-        if context.get("shots"):
+        if plan_rows:  # 2026-11-23 (device 1101 E24): the plan per unit, answered per unit (unit_parity)
+            cast = [{"label": c["label"], **({"appearance": c["appearance"]} if c.get("appearance") else {}),
+                     **({"wardrobe": c["wardrobe"]} if c.get("wardrobe") else {})}
+                    for c in context.get("cards") or [] if c.get("appearance") or c.get("wardrobe")]
+            lines += ["", "逐单元计划（生成合同；start/end 是这个单元在成片里的时间窗；where 地点、who 计划出场的人、does 计划的动作、"
+                      "props 道具、says 计划台词；名字已隐去）：", _json(plan_rows)]
+            if cast:
+                lines += ["角色外观（用来认人）：", _json(cast)]
+            lines += ["逐单元对照（本专审最重要的一项）：每个单元先看画面里实际是谁、在什么地方、在做什么、听到谁在说话，再和计划比："
+                      "地点像不像计划的地方；计划的人在不在，主被动/谁对谁做有没有反（例如计划是角色A拿刀逼角色B，画面却是刀架在"
+                      "角色A自己脖子上）；有没有多出计划里没有的人（或换成了别人）；关键道具在不在、是不是那个东西；计划的动作节拍"
+                      "有没有发生；计划无台词的单元有没有人说话。delivered：YES 计划内容拍出来了 / PARTIAL 只拍出一部分 / NO 没拍出来"
+                      "或拍成了别的意思。"]
+        elif context.get("shots"):
             lines += ["", "分镜表（每个视频单元：场次、时间窗、景别、出场角色、剧情节拍；名字已隐去）：",
                       _json(_clip_rows(context["shots"], window))]
         if craft:
@@ -439,6 +815,12 @@ def build_pass_prompt(pid: str, *, duration: float, context: dict[str, Any] | No
         lines += ["", "本地测量的可疑点，必须逐个用耳朵/眼睛核实并在 suspect_checks 里给结论（CONFIRMED 确有其事 / "
                   "DISMISSED 听看都正常 / UNSURE），给出你听到或看到的理由：",
                   _json({k: _clip_suspects(v, window) for k, v in own.items()})]
+        if own.get("burned_text"):
+            lines += ["burned_text：本地 OCR 读到的字。到那个时间窗看：除了我方字幕和片头片尾卡，画面里真有字（含乱码、第二行字幕）就是"
+                      "CONFIRMED，同时报 QA-BURNED-TEXT。"]
+        if own.get("stray_voice"):
+            lines += ["stray_voice：计划这里没有台词，本地 ASR 却听到人声。到那个时间窗听：确有人在说话（不是环境声、不是上一句台词"
+                      "的尾音）就是 CONFIRMED，写出听到了什么、画面里谁的嘴在动，并报 QA-WRONG-SPEAKER 或 OTHER。"]
     extra = ""
     if pid == "A":
         extra = ('"shot_log":[{"shot":1,"start":0.0,"end":0.0,"fail":["<本清单里这一镜没通过的类别>"],'
@@ -451,7 +833,12 @@ def build_pass_prompt(pid: str, *, duration: float, context: dict[str, Any] | No
     if pid == "C":
         extra = ('"line_log":[{"start":0.0,"end":0.0,"speaker":"角色A|男|女|旁白","tail":"ok|clipped|no_pause",'
                  '"lipsync":"ok|off|offscreen","level":"ok|jump"}],')
-    if pid == "D":
+    if pid == "D" and plan_rows:  # the per-unit rows replace the beat rows (same output budget)
+        extra = ('"craft_summary":{"opening_hook":{"at":0.0,"ok":true,"note":""},"ending_hook":{"ok":true,"note":""}},'
+                 '"unit_parity":[{"unit":"VU-001","delivered":"YES|PARTIAL|NO","reasons":["' +
+                 "|".join(PARITY_REASONS) + '"],"seen":"≤25字：画面里实际是谁、在哪、做什么","pacing":"ok|slow|rushed",'
+                 '"severity":"P0|P1|P2|P3"}],')
+    elif pid == "D":
         extra = ('"craft_summary":{"opening_hook":{"at":0.0,"ok":true,"note":""},"ending_hook":{"ok":true,"note":""},'
                  '"beats":[{"start":0.0,"end":0.0,"delivered":true,"pacing":"ok|slow|rushed","note":""}]},')
     lines += ["", "只输出 JSON：", ANSWER_SHAPE +
@@ -461,7 +848,10 @@ def build_pass_prompt(pid: str, *, duration: float, context: dict[str, Any] | No
                "类别，全部通过就写 []；先逐镜头写完再汇总 findings，fail 里出现的类别必须在 findings 里有对应条目。"
                + ("cast_compare 把本集同性别角色两两各列一行（distinct=false 表示看起来像同一个人，必须同时报 "
                   "QA-LOOKALIKE-CAST）。" if pid == "B" else "") if pid in ("A", "B") else
-               "line_log 每句台词一行，先逐句听完再汇总 findings。" if pid == "C" else ""),
+               "line_log 每句台词一行，先逐句听完再汇总 findings。" if pid == "C" else
+               ("unit_parity 每个计划单元一行，一个不漏（YES 的也写）；reasons 只写不符的原因（YES 写 []）；判 NO 的单元同时在 "
+                "findings 里报一条 QA-PLAN-MISMATCH。主被动反了、地点不对、计划的人不在或换成了别人、多出的人改变了剧情、"
+                "计划的关键节拍没发生 → P0；其余不符按观众影响给 P1-P3。") if plan_rows else ""),
               "severity：P0 必须返工 / P1 严重 / P2 一般 / P3 轻微。scope_hint：换成任何对白语言都会出现的问题（画面、剪辑、"
               "节奏、身份、服装、音乐）写 global；只和这种对白语言有关的（台词用词、口型、配音音色、字幕文字/断行）写 language。"]
     return "\n".join(lines)
@@ -650,6 +1040,8 @@ def parse_pass(text: str, *, pid: str, duration: float | None, offset: float = 0
            "verdict": verdict if verdict in ("PASS", "REJECT_RECUT") else None}
     if pid == "D" and isinstance(data.get("craft_summary"), dict):
         out["craft_summary"] = data["craft_summary"]
+    if pid == "D" and isinstance(data.get("unit_parity"), list):
+        out["unit_parity"] = parse_unit_parity(data["unit_parity"])
     if pid == "B" and isinstance(data.get("cast_compare"), list):
         out["cast_compare"] = [cast_compare_row(r, offset) for r in data["cast_compare"][:30] if isinstance(r, dict)]
     for log, keys in (("shot_log", ("shot", "who", "fail", "note")),
@@ -752,7 +1144,8 @@ def promote_line_log(log: list[dict[str, Any]], findings: list[dict[str, Any]]) 
 MERGE_TOLERANCE_S = 0.5
 
 
-def merge(results: dict[str, dict[str, Any]], suspects: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+def merge(results: dict[str, dict[str, Any]], suspects: dict[str, list[dict[str, Any]]],
+          plan: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """One backward-compatible record body from the passes' parsed results: findings (ids G1.. by time; the same class
     reported by two passes overlapping within MERGE_TOLERANCE_S folded, highest severity kept), suspect checks (every S id,
     NOT_ANSWERED when no pass answered it), class summary, the strictest verdict, craft summary."""
@@ -797,6 +1190,10 @@ def merge(results: dict[str, dict[str, Any]], suspects: dict[str, list[dict[str,
     craft = (results.get("D") or {}).get("craft_summary")
     if craft:
         out["craft_summary"] = craft
+    if plan:  # every planned unit's parity verdict (2026-11-23): final fix round + final_cut_shot_plan_parity read it
+        d = results.get("D") or {}
+        out["plan_parity"] = plan_parity_record(d.get("unit_parity"), plan,
+                                                answered=d.get("status") == "OK" and d.get("unit_parity") is not None)
     return out
 
 
@@ -838,8 +1235,12 @@ def split_suspects(suspects: dict[str, list[dict[str, Any]]]) -> dict[str, dict[
     """The S-ids each pass must answer: sound suspects (line tails, music) -> C; letterbox shots -> A; measured edit
     fragments / silent-speaker shots (s7_edit_invariants.measure_cut) -> D."""
     return {"A": {"letterbox": suspects.get("letterbox") or [], "skin_sheen": suspects.get("skin_sheen") or [],
-                  "camera_wobble": suspects.get("camera_wobble") or []},
-            "B": {}, "C": {"tail": suspects.get("tail") or [], "bgm": suspects.get("bgm") or []},
+                  "camera_wobble": suspects.get("camera_wobble") or [],
+                  # local OCR text runs (2026-11-23, E24): answered, not skimmed as a lead
+                  **({"burned_text": suspects["burned_text"]} if suspects.get("burned_text") else {})},
+            "B": {}, "C": {"tail": suspects.get("tail") or [], "bgm": suspects.get("bgm") or [],
+                           # ASR speech inside units the plan gives no line (2026-11-23, E24)
+                           **({"stray_voice": suspects["stray_voice"]} if suspects.get("stray_voice") else {})},
             "D": {"fragment": suspects.get("fragment") or []} if suspects.get("fragment") else {}}
 
 
@@ -956,6 +1357,7 @@ def run_passes(*, video: Path, duration: float, model: str, prices: dict[str, tu
         errors: list[str] = []
         verdicts: list[str | None] = []
         craft_summary = None
+        parity: list[dict[str, Any]] | None = None
         for m, res in sorted(rows, key=lambda r: (r[0]["window"] or (0, 0))[0]):
             usage = (res.get("payload") or {}).get("usageMetadata") or {}
             for k in ("promptTokenCount", "candidatesTokenCount", "thoughtsTokenCount", "totalTokenCount"):
@@ -991,19 +1393,24 @@ def run_passes(*, video: Path, duration: float, model: str, prices: dict[str, tu
             notes += parsed["parse_notes"]
             verdicts.append(parsed["verdict"])
             craft_summary = craft_summary or parsed.get("craft_summary")
+            if parsed.get("unit_parity") is not None:
+                parity = (parity or []) + parsed["unit_parity"]
         rec.update({"usage": usage_sum, "cost_credits": round(cost, 3)})
         ok_chunks = len(rows) - len(errors)
         if ok_chunks == 0:
             rec.update({"status": "ERROR", "reason": errors[0] if errors else "NO_ANSWER"})
             continue
+        if parity is not None:
+            rec["unit_parity"] = fold_unit_parity(parity)
+            found += promote_unit_parity(rec["unit_parity"], ctx.get("plan_units") or [], found)
         rec.update({"status": "OK", "findings": found, "suspect_checks": checks, "parse_notes": notes,
                     "verdict": "REJECT_RECUT" if "REJECT_RECUT" in verdicts else
                     ("PASS" if "PASS" in verdicts else None),
                     **({"partial_errors": errors} if errors else {}),
                     **({"craft_summary": craft_summary} if craft_summary else {})})
-    merged = merge(results, suspects)
+    merged = merge(results, suspects, ctx.get("plan_units") or None)
     summary = {p: {k: v for k, v in (results.get(p) or {}).items() if k not in ("findings", "suspect_checks",
-                                                                                   "craft_summary")}
+                                                                                   "craft_summary", "unit_parity")}
                | {"findings": len((results.get(p) or {}).get("findings") or [])} for p in passes}
     return {"plan": plan, "passes": summary, "merged": merged, "wall_s": wall,
             "cost_credits": round(sum((results.get(p) or {}).get("cost_credits") or 0.0 for p in passes), 3),

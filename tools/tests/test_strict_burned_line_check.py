@@ -329,6 +329,33 @@ class PipelineTest(unittest.TestCase):
         self.assertNotIn("duplicate_suppressed", row)
         self.assertEqual(ffr.s6_unresolved_findings([row])[0]["severity"], "P1")
 
+    def test_release_hold_reads_the_strict_verdict(self):
+        """#302 x #303: an unresolved burn whose unit S7 strictly ACCEPT_CORRECT-ed does not hold the X2C release;
+        a REJECT_WRONG one does (real BURNIN_SUBTITLES record -> final_fix_s6_rows -> finding -> release policy)."""
+        self.state({"hits": []})
+        ctx = SimpleNamespace(p=self.p, episode="E24")
+        report = self.p.assembly / "E24_BURNIN_SUBTITLES.json"
+
+        def policy(verdict, suppressed):
+            report.write_text(json.dumps({
+                "suppressed_duplicate_cues": ([{"unit_id": "E24-VU-004", "verdict": verdict}] if suppressed else []),
+                "burned_line_checks": [{"unit_id": "E24-VU-004", "verdict": verdict}]}), "utf-8")
+            row = self.npl.final_fix_s6_rows(ctx, {})["s6_burn_unresolved"][0]
+            findings = ffr.map_findings(ffr.s6_unresolved_findings([row]), [])
+            record = {"status": "DONE", "findings": findings,
+                      "unresolved": [{"kind": "BURNED_TEXT", "unit_id": "E24-VU-004", "state": "PERSISTS"}]}
+            return ffr.release_policy(ffr.objective_defects(record, runtime_s=100, target_s=110), env={})
+        accepted = policy("ACCEPT_CORRECT", True)
+        self.assertEqual((accepted["blocks"], accepted["classes"]), (False, ["BURN_UNRESOLVED"]))
+        rejected = policy("REJECT_WRONG", False)
+        self.assertEqual((rejected["blocks"], rejected["hold"]), (True, "RELEASE_HELD:BURN_UNRESOLVED"))
+        # the verdict list itself decides: a REJECT next to the ACCEPT still holds; legacy suppression alone holds
+        self.assertFalse(ffr.burn_accepted({"strict_burn_verdicts": ["ACCEPT_CORRECT", "REJECT_UNSTABLE"],
+                                            "duplicate_suppressed": True}))
+        self.assertFalse(ffr.burn_accepted({"duplicate_suppressed": True}))
+        self.assertFalse(ffr.burn_accepted({"unit_id": "U", "verdict": "REJECT_WRONG"}))
+        self.assertTrue(ffr.burn_accepted({"unit_id": "U", "verdict": "ACCEPT_CORRECT"}))
+
     def test_unit_lines_and_summary(self):
         self.p.grouping_plan.write_text(json.dumps({"units": [{"unit_id": "E24-VU-004",
                                                                "editorial_shot_ids": ["S1", "S2"]}]}), "utf-8")

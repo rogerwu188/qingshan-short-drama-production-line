@@ -290,7 +290,8 @@ class MergeTest(_Base):
                 self.assertIn(key, f)
         self.assertEqual(next(f for f in record["findings"] if f["item"] == "QA-LIPSYNC")["scope_hint"], "language")
         decisions = {c["id"]: c["decision"] for c in record["suspect_checks"]}
-        self.assertEqual(decisions, {"S1": "CONFIRMED", "S2": "NOT_ANSWERED", "S3": "CONFIRMED"})
+        # S4: the pack's OCR run is a pass-A suspect since 2026-11-23 (plan parity PR), unanswered by the fake pass A
+        self.assertEqual(decisions, {"S1": "CONFIRMED", "S2": "NOT_ANSWERED", "S3": "CONFIRMED", "S4": "NOT_ANSWERED"})
         self.assertEqual(record["verdict"], "REJECT_RECUT")
         self.assertEqual(record["craft_summary"]["opening_hook"]["at"], 0.5)
         self.assertAlmostEqual(record["cost_credits"], 4 * (20000 * 50.25e-6 + 2000 * 251.25e-6), places=2)
