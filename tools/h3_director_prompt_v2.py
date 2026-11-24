@@ -717,6 +717,10 @@ def _camera_entry(camera_plan: dict[str, Any], english: dict[str, str], *, one_t
             parts.append(v1.FIXED_CAMERA_POSITION)
         else:
             parts.append("The camera never moves: no pan, no zoom, no drift.")
+    elif camera_plan.get(v1.BILI_PUSH_IN_MARK):  # BILI_V1: the scene's one slow push-in (director_pass)
+        parts.append(f"{v1.BILI_PUSH_IN_CLAUSE[0].upper()}{v1.BILI_PUSH_IN_CLAUSE[1:]}, {head}." if head
+                     else f"{v1.BILI_PUSH_IN_CLAUSE[0].upper()}{v1.BILI_PUSH_IN_CLAUSE[1:]}.")
+        parts += [v1.ONE_TAKE] if stamped and one_take else []
     else:
         direction = str(camera_plan.get("motion_direction") or "NONE").upper()
         move = _MOVE_WORDS.get(family, "One motivated " + family.lower().replace("_", " ") + " move")
@@ -991,7 +995,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     # OTS_LISTENER_V1: someone whose face is hidden in every beat they are in uses the sheet for the look only
     face_hidden = {s["entity_id"]: ("BEHIND" if any(p.startswith("back") or "shoulder" in p
                                                     for p in s["partial"].values()) else "PARTIAL")
-                   for s in subjects if s["partial"] and len(s["partial"]) == len(s["present"])}
+                   for s in subjects if s["partial"] and len(s["partial"]) == len(s["present"])
+                   and set(s["partial"].values()) != {v1.SOFT_PROFILE_PART}}  # a soft profile shows the face
     reference_lines = _reference_lines(unit, plan, onscreen=onscreen_ids, people=len(people), beings=len(beings),
                                        exact_first_frame=stamped, face_hidden=face_hidden)
     if stamped and people and any("'s face and body." in line or "'s face only" in line or "character sheet of one" in line
@@ -1076,6 +1081,7 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
             for index, part in sorted(s["partial"].items()):
                 window = _span((float(beats[index]["start_seconds"]), float(beats[index]["end_seconds"])))
                 line += (f" {window}: {v1.ots_clause(s['label'])}." if part == v1.OTS_PART else
+                         f" {window}: {v1.soft_profile_clause(s['label'])}." if part == v1.SOFT_PROFILE_PART else
                          f" {window}: only {s['label']}'s {part} in frame; {s['label']}'s face is not shown."
                          if part else f" {window}: {s['label']}'s face stays out of frame.")
             lines.append(line)
@@ -1581,6 +1587,7 @@ def director_v2_self_check(text: str, unit: dict[str, Any], plan: dict[str, Any]
         for row in rows:
             label = row["label"] or subject_label(unit, plan, row["entity_id"])
             expected = (f"{window}: {v1.ots_clause(label)}" if row["part"] == v1.OTS_PART
+                        else f"{window}: {v1.soft_profile_clause(label)}" if row["part"] == v1.SOFT_PROFILE_PART
                         else f"{window}: only {label}'s {row['part']} in frame" if row["part"]
                         else f"{window}: {label}'s face stays out of frame")
             if expected not in text:

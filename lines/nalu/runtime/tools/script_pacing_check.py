@@ -1113,9 +1113,27 @@ def integrity_failures(contract: dict[str, Any], language: str | None = None,
     return failures
 
 
+#: craft_profile BILI_V1 (line owner 2026-11-23, cheap reaction rule; CHANGE_SPEC WP3, supersedes PR #325's 1-in-5
+#: silent reaction share): every ATTACK / REVEAL / PUNCHLINE / TURN / PAYOFF line is followed by the listener's reaction
+#: -- in frame (a), as the next shot's lead-in (b), or a dedicated silent CU (c, <= 3 per episode).  Taste codes;
+#: LEGACY never sees them (REACTION_BEAT_UNCOVERED / DEDICATED_REACTION_OVER, measured by
+#: director_pass.reaction_coverage in evaluate()).
+def _director():
+    import director_pass as _dp  # noqa: PLC0415 -- same directory (BILI_V1 only)
+    return _dp
+
+
 # --------------------------------------------------------------------------- evaluate
 #: failure code -> one-line fix the writer can act on (no story text; language-agnostic)
 FIXES = {
+    "REACTION_BEAT_UNCOVERED": "after every attack / reveal / punchline / turn line, show the person it lands on react: "
+                               "(a) in the same shot, as the over-the-shoulder / two-shot listener "
+                               "(action.listener_reaction + listener_reaction_en, hands and props allowed), or (b) as "
+                               "the first 1-2 s of their own next line (action.lead_in_reaction + lead_in_reaction_en); "
+                               "a dedicated silent reaction close-up only after a key reveal, turn or the ending",
+    "DEDICATED_REACTION_OVER": "at most 3 dedicated silent reaction close-ups per episode, only after a REVEAL / TURN / "
+                               "ENDING beat; move the others into the shot (listener in frame) or the next line's "
+                               "lead-in",
     "FIRST_CONFLICT_LATE": "open mid-conflict: the first shot is already the insult / reveal / danger (<= 3 s)",
     "TOO_FEW_TURNS": "pull more plot events into the episode (cut filler, merge scenes, take the next chapters)",
     "TURN_GAP_TOO_LONG": "add an escalation / reversal / reveal inside the longest gap (one turn per 20-30 s)",
@@ -1165,7 +1183,7 @@ FIXES = {
 }
 
 
-def _bili_v1(contract: dict[str, Any], craft_profile: str | None) -> bool:
+def _bili_v1(contract: dict[str, Any], craft_profile: str | None = None) -> bool:
     """BILI_V1 craft profile (CHANGE_SPEC WP1): the caller's resolved profile, else the contract's own declaration."""
     try:
         try:
@@ -1238,6 +1256,14 @@ def evaluate(contract: dict[str, Any], language: str | None = None,
         failures.append(f"BACK_TO_BACK_MONOLOGUE:{len(m['monologue_runs'])}")
     for sid in m["scenes_without_action"][:6]:
         failures.append(f"SCENE_TALK_ONLY:{sid}")
+    if bili:
+        # BILI_V1 only: the owner's cheap reaction rule (taste: REVISE, admitted after MAX_REVISIONS)
+        cov = _director().reaction_coverage(contract)
+        m["reaction_coverage"] = cov
+        failures.extend(f"REACTION_BEAT_UNCOVERED:{sid}" for sid in cov["uncovered"][:6])
+        if cov["dedicated_count"] > cov["dedicated_max"]:
+            failures.append(f"DEDICATED_REACTION_OVER:{cov['dedicated_count']}>{cov['dedicated_max']}")
+        warnings.extend(f"DEDICATED_REACTION_MISPLACED:{sid}" for sid in cov["misplaced_dedicated"][:4])
     if m["scene_plan_missing"]:
         failures.append(f"SCENE_PLAN_MISSING:{len(m['scene_plan_missing'])}")
     if not m["ending"]["unresolved"]:

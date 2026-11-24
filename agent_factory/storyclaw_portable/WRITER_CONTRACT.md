@@ -296,16 +296,32 @@ blocking check; direct the episode the way people watch films:
   Never write the speaker turning to look at a window / door / off-screen object, or "eyes fixed on X", inside a
   speaking shot: H3 pans to reveal what they look at and loses the speaker (line owner 2026-10-24, lab Holmes E03).
   A look at something gets its own silent shot, or an insert of the thing.
-- **Reactions carry the scene (2026-11-23 Bilibili benchmark, a well-received AI romcom: ~25 % of its shots are
-  silent reactions; our episodes had 0–9 %).** About one shot in five is a silent close-up of the person a line
-  lands on (`beat_role: REACTION`, `REACTION_CUT` in, 1.5–2.5 s in the edit): after every accusation, insult,
-  punchline or reveal, not only after payoffs. The face does the work — eyes widen, a slow blink, jaw sets, lips
-  press, a glance away and back — never a hand gesture; add `sound_bridge_from_previous_seconds` so the line's tail
-  plays over it. The episode ends on faces: after the cliffhanger line, one or two silent reaction close-ups
-  (≤ 2 s each) of the people it hits, the strongest last. Script self-check advisory `REACTION_SHOTS_FEW` (never
-  blocks). Each reaction is a 4 s H3 unit (~4–5 credits + its keyframe); keep the authored runtime by trimming
-  talk, not by adding minutes.
-- **Comic beats are played straight** (same benchmark; only where the source or the series is comic — never turn a
+- **`craft_profile: BILI_V1` series only — TV coverage (line owner 2026-11-23, Bilibili benchmark ep2 + ep3,
+  `docs/knowledge/CRAFT_PROFILE.md`; every other series ignores this item and keeps the rules above).** The L4
+  director pass (`lines/nalu/runtime/tools/director_pass.py`, run at S1) frames your shots; it never changes a line,
+  an action, a prop or the order (`DIRECTOR_CHANGED_CONTENT` is integrity).
+  (1) Dialogue default: one speaker per unit, the listener stays in frame — over-the-shoulder
+  (`face_visibility: OTS_LISTENER`, back of the head and one shoulder) or a soft-focus profile (`SOFT_PROFILE`);
+  never two sharp front faces while one speaks; the listener's mouth stays closed. Declare the listener as
+  `dialogue_listener_id`; the director adds the OTS row when you leave it out, and keeps whatever you declare.
+  (2) While speaking, ONE continuous small action is allowed (holds, eats, rubs hands, adjusts glasses or
+  sunglasses, turns a token, rubs the neck, wipes tears, counts on fingers): write it in the shot's action with the
+  hand and the object. A large action (enters, walks, grabs, shoves) still gets its own shot.
+  (3) Camera locked by default; ONE slow push-in per scene (about 10 %), on the line you mark as the scene's
+  hardest: `prompt_spec.hardest_line: true` on exactly one speaking shot per scene (a `beat_role: TURN` line is
+  used when nothing is marked). S7 never stabilises it away. An object-first entrance (`prompt_spec.object_first`)
+  is that scene's one move instead.
+  (4) Reactions (owner's cheap rule): after every `ATTACK` / `REVEAL` / `PUNCHLINE` / `TURN` / `PAYOFF` line the
+  person it lands on reacts — (a) in the same shot as the in-frame listener (`action.listener_reaction` +
+  `listener_reaction_en`; hands and props are fine), else (b) in the first 1–2 s of that person's next line
+  (`action.lead_in_reaction` + `lead_in_reaction_en`; the director adds 1.5 s to that shot), else (c) a dedicated
+  silent reaction close-up (`beat_role: REACTION`, ≥ 4 s billed): at most 3 per episode, only after a `REVEAL` /
+  `TURN` / `ENDING` beat. S1 taste codes `REACTION_BEAT_UNCOVERED`, `DEDICATED_REACTION_OVER` (revise loop, then
+  admitted). Keep the `sound_bridge_from_previous_seconds` L-cut onto a reaction.
+  (5) Silence: one music passage per episode — 3–4 silent shots tagged `beat_role: MUSIC_PASSAGE`, ≤ 8 s together;
+  other silent runs ≤ 4 s. The dialogue-time ratio is reported against 50–75 % and no longer fails (the 0.75 floor
+  does not apply).
+- **Comic beats are played straight** (`craft_profile: BILI_V1` series only; same benchmark; only where the source or the series is comic — never turn a
   serious series comic). The characters never know it is funny: absurd or petty stakes said with full melodrama
   (tears, oaths, slow push of emotion), deadpan against hysteria (one explodes, the other answers flat), and an
   argument that escalates by ever more specific evidence (names, numbers, a remembered detail) until the most

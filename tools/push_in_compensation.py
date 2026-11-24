@@ -48,6 +48,9 @@ MONOTONE_RESIDUAL_MAX = 0.12
 MIN_DET_SCORE = 0.6
 MIN_FACE_HEIGHT_RATIO = 0.04
 LOCKED_FAMILIES = {"STATIC", "LOCKED"}
+#: craft_profile BILI_V1 (CHANGE_SPEC WP3): director_pass marks the scene's one authored slow push-in; such a unit is
+#: never a "locked unit that drifted", whatever its family says
+AUTHORED_PUSH_IN_MARK = "bili_slow_push_in"
 
 
 # --------------------------------------------------------------------------------------------------------------
@@ -156,6 +159,8 @@ def locked_camera_unit(unit: dict[str, Any]) -> bool:
     plans = [unit.get("camera_plan")] + [row.get("camera_plan", row) for row in unit.get("per_shot_camera_plans") or []
                                          if isinstance(row, dict)]
     plans = [p for p in plans if isinstance(p, dict)]
+    if any(p.get(AUTHORED_PUSH_IN_MARK) for p in plans):
+        return False  # BILI_V1: the scene's authored slow push-in is the shot, never compensated away
     return bool(plans) and all(str(p.get("motion_family") or "STATIC").upper() in LOCKED_FAMILIES for p in plans)
 
 

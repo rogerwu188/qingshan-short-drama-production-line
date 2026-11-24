@@ -151,20 +151,49 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(m["adaptation"]["source_chapter_count"], 3)
         self.assertAlmostEqual(m["beats_per_minute"], round(5 * 60 / m["duration_seconds"], 2))
 
-    def test_reaction_shot_share_is_measured_and_only_advisory(self) -> None:
-        # 2026-11-23 Bilibili benchmark: ~1 shot in 5 is a silent listener reaction; advisory, never a failure
-        slow = sp.evaluate(slow_contract("zh"))
-        self.assertEqual(slow["metrics"]["reaction_shot_count"], 0)
-        self.assertIn("REACTION_SHOTS_FEW:0/24", slow["warnings"])
-        self.assertFalse(any(f.startswith("REACTION_SHOTS_FEW") for f in slow["failures"]))
-        c = slow_contract("zh")
-        for i in range(0, 24, 4):  # every 4th shot becomes a silent reaction close-up
-            c["shots"][i]["prompt_spec"].update({"dialogue": "", "beat_role": "REACTION"})
+    def test_reaction_beats_follow_attacks(self) -> None:
+        # WP3 (owner's cheap rule, supersedes PR #325's 1-in-5 silent reaction share): BILI_V1 only, taste codes
+        legacy = sp.evaluate(punchy_contract("zh"))
+        self.assertNotIn("reaction_coverage", legacy["metrics"])
+        self.assertFalse(any(c.startswith(("REACTION_", "DEDICATED_REACTION")) for c in
+                             legacy["failures"] + legacy["warnings"]))
+        c = punchy_contract("zh")
+        c["craft_profile"] = "BILI_V1"
+        line = c["shots"][1]["prompt_spec"]
+        line["beat_role"] = "ATTACK"
+        line["role_semantic_disambiguation"] = {"dialogue_speaker_id": "CHAR-LIN", "dialogue_listener_id": "CHAR-ZHOU"}
+        r = sp.evaluate(c)
+        self.assertIn(f"REACTION_BEAT_UNCOVERED:{c['shots'][1]['shot_id']}", r["failures"])
+        self.assertNotIn("REACTION_BEAT_UNCOVERED", sp.integrity_blocker_codes(r))  # taste, not integrity
+        # (a) the listener reacts in frame, in the same shot
+        line["action"] = {"listener_reaction_en": "Zhou's jaw sets; he pockets the ledger"}
+        self.assertFalse(any(f.startswith("REACTION_BEAT_UNCOVERED") for f in sp.evaluate(c)["failures"]))
+        # (b) the next shot opens on Zhou's lead-in reaction before he speaks
+        del line["action"]
+        nxt = c["shots"][2]
+        nxt["prompt_spec"].update({"dialogue": "周默：花了。", "beat_role": "",
+                                   "action": {"lead_in_reaction_en": "Zhou freezes, then exhales"},
+                                   "role_semantic_disambiguation": {"dialogue_speaker_id": "CHAR-ZHOU"}})
         m = sp.evaluate(c)
-        self.assertEqual(m["metrics"]["reaction_shot_count"], 6)
-        self.assertAlmostEqual(m["metrics"]["reaction_shot_ratio"], 0.25)
-        self.assertFalse(any(w.startswith("REACTION_SHOTS_FEW") for w in m["warnings"]))
-        self.assertEqual(slow["status"], sp.evaluate(slow_contract("zh"))["status"])
+        self.assertFalse(any(f.startswith("REACTION_BEAT_UNCOVERED") for f in m["failures"]))
+        self.assertEqual(m["metrics"]["reaction_coverage"]["covered"][c["shots"][1]["shot_id"]], "B_LEAD_IN")
+
+    def test_dedicated_reaction_cap(self) -> None:
+        c = punchy_contract("zh")
+        c["craft_profile"] = "BILI_V1"
+        # punchy has five silent REACTION shots (one per scene), each after a PAYOFF, not a REVEAL / TURN
+        r = sp.evaluate(c)
+        self.assertIn("DEDICATED_REACTION_OVER:5>3", r["failures"])
+        self.assertTrue(any(w.startswith("DEDICATED_REACTION_MISPLACED:") for w in r["warnings"]))
+        for s in c["shots"]:
+            if s["prompt_spec"].get("beat_role") == "PAYOFF":
+                s["prompt_spec"]["beat_role"] = "REVEAL"
+        for s in [s for s in c["shots"] if s["prompt_spec"].get("beat_role") == "REACTION"][3:]:
+            s["prompt_spec"]["beat_role"] = ""
+        r = sp.evaluate(c)
+        self.assertFalse(any(f.startswith("DEDICATED_REACTION_OVER") for f in r["failures"]))
+        self.assertFalse(any(w.startswith("DEDICATED_REACTION_MISPLACED") for w in r["warnings"]))
+        self.assertEqual(r["metrics"]["reaction_coverage"]["dedicated_count"], 3)
 
     def test_talk_only_scene_and_unknown_turn_type(self) -> None:
         c = punchy_contract("zh")

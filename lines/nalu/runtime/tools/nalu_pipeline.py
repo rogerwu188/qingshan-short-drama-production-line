@@ -2082,7 +2082,7 @@ def s1_direction_policy(ctx: Ctx, p: Any, *, in_flight: bool = False) -> tuple[d
     try:
         import direction_policy_gate as _dpg  # noqa: PLC0415 -- engine tools/ is on sys.path
         contract = read_json(p.contract, {}) or {}
-        report = _dpg.evaluate(contract, _dpg.load_policy(ENGINE / DIRECTION_POLICY_CONFIG))
+        report = _dpg.evaluate(contract, _dpg.load_policy(ENGINE / DIRECTION_POLICY_CONFIG), ctx_craft_profile(ctx))
         out = p.logs / f"{ctx.run_id}_direction_policy_gate.json"
         write_json(out, report)
         failures = _dpg.integrity_failures(report)
@@ -2290,6 +2290,37 @@ def s1_screenplay_compile(ctx: Any, p: Any) -> dict[str, Any]:
         return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}", "blockers": []}
 
 
+def s1_director_pass(ctx: Any, p: Any) -> tuple[dict[str, Any] | None, list[str]]:
+    """BILI_V1 only (CHANGE_SPEC WP3): the L4 director pass (director_pass.py) sets framing -- OTS listener,
+    one slow push-in per scene on the writer's hardest line, lead-in seconds -- before S1 hashes the layers.  It may
+    not change L3 content: a content-hash mismatch is the INTEGRITY blocker DIRECTOR_CHANGED_CONTENT and nothing is
+    written.  Only before any paid stage ran; the original contract is kept beside it.  LEGACY: (None, []), nothing
+    read or written.  Never raises."""
+    if ctx_craft_profile(ctx) != "BILI_V1":
+        return None, []
+    try:
+        if s1_pacing_in_flight(p):
+            return {"status": "SKIPPED_PAID_STAGE_RAN"}, []
+        import director_pass as _dp  # noqa: PLC0415 -- same directory
+        contract = read_json(p.contract, None)
+        if not isinstance(contract, dict):
+            return {"status": "NO_CONTRACT"}, []
+        directed, report = _dp.direct(contract, force=True)
+        write_json(p.logs / f"{ctx.run_id}_director_pass.json", report)
+        if report.get("integrity_failures"):
+            return {"status": "FAIL", "integrity_failures": report["integrity_failures"]}, [
+                f"SCRIPT_INTEGRITY_FAIL:{code}" for code in report["integrity_failures"]]
+        if directed is not contract and directed != contract:
+            backup = p.contract.with_name(p.contract.stem + ".pre_director.json")
+            if not backup.exists():
+                backup.write_bytes(p.contract.read_bytes())
+            write_json(p.contract, directed)
+        return {"status": "PASS", "applied": len(report.get("applied") or []),
+                "advisories": (report.get("advisories") or [])[:12], "metrics": report.get("metrics")}, []
+    except Exception as exc:  # noqa: BLE001 -- the director pass must never break S1
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}"}, []
+
+
 def s1_script_pacing(ctx: Ctx, p: Any, *, others_ok: bool) -> tuple[dict[str, Any], list[str]]:
     """SHORT_DRAMA_PACING_V1 at S1: (episode-record row, blockers).  The policy is the default of every contract
     (an explicit ``pacing_policy: OFF`` opts out; a default-policy episode already past a paid stage is
@@ -2364,6 +2395,7 @@ def stage_s1(ctx: Ctx) -> StageResult:
         res.blockers = translation
         return res
     scene_order_repair = s1_repair_scene_order(ctx, p)
+    director_pass, director_blockers = s1_director_pass(ctx, p)  # BILI_V1 only (WP3); LEGACY: (None, [])
     layer_shas = {name: sha256_file(path) for name, path in p.layers().items()}
 
     length = script_length_check(ctx)
@@ -2382,6 +2414,7 @@ def stage_s1(ctx: Ctx) -> StageResult:
         integrity_blockers += list(screenplay_compile.get("blockers") or [])
         layer_shas = {**layer_shas, **{f"screenplay_{k}": v for k, v in (screenplay_compile.get("inputs") or {})
                                        .items()}}
+    integrity_blockers += director_blockers
     in_flight = s1_pacing_in_flight(p)
     direction_policy, direction_blockers = s1_direction_policy(ctx, p, in_flight=in_flight)
     integrity_blockers += direction_blockers
@@ -2588,6 +2621,8 @@ def stage_s1(ctx: Ctx) -> StageResult:
         if screenplay_compile.get("marker"):
             res.details["screenplay_en_fallback"] = screenplay_compile["marker"]
             s1_integrity_fleet_note(ctx, screenplay_compile["marker"])
+    if director_pass is not None:
+        res.details["director_pass"] = director_pass
     res.details["script_length"] = length
     res.details["direction_policy_gate"] = direction_policy
     res.details["script_review_independence"] = script_review_independence_row(writer_capability, p.contract)
@@ -11271,6 +11306,12 @@ def s7_camera_stabilize(ctx: Ctx, res: StageResult) -> Path | None:
                if "error" not in r and r.get("dialogue_unit") and not r.get("locked_off")]
     # ... plus units whose kept S6 take still wobbles (h3_camera_wobble): MILD ones only, crop <= 5 %
     wobble_targets = [uid for uid in s7_wobble_stabilize_units(ctx) if uid not in targets]
+    # BILI_V1 (WP3): the scene's authored slow push-in is the shot -- a lock-off pass would undo it
+    authored_push = s7_authored_push_in_units(grouping)
+    if authored_push:
+        targets = [uid for uid in targets if uid not in authored_push]
+        wobble_targets = [uid for uid in wobble_targets if uid not in authored_push]
+        detail["authored_push_in_units_kept"] = sorted(authored_push)
     detail["stabilize_targets"] = targets
     if wobble_targets:
         detail["wobble_stabilize_targets"] = wobble_targets
@@ -11322,6 +11363,22 @@ def s7_camera_stabilize(ctx: Ctx, res: StageResult) -> Path | None:
     detail["changed_units"] = [Path(str(r.get("source"))).stem for r in changed]
     res.receipts.append(str(summary))
     return summary
+
+
+def s7_authored_push_in_units(grouping: Path) -> set[str]:
+    """Units whose camera plan carries director_pass's BILI_V1 slow push-in mark (camera_plan.bili_slow_push_in).
+    Empty for every LEGACY episode (nothing carries the mark).  Never raises."""
+    try:
+        plan = read_json(grouping, {}) or {}
+        out = set()
+        for unit in plan.get("units") or []:
+            plans = [unit.get("camera_plan")] + [row.get("camera_plan", row) for row in
+                                                 unit.get("per_shot_camera_plans") or [] if isinstance(row, dict)]
+            if any(isinstance(p, dict) and p.get("bili_slow_push_in") for p in plans):
+                out.add(str(unit.get("unit_id")))
+        return out
+    except Exception:  # noqa: BLE001 - advisory
+        return set()
 
 
 def s7_wobble_stabilize_units(ctx: Ctx) -> list[str]:
@@ -11634,8 +11691,10 @@ def s7_camera_motion_gate(ctx: Ctx, res: StageResult) -> dict[str, Any] | None:
     summary = payload.get("summary") or {}
     failing: list[str] = []
     share = summary.get("locked_off_share")
-    if share is None or float(share) < 0.70:
-        failing.append(f"CAMERA_LOCKED_OFF_SHARE_BELOW_70PCT:{share}")
+    # 0.70; BILI_V1 (one slow push-in per scene, WP3) measures against camera_motion_metrics' lowered target
+    floor = float((summary.get("targets") or {}).get("locked_off_share_min") or 0.70)
+    if share is None or float(share) < floor:
+        failing.append(f"CAMERA_LOCKED_OFF_SHARE_BELOW_{round(floor * 100)}PCT:{share}")
     if int(summary.get("unstable_reversal_ge_1_per_s") or 0) > 0:
         failing.append(f"CAMERA_UNSTABLE_UNITS:{summary.get('unstable_reversal_ge_1_per_s')}")
     if step["exit_code"] != 0 or not summary:

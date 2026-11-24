@@ -10,5 +10,12 @@
     "h3_provider_prompt_renderer: LOCKED plan -> fixed camera position sentence; moving plan -> one direction only, never reverses; beats of a dialogue unit without a dialogue literal carry an explicit no-speech instruction (K138); a line of <= 4 characters is delivered over at least one full second",
     "prompt_batch_qa: vp_dialogue_unit_locked_camera, vp_camera_move_single_direction, vp_silent_beats_declared"
   ],
-  "acceptance": {"locked_off_share_min": 0.70, "unstable_reversal_per_s_units_max": 0, "measured_by": "lines/nalu/runtime/tools/camera_motion_metrics.py (S7 FINAL-CUT-CAMERA-MOTION)"}
+  "acceptance": {"locked_off_share_min": 0.70, "unstable_reversal_per_s_units_max": 0, "measured_by": "lines/nalu/runtime/tools/camera_motion_metrics.py (S7 FINAL-CUT-CAMERA-MOTION)"},
+  "profile_overrides": {
+    "BILI_V1": {
+      "authority": "Line owner 2026-11-23 (Bilibili benchmark ep2 + ep3, CHANGE_SPEC WP3 rule 3): one slow push-in per scene (about 1 unit in 5), on the line the writer marks as the scene's hardest; craft_profile BILI_V1 only",
+      "locked_off_share_min": 0.55,
+      "push_in_marker": "camera_plan.bili_slow_push_in (lines/nalu/runtime/tools/director_pass.py); never undone by S7 push-in compensation"
+    }
+  }
 }

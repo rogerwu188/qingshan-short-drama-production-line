@@ -186,15 +186,15 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 - 对白镜 4–5 s，一句一镜（线主 2026-10-26，CAMERA_GRAMMAR_V1；2026-10-29 视频改走 HopsAPI 后下限 4 s；同一人的连续几句按上一条并成 ≤12 s 的独白组）：编译器把画内对白镜定为「估算说话时长 + 0.5 s」取整秒（4–5 s，`tools/speaking_unit_duration.py`，报告在编辑清单 `speaking_unit_duration_report`）。
   写台词时每句写成说出来约 3.5 s（线主 2026-10-29，实验集 E08：英文约 9–11 词、中文约 14–16 字）；更短的台词在同一镜给说话人一个有表演的动作，或并到同一说话人的下一句，不要让 H3 自己用乱码填时间（S7 头尾剪裁只是兜底）。**线主 2026-11-02 改定（实验集化神 E01）：保留原著的短句（短句保持短，措辞仍按台词门改成口语），不要为凑 4 s 加词**——生成仍请求 4 s，S7 剪到表演（`tools/performance_cut.py`：留第一个台词字前 0.15 s 到最后一个台词字后 0.4 s，H3 补的话、重说的台词、无台词单元里的说话声在头尾剪掉，最短 1.2 s，报告 `assembly/<EP>_PERFORMANCE_CUT.json`），成片短镜头约 2–3 s；同一人同机位连续台词首尾相接排时间，不再每句 4 s。估算 < 2.8 s 的台词只是提示（`advisory: SHORT_LINE_OK_S7_CUTS_TO_PERFORMANCE`；写手自查 advisories `R11_SHORT_LINE_OK_S7_CUTS`）。无台词插入镜最短 4 s。细则见 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` §5。
   一句估算超过 4.5 s（含标点停顿，英文约 12 词、中文约 17 字以上）放不进 5 s：**写手必须拆成两镜**（正典里这句台词一字不改，在自然停顿处断开）；编译器不拦，只记 `WRITER_SPLIT_REQUIRED_*`，写手时长超出台词 1.5 s 以上会被自动缩短。
-  无台词的动作（推门、走位、取物）单独写一镜，不和台词放在同一镜。
+  无台词的动作（推门、走位、取物）单独写一镜，不和台词放在同一镜。（`craft_profile: BILI_V1` 系列：说话时可带一个持续小动作，大动作仍单独一镜，见下文 BILI_V1 一条。）
 - 每镜 `prompt_spec.camera_plan` 全字段（shot_scale/camera_height/camera_side/motion_family/motion_direction/lens_intent/axis_relation/start_framing/end_framing/motivation）；
   LOCKED 起止取景相同、运动镜不同。
 - **运镜语法 CAMERA_GRAMMAR_V1**（2026-10-22 起新封版的合同；storyclaw finalize 自动在合同顶层补
   `"camera_grammar_policy": "CAMERA_GRAMMAR_V1"`；之前已封版的集仍按旧规则）。新规则不加任何阻断门，只是导演写法：
   - 机位不再「必须动」，相邻单元也不必换方向（只保留原有的「相邻同族同向」不许）；静态设计门的 R1–R4/R6/R7 对这些集只提示（`advisories`）不阻断。
   - 运镜要有理由：跟人、揭示、强调或主观视角；没有理由就用 LOCKED 或慢推（DOLLY PUSH_IN），让动作在构图里发生，别为了「动」去扫空墙、让人出画再回。
-  - 每个新地点前 2 镜给一个建立镜（WIDE / MEDIUM_WIDE）；同场同一景别连续不超过 2 镜（同机位对白接力除外）。
-  - **对白不逐句切**（线主 2026-10-23）：一个单元仍只一个说话人，但 ① 两人来回的连续几句用同一个双人镜（两人都在画、
+  - ~~每个新地点前 2 镜给一个建立镜~~（已被 C-01 取代，线主 2026-11-17：不写建立镜，空间靠冲突中的第一个过肩双人镜交代）；同场同一景别连续不超过 2 镜（同机位对白接力除外）。
+  - **对白不逐句切**（线主 2026-10-23；①的「同一个双人镜两人都在画」已被 C-07 取代：说话镜只拍说话人或过肩，BILI_V1 系列见下文）：一个单元仍只一个说话人，但 ① 两人来回的连续几句用同一个双人镜（两人都在画、
     camera_side/shot_scale/camera_height 不变），单元之间写 CONTINUOUS_ACTION，接上一单元尾帧，看着是一条镜头；
     ② 开场双人镜/中景，只在情绪转折切近到单人/近景，最狠一句给最紧的镜头，同一人连说留在同一镜，听者无声反应只在「反应就是戏」时才切；
     ③ L-cut：说话镜后紧跟的无对白反应镜（下一个单元）可写 `prompt_spec.transition.sound_bridge_from_previous_seconds`（0.3–2.0 s），
@@ -207,6 +207,12 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
   - 剧本是「切」的地方就写切（`internal_transition_authoring` 用 MOTIVATED_CUT/REACTION_CUT/MATCH_CUT/HARD_CUT）：
     该单元会用自己的关键帧起幅，不从上一单元尾帧漂过去（每个切点多一张关键帧，约 11 积分）；连续动作写 CONTINUOUS_ACTION/CAMERA_REFRAME 接尾帧。
 - H3 出视频的集按 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` 改编剧本（每拍分桶、≤2 人、无脸存在登记为 CREATURE 并写长相、服装写成文字、对白说话镜只拍说话人、双人镜留给无台词时刻、转折才切）。
+- **`craft_profile: BILI_V1` 系列（线主 2026-11-23，B 站对标；其它系列照上文）：电视剧式对白覆盖**，细则 GUIDE §5.2 / WRITER_CONTRACT BILI_V1 条。
+  S1 导演层 `lines/nalu/runtime/tools/director_pass.py` 只排景别/听者/运镜/时长，不改台词、动作、道具、镜序（改了 = integrity `DIRECTOR_CHANGED_CONTENT`）。
+  说话镜默认过肩：说话人正脸、听者 `OTS_LISTENER`（后脑+肩）或 `SOFT_PROFILE`（虚焦侧脸），绝不两张清晰正脸；说话时可带一个持续小动作（拿着/吃/搓手/推眼镜/转令牌/揉脖子/擦泪/掰手指），大动作单独一镜；
+  每场一个缓慢推近（约 10%），在写手标的最难一句（`prompt_spec.hardest_line: true`，每场一镜）；S7 锁定稳定不会抹掉它，成片锁定占比门槛 55%；
+  反应按省钱规则：同镜听者 `listener_reaction(_en)` → 下一句开头 1–2 s `lead_in_reaction(_en)` → 关键揭示/转折/结尾才给无声反应特写（每集 ≤3）；
+  每集一段音乐段落（3–4 个无台词镜 `beat_role: MUSIC_PASSAGE`，合计 ≤8 s），其它无台词段 ≤4 s；对白占比只报告（50–75%），不再按 0.75 拦；双人单元最长 12 s。
 - `state_delta_dimensions` 只能取 POSITION/POSTURE/CONTACT/POSSESSION/INTEGRITY/MOMENTUM，且 entry/exit 证据要不同；entry/completion 各 ≥ 6 字。
   每个镜头都要有（S5 `keyframe_entry_state_gate` 对空维度无条件拒绝）。`state_delta_mode: STATIC_POSTURE_PERFORMANCE` 只给对白镜用；无对白的「静立 + 环境在动」揭示镜不能靠运镜过关，要让一个已登记主体（人物，或没有人物时的生物/道具卡）真的变一次：转头、跨一步、放下手里的东西。
 - 每个 scene_state：`ambient_life{grade A|B|C, motion_trend, first_frame_state, reaction_progression}` 和 `weather_provenance{source_type, source_ref, visibility_mode}`。

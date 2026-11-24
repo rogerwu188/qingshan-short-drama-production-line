@@ -346,6 +346,19 @@ def _episode_render_style(episode: str) -> str:
     return _render_style.resolve_runtime(episode, contract=contract if isinstance(contract, dict) else None)
 
 
+def _episode_craft_profile(episode: str) -> str:
+    """contract -> brief -> qingshan.json (craft_profile.py); LEGACY when nothing can be read."""
+    try:
+        import craft_profile as _cp  # noqa: PLC0415 -- same directory
+        try:
+            contract = read_json(QaPaths(episode).contract)
+        except (Exception, SystemExit):  # noqa: BLE001
+            contract = None
+        return _cp.resolve_runtime(episode, contract=contract if isinstance(contract, dict) else None)
+    except Exception:  # noqa: BLE001 -- advisory block
+        return "LEGACY"
+
+
 def script_pacing_context(episode: str) -> dict[str, Any]:
     """The S1 script pacing record (SHORT_DRAMA_PACING_V1, script_pacing_check.summary) from the episode's pipeline
     state, for the director/edit review: what the SCRIPT planned (turns, first conflict, dialogue-only share, open
@@ -442,7 +455,8 @@ def prepare(*, episode: str, video: Path, metrics_path: Path, contact_sheet: Pat
 
     try:  # advisory: a failure here only leaves the block out
         craft_request = _craft.reviewer_request(
-            _craft.measure_pacing(shots, _asr, float(metrics.get("duration_seconds") or 0.0)), ENGINE)
+            _craft.measure_pacing(shots, _asr, float(metrics.get("duration_seconds") or 0.0)), ENGINE,
+            profile=_episode_craft_profile(episode))
     except Exception:  # noqa: BLE001
         craft_request = {}
     script_pacing = script_pacing_context(episode)

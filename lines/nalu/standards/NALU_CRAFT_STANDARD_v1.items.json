@@ -92,7 +92,13 @@
     "pacing_information",
     "editing_action_continuity"
    ],
-   "default_fix_owner": "S7"
+   "default_fix_owner": "S7",
+   "bili_v1": {
+    "authority": "线主 2026-11-23（B 站对标 ep2+ep3，CHANGE_SPEC WP3）；只用于 craft_profile BILI_V1 的系列，LEGACY 不变",
+    "principle_zh": "成片平均镜长约 2–3 秒；没有台词的镜头一般不超过约 4 秒；每集可以有一段 ≤8 秒的音乐段落（3–4 个无台词镜，`beat_role: MUSIC_PASSAGE`）。",
+    "reviewer_check_zh": "用逐镜时间窗算平均镜长和最长无台词段：平均超过 3.2 s、或者音乐段落以外有无台词段超过 4.0 s、或音乐段落超过 8 s / 多于 1 段，记 gap。",
+    "codex_zh": "无台词镜 1.5–3 s；每集最多一段音乐段落：3–4 个无台词镜标 `beat_role: MUSIC_PASSAGE`，合计 ≤8 s。"
+   }
   },
   {
    "id": "S-04",
@@ -126,7 +132,13 @@
     "performance_interaction",
     "emotion_continuation"
    ],
-   "default_fix_owner": "writer"
+   "default_fix_owner": "writer",
+   "bili_v1": {
+    "authority": "线主 2026-11-23（B 站对标 ep2+ep3，CHANGE_SPEC WP3）；只用于 craft_profile BILI_V1 的系列，LEGACY 不变",
+    "principle_zh": "每个攻击、揭示、笑点、转折之后，被说的人要有反应：优先在同一镜里（过肩/双人镜的听者），其次是他下一句的前 1–2 秒；专门的无声反应特写每集最多 3 个，只给关键揭示、转折和结尾。",
+    "reviewer_check_zh": "每个爽点/揭示/笑点后 3 s 内能不能看到被说的人的反应（同镜听者、下一句开头、或反应特写都算，记时间）；无声反应特写是否超过 3 个。",
+    "codex_zh": "反应写在 `action.listener_reaction`(+`_en`，同镜听者) 或下一句的 `action.lead_in_reaction`(+`_en`，开口前 1.5 s)；手和道具可以用；专门的无声反应特写（`beat_role: REACTION`）每集 ≤3 个，只放在 REVEAL / TURN / ENDING 之后。"
+   }
   },
   {
    "id": "S-06",
@@ -224,7 +236,13 @@
    "director_score_dimensions": [
     "composition_camera_motivation"
    ],
-   "default_fix_owner": "writer"
+   "default_fix_owner": "writer",
+   "bili_v1": {
+    "authority": "线主 2026-11-23（B 站对标 ep2+ep3，CHANGE_SPEC WP3）；只用于 craft_profile BILI_V1 的系列，LEGACY 不变",
+    "principle_zh": "CU/MCU 占 55–80%；每个多人场至少 2 个双人/群像镜（过肩背影算）；不写建立镜；爽点和揭示给本场最紧的景别。",
+    "reviewer_check_zh": "统计各景别镜数：CU+MCU 是否在 55–80%；每个多人场是否有 ≥2 个双人/群像镜（过肩背影算，记场号）；有没有无戏的远景（记镜号）。",
+    "codex_zh": "CU+MCU 占 55–80%（DP9 上限 80%）；每个多人场 ≥2 个双人/群像镜，过肩背影的听者算；WIDE 全集 ≤3 镜且必须有戏。"
+   }
   },
   {
    "id": "C-02",
@@ -256,7 +274,13 @@
    "director_score_dimensions": [
     "editing_action_continuity"
    ],
-   "default_fix_owner": "writer"
+   "default_fix_owner": "writer",
+   "bili_v1": {
+    "authority": "线主 2026-11-23（B 站对标 ep2+ep3，CHANGE_SPEC WP3）；只用于 craft_profile BILI_V1 的系列，LEGACY 不变",
+    "principle_zh": "一个单元只做一件看得清的事；说话时可以带一个持续的小动作（拿着、吃、搓手、推眼镜、转令牌、揉脖子、擦泪、掰手指），大动作（进门、走、抓、推）单独一个单元。",
+    "reviewer_check_zh": "逐镜看有没有两拍以上、或者说话时夹了大动作（进门、走位、抓、推）（记镜号）；说话时的持续小动作不算问题。",
+    "codex_zh": "一镜一个动词主干；说话镜可以带一个持续小动作（action 里写清手和物）；进门、走、抓、推这类大动作单独一镜；打斗只拍对峙、出手前一瞬和结果（K172）。"
+   }
   },
   {
    "id": "C-04",
@@ -321,7 +345,13 @@
     "performance_interaction",
     "editing_action_continuity"
    ],
-   "default_fix_owner": "writer"
+   "default_fix_owner": "writer",
+   "bili_v1": {
+    "authority": "线主 2026-11-23（B 站对标 ep2+ep3，CHANGE_SPEC WP3）；只用于 craft_profile BILI_V1 的系列，LEGACY 不变",
+    "principle_zh": "一个单元一个说话人；对白默认过肩：说话人正脸，听者在前景露后脑和一侧肩膀（或虚焦侧脸），听者不开口；不要两张清晰的正脸同时在说话镜里；正反打一来一回。",
+    "reviewer_check_zh": "有没有两张清晰正脸、一人说话的镜头（记镜号）；过肩背影或虚焦侧脸的听者不算问题；听者有没有张嘴说话（记镜号）。",
+    "codex_zh": "说话镜：说话人正脸，听者 `face_visibility: OTS_LISTENER`（后脑+一侧肩膀）或 `SOFT_PROFILE`（虚焦侧脸），听者全程闭嘴；不要两张正脸同时清晰。导演层（director_pass）默认这样排，写手写了就以写手为准。"
+   }
   },
   {
    "id": "C-08",
@@ -434,7 +464,13 @@
    "director_score_dimensions": [
     "composition_camera_motivation"
    ],
-   "default_fix_owner": "writer"
+   "default_fix_owner": "writer",
+   "bili_v1": {
+    "authority": "线主 2026-11-23（B 站对标 ep2+ep3，CHANGE_SPEC WP3）；只用于 craft_profile BILI_V1 的系列，LEGACY 不变",
+    "principle_zh": "默认锁定机位；每场最多一个缓慢推近（约 10%），放在写手标的本场最难的那句台词上；物件先入画再到脸也算这场的一个运镜。",
+    "reviewer_check_zh": "每场数运镜次数：超过 1 次、或推近不在本场最难的一句上（记镜号）；无动机的漂移记镜号。",
+    "codex_zh": "`motion_family: LOCKED` 是默认值；每场在最难的一句台词那一镜写 `prompt_spec.hardest_line: true`，导演层在那一镜放一个缓慢推近（约 10%，动机：本场最难的一句），S7 不会把它稳定掉。"
+   }
   },
   {
    "id": "C-15",

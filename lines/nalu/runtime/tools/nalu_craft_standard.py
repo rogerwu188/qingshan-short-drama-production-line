@@ -207,11 +207,27 @@ def measure_pacing(shots: list[dict[str, Any]], asr: Any, duration: float) -> di
     return out
 
 
-def reviewer_request(measured: dict[str, Any], engine: Path | None = None) -> dict[str, Any]:
-    """The ``craft_standard_request`` block of the final-audience request ({} when off / missing)."""
+def for_profile(standard: dict[str, Any], profile: str | None) -> dict[str, Any]:
+    """The standard as a craft profile reads it: under ``BILI_V1`` an item's ``bili_v1`` block (principle /
+    reviewer check / Codex line) replaces those fields (line owner 2026-11-23, CHANGE_SPEC WP3: OTS listener, small
+    action while speaking, one push-in per scene, one music passage, cheap reactions).  Any other profile: the
+    standard unchanged (the same object)."""
+    if str(profile or "").strip().upper() != "BILI_V1" or not standard:
+        return standard
+    items = []
+    for row in standard.get("items") or []:
+        over = row.get("bili_v1") if isinstance(row, dict) else None
+        items.append({**row, **{k: v for k, v in over.items() if k != "authority"}} if isinstance(over, dict) else row)
+    return {**standard, "items": items}
+
+
+def reviewer_request(measured: dict[str, Any], engine: Path | None = None,
+                     profile: str | None = None) -> dict[str, Any]:
+    """The ``craft_standard_request`` block of the final-audience request ({} when off / missing).  ``profile``:
+    the series' craft profile (BILI_V1 reads the items' ``bili_v1`` checks, :func:`for_profile`)."""
     if not enabled():
         return {}
-    standard = load_items(engine)
+    standard = for_profile(load_items(engine), profile)
     if not standard:
         return {}
     items = [{"id": row["id"], "severity": row.get("severity"), "layer": row.get("layer"),

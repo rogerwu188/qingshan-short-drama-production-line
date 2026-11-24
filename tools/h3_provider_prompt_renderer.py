@@ -453,12 +453,21 @@ def _locked_dialogue_plan(plan: dict[str, Any] | None) -> bool:
     return str((plan or {}).get("camera_policy") or "").strip().upper() == LOCKED_DIALOGUE_POLICY_ID
 
 
+#: craft_profile BILI_V1 (CHANGE_SPEC WP3): the scene's one slow push-in, placed by director_pass on the writer's
+#: hardest line (camera_plan.bili_slow_push_in); only plans carrying the marker render it
+BILI_PUSH_IN_MARK = "bili_slow_push_in"
+BILI_PUSH_IN_CLAUSE = ("one slow, steady push-in toward the speaker, about 10 % closer over the whole shot, in one "
+                       "direction only, then hold; the camera never pulls back, pans or drifts")
+
+
 def _camera(plan: dict[str, Any], *, combat: bool = False) -> str:
     """Legacy unit camera line (gate off).  Kept byte-identical for plans outside LOCKED_DIALOGUE_CAMERA_V1."""
     family = str(plan.get("motion_family") or "STATIC").upper()
     direction = str(plan.get("motion_direction") or "NONE").upper()
     scale = str(plan.get("shot_scale") or "MEDIUM").upper()
     suffix = _optical(plan) + _camera_grammar_clause(plan)
+    if plan.get(BILI_PUSH_IN_MARK):
+        return f"shot scale={scale}; {BILI_PUSH_IN_CLAUSE}{suffix}"
     if _locked_dialogue_plan(plan):
         # Roger 2026-10-30 (E12 item 2): a locked plan is a tripod, never "execute the move once"; a moving
         # plan moves once in one direction (E12: 20/53 units carried a built-in reversal)
@@ -518,6 +527,8 @@ def partial_visibility_part(value: Any) -> str | None:
         return None
     if is_ots_visibility(raw):
         return OTS_PART
+    if raw == SOFT_PROFILE:
+        return SOFT_PROFILE_PART
     match = _PART_ONLY.fullmatch(raw)
     if match:
         tokens = match.group(1).split("_AND_")
@@ -526,6 +537,18 @@ def partial_visibility_part(value: Any) -> str | None:
     if "FACE_OUT_OF_FRAME" in raw:
         return ""
     return None
+
+
+#: craft_profile BILI_V1 (CHANGE_SPEC WP3): a listener in frame as a soft-focus profile at the frame edge (the
+#: fallback when an OTS back-of-head listener ghosts).  Only a cast row that declares SOFT_PROFILE renders it.
+SOFT_PROFILE = "SOFT_PROFILE"
+SOFT_PROFILE_PART = "soft-focus profile at the frame edge"
+
+
+def soft_profile_clause(label: str) -> str:
+    """The one canonical soft-profile listener sentence (no trailing period)."""
+    return (f"{label} is in the foreground at the frame edge, seen in profile and slightly out of focus, listening; "
+            f"{label}'s mouth stays closed; {label} does not speak")
 
 
 def is_ots_visibility(value: Any) -> bool:
@@ -642,6 +665,8 @@ def partial_clause(label: str, part: str) -> str:
     """The one canonical, entity-named partial-visibility clause."""
     if part == OTS_PART:
         return f"{label}: {ots_clause(label)}; do not reveal {label}'s face"
+    if part == SOFT_PROFILE_PART:
+        return f"{label}: {soft_profile_clause(label)}"
     if part:
         return (
             f"{label}: only {label}'s {part} in frame during this beat, "
