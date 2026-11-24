@@ -283,6 +283,38 @@ def authored(
 # --------------------------------------------------------------------------- #
 # GSM-derived spatial topology (used when the overlay does not author it)
 # --------------------------------------------------------------------------- #
+def fill_space_map_fields(manifest: dict[str, Any], gsm: dict[str, Any] | None,
+                          episode: str) -> dict[str, Any]:
+    """Give a manifest the GSM fields this builder reads when its writer did not emit them.
+
+    The LEGACY writer's adapter (adapt_v4_layers_to_runtime.py) copies
+    ``episode_global_space_map_id`` and ``global_space_map_refs`` from the GSM into the
+    manifest; the SCREENPLAY_V1 compiler does not (fleet device 1101 E27, 2026-11-24:
+    KeyError at S2).  D-10 extends the GSM before this builder runs, so the same values
+    are derived here from it, in memory only.  Fields already present are kept.
+    """
+    out = dict(manifest)
+    gsm_id = (gsm or {}).get("episode_global_space_map_id")
+    if not out.get("episode_global_space_map_id"):
+        out["episode_global_space_map_id"] = gsm_id or f"EGSM-{episode}-UNMAPPED"
+    if not out.get("global_space_map_refs"):
+        refs = []
+        for sm in (gsm or {}).get("space_maps") or []:
+            scenes = [m["scene_id"] for m in (sm.get("scene_mappings") or [])
+                      if str(m.get("scene_id", "")).startswith(episode)]
+            if not scenes:
+                continue
+            anchors = [str(z.get("name") or z.get("zone_id")) for room in (sm.get("rooms") or [])
+                       for z in (room.get("zones") or [])]
+            refs.append({"map_id": sm.get("global_space_map_id"), "scenes": scenes, "anchors": anchors,
+                         "axis_note": f"承 {sm.get('global_space_map_id')} 的 scene_mappings；机位轴向逐镜声明",
+                         "episode_global_space_map_id": out["episode_global_space_map_id"]})
+        out["global_space_map_refs"] = refs or [{
+            "map_id": None, "scenes": [], "anchors": [], "axis_note": "",
+            "episode_global_space_map_id": out["episode_global_space_map_id"]}]
+    return out
+
+
 def gsm_index(gsm: dict[str, Any] | None) -> dict[str, tuple[dict[str, Any], dict[str, Any]]]:
     """location_id -> (place_map, room).  Mirrors the E01 prompt builder's lookup."""
     index: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
@@ -452,6 +484,7 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
 
     gsm_path = Path(args.gsm).resolve() if args.gsm else RUNTIME_PREPRO / episode / "global_space_map.json"
     gsm = load_json(gsm_path) if gsm_path.is_file() else None
+    manifest = fill_space_map_fields(manifest, gsm, episode)
     places = gsm_index(gsm)
 
     library = PriorLibrary(Path(args.prior_library).resolve() if args.prior_library else None)
