@@ -668,10 +668,49 @@ def craft_ledger_section(episode: str) -> str:
         return ""
 
 
+#: CLAUDE_CODE_PRODUCTION.md carries the SCREENPLAY_V1 writer section (CHANGE_SPEC WP2) between these markers; the
+#: start prompt keeps it only for a BILI_V1 + writer_format SCREENPLAY_V1 series, so every other prompt is byte-identical
+SCREENPLAY_V1_BEGIN = "<!-- BILI_V1_SCREENPLAY_V1:BEGIN -->"
+SCREENPLAY_V1_END = "<!-- BILI_V1_SCREENPLAY_V1:END -->"
+
+
+def writer_format_for(episode: str | None) -> str:
+    """``SCREENPLAY_V1`` | ``CONTRACT_JSON`` for the episode (craft_profile.py; brief, then qingshan.json).  Never
+    raises; anything unreadable is CONTRACT_JSON."""
+    mod = _load_engine_tool("craft_profile")
+    if mod is None or not episode:
+        return "CONTRACT_JSON"
+    try:
+        return str(mod.writer_format(None, episode=episode, runtime_root=roots()[1]))
+    except Exception:  # noqa: BLE001
+        return "CONTRACT_JSON"
+
+
+def production_contract_text(episode: str | None = None, *, writer_format: str | None = None) -> str:
+    """The production contract as the prompt carries it: the SCREENPLAY_V1 section only for that writer format
+    (markers dropped), removed with its markers otherwise."""
+    text = contract_path().read_text(encoding="utf-8")
+    if SCREENPLAY_V1_BEGIN not in text:
+        return text
+    keep = (writer_format or writer_format_for(episode)) == "SCREENPLAY_V1"
+    pattern = re.compile(re.escape(SCREENPLAY_V1_BEGIN) + r"\n(.*?)" + re.escape(SCREENPLAY_V1_END) + r"\n",
+                         re.DOTALL)
+    return pattern.sub((lambda m: m.group(1)) if keep else "", text)
+
+
+def revise_message(base: str, episode: str) -> str:
+    """The revise resume message; a SCREENPLAY_V1 episode is revised in its screenplay, never in the layers."""
+    if writer_format_for(episode) != "SCREENPLAY_V1":
+        return base
+    return base + ("（本系列 writer_format SCREENPLAY_V1：改 <EP>_SCREENPLAY.md / <EP>_OUTLINE.md / <EP>_CAST_PROPS.yaml，"
+                   "补 <EP>_SCREENPLAY_EN.json，然后跑 lines/nalu/runtime/tools/screenplay_compile.py <EP> 重编译；"
+                   "不手改四层，不写 build_<ep>_layers.py。）")
+
+
 def build_prompt(episode: str, brief: str, guidance: str = "", craft: str | None = None) -> str:
     craft = craft_standard_section(episode) if craft is None else craft
     return (f"你是 NALU 短剧生产线的生产执行者。严格按照下面的生产合同执行集 {episode}。\n\n"
-            + contract_path().read_text(encoding="utf-8") + "\n" + CODEX_ADAPTER
+            + production_contract_text(episode) + "\n" + CODEX_ADAPTER
             + (f"\n\n## 本次线主/编排代理附加说明\n{brief}" if brief else "")
             + (f"\n\n{craft}" if craft else "")
             + (f"\n\n{guidance}" if guidance else ""))
@@ -1359,6 +1398,62 @@ def integrity_revision_pending(episode: str, session: dict[str, Any]) -> str:
     return rnd if rnd and rnd not in (session.get("integrity_revise_resumed") or []) else ""
 
 
+TRANSLATION_REQUEST_MESSAGE = ("S1 的 SCREENPLAY_EN_TRANSLATION_REQUIRED 是翻译请求，不是阻塞、也不算改稿轮次（writer_format SCREENPLAY_V1，"
+                               "WP4 要求每个中文字段都有英文孪生字段）：打开 workflow/claude_writer_agent/scripts/<EP>_SCREENPLAY_EN_REQUEST.json，"
+                               "把每一行的 zh 直译成一句英文（保留物件、哪只手、动词和谁对谁，不改写成情绪词），按 key 写进 "
+                               "<EP>_SCREENPLAY_EN.json（{\"schema\": \"nalu.screenplay_en.v1\", \"rows\": {key: english}}，保留已有行），"
+                               "然后跑 lines/nalu/runtime/tools/screenplay_compile.py <EP> 直到退出码 0，再重跑 S1→S3。免费，不问线主，不报 BLOCKED。")
+
+
+#: an unanswered English-twin request is resumed this many times, at least this far apart; then the tick writes
+#: <EP>_SCREENPLAY_EN_FALLBACK.json and S1 fills the missing twins with compiler English (never stall the line)
+TRANSLATION_MAX_RESUMES = 3
+TRANSLATION_RESUME_SPACING_S = 30 * 60
+TRANSLATION_FALLBACK_MESSAGE = ("英文孪生字段请求已经恢复你 3 次仍未回答。引擎改用编译器自带的英文兜底（标 fallback，S1 记录 "
+                                "SCREENPLAY_EN_FALLBACK_USED）：现在直接重跑 S1→S3 即可；之后改剧本时仍要答新的翻译请求。")
+
+
+def translation_request_key(episode: str) -> str:
+    blockers = _s1_blockers(episode)
+    return next((str(b).split(":", 2)[1] for b in blockers
+                 if str(b).startswith("SCREENPLAY_EN_TRANSLATION_REQUIRED:")), "")
+
+
+def translation_request_pending(episode: str, session: dict[str, Any], now: float | None = None) -> str:
+    """The SCREENPLAY_V1 English-twin request key to act on now, or ''.  A key is resumed up to
+    TRANSLATION_MAX_RESUMES times, each at least TRANSLATION_RESUME_SPACING_S after the last; one more step after that
+    is the fallback (``translation_step``).  An answered or edited request changes the key or clears the blocker."""
+    key = translation_request_key(episode)
+    if not key:
+        return ""
+    stamps = [float(t) for t in (session.get("translation_resumes") or {}).get(key) or []]
+    if key in (session.get("translation_fallback") or []):
+        return ""
+    now = time.time() if now is None else now
+    if stamps and now - stamps[-1] < TRANSLATION_RESUME_SPACING_S:
+        return ""
+    return key
+
+
+def translation_step(episode: str, session: dict[str, Any]) -> str:
+    """``RESUME`` (ask the writer again) or ``FALLBACK`` (resumes exhausted: write the fallback marker the pipeline
+    reads, then resume once to rerun S1) for the pending key."""
+    key = translation_request_pending(episode, session)
+    stamps = (session.get("translation_resumes") or {}).get(key) or []
+    return "" if not key else ("FALLBACK" if len(stamps) >= TRANSLATION_MAX_RESUMES else "RESUME")
+
+
+def write_translation_fallback(episode: str, key: str) -> Path:
+    """``<scripts>/<EP>_SCREENPLAY_EN_FALLBACK.json`` -- the pipeline's S1 pre-step uses compiler English for this
+    request key (nalu_pipeline.s1_screenplay_en_fallback)."""
+    path = roots()[0] / "workflow" / "claude_writer_agent" / "scripts" / f"{episode}_SCREENPLAY_EN_FALLBACK.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_json(path, {"schema": "nalu.screenplay_en_fallback.v1", "episode": episode, "key": key,
+                      "reason": f"TRANSLATION_REQUEST_UNANSWERED_AFTER_{TRANSLATION_MAX_RESUMES}_RESUMES",
+                      "written_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+    return path
+
+
 def tick(system: bool = False) -> dict[str, Any]:
     _, runtime = roots()
     did: list[str] = []
@@ -1457,7 +1552,7 @@ def tick(system: bool = False) -> dict[str, Any]:
         # a session that stopped on it is resumed once per revision round (the loop itself ends after
         # script_pacing_check.MAX_REVISIONS rounds, so this cannot repeat forever)
         rnd = pacing_revision_pending(ep, session)
-        out = resume(ep, PACING_REVISE_MESSAGE)
+        out = resume(ep, revise_message(PACING_REVISE_MESSAGE, ep))
         session = read_json(d / "session.json")
         session["pacing_revise_resumed"] = sorted(set(session.get("pacing_revise_resumed") or []) | {rnd})
         write_json(d / "session.json", session)
@@ -1465,11 +1560,31 @@ def tick(system: bool = False) -> dict[str, Any]:
         if out.get("status") == "STARTED":
             return res
         reason = f"RESUME_FAILED:{out.get('reason') or out.get('status')}"
+    elif state == "BLOCKED" and translation_request_pending(ep, session):
+        # SCREENPLAY_V1 English twins (WP2/WP4): the writer's own free work, resumed up to TRANSLATION_MAX_RESUMES
+        # times >= 30 min apart; then the fallback marker lets S1 proceed on compiler English (never stall the line)
+        key = translation_request_pending(ep, session)
+        step = translation_step(ep, session)
+        if step == "FALLBACK":
+            write_translation_fallback(ep, key)
+        out = resume(ep, TRANSLATION_FALLBACK_MESSAGE if step == "FALLBACK" else TRANSLATION_REQUEST_MESSAGE)
+        session = read_json(d / "session.json")
+        if step == "FALLBACK":
+            session["translation_fallback"] = sorted(set(session.get("translation_fallback") or []) | {key})
+        else:
+            resumes = dict(session.get("translation_resumes") or {})
+            resumes[key] = list(resumes.get(key) or []) + [time.time()]
+            session["translation_resumes"] = resumes
+        write_json(d / "session.json", session)
+        did.append(f"resume_translation_{step.lower()}:{key}:{out.get('status')}")
+        if out.get("status") == "STARTED":
+            return res
+        reason = f"RESUME_FAILED:{out.get('reason') or out.get('status')}"
     elif state == "BLOCKED" and integrity_revision_pending(ep, session):
         # S1 integrity (E24 2026-11-23): a structurally broken script goes back to its writer, free; resumed once per
         # integrity round, the engine stops issuing rounds after S1_INTEGRITY_MAX_ROUNDS
         rnd = integrity_revision_pending(ep, session)
-        out = resume(ep, INTEGRITY_REVISE_MESSAGE)
+        out = resume(ep, revise_message(INTEGRITY_REVISE_MESSAGE, ep))
         session = read_json(d / "session.json")
         session["integrity_revise_resumed"] = sorted(set(session.get("integrity_revise_resumed") or []) | {rnd})
         write_json(d / "session.json", session)

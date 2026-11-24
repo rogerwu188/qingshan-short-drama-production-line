@@ -500,6 +500,8 @@
     "tools.tests.test_writer_selfcheck_provider_floor",
     "tools.tests.test_stamp_reviewed_video_requests",
     "tools.tests.test_measured_edit_recall_guard",
+    "tools.tests.test_screenplay_compile",
+    "tools.tests.test_anti_template_v2",
     "tools.tests.test_device_sn",
     "tools.tests.test_intake_source_formats",
     "tools.tests.test_craft_profile",

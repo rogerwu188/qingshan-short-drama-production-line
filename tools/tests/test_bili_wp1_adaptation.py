@@ -42,6 +42,14 @@ def bili_ok(lang: str = "zh") -> dict:
     c["craft_profile"] = "BILI_V1"
     c["adaptation_plan"]["plot_events"] = [{"event": "she takes the ledger back", "chapter": 3, "role": "MAIN"},
                                            {"event": "the sister's debt", "chapter": 3, "role": "SECONDARY"}]
+    cards = [("逼战雷交出妖皇的下落", "战雷只会拱手求宽限", "她把令牌磕在扶手上"),
+             ("从周默手里夺回账本", "周默把账本压在身下", "林岚一把抓住他的手腕"),
+             ("让妹妹认下那笔欠债", "妹妹哭着不肯开口", "姐姐把欠条拍在桌上"),
+             ("骗守卫打开后门", "守卫认出了她的玉佩", "她反手把玉佩塞进守卫掌心"),
+             ("当众揭穿天君的身份", "天君抢先下令拿人", "天君颤声认出容凌")]
+    for row, (goal, obstacle, turn) in zip(c["pacing"]["scene_plan"], cards):
+        # each scene's own card (WP2 SCENE_CARD_REPEATED: a BILI_V1 contract's cards are pairwise distinct)
+        row.update({"objective": goal, "conflict": obstacle, "physical_action": turn})
     for row in c["pacing"]["scene_plan"]:
         row["source_detail_ids"] = list(DETAILS[row["scene_id"]])
     return c

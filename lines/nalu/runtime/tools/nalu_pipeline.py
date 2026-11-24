@@ -1842,6 +1842,11 @@ def fp_s1(ctx: Ctx) -> str:
             if isinstance(row, dict)
         }
         payload["writer_handoff_dependencies"] = dependencies
+    # SCREENPLAY_V1 (WP2): an edit of the screenplay inputs invalidates an S1 PASS; absent files = no key (LEGACY)
+    screenplay = {name: digest(path) for name, path in screenplay_input_paths(ctx.p).items()
+                  if Path(path).is_file()}
+    if screenplay:
+        payload["screenplay_v1"] = screenplay
     return sha256_text(json.dumps(payload, sort_keys=True))
 
 
@@ -2167,6 +2172,124 @@ def s1_repair_scene_order(ctx: Any, p: Any) -> dict[str, Any]:
         return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}"}
 
 
+#: S1 blocker for a SCREENPLAY_V1 episode whose English twins are not answered yet (WP2/WP4); the Codex tick resumes
+#: the writer once per request (codex_production.translation_request_pending); not an integrity round
+SCREENPLAY_EN_TRANSLATION_REQUIRED = "SCREENPLAY_EN_TRANSLATION_REQUIRED"
+
+
+def screenplay_input_paths(p: Any) -> dict[str, Path]:
+    """SCREENPLAY_V1 inputs beside the episode's contract (screenplay_compile.paths): series card, outline,
+    screenplay, cast/props, English twins."""
+    try:
+        import screenplay_compile as _spc  # noqa: PLC0415 -- same directory
+        scripts = Path(p.contract).parent
+        episode = str(getattr(p, "episode", "") or "")
+        return {name: path for name, path in _spc.paths(scripts, episode).items()
+                if name in ("series_card", "outline", "screenplay", "cast_props", "en_answers")}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+#: an unanswered English-twin request falls back to compiler English after the Codex tick's resumes (its marker
+#: file), or -- with no tick -- after S1 saw the same request this many times over at least this long
+SCREENPLAY_EN_FALLBACK_EVALUATIONS = 4
+SCREENPLAY_EN_FALLBACK_SECONDS = 3 * 30 * 60
+
+
+def screenplay_en_request_key(rows: Any) -> str:
+    """The id of one English-twin request: its row keys (the zh text shas), sorted -- an answered or edited request
+    gets a new key."""
+    keys = sorted(str(r.get("key")) for r in rows or [] if isinstance(r, dict))
+    return sha256_text(json.dumps(keys))[:12] if keys else ""
+
+
+def s1_screenplay_en_fallback(p: Any, files: dict[str, Path], key: str) -> str:
+    """'' or why the missing English twins are filled with compiler English: ``TICK_RESUMES_EXHAUSTED`` (the tick's
+    ``<EP>_SCREENPLAY_EN_FALLBACK.json`` names this request key) or ``S1_REQUEST_UNANSWERED`` (S1 saw the same
+    request SCREENPLAY_EN_FALLBACK_EVALUATIONS times over SCREENPLAY_EN_FALLBACK_SECONDS).  Never raises."""
+    try:
+        marker = read_json(files["en_fallback"], {}) or {}
+        if key and str(marker.get("key") or "") == key:
+            return "TICK_RESUMES_EXHAUSTED"
+        ledger_path = Path(p.logs) / "SCREENPLAY_EN_REQUESTS.json"
+        ledger = read_json(ledger_path, {}) or {}
+        seen = [float(t) for t in (ledger.get(key) or []) if isinstance(t, (int, float))]
+        now = time.time()
+        if key and (not seen or now - seen[-1] >= 60):
+            seen.append(now)
+            ledger[key] = seen
+            ledger_path.parent.mkdir(parents=True, exist_ok=True)
+            write_json(ledger_path, ledger)
+        if len(seen) >= SCREENPLAY_EN_FALLBACK_EVALUATIONS and seen[-1] - seen[0] >= SCREENPLAY_EN_FALLBACK_SECONDS:
+            return "S1_REQUEST_UNANSWERED"
+        return ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def s1_screenplay_compile(ctx: Any, p: Any) -> dict[str, Any]:
+    """BILI_V1 + writer_format SCREENPLAY_V1 (CHANGE_SPEC WP2): compile ``<EP>_SCREENPLAY.md`` + light YAML into the
+    four legacy layers before S1 hashes and checks them (modelled on s1_repair_scene_order).  Recompiles only when a
+    screenplay input is newer than the contract; the previous layers are kept once as ``*.pre_compile``.  Compile
+    errors, missing English twins and a ``build_<ep>_layers.py`` generator come back as S1 integrity blockers
+    (bounded writer loop, then admitted -- never stalls).  LEGACY / CONTRACT_JSON: NOT_APPLICABLE, nothing read."""
+    try:
+        settings = getattr(ctx, "craft_settings", None)
+        if not isinstance(settings, dict) or settings.get("writer_format") != "SCREENPLAY_V1":
+            return {"status": "NOT_APPLICABLE"}
+        import screenplay_compile as _spc  # noqa: PLC0415 -- same directory
+        import screenplay_checks as _spk  # noqa: PLC0415
+        scripts = Path(p.contract).parent
+        files = _spc.paths(scripts, ctx.episode)
+        row: dict[str, Any] = {"status": "NO_SCREENPLAY", "screenplay": str(files["screenplay"]), "blockers": []}
+        generators = _spk.generator_scripts(ctx.episode, RT_TOOLS)
+        if generators:
+            row["blockers"].append(f"SCRIPT_INTEGRITY_FAIL:GENERATOR_SCRIPT_PRESENT:{Path(generators[0]).name}")
+        if not files["screenplay"].is_file():
+            return row
+        if s1_pacing_in_flight(p):
+            return {**row, "status": "SKIPPED_PAID_STAGE_RAN"}
+        brief = read_json(RUNTIME / "briefs" / f"{ctx.episode}_PRODUCTION_BRIEF.json", None)
+        brief = brief if isinstance(brief, dict) else None
+        out = _spc.compile_files(scripts, ctx.episode, brief=brief)
+        report = out.get("report") or {}
+        fallback = ""
+        if report.get("en_missing") and out.get("contract") is not None:
+            fallback = s1_screenplay_en_fallback(p, files, screenplay_en_request_key(out["en_request"]["rows"]))
+            if fallback:
+                # owner rule "never stall the line": the request went unanswered past the writer resumes -- the
+                # compiler's own English fills the missing twins (marked fallback) and S1 proceeds
+                out = _spc.compile_files(scripts, ctx.episode, brief=brief, en_fallback=True)
+                report = out.get("report") or {}
+                report["en_fallback_basis"] = fallback
+        if (fallback or _spc.needs_compile(scripts, ctx.episode)) and out.get("contract") is not None:
+            report["written"] = _spc.write_outputs(scripts, ctx.episode, out)
+            row["status"] = "COMPILED"
+        else:
+            row["status"] = "UP_TO_DATE" if out.get("contract") is not None else "FAILED"
+            files["report"].write_text(json.dumps(report, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        row.update({k: report.get(k) for k in ("errors", "en_missing", "fallback_field_share", "shots", "seconds",
+                                               "inputs")})
+        if report.get("en_fallback_used"):
+            row["en_fallback_used"] = report["en_fallback_used"]
+            row["en_fallback_basis"] = fallback
+            row["marker"] = f"SCREENPLAY_EN_FALLBACK_USED:{report['en_fallback_used']}"
+        row["report"] = str(files["report"])
+        row["blockers"] += [f"SCRIPT_INTEGRITY_FAIL:SCREENPLAY_COMPILE:{e}" for e in (report.get("errors") or [])[:6]]
+        if report.get("en_missing"):
+            # a translation request, not a script defect: the writer answers it and S1 recompiles; it never uses
+            # up an S1 integrity round (stage_s1 returns before the gates and the round ledger)
+            row["translation_request"] = {"request": str(files["en_request"]), "answers": str(files["en_answers"]),
+                                          "missing": report["en_missing"],
+                                          "key": screenplay_en_request_key((out.get("en_request") or {}).get("rows"))}
+            row["blockers"].append(f"{SCREENPLAY_EN_TRANSLATION_REQUIRED}:{row['translation_request']['key']}:"
+                                   f"{report['en_missing']} (translate {files['en_request'].name} into "
+                                   f"{files['en_answers'].name}, then rerun S1)")
+        return row
+    except Exception as exc:  # noqa: BLE001 -- a compile must never break S1
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}", "blockers": []}
+
+
 def s1_script_pacing(ctx: Ctx, p: Any, *, others_ok: bool) -> tuple[dict[str, Any], list[str]]:
     """SHORT_DRAMA_PACING_V1 at S1: (episode-record row, blockers).  The policy is the default of every contract
     (an explicit ``pacing_policy: OFF`` opts out; a default-policy episode already past a paid stage is
@@ -2224,10 +2347,21 @@ def s1_script_pacing(ctx: Ctx, p: Any, *, others_ok: bool) -> tuple[dict[str, An
 def stage_s1(ctx: Ctx) -> StageResult:
     p = ctx.p
     _record_line_upgrade(ctx, "line_upgrade_preflight", "preflight")  # advisory read side
+    screenplay_compile = s1_screenplay_compile(ctx, p)  # SCREENPLAY_V1 only (WP2); NOT_APPLICABLE under LEGACY
     missing = [str(path) for path in p.layers().values() if not path.is_file()]
     if missing:
         res = StageResult(BLOCKED, missing_layers=missing, layer_sha256={})
         res.blockers = [f"SCRIPT_LAYER_MISSING:{path}" for path in missing]
+        if screenplay_compile.get("status") != "NOT_APPLICABLE":
+            res.details["screenplay_compile"] = screenplay_compile
+            res.blockers += list(screenplay_compile.get("blockers") or [])
+        return res
+    translation = [b for b in screenplay_compile.get("blockers") or []
+                   if str(b).startswith(SCREENPLAY_EN_TRANSLATION_REQUIRED)]
+    if translation and not screenplay_compile.get("errors") and not missing:
+        # SCREENPLAY_V1: the writer owes the English twins first -- no gate runs, no integrity round is counted
+        res = StageResult(BLOCKED, layer_sha256={}, screenplay_compile=screenplay_compile)
+        res.blockers = translation
         return res
     scene_order_repair = s1_repair_scene_order(ctx, p)
     layer_shas = {name: sha256_file(path) for name, path in p.layers().items()}
@@ -2244,6 +2378,10 @@ def stage_s1(ctx: Ctx) -> StageResult:
         # rounds exhausted: the over-long script is admitted with the others below (never stall the line)
         admitted_length = [length["blocker"]]
     integrity_blockers: list[str] = [length["integrity_blocker"]] if length.get("integrity_blocker") else []
+    if screenplay_compile.get("status") != "NOT_APPLICABLE":
+        integrity_blockers += list(screenplay_compile.get("blockers") or [])
+        layer_shas = {**layer_shas, **{f"screenplay_{k}": v for k, v in (screenplay_compile.get("inputs") or {})
+                                       .items()}}
     in_flight = s1_pacing_in_flight(p)
     direction_policy, direction_blockers = s1_direction_policy(ctx, p, in_flight=in_flight)
     integrity_blockers += direction_blockers
@@ -2445,6 +2583,11 @@ def stage_s1(ctx: Ctx) -> StageResult:
         res.blockers = list(getattr(res, "blockers", []) or []) + [f"WRITER_CAPABILITY_STEP_OWED:{code}" for code in capability_blocks]
     res.details["script_pacing"] = script_pacing
     res.details["scene_order_repair"] = scene_order_repair
+    if screenplay_compile.get("status") != "NOT_APPLICABLE":
+        res.details["screenplay_compile"] = screenplay_compile
+        if screenplay_compile.get("marker"):
+            res.details["screenplay_en_fallback"] = screenplay_compile["marker"]
+            s1_integrity_fleet_note(ctx, screenplay_compile["marker"])
     res.details["script_length"] = length
     res.details["direction_policy_gate"] = direction_policy
     res.details["script_review_independence"] = script_review_independence_row(writer_capability, p.contract)
@@ -14912,6 +15055,13 @@ def write_checkpoint(ctx: Ctx) -> Path:
             "structural failures; the script was admitted so the line keeps moving (the release hold still applies).")
         for _row in _s1_integrity.get("admitted") or []:
             add(f"* `{_row}`")
+        add("")
+    _en_fallback = (ctx.stage_state("S1").get("details") or {}).get("screenplay_en_fallback")
+    if _en_fallback:  # SCREENPLAY_V1 (WP2): unanswered English twins filled with compiler English
+        add("## S1 screenplay English fallback")
+        add("")
+        add(f"`{_en_fallback}` -- the writer never answered the English-twin request; those H3 fields use the "
+            "compiler's generic English (marked fallback in field_sources) so the line kept moving.")
         add("")
     add("## What to watch (line-owner review list)")
     add("")

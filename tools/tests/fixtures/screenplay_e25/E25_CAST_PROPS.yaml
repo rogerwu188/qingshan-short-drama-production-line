@@ -1,0 +1,121 @@
+# E25 cast / props / locations (light YAML, SCREENPLAY_V1)
+episode: E25
+title: 妖皇称臣
+project_id: NALU-ZAONIE
+dialogue_language: zh
+protagonist_ids: [CHAR-SHANGYUJIN]
+cast:
+  - id: CHAR-BAITAODIJI
+    name: 白桃帝姬
+    short_names: [白桃]
+    english_name: Bai Tao
+    gender: 女
+    age: 24-28
+    appearance: 鹅蛋脸、尖下颌、细长凤眼、挑眉、薄唇，高挑，金冠束高马尾
+    wardrobe: 白金色天界战袍，腰间挂战神令
+    voice: 白桃帝姬
+  - id: CHAR-ZHANLEI
+    name: 战雷
+    english_name: Zhan Lei
+    gender: 男
+    age: 35-45
+    appearance: 方脸宽下颌、浓平眉、短须，肩背宽厚
+    wardrobe: 深青色妖界战甲
+    voice: 战雷
+  - id: CHAR-QILINHUMAN
+    name: 麒麟
+    english_name: Qilin
+    gender: 男
+    age: 18-22
+    appearance: 少年脸、圆眼、下颌窄、额前碎发，清瘦
+    wardrobe: 黑色交领长袍
+    voice: 麒麟
+  - id: CHAR-SHANGYUJIN
+    name: 商余烬
+    english_name: Shang Yujin
+    gender: 男
+    age: 25-32
+    appearance: 长脸、高鼻梁、狭长眼、剑眉、薄唇，身形修长
+    wardrobe: 墨黑妖皇交领长袍，银色腰封
+    voice: 商余烬
+  - id: CHAR-LONGYECHE
+    name: 龙夜澈
+    english_name: Long Yeche
+    gender: 男
+    age: 25-32
+    appearance: 瓜子脸、桃花眼、细眉，长发半束
+    wardrobe: 深紫色交领长袍
+    voice: 龙夜澈
+  - id: CHAR-MINGDI
+    name: 冥帝
+    english_name: Ming Di
+    gender: 男
+    age: 30-38
+    appearance: 国字脸、深眼窝、一字眉、鬓角斑白
+    wardrobe: 暗紫色冥界帝袍
+    voice: 冥帝
+props:
+  - id: PROP-ZHANSHENLING
+    name: 战神令
+    aliases: [令牌]
+    owner: CHAR-BAITAODIJI
+    hand: 右手
+    description: 掌心大小的金色令牌，正面刻"战神"二字
+  - id: PROP-ZHANLEI-SPEAR
+    name: 长枪
+    owner: CHAR-ZHANLEI
+    hand: 右手
+    description: 黑铁长枪，枪缨暗红
+locations:
+  - id: LOC-YAOHUANG-HALL
+    name: 妖皇宫正殿
+    time: 日
+    weather: 晴
+    light: 殿门逆光
+    set_pieces: [妖皇宝座, 台阶, 殿柱, 殿门]
+    ambience: 空旷石殿的回声，殿外远远的风声与旗角翻动
+    axis: 宝座—殿门一线，台阶在中
+    ambient_life:
+      grade: B
+      motion_trend: 殿门逆光里浮尘缓慢翻动，柱间垂幔轻摆
+      first_frame_state: 首帧逆光已从殿门斜照到台阶上
+      reaction_progression: 有人进门时门口光线被身影切断又恢复
+source:
+  work: 造孽啊！疯批徒弟想逼我退位
+  author: 东南雀
+  chapters: [226]
+ledger:
+  - id: L-TOKEN
+    kind: SETUP
+    thread: 战神令
+    prop: 战神令
+    scene_id: E25-S01
+    anchor: 转着战神令
+  - id: L-QILIN
+    kind: SETUP
+    thread: 麒麟护妖界
+    scene_id: E25-S01
+    shot_id: E25-S01-04
+  - id: L-MASTER
+    kind: CALLBACK
+    thread: 被师父赶出师门
+    scene_id: E25-S01
+    anchor: 赶出师门
+    from_episode: E24
+  - id: L-TOKEN-PAY
+    kind: PAYOFF
+    thread: 战神令
+    scene_id: E25-S01
+    anchor: 收回腰间
+    pays_off: L-TOKEN
+  - id: L-QILIN-PAY
+    kind: PAYOFF
+    thread: 麒麟护妖界
+    scene_id: E25-S01
+    anchor: 你留下
+    pays_off: L-QILIN
+  - id: L-TIANGONG
+    kind: HOOK
+    thread: 去天宫当面称臣
+    scene_id: E25-S01
+    anchor: 跟着出殿

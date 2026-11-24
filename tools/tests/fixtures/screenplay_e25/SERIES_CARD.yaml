@@ -1,0 +1,28 @@
+series_id: NALU-ZAONIE
+premise: 穿书成战神的凌瑶，被自己养大的疯批徒弟一步步逼着退位
+engine: 把"徒弟逼宫"当"徒弟护短"来演：每一次逼迫，背后都是护着她
+protagonist_ids: [CHAR-SHANGYUJIN]
+visual_culture_contract:
+  profile_id: LINGYAO-XIANXIA
+  decision_owner: WRITER_DIRECTOR
+  decision_basis: 竖屏 9:16 仙侠古装，写实摄影，人物造型统一
+  source_ref: SERIES_CARD.yaml
+  story_world: 东亚古代仙侠天界
+  era_lock: EAST_ASIAN_PERIOD
+  production_design: 古代东亚宫殿与山门，无现代物件
+  image_texture: 写实摄影，自然皮肤，布料纹理
+characters:
+  - id: CHAR-SHANGYUJIN
+    name: 商余烬
+    want: 护住师父，把害她的天君拉下来
+    fear: 师父知道他的真身后离开
+    voice: 话少，句子短，冷
+    signature_business: 回头给人一个放心的眼神
+    signature_prop: 墨黑袍的袖口
+  - id: CHAR-BAITAODIJI
+    name: 白桃帝姬
+    want: 交差，不想替天君卖命
+    fear: 在天君面前丢脸
+    voice: 慢悠悠，带刺
+    signature_business: 翘着二郎腿转令牌
+    signature_prop: 战神令
