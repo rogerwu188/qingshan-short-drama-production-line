@@ -88,6 +88,16 @@ H3_REDO_FINDINGS_FIELD = "h3_redo_findings"
 REDO_FINDING_SENTENCES = {
     "push_in": ("The previous take pushed in on the face; this take must keep exactly the @Image1 shot size "
                 "for the whole clip."),
+    # line owner 2026-11-24 (KO E01 0:39, device ...1437): the previous take talked in a unit with no line; S7 muted
+    # the voice and the lips kept moving in silence
+    "silent_speech": ("Nobody speaks in this clip: every visible person keeps the lips closed and still from the "
+                      "first frame to the last, with no talking, murmuring or mouthing of words."),
+    # line owner 2026-11-24 (KO E01 0:32): an oily, wet-looking face
+    "skin_sheen": ("Every face keeps natural matte skin and dry hair from the first frame to the last: no oily, "
+                   "glossy or sweaty sheen and no bright highlights on the forehead, nose or cheeks."),
+    # line owner 2026-11-24 (JA E11 1:03): a disembodied hand reached in from off screen to shake hands
+    "invented_person": ("Only the declared people appear: no hand, arm or body of anyone else enters the frame from "
+                        "outside it, and nobody shakes, grips or touches a hand that comes from off screen."),
 }
 
 

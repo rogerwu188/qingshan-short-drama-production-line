@@ -42,18 +42,24 @@ from typing import Any, Callable
 VLM_QUESTION_FAILURES = {
     "action_roles_as_planned": "role_reversed",
     "no_person_outside_declared_cast": "invented_person",
+    # line owner 2026-11-24 (JA E11, device ...1485): a disembodied off-screen hand shaking a character's hand
+    "no_offscreen_limb_reaching_in": "invented_person",
     "location_matches_scene": "wrong_location",
     "no_modern_object_in_period_world": "anachronism",
+    # line owner 2026-11-24 (KO E01 0:32, device ...1437): an oily / wet-looking face
+    "skin_finish_natural": "skin_sheen",
 }
-VLM_FAILURES = tuple(VLM_QUESTION_FAILURES.values())
+VLM_FAILURES = tuple(dict.fromkeys(VLM_QUESTION_FAILURES.values()))
 #: letterbox / non-9:16 clip (technical, 2026-11-19, av_evidence_pack.clip_letterbox) > duplicates > wrong character
 #: face (2026-11-19, video_q2_builder.wrong_face_verdict) > the VLM plan failures (2026-11-23) > speaker framing >
 #: push-in
 FAILURE_PRIORITY = ("letterbox", "face_count", "wrong_face", "invented_person", "role_reversed", "wrong_location",
-                    "anachronism", "speaker_framing", "push_in")
+                    "anachronism", "silent_speech", "skin_sheen", "speaker_framing", "push_in")
 #: technical failures measured on the decoded clip itself: redo-eligible in every render style and also when
-#: CAMERA_GRAMMAR_V1 is off (the InsightFace failures are not)
-TECHNICAL_FAILURES = ("letterbox",)
+#: CAMERA_GRAMMAR_V1 is off (the InsightFace failures are not).  ``silent_speech`` (line owner 2026-11-24, KO E01
+#: 0:39 on device ...1437: a man talked with no sound): a voice the VAD hears in a unit with no scripted line --
+#: S7 mutes it, which leaves the lips moving in silence, so the take is redone once with the closed-mouth sentence
+TECHNICAL_FAILURES = ("letterbox", "silent_speech")
 #: failures that are not InsightFace measurements: eligible in every render style and without CAMERA_GRAMMAR_V1
 STYLE_INDEPENDENT_FAILURES = TECHNICAL_FAILURES + VLM_FAILURES
 #: failures whose redo parks the start frame and generates the unit's own keyframe (nalu_pipeline.redo_switch_start_frames);
@@ -65,7 +71,8 @@ STATE_KEY = "q2_auto_redo"
 #: failure -> the task/unit field value the redo's H3 prompt carries (``h3_redo_findings``); the renderer states
 #: the measured problem in plain words (h3_provider_english_contract.REDO_FINDING_SENTENCES)
 REDO_FINDINGS_FIELD = "h3_redo_findings"
-PROMPT_NOTES = {"push_in": "push_in"}
+PROMPT_NOTES = {"push_in": "push_in", "silent_speech": "silent_speech", "skin_sheen": "skin_sheen",
+                "invented_person": "invented_person"}
 
 
 def needs_own_keyframe(failures: list[str]) -> bool:

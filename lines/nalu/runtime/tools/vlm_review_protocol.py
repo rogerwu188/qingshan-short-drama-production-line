@@ -440,6 +440,25 @@ QUESTIONNAIRES: dict[str, dict[str, dict[str, Any]]] = {
                         " A figure listed in expectations.over_the_shoulder_characters (seen from behind, back of the head "
                         "and one shoulder, face not shown) IS that declared character — present, not an "
                         "extra or invented person."},
+        # line owner 2026-11-24 (JA E11 1:03 / 1:07, device ...1485): characters shook hands with a disembodied hand
+        # reaching in from off screen -- the cast question above passed it.  Asked on its own so it is looked for.
+        "no_offscreen_limb_reaching_in": {
+            "enum": PF, "maps_to": ["ACTION-SHOT-DESIGN-AND-STATE-HANDOFF"],
+            "question": "Does a hand, arm, leg or other body part reach into the frame from outside it whose owner is "
+                        "not visible in the frame (e.g. a hand from the frame edge shaking, gripping, pulling or "
+                        "touching a visible character's hand, or handing them something)?  FAIL when it happens at "
+                        "any moment, also in anime: an off-screen person's limb is an invented person.  The only "
+                        "exception is a declared over-the-shoulder character (expectations.over_the_shoulder_characters"
+                        ") whose shoulder and back of the head are in frame.  Write when, where (frame edge) and what "
+                        "the limb does in the observation."},
+        # line owner 2026-11-24 (KO E01 0:32, device ...1437): a man's face looked oily / wet with specular highlights
+        "skin_finish_natural": {
+            "enum": PFN, "maps_to": ["ACTION-SHOT-DESIGN-AND-STATE-HANDOFF"],
+            "question": "Does every visible face keep a natural, matte skin finish?  FAIL when a face looks oily, "
+                        "greasy, sweaty, wet or plastic-shiny (bright white specular patches on the forehead, nose or "
+                        "cheeks; in anime glossy 3D-style shine on skin or hair) and the plan gives no reason (no "
+                        "rain, water, exertion, sweat or tears in expectations).  NOT_APPLICABLE when no face is "
+                        "visible."},
         "location_matches_scene": {
             "enum": PF, "maps_to": ["SCENE-AUTHORITY-LOCK"],
             "question": "Does the location match the scene?  The place must be expectations.scene_location "
@@ -467,8 +486,10 @@ QUESTIONNAIRES: dict[str, dict[str, dict[str, Any]]] = {
 VLM_OBJECTIVE_FAILURES = {
     "action_roles_as_planned": "role_reversed",
     "no_person_outside_declared_cast": "invented_person",
+    "no_offscreen_limb_reaching_in": "invented_person",
     "location_matches_scene": "wrong_location",
     "no_modern_object_in_period_world": "anachronism",
+    "skin_finish_natural": "skin_sheen",
 }
 
 #: SCRIPT-STAGE independent read (line owner 2026-11-01).  Before the script is

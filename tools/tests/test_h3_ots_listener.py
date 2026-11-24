@@ -136,7 +136,8 @@ class OtsReviewExpectationTest(unittest.TestCase):
         self.assertEqual(note["over_the_shoulder_characters"], ["贝塔"])
         self.assertEqual(qa.ots_expectation([{"character": "阿尔"}]), {})
         source = (TOOLS / "vlm_review_protocol.py").read_text(encoding="utf-8")
-        self.assertEqual(source.count("expectations.over_the_shoulder_characters"), 3)
+        # + the off-screen limb question's exception (2026-11-24)
+        self.assertEqual(source.count("expectations.over_the_shoulder_characters"), 4)
 
 
 if __name__ == "__main__":

@@ -96,6 +96,7 @@ def sheet_prompt(entity: dict[str, Any], *, state: str | None = None, state_desc
         (_render_style.SHEET_REFERENCE_CLAUSE_ZH if anime else
          "【参考图】参考图是同一人物已锁定的身份照：脸型骨骼、五官、发型、肤色、体型与服装必须与参考图完全一致，同一个人；"
          "只改变排版与朝向，不改变人物。"),
+        "" if anime else _render_style.LIVE_SKIN_FINISH_ZH,
         trait_clause(appearance),
         (f"【本图状态·必须呈现】{state_description.rstrip('。.')}。该状态在每个视图中都必须清楚可见、位置一致。"
          if state and state_description else ""),

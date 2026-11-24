@@ -943,7 +943,8 @@ def qa_defect_measurements(episode: str, *, shots: list[dict[str, Any]], asr: An
         release_timeline_path=assembly / f"{episode}_release_timeline.json",
         performance_cut_path=assembly / f"{episode}_PERFORMANCE_CUT.json",
         unit_recut_path=assembly / f"{episode}_UNIT_RECUT.json",
-        stabilize_summary_path=assembly / f"{episode}_CLIP_STABILIZE.json")
+        stabilize_summary_path=assembly / f"{episode}_CLIP_STABILIZE.json",
+        silent_speech_path=assembly / f"{episode}_SILENT_UNIT_STRAY_SPEECH.json")
 
 
 def build_av_evidence_pack(episode: str, *, video: Path, video_sha: str, shots: list[dict[str, Any]], asr: Any,

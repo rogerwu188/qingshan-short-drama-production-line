@@ -117,7 +117,9 @@ GATE_QUESTIONS = {
                   "perceived_life_state_matches_declared", "visible_group_count_matches_declared",
                   "creature_locomotion_matches_card",
                   # device 1101 E24 (2026-11-23): who does what to whom / who holds the prop; nobody invented
-                  "action_roles_as_planned", "no_person_outside_declared_cast"),
+                  "action_roles_as_planned", "no_person_outside_declared_cast",
+                  # line owner 2026-11-24: an off-screen person's hand reaching in; an oily / wet-looking face
+                  "no_offscreen_limb_reaching_in", "skin_finish_natural"),
     SCENE_GATE: ("space_anchors_match", "camera_axis_stable_and_declared",
                  "lighting_palette_and_time_match", "location_matches_scene"),
     PERIOD_GATE: ("no_anachronism_from_closed_set", "no_burned_in_text_or_subtitle",
@@ -1405,6 +1407,43 @@ def clip_letterbox_check(media: Path) -> dict[str, Any] | None:
         return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:160]}"}
 
 
+SILENT_SPEECH_METHOD = "VAD_SPEECH_IN_UNIT_WITHOUT_LINE_V1"
+
+
+def silent_speech_check(expectations: dict[str, Any], media: Path,
+                        measure: Callable[[Path, float, float], dict[str, Any]] | None = None,
+                        duration: float | None = None) -> dict[str, Any] | None:
+    """Line owner 2026-11-24 (KO E01 0:39, device ...1437: a man in an office talks and points at the camera with NO
+    sound).  H3 voices a unit that has no scripted line although the prompt keeps every mouth closed; S7 then mutes
+    the voice (silent_unit_stray_speech, speech_only) and the lips keep moving in silence.  A unit with no expected
+    line and a declared visible character is run through the S7 VAD (silent_unit_stray_speech.measure_placed); a
+    speech run of at least FLAG_SPEECH_SECONDS is FAIL -- a technical failure q2_auto_redo redoes once, every render
+    style.  None when the unit has a line or nobody visible; ``NALU_SILENT_SPEECH_CHECK=off`` switches it off.
+    Never raises."""
+    if str(os.environ.get("NALU_SILENT_SPEECH_CHECK") or "").strip().lower() in ("off", "0", "false"):
+        return None
+    if expectations.get("expected_dialogue") or not expectations.get("required_visible_character_ids"):
+        return None
+    try:
+        stray = engine_module("silent_unit_stray_speech")
+        if measure is None:
+            def measure(path: Path, start: float, length: float) -> dict[str, Any]:
+                return stray.measure_placed(path, start, length)
+        length = duration if duration else probe_duration(media)
+        if not length:
+            return {"status": "NOT_MEASURED", "method": SILENT_SPEECH_METHOD, "reason": "DURATION_UNKNOWN"}
+        measured = measure(media, 0.0, float(length))
+        windows = [[float(a), float(b)] for a, b in measured.get("windows") or []]
+        flagged = [w for w in windows if w[1] - w[0] >= stray.FLAG_SPEECH_SECONDS - 1e-9]
+        return {"status": "FAIL" if flagged else "PASS", "method": SILENT_SPEECH_METHOD,
+                "vad": measured.get("method"), "windows": windows, "flagged_windows": flagged,
+                "flag_speech_seconds": stray.FLAG_SPEECH_SECONDS,
+                "rule": "a unit with no scripted line and a visible person must not carry a voice (S7 would mute it "
+                        "and leave the lips moving in silence)"}
+    except Exception as exc:  # noqa: BLE001 -- advisory measurement
+        return {"status": "ERROR", "method": SILENT_SPEECH_METHOD, "error": f"{type(exc).__name__}:{str(exc)[:160]}"}
+
+
 def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
             units: list[str] | None = None) -> dict[str, Any]:
     """Extract frames, run OCR over every one, and measure identity per unit.
@@ -1508,6 +1547,10 @@ def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
         letterbox = clip_letterbox_check(media)
         if letterbox:
             row["letterbox"] = letterbox
+        silent_speech = silent_speech_check(item["expectations"], media,
+                                            duration=extraction.get("duration_seconds"))
+        if silent_speech:
+            row["silent_speech"] = silent_speech
         if anime:
             row["render_style"] = _render_style.ANIME
             if face_count_on:

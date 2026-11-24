@@ -152,16 +152,27 @@ PASSES: dict[str, dict[str, Any]] = {
 }
 TAIL_CLASSES = ("QA-EDIT-FRAGMENT", "QA-WRONG-SPEAKER", "QA-CAMERA-WOBBLE", "QA-IDENTITY-MISMATCH", "QA-BODY-MORPH",
                 "QA-FACE-ARTIFACT", "QA-BURNED-TEXT", "QA-DIALOGUE-TAIL-CUT", "CRAFT-ENDING-HOOK", "CRAFT-CLARITY",
-                "CRAFT-ACTING-MONOTONY", "QA-PLAN-MISMATCH")
+                "CRAFT-ACTING-MONOTONY", "QA-PLAN-MISMATCH", "QA-SILENT-MOUTH")
 
 #: class -> (pass, Chinese checklist text).  Existing ids (QA-*, LETTERBOX, LOOK-DRIFT, OTHER) keep their meaning.
 CLASS_TEXT: dict[str, tuple[str, str]] = {
     # A -- picture / AI artefacts
     "QA-FACE-ARTIFACT": ("A", "脸部 AI 瑕疵：脸融化/变形/左右不对称/五官漂移；眼睛（视线乱飘、两眼瞳孔或虹膜不一致、眼睛畸形）；"
                               "牙齿/嘴（牙齿糊成一片、嘴型畸形、多一排牙）。"),
-    "QA-HAND-ARTIFACT": ("A", "手：手指数量不对（多指/少指）、手指融合或弯折变形、手和物体互相穿透、手凭空出现/消失。"),
-    "QA-SKIN-SHEEN-DRIFT": ("A", "皮肤/头发质感漂移：同一角色在相邻镜头之间皮肤突然变得油亮、反光、塑料感、过度锐化或磨皮，"
-                                 "或头发突然变湿/变油亮（和前后镜头对比）。"),
+    "QA-HAND-ARTIFACT": ("A", "手：手指数量不对（多指/少指）、手指融合或弯折变形、手和物体互相穿透、手凭空出现/消失。"
+                              "画框外伸进来一只看不到主人的手/手臂（和画面里的角色握手、拉手、抓手腕、递东西）不是手部瑕疵，"
+                              "是多出来的人：报 QA-PLAN-MISMATCH（P1）。"),
+    # 2026-11-24 (KO E01 0:32, device ...1437): the face was oily in the shot itself, not only compared with its
+    # neighbours -- the drift wording let a consistently oily face pass
+    "QA-SKIN-SHEEN-DRIFT": ("A", "皮肤/头发油光：任何一个镜头里人物的脸看起来油亮、出汗、湿漉漉或塑料感反光（额头、鼻梁、脸颊上有"
+                                 "白亮的高光块），或头发湿亮、皮肤过度锐化/磨皮——只要剧情没有雨水、汗水、泪水的理由就报，"
+                                 "即使前后镜头也一样油（整集都油也要报，写出每个出现的时间点）；同一角色相邻镜头之间突然变油亮"
+                                 "也算。P1。"),
+    # 2026-11-24 (KO E01 0:39, device ...1437): a man in an office talks and points at the camera with no sound -- the
+    # engine muted the voice H3 had generated in a unit with no line, the lips kept moving
+    "QA-SILENT-MOUTH": ("A", "嘴动没声音：画面里有人嘴在一张一合、明显在说话（或喃喃自语），但这里听不到他的台词——计划里"
+                             "这个单元没有台词（分镜表/逐单元计划），或 silent_mouth 嫌疑点（引擎把模型生成的人声静音了）。"
+                             "张嘴惊讶、喘气、咬牙这类不说话的表情不算。P1，写出是谁、哪个时间窗。"),
     "QA-BODY-MORPH": ("A", "身体/四肢变形：肢体扭曲、多出或缺少肢体、身体比例突变、衣服与身体融在一起。"),
     "QA-OBJECT-POP": ("A", "物体凭空出现/消失/变形（道具、家具、饰品在同一镜头内跳变）。"),
     "QA-FLICKER": ("A", "时间闪烁：画面或局部纹理闪动/抖动、首尾帧闪一下。（背景跟着人物整体晃动/果冻扭曲报 QA-CAMERA-WOBBLE。）"),
@@ -230,7 +241,8 @@ CLASS_TEXT: dict[str, tuple[str, str]] = {
     # 2026-11-23 (device 1101 E24): the blade at the heroine's own throat, a field instead of the rouge shop, a toy
     # skull on a tray instead of a skeleton on a boat, an armoured stranger instead of the demon -- and it shipped
     "QA-PLAN-MISMATCH": ("D", "成片和计划不符：对照逐单元计划，这个单元没拍出计划的内容——主被动/角色关系反了（谁拿刀对着谁、谁打谁）、"
-                              "地点不对、计划里的人物或关键道具不在、多出计划里没有的人、计划的动作节拍没有发生。"
+                              "地点不对、计划里的人物或关键道具不在、多出计划里没有的人（包括从画框外伸进来、看不到主人的手或"
+                              "手臂：和角色握手、拉手、递东西，动画也一样）、计划的动作节拍没有发生。"
                               "unit_parity 里判 NO 的单元每个单独列一条（start/end 用该单元的时间窗）。"),
 
     "OTHER": ("*", "其它任何观众会注意到的问题。"),
@@ -882,6 +894,9 @@ def build_pass_prompt(pid: str, *, duration: float, context: dict[str, Any] | No
         if own.get("burned_text"):
             lines += ["burned_text：本地 OCR 读到的字。到那个时间窗看：除了我方字幕和片头片尾卡，画面里真有字（含乱码、第二行字幕）就是"
                       "CONFIRMED，同时报 QA-BURNED-TEXT。"]
+        if own.get("silent_mouth"):
+            lines += ["silent_mouth：计划这里没有台词，引擎已把模型生成的人声静音。到那个时间窗看画面：有人嘴在一张一合、像在说话"
+                      "（不是惊讶张嘴、喘气）就是 CONFIRMED，写出是谁，并报 QA-SILENT-MOUTH（P1）。"]
         if own.get("stray_voice"):
             lines += ["stray_voice：计划这里没有台词，本地 ASR 却听到人声。到那个时间窗听：确有人在说话（不是环境声、不是上一句台词"
                       "的尾音）就是 CONFIRMED，写出听到了什么、画面里谁的嘴在动，并报 QA-WRONG-SPEAKER 或 OTHER。"]
@@ -1367,19 +1382,38 @@ def camera_wobble_suspects(measured: dict[str, Any] | None, context: dict[str, A
     return out
 
 
+def silent_mouth_suspects(measured: dict[str, Any] | None, start_id: int, limit: int = 12) -> list[dict[str, Any]]:
+    """S7 muted a voice H3 generated in a unit with no line (``measurements.silent_mouth``, the S7 stray-speech report):
+    the lips may keep moving in silence (line owner 2026-11-24, KO E01 0:39).  Pass A / E must confirm by eye;
+    ``kind`` silent_mouth, ids continue after ``start_id``."""
+    out = []
+    for row in ((measured or {}).get("units") or [])[:limit]:
+        win = row.get("window")
+        if not isinstance(win, (list, tuple)) or len(win) != 2 or _num(win[0]) is None or _num(win[1]) is None:
+            continue
+        out.append({"kind": "silent_mouth", "unit": short_unit(row.get("unit_id")),
+                    "window": [round(float(win[0]), 2), round(float(win[1]), 2)],
+                    "why": f"S7 实测：计划无台词的单元里模型生成了 {row.get('speech_seconds')} 秒人声，已被静音——"
+                           "看这个时间窗里有没有人嘴在动/像在说话",
+                    "id": f"S{start_id + len(out) + 1}"})
+    return out
+
+
 def split_suspects(suspects: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, list[dict[str, Any]]]]:
     """The S-ids each pass must answer: sound suspects (line tails, music) -> C; letterbox shots -> A; measured edit
     fragments / silent-speaker shots (s7_edit_invariants.measure_cut) -> D."""
     return {"A": {"letterbox": suspects.get("letterbox") or [], "skin_sheen": suspects.get("skin_sheen") or [],
                   "camera_wobble": suspects.get("camera_wobble") or [],
                   # local OCR text runs (2026-11-23, E24): answered, not skimmed as a lead
-                  **({"burned_text": suspects["burned_text"]} if suspects.get("burned_text") else {})},
+                  **({"burned_text": suspects["burned_text"]} if suspects.get("burned_text") else {}),
+                  # S7-muted voices in units with no line (2026-11-24, KO E01): lips moving in silence
+                  **({"silent_mouth": suspects["silent_mouth"]} if suspects.get("silent_mouth") else {})},
             "B": {}, "C": {"tail": suspects.get("tail") or [], "bgm": suspects.get("bgm") or [],
                            # ASR speech inside units the plan gives no line (2026-11-23, E24)
                            **({"stray_voice": suspects["stray_voice"]} if suspects.get("stray_voice") else {})},
             "D": {"fragment": suspects.get("fragment") or []} if suspects.get("fragment") else {},
             # the tail pass re-answers the suspects of its window (clipped by build_pass_prompt)
-            "E": {k: suspects[k] for k in ("fragment", "stray_voice", "camera_wobble", "burned_text")
+            "E": {k: suspects[k] for k in ("fragment", "stray_voice", "camera_wobble", "burned_text", "silent_mouth")
                   if suspects.get(k)}}
 
 
