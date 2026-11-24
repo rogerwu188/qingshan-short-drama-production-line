@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2572,
+  "file_count": 2576,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -305,7 +305,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "8dfdfbe824174e0e732f10109ef28a9689e2f034fff5bfdcd667607c19bc074a"
+      "sha256": "fc9ecc3030a9d56931e3470f2c496cf3d62dbd5e3618f203ccb0e7215c635308"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -418,6 +418,10 @@
     {
       "path": "docs/knowledge/COMBAT_EXCHANGE_DESIGN.md",
       "sha256": "8b76ff50a3af321fc34eee2d73bc3eff7e79ed7d7134134ca559389a973ba376"
+    },
+    {
+      "path": "docs/knowledge/CRAFT_PROFILE.md",
+      "sha256": "76b3168d0c3dcdcfe483911f4ce537d7568dda28cdd0595fdfb8f03a7913525b"
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
@@ -712,6 +716,10 @@
       "sha256": "b2960c3215a0cd95db56f746997ffa718d93df0efddfec5dafbce147d554f854"
     },
     {
+      "path": "lines/nalu/runtime/tools/craft_profile.py",
+      "sha256": "05c6205b226e503afb046cee6729aa2b746448460c84abf34200d79572c2248e"
+    },
+    {
       "path": "lines/nalu/runtime/tools/extend_global_space_map.py",
       "sha256": "73cc776f3d2fb86764880e15b02d92dd34e8b895a9285487c4d7d1a8876a32a3"
     },
@@ -821,7 +829,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "40721113b3db815b02b4f6e0a9229913b3cbe31fe96d32421aa1c25092accd60"
+      "sha256": "404a338631a7d3e47c3f357b1057b0933d00226af2805325fa17ee0562cd709a"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -4206,6 +4214,10 @@
     {
       "path": "tools/correct_e36_v19_bounded_watch_source_bindings.py",
       "sha256": "2b96a175b1f9f2d30cd5e329aef3dc015f21fd16b50de9a322b74b8ace5b9533"
+    },
+    {
+      "path": "tools/craft_profile.py",
+      "sha256": "00a0e5b9fc2429c0f5a336f435c4a893b3d7dc825c790cbb524ea4c09045bf05"
     },
     {
       "path": "tools/create_e16_a_visible_text_reroll_tasks.py",
@@ -7722,6 +7734,10 @@
     {
       "path": "tools/tests/test_continuity_state_contract_gate.py",
       "sha256": "d7e1d0d44068a36005cc43ed6f82107db7b022e3451ce3daa66ad7c24b6a713e"
+    },
+    {
+      "path": "tools/tests/test_craft_profile.py",
+      "sha256": "353e8a5045ddef1ac98a8b9d9addd19f6341314de1f17c5399943611b298ebe8"
     },
     {
       "path": "tools/tests/test_credit_window_isolation.py",
