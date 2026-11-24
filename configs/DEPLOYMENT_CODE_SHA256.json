@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2584,
+  "file_count": 2586,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -314,6 +314,14 @@
     {
       "path": "configs/PROVIDER_REQUEST_REVIEW_BINDING_V1.json",
       "sha256": "31ecb7a0ce04399a2d7ee4d517e360a44c58d01afb88483e733159ab37d75a22"
+    },
+    {
+      "path": "configs/REPORT_LINE_PATTERNS_V1.json",
+      "sha256": "5135a5c4ce9492c8fa5ec9f2f6fa4fc415baeee203bd626770f050ff0d031c0b"
+    },
+    {
+      "path": "configs/SLOGAN_PATTERNS_V1.json",
+      "sha256": "a3179a0aeeaf6f58f8bdb141ef729ec866161a8d06ea1272934215240fc28417"
     },
     {
       "path": "configs/STATE_DELTA_SEMANTICS_V1.json",

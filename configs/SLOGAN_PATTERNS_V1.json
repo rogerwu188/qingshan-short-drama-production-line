@@ -1,0 +1,47 @@
+{
+ "schema": "qingshan.slogan_patterns.v1",
+ "policy": "BILI_V1 (CHANGE_SPEC WP1 item 8)",
+ "note": "Regex per language. A line matching a pattern whose scene has no source anchor (source_detail_ids / source_lines sharing >= 2 characters with the rest of the line) is SLOGAN_LINE: advisory on the first evaluation, a taste code from the first revision on. E25: 今天不让任何人替我们低头 / 让他们看清 / 踏平 / 一笔一笔.",
+ "languages": {
+  "zh": [
+   "今天(?:不|就|便|谁)",
+   "谁也(?:别|不)",
+   "谁都(?:别|不)",
+   "替我们",
+   "让他们(?:看清|知道|明白|跪)",
+   "踏平",
+   "踏破",
+   "一笔一笔",
+   "跪着",
+   "血债血偿",
+   "绝不放过",
+   "誓死",
+   "必将",
+   "不让任何人",
+   "叫他们",
+   "让天下人"
+  ],
+  "en": [
+   "\\bno one will\\b",
+   "\\bnever again\\b",
+   "\\bpay for this\\b",
+   "\\bwe will crush\\b",
+   "\\bon their knees\\b",
+   "\\bevery last one\\b",
+   "\\btoday we\\b"
+  ],
+  "ja": [
+   "思い知らせ",
+   "許さない",
+   "絶対に",
+   "必ず.*させる",
+   "ひざまず"
+  ],
+  "ko": [
+   "절대 용서",
+   "무릎 꿇",
+   "본때",
+   "오늘 반드시"
+  ]
+ }
+}
