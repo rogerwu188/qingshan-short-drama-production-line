@@ -835,11 +835,16 @@ def _chapter_no(value: Any) -> Optional[int]:
     return int(digits) if digits and len(digits) <= 5 else None
 
 
-def check_source_binding(contract: dict[str, Any]) -> dict[str, Any]:
+def check_source_binding(contract: dict[str, Any], craft_profile: Optional[str] = None) -> dict[str, Any]:
     """``source_binding.source_file`` (and every ``source_files[].path``) is one of ``source_binding.source_chapters``.
 
     E24: source_chapters 21-25 while source_file was ch0018.md -- the script was bound to a chapter it does not
-    adapt, so every source check (key quotes, dialogue register, action beats) read the wrong text."""
+    adapt, so every source check (key quotes, dialogue register, action beats) read the wrong text.
+
+    BILI_V1 (CHANGE_SPEC WP1 item 10): ``adaptation_plan.source_chapters`` is authoritative -- the binding's
+    chapters and files must lie inside it (E25 2026-11-23: the plan still named E24's chapters 21-25)."""
+    if craft_profile == "BILI_V1":
+        return _check_source_binding_bili_v1(contract)
     binding = contract.get("source_binding")
     if not isinstance(binding, dict):
         return _result(measurements={"declared": False})
@@ -858,6 +863,33 @@ def check_source_binding(contract: dict[str, Any]) -> dict[str, Any]:
         if number not in chapters:
             failures.append(f"SOURCE_FILE_NOT_IN_SOURCE_CHAPTERS:{Path(path).name}:{sorted(chapters)[:8]}")
     return _result(failures, measurements={"declared": True, "source_chapters": sorted(chapters),
+                                           "files": [Path(f).name for f in files if f]})
+
+
+def _check_source_binding_bili_v1(contract: dict[str, Any]) -> dict[str, Any]:
+    plan = contract.get("adaptation_plan") if isinstance(contract.get("adaptation_plan"), dict) else {}
+    plan_chapters = {_chapter_no(c) for c in plan.get("source_chapters") or []}
+    plan_chapters.discard(None)
+    if not plan_chapters:
+        result = check_source_binding(contract)
+        result["measurements"]["authority"] = "source_binding"
+        return result
+    binding = contract.get("source_binding") if isinstance(contract.get("source_binding"), dict) else {}
+    bound = {_chapter_no(c) for c in binding.get("source_chapters") or []}
+    bound.discard(None)
+    files = [_clean(binding.get("source_file"))] + [
+        _clean(row.get("path")) if isinstance(row, dict) else _clean(row) for row in binding.get("source_files") or []]
+    files.append(_clean(contract.get("source_text")))
+    failures: list[str] = []
+    outside = sorted(c for c in bound if c not in plan_chapters)
+    if outside:
+        failures.append(f"SOURCE_BINDING_CHAPTERS_NOT_IN_ADAPTATION_PLAN:{outside[:8]}:{sorted(plan_chapters)[:8]}")
+    for path in dict.fromkeys(f for f in files if f):
+        number = _chapter_no(path)
+        if number is not None and number not in plan_chapters:
+            failures.append(f"SOURCE_FILE_NOT_IN_ADAPTATION_PLAN:{Path(path).name}:{sorted(plan_chapters)[:8]}")
+    return _result(failures, measurements={"declared": True, "authority": "adaptation_plan",
+                                           "source_chapters": sorted(plan_chapters),
                                            "files": [Path(f).name for f in files if f]})
 
 
@@ -887,7 +919,7 @@ def evaluate(
         # S1 integrity (E24 2026-11-23): never part of a taste loop -- a contract that fails these is not a script
         "schema": check_schema(contract, schema),
         "episode_shot_ids": check_episode_shot_ids(contract),
-        "source_binding": check_source_binding(contract),
+        "source_binding": check_source_binding(contract, craft_profile),
     }
     if _bili_v1(contract, craft_profile):
         # BILI_V1 (CHANGE_SPEC WP4 item 1): every Chinese field the H3 prompt needs has its literal English twin
@@ -953,12 +985,18 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--schema", default=str(SCHEMA_PATH),
                         help="generation-contract JSON schema (default: the repo schema)")
     parser.add_argument("--no-schema", action="store_true", help="skip the schema validation")
-    parser.add_argument("--craft-profile", help="the series craft profile (LEGACY | BILI_V1; default: the contract's)")
+    parser.add_argument("--craft-profile",
+                        help="the series craft profile (LEGACY | BILI_V1; default: the contract's). BILI_V1: "
+                             "EN twins required (WP4) and adaptation_plan.source_chapters is authoritative (WP1)")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
     schema = None if args.no_schema else (load_contract_schema(Path(args.schema)) or {})
+    # normalised BILI_V1 for WP1's exact check; any other explicit value (LEGACY) is passed through for WP4's
+    # _bili_v1 so it still overrides the contract; no flag -> None (the contract decides)
+    profile = ("BILI_V1" if str(args.craft_profile or "").strip().upper().replace("-", "_") == "BILI_V1"
+               else (args.craft_profile or None))
     report = evaluate(_load(args.contract) or {}, _load(args.manifest), _load(args.lexicon),
-                      dialogue_cps=args.dialogue_cps, schema=schema, craft_profile=args.craft_profile)
+                      dialogue_cps=args.dialogue_cps, schema=schema, craft_profile=profile)
     text = json.dumps(report, ensure_ascii=False, indent=2)
     if args.out:
         Path(args.out).write_text(text + "\n", encoding="utf-8")

@@ -14,6 +14,11 @@
 依据：SUPERVISOR_ORDERS seq=51 c2（插入项的新信息判据＝落地场次正文）
       ＋ seq=45 c5（manifest 须显式登记）
       ＋ 宪章第八节第 2 条（manifest 必填 beat_disposition）。
+
+BILI_V1（CHANGE_SPEC WP1 第 4 条，线主 2026-11-23；``--craft-profile BILI_V1 --contract <合同>``）：
+  一集按剧情事件分配（1 主 + ≤1 次），不再"一集一章、每拍落地"。合同 ``pacing.scene_plan[]``（或
+  manifest ``structure[]``）里 ``source_detail_ids`` 非空的场即算"有源"；其余自创衔接场仍应申报在
+  authorized_insertions，但只记 WARN、从不卡（--warn-is-fail 也不卡）。LEGACY 行为不变。
 """
 import argparse, json, re, sys
 
@@ -44,8 +49,22 @@ def declared_scene_ids(ins) -> set:
     return set(SCENE_RE.findall(json.dumps(ins, ensure_ascii=False)))
 
 
-def audit(path: str) -> dict:
+def detail_sourced_scene_ids(manifest: dict, contract: dict | None) -> set:
+    """BILI_V1: scenes whose scene card declares ``source_detail_ids`` (contract pacing.scene_plan / the
+    pacing_scene_plan alias, or the manifest structure row)."""
+    rows = list((manifest or {}).get("structure") or [])
+    contract = contract or {}
+    pacing = contract.get("pacing") if isinstance(contract.get("pacing"), dict) else {}
+    rows += list(pacing.get("scene_plan") or []) + list(contract.get("pacing_scene_plan") or [])
+    return {str(r["scene_id"]) for r in rows
+            if isinstance(r, dict) and r.get("scene_id") and [x for x in r.get("source_detail_ids") or [] if x]}
+
+
+def audit(path: str, craft_profile: str = "", contract_path: str = "") -> dict:
     d = json.load(open(path, encoding="utf-8"))
+    bili = str(craft_profile or "").strip().upper().replace("-", "_") == "BILI_V1"
+    if bili:
+        return audit_bili_v1(path, d, contract_path)
     scenes = [s["scene_id"] for s in d.get("structure", []) if isinstance(s, dict) and "scene_id" in s]
     ep = str(d.get("episode") or "")
     bd = d.get("beat_disposition")
@@ -87,15 +106,47 @@ def audit(path: str) -> dict:
     }
 
 
+def audit_bili_v1(path: str, d: dict, contract_path: str = "") -> dict:
+    """BILI_V1: report-only.  Sourced = beat_disposition landing or source_detail_ids; never FAIL."""
+    contract = {}
+    cpath = contract_path or str(d.get("generation_contract") or d.get("contract") or "")
+    if cpath:
+        try:
+            contract = json.load(open(cpath, encoding="utf-8"))
+        except (OSError, ValueError):
+            contract = {}
+    scenes = [s["scene_id"] for s in d.get("structure", []) if isinstance(s, dict) and "scene_id" in s]
+    if not scenes and isinstance(contract.get("shots"), list):
+        scenes = list(dict.fromkeys(str(s.get("scene_id")) for s in contract["shots"]
+                                    if isinstance(s, dict) and s.get("scene_id")))
+    ep = str(d.get("episode") or contract.get("episode") or "")
+    own = lambda S: {x for x in S if not ep or x.startswith(ep + "-")}
+    landed = own(landed_scene_ids(d.get("beat_disposition"))) | detail_sourced_scene_ids(d, contract)
+    declared = own(declared_scene_ids(d.get("★authorized_insertions") or d.get("authorized_insertions")))
+    unsourced = [s for s in scenes if s not in landed and s not in declared]
+    warnings = (["UNSOURCED_AND_UNDECLARED_SCENES_ADVISORY:" + ",".join(unsourced)] if unsourced else [])
+    return {
+        "schema": "qingshan.writer_scene_source_declaration_gate.v1",
+        "manifest": path, "craft_profile": "BILI_V1", "authority": "ADVISORY_NOT_A_GATE",
+        "episode": d.get("episode"), "version": d.get("version"), "scene_count": len(scenes),
+        "scenes_from_source": sorted(s for s in scenes if s in landed),
+        "scenes_declared_as_insertion": sorted(s for s in scenes if s in declared),
+        "scenes_unsourced_and_undeclared": unsourced,
+        "warnings": warnings, "failures": [], "status": "PASS",
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("manifests", nargs="+")
     ap.add_argument("--out")
     ap.add_argument("--warn-is-fail", action="store_true",
                     help="把 WARN（beat_disposition 无场次落点）也判为失败")
+    ap.add_argument("--craft-profile", default="", help="BILI_V1: source_detail_ids count as sourced; report-only")
+    ap.add_argument("--contract", default="", help="BILI_V1: the generation contract (scene cards)")
     a = ap.parse_args()
 
-    reports = [audit(p) for p in a.manifests]
+    reports = [audit(p, a.craft_profile, a.contract) for p in a.manifests]
     bad = [r for r in reports if r["status"] == "FAIL" or (a.warn_is_fail and r["status"] == "WARN")]
 
     for r in reports:

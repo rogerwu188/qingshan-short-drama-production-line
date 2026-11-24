@@ -143,6 +143,14 @@ an episode already past a paid stage that relies on the default is grandfathered
   "shot_id"}], "cut": ["what was cut / merged / compressed"]}`; the manifest's `beat_disposition` still lists every
   source beat (`dropped` / `merged` are valid dispositions). S1 records the chapters in
   `<runtime>/series/SOURCE_COVERAGE.json`; the next episode starts at its `next_chapter`.
+  **Craft profile BILI_V1** (docs/knowledge/CRAFT_PROFILE.md, owner 2026-11-23) replaces the floor with a cap:
+  1 main + ≤1 secondary plot event (`plot_events[].role: MAIN|SECONDARY`; more = `ADAPTATION_TOO_DENSE`); take as
+  many chapters as those events need (often 1); an event-dense chapter may be split across 2 episodes. Rhythm
+  comes from turns inside the scenes, not from more events. Each `pacing.scene_plan` row lists ≥2
+  `source_detail_ids` (short quotes ≤30 chars of visible source details found in the chapter text); report-style
+  lines ≤20 % (`REPORT_LINES_OVER`); slogans need a source anchor (`SLOGAN_LINE`); a reveal names what the source
+  names (`REVEAL_NAME_NOT_IN_SOURCE`, integrity); up to 2 short source lines per scene may be spoken verbatim when
+  listed in `scene_plan[].source_lines`.
 - **Beat structure.** Cold-open conflict in the first 3 s (`pacing.hook.at_seconds` <= 3). An escalation, reversal
   or reveal every ~20–30 s — humiliation then payback, a secret revealed, a power shift, a slap or confrontation, a
   romantic-tension spike, a threat confirmed — listed in `pacing.beat_sheet` (`[{"shot_id", "type":

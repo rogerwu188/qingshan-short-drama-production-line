@@ -502,6 +502,7 @@
     "tools.tests.test_measured_edit_recall_guard",
     "tools.tests.test_device_sn",
     "tools.tests.test_intake_source_formats",
-    "tools.tests.test_craft_profile"
+    "tools.tests.test_craft_profile",
+    "tools.tests.test_bili_wp1_adaptation"
   ]
 }

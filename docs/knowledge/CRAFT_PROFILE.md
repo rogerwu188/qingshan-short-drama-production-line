@@ -64,6 +64,15 @@ except ModuleNotFoundError:  # runtime tools dir only
 - A LEGACY series must stay byte-identical. Branch only when `is_bili_v1(...)` is true, and keep the historical text and code path untouched otherwise.
 - Read the profile only through this module. Do not add another key or lookup path.
 
+## What BILI_V1 changes so far
+
+- **WP1 adaptation and episode allocation** (`lines/nalu/runtime/tools/bili_adaptation_check.py`, called from `script_pacing_check.evaluate`):
+  - 1 main + ≤1 secondary plot event (`ADAPTATION_TOO_DENSE`); `ADAPTATION_TOO_THIN` and `SINGLE_CHAPTER_EPISODE` are off; the TOO_FEW_TURNS and SCRIPT_TOO_SHORT fixes say "deepen the scenes, do not add plot events";
+  - ≥2 `pacing.scene_plan[].source_detail_ids` per scene, each found in the source (`SOURCE_DETAIL_MISSING`, `SOURCE_DETAIL_NOT_IN_SOURCE`); report-style lines ≤20 % (`REPORT_LINES_OVER`, lexicon `configs/REPORT_LINE_PATTERNS_V1.json`); slogans without a source anchor (`SLOGAN_LINE`, `configs/SLOGAN_PATTERNS_V1.json`; advisory on the first evaluation) -- taste codes, admitted after the pacing revision rounds;
+  - `REVEAL_NAME_NOT_IN_SOURCE` -- integrity: back to the writer inside the S1 integrity loop, admitted and recorded after `S1_INTEGRITY_MAX_ROUNDS`;
+  - the dialogue register gate reads every declared chapter of any work (`--source` repeated / `--source-text-file`), is active from E01 and allows ≤2 listed short source lines per scene (`source_lines`);
+  - gate10 counts a scene with `source_detail_ids` as sourced and never blocks; `adaptation_plan.source_chapters` is the authoritative chapter list (structure gate `--craft-profile BILI_V1`).
+
 ## WP4 / WP7 under BILI_V1
 
 - **WP4 carry-through** (`tools/bili_carry.py`):

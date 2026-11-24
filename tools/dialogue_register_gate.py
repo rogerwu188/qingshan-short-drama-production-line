@@ -25,6 +25,12 @@ Scope: episodes whose writing contract declares ``dialogue_register_policy`` (V1
 contract ``prompt_spec.dialogue`` row, or a narrative file's quoted speech is judged the same way —
 the check reads whichever the caller hands it.
 
+Craft profile BILI_V1 (CHANGE_SPEC WP1 item 6, ``--craft-profile BILI_V1``): active from
+``enabled_from_episode_by_profile.BILI_V1`` (E01); the source may be several ``--source`` chapters or one
+``--source-text-file`` with every declared chapter concatenated; and up to ``verbatim_allowance_per_scene`` (2)
+lines per scene may reuse a source line verbatim when the line is short (zh 12 / ja 16 / ko 14 characters) and
+listed in that scene's ``source_lines`` (``pacing.scene_plan[]``).  LEGACY runs are unchanged.
+
 exit 0 PASS / NOT_ACTIVE, 3 BLOCK, 2 unreadable.
 
 Usage
@@ -86,13 +92,17 @@ def policy_loaded(path: Path | None = None) -> dict[str, Any]:
         return {}
 
 
-def policy_active(contract: dict[str, Any] | None, *, episode: str | None, policy: dict[str, Any]) -> bool:
+def policy_active(contract: dict[str, Any] | None, *, episode: str | None, policy: dict[str, Any],
+                  craft_profile: str | None = None) -> bool:
     if not policy:
         return False
     declared = str((contract or {}).get("dialogue_register_policy") or "").strip()
     if declared == POLICY_ID:
         return True
     start = str(policy.get("enabled_from_episode") or "").strip()
+    by_profile = policy.get("enabled_from_episode_by_profile") or {}
+    if craft_profile and isinstance(by_profile, dict) and by_profile.get(craft_profile):
+        start = str(by_profile.get(craft_profile)).strip()
     if not start or not episode:
         return False
     try:
@@ -145,14 +155,47 @@ def lines_from_contract(contract: dict[str, Any]) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     for shot in contract.get("shots") or []:
         sid = str(shot.get("shot_id") or shot.get("id") or "")
+        scene = str(shot.get("scene_id") or "")
         raw = str(((shot.get("prompt_spec") or {}).get("dialogue")) or shot.get("dialogue") or "").strip()
         if not raw:
             continue
         m = SPEAKER_SEPARATOR.match(raw)
         speaker, words = (m.group(1).strip(), m.group(2).strip()) if m else ("", raw)
         for piece in [p.strip() for p in re.split(r"(?<=[。！？])", words) if p.strip()]:
-            out.append({"shot_id": sid, "speaker": speaker, "text": piece})
+            out.append({"shot_id": sid, "speaker": speaker, "text": piece, "scene_id": scene})
     return out
+
+
+#: BILI_V1 verbatim allowance: a listed source line this short may be spoken as written (CHANGE_SPEC WP1 item 6)
+VERBATIM_ALLOWANCE_PER_SCENE = 2
+VERBATIM_ALLOWANCE_MAX_CHARS = {"zh": 12, "en": 12, "ja": 16, "ko": 14}
+
+
+def scene_source_lines(contract: dict[str, Any]) -> dict[str, list[str]]:
+    """scene_id -> the source lines the writer lists for that scene (``pacing.scene_plan[].source_lines``, the
+    top-level ``pacing_scene_plan`` alias, or a ``scene_states[]`` / ``scene_card`` ``source_lines``)."""
+    out: dict[str, list[str]] = {}
+    pacing = contract.get("pacing") if isinstance(contract.get("pacing"), dict) else {}
+    rows = list(pacing.get("scene_plan") or []) + list(contract.get("pacing_scene_plan") or []) + \
+        list(contract.get("scene_states") or [])
+    for row in rows:
+        if not isinstance(row, dict) or not row.get("scene_id"):
+            continue
+        card = row.get("scene_card") if isinstance(row.get("scene_card"), dict) else {}
+        for raw in list(row.get("source_lines") or []) + list(card.get("source_lines") or []):
+            text = str(raw.get("text") if isinstance(raw, dict) else raw or "").strip()
+            if _normalise(text) and _normalise(text) not in out.setdefault(str(row["scene_id"]), []):
+                out[str(row["scene_id"])].append(_normalise(text))
+    return out
+
+
+def verbatim_allowance(contract: dict[str, Any], language: Any, policy: dict[str, Any] | None = None
+                       ) -> dict[str, Any]:
+    policy = policy or {}
+    code = str(language or "").strip().lower()[:2] or "zh"
+    caps = {**VERBATIM_ALLOWANCE_MAX_CHARS, **(policy.get("verbatim_allowance_max_chars") or {})}
+    return {"per_scene": int(policy.get("verbatim_allowance_per_scene") or VERBATIM_ALLOWANCE_PER_SCENE),
+            "max_chars": int(caps.get(code) or caps["zh"]), "scene_lines": scene_source_lines(contract)}
 
 
 def lines_from_narrative(text: str) -> list[dict[str, str]]:
@@ -231,10 +274,28 @@ def fingerprint_drift(lines: list[dict[str, str]], fingerprints: dict[str, Any])
     return out
 
 
+def _allowed(line: dict[str, str], norm_len: int, allowance: dict[str, Any] | None, used: dict[str, int]) -> bool:
+    """BILI_V1: a short line listed in its scene's source_lines, within the per-scene allowance."""
+    if not allowance or norm_len > allowance["max_chars"]:
+        return False
+    scene = str(line.get("scene_id") or "")
+    norm = _normalise(line["text"])
+    listed = allowance["scene_lines"].get(scene) or []
+    if not any(norm == item or (norm in item) or (item in norm and len(item) >= norm_len - 2) for item in listed):
+        return False
+    if used.get(scene, 0) >= allowance["per_scene"]:
+        return False
+    used[scene] = used.get(scene, 0) + 1
+    return True
+
+
 def analyse(lines: list[dict[str, str]], source_text: str, *, fingerprints: dict[str, Any] | None = None,
-            verbatim_min_run: int = VERBATIM_MIN_RUN) -> dict[str, Any]:
-    """Pure function over authored lines; testable without files or a provider."""
+            verbatim_min_run: int = VERBATIM_MIN_RUN, allowance: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Pure function over authored lines; testable without files or a provider.  ``allowance`` (BILI_V1 only,
+    :func:`verbatim_allowance`): listed short source lines are reported as ``verbatim_allowed``, not failed."""
     verbatim: list[dict[str, Any]] = []
+    allowed: list[dict[str, Any]] = []
+    used: dict[str, int] = {}
     written: list[dict[str, Any]] = []
     total_chars = 0
     overlap_chars = 0
@@ -243,7 +304,10 @@ def analyse(lines: list[dict[str, str]], source_text: str, *, fingerprints: dict
         total_chars += norm_len
         run = longest_common_run(line["text"], source_text) if source_text else ""
         overlap_chars += len(run)
-        if len(run) >= verbatim_min_run:
+        if len(run) >= verbatim_min_run and _allowed(line, norm_len, allowance, used):
+            allowed.append({"shot_id": line["shot_id"], "scene_id": line.get("scene_id"), "text": line["text"],
+                            "run_chars": len(run), "line_chars": norm_len, "code": "DIALOGUE_SOURCE_LINE_ALLOWED"})
+        elif len(run) >= verbatim_min_run:
             verbatim.append({"shot_id": line["shot_id"], "speaker": line["speaker"], "text": line["text"],
                              "run": run, "run_chars": len(run), "line_chars": norm_len,
                              "code": "DIALOGUE_SOURCE_VERBATIM"})
@@ -262,7 +326,7 @@ def analyse(lines: list[dict[str, str]], source_text: str, *, fingerprints: dict
         failures.append(f"DIALOGUE_ONE_VOICE:{len(voices)}")
     if drift:
         failures.append(f"DIALOGUE_FINGERPRINT_DRIFT:{len(drift)}")
-    return {
+    report = {
         "schema": "nalu.dialogue_register_report.v1", "policy_id": POLICY_ID,
         "status": "FAIL" if failures else "PASS", "failures": failures,
         "lines": len(lines), "chars": total_chars,
@@ -270,13 +334,19 @@ def analyse(lines: list[dict[str, str]], source_text: str, *, fingerprints: dict
         "verbatim": verbatim, "written_register": written, "one_voice": voices, "fingerprint_drift": drift,
         "thresholds": {"verbatim_min_run": verbatim_min_run},
     }
+    if allowance is not None:
+        report["verbatim_allowed"] = allowed
+        report["thresholds"]["verbatim_allowance"] = {"per_scene": allowance["per_scene"],
+                                                      "max_chars": allowance["max_chars"]}
+    return report
 
 
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
 
-def load_subject(*, contract: Path | None, narrative: Path | None, source: Path) -> tuple[dict[str, Any], list[dict[str, str]], str]:
+def load_subject(*, contract: Path | None, narrative: Path | None, source: Path | list[Path]
+                 ) -> tuple[dict[str, Any], list[dict[str, str]], str]:
     contract_payload: dict[str, Any] = {}
     lines: list[dict[str, str]] = []
     if contract and contract.is_file():
@@ -284,7 +354,8 @@ def load_subject(*, contract: Path | None, narrative: Path | None, source: Path)
         lines.extend(lines_from_contract(contract_payload))
     if narrative and narrative.is_file():
         lines.extend(lines_from_narrative(narrative.read_text(encoding="utf-8")))
-    source_text = source.read_text(encoding="utf-8") if source.is_file() else ""
+    sources = source if isinstance(source, list) else [source]
+    source_text = "\n\n".join(s.read_text(encoding="utf-8") for s in sources if s.is_file())
     return contract_payload, lines, source_text
 
 
@@ -293,10 +364,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--contract")
     ap.add_argument("--manifest")
     ap.add_argument("--narrative")
-    ap.add_argument("--source", required=True, help="the episode's source chapter (.md)")
+    ap.add_argument("--source", action="append", default=[],
+                    help="the episode's source chapter (.md); repeat for every declared chapter")
+    ap.add_argument("--source-text-file", help="one file with every declared chapter's text concatenated")
+    ap.add_argument("--craft-profile", help="BILI_V1: active from E01, short listed source lines allowed")
     ap.add_argument("--out")
     ap.add_argument("--json", action="store_true", help="print the report")
     args = ap.parse_args(argv)
+    if not args.source and not args.source_text_file:
+        ap.error("--source or --source-text-file is required")
+    bili = str(args.craft_profile or "").strip().upper().replace("-", "_") == "BILI_V1"
 
     policy = policy_loaded()
     contract_path = Path(args.contract).expanduser() if args.contract else None
@@ -312,7 +389,7 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, ValueError):
             pass
     if not policy_active(_read_json(contract_path) if contract_path and contract_path.is_file() else {},
-                         episode=episode, policy=policy):
+                         episode=episode, policy=policy, craft_profile="BILI_V1" if bili else None):
         report = {"schema": "nalu.dialogue_register_report.v1", "policy_id": POLICY_ID,
                   "status": "NOT_ACTIVE", "episode": episode, "failures": []}
         if args.out:
@@ -320,15 +397,21 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"status": "NOT_ACTIVE", "episode": episode}))
         return 0
 
+    sources = [Path(s).expanduser() for s in args.source] + (
+        [Path(args.source_text_file).expanduser()] if args.source_text_file else [])
     contract_payload, lines, source_text = load_subject(
         contract=contract_path, narrative=Path(args.narrative).expanduser() if args.narrative else None,
-        source=Path(args.source).expanduser())
+        source=sources if len(sources) > 1 else sources[0])
     if not source_text:
-        print(f"source text missing or empty: {args.source}", file=sys.stderr)
+        print(f"source text missing or empty: {' '.join(str(s) for s in sources)}", file=sys.stderr)
         return 2
     fingerprints = {name: spec for name, spec in ((contract_payload.get("speech_fingerprints") or {}).items())}
     report = analyse(lines, source_text, fingerprints=fingerprints,
-                     verbatim_min_run=verbatim_min_run_for(contract_payload.get("dialogue_language"), policy))
+                     verbatim_min_run=verbatim_min_run_for(contract_payload.get("dialogue_language"), policy),
+                     allowance=verbatim_allowance(contract_payload, contract_payload.get("dialogue_language"), policy)
+                     if bili else None)
+    if bili:
+        report["craft_profile"] = "BILI_V1"
     report["episode"] = episode
     if args.out:
         Path(args.out).write_text(json.dumps(report, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")

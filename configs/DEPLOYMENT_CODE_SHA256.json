@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2582,
+  "file_count": 2584,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -65,7 +65,7 @@
     },
     {
       "path": "agent_factory/claude_writer_v2/docs/CHARTER.md",
-      "sha256": "23676eb6838cad650d356e6b33896ac6f4bbfb3e1ab8a7c90df0230d820f3eef"
+      "sha256": "9632422e5808ef78a0dbfbc2ca0dd6705af02d0aa4b961563a83f48565b77efc"
     },
     {
       "path": "agent_factory/claude_writer_v2/docs/GATE_REGISTRY.md",
@@ -117,7 +117,7 @@
     },
     {
       "path": "agent_factory/claude_writer_v2/gates/writer_scene_source_declaration_gate.py",
-      "sha256": "06613984322f4d5781f828aca436d065f5ec4b1faff6e495d08ff2a4ce0cbeb8"
+      "sha256": "bb97dd595fc5b02c0d7842536cce48b4cc323d8a97ef3309b73e92aa0206739f"
     },
     {
       "path": "agent_factory/claude_writer_v2/runtime/atomic_publish.py",
@@ -149,7 +149,7 @@
     },
     {
       "path": "agent_factory/claude_writer_v2/schemas/generation_contract.schema.json",
-      "sha256": "7ac29a7138cb44bb56e9a83c3cbf398292a9f5bb2d980f16b327b41bce5af518"
+      "sha256": "23c79b6a0de0b36b3548f89e78120ee2b50243ae861aa9004a9c822a74d6bc02"
     },
     {
       "path": "agent_factory/claude_writer_v2/schemas/manifest.schema.json",
@@ -161,7 +161,7 @@
     },
     {
       "path": "agent_factory/claude_writer_v2/templates/NARRATIVE_CANONICAL.template.md",
-      "sha256": "166e4435a250d235d5bdbab31859c74949f3201d9c8b92938ce0bd37d697f957"
+      "sha256": "5e5b8b01f39d191f7d3b5178dbba381c27201a23ff31987686324478c6cf223a"
     },
     {
       "path": "agent_factory/claude_writer_v2/templates/manifest.template.json",
@@ -169,7 +169,7 @@
     },
     {
       "path": "agent_factory/claude_writer_v2/tests/test_smoke.py",
-      "sha256": "7308a039f4dfe06ca27c1b0021809592d84d354a4aefec275e4c21e80317fd61"
+      "sha256": "34c9fda1e35368b44f5b2edbc175e39ff62cad90be3ab2a3aa2fdcc5e4b6eb2e"
     },
     {
       "path": "agent_factory/storyclaw_portable/AGENTS.md",
@@ -197,7 +197,7 @@
     },
     {
       "path": "agent_factory/storyclaw_portable/WRITER_CONTRACT.md",
-      "sha256": "c2e9ce13b8dd1840b24fca0858e804effc88267407418625aae45f09fbe22d5c"
+      "sha256": "e7bb3dbf29fa132187860b37f2ad5662e268082cf392008a49e11a71f3c90724"
     },
     {
       "path": "configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json",
@@ -245,7 +245,7 @@
     },
     {
       "path": "configs/DIALOGUE_REGISTER_V1.json",
-      "sha256": "0be73f4de7bfde7ceb1b5c91942463e9fe9ccb60bd1a8932c9690abe673e1231"
+      "sha256": "d2349c628c9435a114e5536c62131582760eec814b85a2e316714c6ed9492f17"
     },
     {
       "path": "configs/DIRECTION_POLICY_V1.json",
@@ -305,7 +305,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "fc2155a20f9416609edca8d9ef086bd3b0f28e59317ed0758eeab1847e4449fe"
+      "sha256": "44a02b8f8e75add8c026d2104ccd4fb70f4edb66e36b58538d3ef638f31abdd6"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -421,7 +421,7 @@
     },
     {
       "path": "docs/knowledge/CRAFT_PROFILE.md",
-      "sha256": "9f2e75a5becb258893342e69e6cbdf517d9eb89dd301798a287aa864cc183c18"
+      "sha256": "77a3c1439d0b0dc7f1577c6c2626f90c4cce95a6c48795e92d74cc63c1829ff9"
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
@@ -433,7 +433,7 @@
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
-      "sha256": "97402144f7ed1e2a787eb0327cb7fb84e25fc485edf7640b0aed5f337c12ab17"
+      "sha256": "a70f668bec72ee5f0429eec04463dcdf07fb375eb60ede0556d8b608b94822cb"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -656,6 +656,10 @@
       "sha256": "f264514c209d999f1b76c1f2c8d38d5d26b700bd5ab00ccc808a139f92739a51"
     },
     {
+      "path": "lines/nalu/runtime/tools/bili_adaptation_check.py",
+      "sha256": "d0958c1f6c3e89bd2040f285fec98fb69643303631ed35f1bb013333bcfde9a7"
+    },
+    {
       "path": "lines/nalu/runtime/tools/bootstrap_identity_cards.py",
       "sha256": "c65ab7980f2fb5b3212a4120136055a379b4fae2875e5b4751c3700c22bdb4f9"
     },
@@ -829,7 +833,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "e1f92b61bf79d0272b2b6556571e0e97ae32584707acd4b340ea272614b96f8e"
+      "sha256": "62c04a01a3e0930a8ace1204bfe7dc4b78adc3546c029ca14a72949ee445b0b4"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -953,7 +957,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/script_pacing_check.py",
-      "sha256": "9f20d01f1ebdc0e2021dfc73b149eeff5a33185cc92b28315617e676c2652a1c"
+      "sha256": "282fdc37ca30300b82dc1a51aa372c601f2f6798ae439048cba8f320d355f5cf"
     },
     {
       "path": "lines/nalu/runtime/tools/script_review.py",
@@ -1033,7 +1037,7 @@
     },
     {
       "path": "lines/nalu/standards/NALU_CRAFT_STANDARD_v1.md",
-      "sha256": "c01bc81969ef1835f01ed7a6ceb305435b4e6859c63a1698c805de51dd4e532d"
+      "sha256": "4b4e055496f69d1a6bf718e595b8b95269a54e8b3ad854dfddaa30d6b6d24153"
     },
     {
       "path": "pyproject.toml",
@@ -1053,11 +1057,11 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "bc7fe3fa944889bf64a8655f510cbc5b5345ba3b07e73cb9cce07ba8c38cc479"
+      "sha256": "74752355e2388c914aee8329f9dd9363e84c9b3ba14ea13ffbd324a9e9017691"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
-      "sha256": "ee942d0c8d60d64ce34039d338a4580c0a54e3a79630fddbf432f36e278dec3a"
+      "sha256": "2de4b823fa7803950faa4d6897285f7ba9b76b3edeadb2e3f9406fdc7da89e8d"
     },
     {
       "path": "skills/nalu-claude-code/scripts/apply_runtime_fixups.py",
@@ -1073,7 +1077,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "83e976d80309a85093452f3c9d3dec88c33b1efb83c07a13764d96fa9d28aa0c"
+      "sha256": "7141f51a7d05cce3af79d6a0ef32f6c924bc7f3abf5e9f515962283ccfb5540e"
     },
     {
       "path": "skills/nalu-claude-code/scripts/collective_provision.py",
@@ -4293,7 +4297,7 @@
     },
     {
       "path": "tools/dialogue_register_gate.py",
-      "sha256": "83e6250b80739b1a751046b06970092eca2a0fde9f1a1f6d914c69488b4a26d7"
+      "sha256": "1e4cb2a4dcabdc28bf40fad649491d9d7c5bf508dcde62d5ed349f8d93c3a301"
     },
     {
       "path": "tools/dialogue_sound_bridge.py",
@@ -6737,7 +6741,7 @@
     },
     {
       "path": "tools/script_structure_contract_gate.py",
-      "sha256": "c4c2894e1587a3ac5317faf4c46302ba6d486fd25bb96245ef2265a6051c52cc"
+      "sha256": "743168a07c85ac3861e3086391e46c6a1d6507677fe198fa07885bf79e04f9bd"
     },
     {
       "path": "tools/sd2_background_ecology_contract.py",
@@ -7386,6 +7390,10 @@
     {
       "path": "tools/tests/test_bili_v1_carry.py",
       "sha256": "1520c10ae329ed1c329683482ea377aa1eca5c301ee9ffe7de704ee33a969ed1"
+    },
+    {
+      "path": "tools/tests/test_bili_wp1_adaptation.py",
+      "sha256": "02fec2a6ec47e4757f9b04916e3620663b9bfbb65a81dcde879e51220644d20b"
     },
     {
       "path": "tools/tests/test_billing_key_guard.py",

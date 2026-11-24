@@ -768,6 +768,26 @@ NEXT_EPISODE_BRIEF = """本集由引擎在上一集出片后自动接续（线�
 4. 否则按 `{skill}` §4 写本集叙事正典与生产简报（承接上一集结尾，角色、地点沿用，按合同 §8），然后按合同生产 {nxt}。
 """
 
+#: craft profile BILI_V1 (CHANGE_SPEC WP1, owner 2026-11-23): an episode is allocated by plot events with a cap
+NEXT_EPISODE_BRIEF_BILI_V1 = NEXT_EPISODE_BRIEF.replace(
+    "本集覆盖 ≥ max(4, ⌊时长/25⌋) 个剧情事件，需要几章取几章，通常 2–5 章；",
+    "本集 1 个主事件 + ≤1 个次事件（adaptation_plan.plot_events 标 role: MAIN / SECONDARY），需要几章取几章（常常 1 章），"
+    "事件密集的章可拆成 2 集；节奏靠场内转折，不靠加事件；每场 ≥2 条原著细节（pacing.scene_plan[].source_detail_ids）；")
+
+
+def next_episode_brief_template(runtime: Path, episode: str) -> str:
+    """The dispatch template for ``episode``: BILI_V1 series get the event-cap wording; LEGACY is unchanged."""
+    try:
+        here = str(Path(__file__).resolve().parents[3] / "lines" / "nalu" / "runtime" / "tools")
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import craft_profile as _cp  # noqa: PLC0415
+        if _cp.is_bili_v1(Path(runtime), episode=episode):
+            return NEXT_EPISODE_BRIEF_BILI_V1
+    except Exception:  # noqa: BLE001 -- an unreadable profile is LEGACY
+        pass
+    return NEXT_EPISODE_BRIEF
+
 
 def start_next_episode(episode: str) -> dict[str, Any]:
     """FINAL_CUT_READY -> scripted engine update (between episodes is the only safe moment), then a new Codex
@@ -798,7 +818,7 @@ def start_next_episode(episode: str) -> dict[str, Any]:
         display = int(prev_brief.get("episode_display_number")) + 1
     except (TypeError, ValueError):
         display = int(re.sub(r"\D", "", nxt) or 0)
-    brief = NEXT_EPISODE_BRIEF.format(display=display,
+    brief = next_episode_brief_template(runtime, nxt).format(display=display,
         prev=prev, ep=episode, nxt=nxt, brief=briefs / f"{nxt}_DISPATCH.md", done=runtime / "series" / "SERIES_DONE",
         status=runtime / "series" / "STATUS.md", skill=engine / "skills" / "nalu-claude-code" / "SKILL.md",
         coverage_cmd=(f"{_engine_python(engine)} {engine / 'lines/nalu/runtime/tools/script_pacing_check.py'} coverage "
