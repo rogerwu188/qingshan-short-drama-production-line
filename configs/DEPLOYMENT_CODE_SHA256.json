@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2588,
+  "file_count": 2591,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -149,7 +149,7 @@
     },
     {
       "path": "agent_factory/claude_writer_v2/schemas/generation_contract.schema.json",
-      "sha256": "23c79b6a0de0b36b3548f89e78120ee2b50243ae861aa9004a9c822a74d6bc02"
+      "sha256": "e7e69abbe9b6fc57ce4f9133aecfadf0b4a469eca6c17511aa235f0a9aed1510"
     },
     {
       "path": "agent_factory/claude_writer_v2/schemas/manifest.schema.json",
@@ -305,7 +305,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "d9bbc0aaa373c98eafd45b0cda1b57ba4ce94321c7063fb3d35a12525c92504e"
+      "sha256": "2e1174164c1a0a0da4a3ad7711f85ceef43da469a2989ea0332ed653ef50bd4e"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -426,6 +426,10 @@
     {
       "path": "docs/knowledge/COMBAT_EXCHANGE_DESIGN.md",
       "sha256": "8b76ff50a3af321fc34eee2d73bc3eff7e79ed7d7134134ca559389a973ba376"
+    },
+    {
+      "path": "docs/knowledge/CRAFT_LEDGER.md",
+      "sha256": "04c20c8671eb12db2087e9a30b29ccbf57a7dead703a69054ffe75df8f5419f7"
     },
     {
       "path": "docs/knowledge/CRAFT_PROFILE.md",
@@ -732,6 +736,10 @@
       "sha256": "b2960c3215a0cd95db56f746997ffa718d93df0efddfec5dafbce147d554f854"
     },
     {
+      "path": "lines/nalu/runtime/tools/craft_ledger.py",
+      "sha256": "7d00b18619ee04c18208ac3f85bc23a6241f0a7b890aa9b7dc624ca45ba48d10"
+    },
+    {
       "path": "lines/nalu/runtime/tools/craft_profile.py",
       "sha256": "05c6205b226e503afb046cee6729aa2b746448460c84abf34200d79572c2248e"
     },
@@ -845,7 +853,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "05376763f5971527338be9ecb8253b93d2da441e14090b911b56ac5589fd5a48"
+      "sha256": "38139903f8f5f4344ea1738a362101eb691dc68802504abe2693713d87275191"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -1089,7 +1097,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "7141f51a7d05cce3af79d6a0ef32f6c924bc7f3abf5e9f515962283ccfb5540e"
+      "sha256": "6b824816afa947e8de0330cf960ffb7bdba72db5d7f3d00b0f9d3c79218f7056"
     },
     {
       "path": "skills/nalu-claude-code/scripts/collective_provision.py",
@@ -8558,6 +8566,10 @@
     {
       "path": "tools/tests/test_leading_burst_face_count_endcard.py",
       "sha256": "6bfeb69ef0f3e4a1765bf3c2290cb38b80d1a2d216dc6c35241ff1f02db283de"
+    },
+    {
+      "path": "tools/tests/test_ledger_and_irony.py",
+      "sha256": "d47a11c0f158211cadf2bbcdf0f285055fe9c02ea8ff42dc4eed0827b54d536f"
     },
     {
       "path": "tools/tests/test_legacy_voice_migration.py",

@@ -157,7 +157,7 @@
         "scene_plan": {
           "type": "array",
           "description": "SHORT_DRAMA_PACING_V1（默认）：每场 {scene_id, objective, conflict, physical_action}；写在 pacing 里（顶层 pacing_scene_plan 也认）",
-          "items": {"type": "object", "required": ["scene_id"], "properties": {"scene_id": {"type": "string"}, "objective": {"type": "string"}, "conflict": {"type": "string"}, "physical_action": {"type": "string"}, "source_detail_ids": {"type": "array", "items": {"type": "string"}, "description": "BILI_V1（WP1）：≥2 条原著可见细节的短引文（≤30 字：姿态、道具、手势、被打断的话），须能在本集原著章节里找到"}, "source_lines": {"type": "array", "items": {"type": "string"}, "description": "BILI_V1（WP1）：本场允许照用的原著短台词（每场 ≤2 句，zh ≤12 字 / ja ≤16 / ko ≤14）"}}}
+          "items": {"type": "object", "required": ["scene_id"], "properties": {"scene_id": {"type": "string"}, "objective": {"type": "string"}, "conflict": {"type": "string"}, "physical_action": {"type": "string"}, "source_detail_ids": {"type": "array", "items": {"type": "string"}, "description": "BILI_V1（WP1）：≥2 条原著可见细节的短引文（≤30 字：姿态、道具、手势、被打断的话），须能在本集原著章节里找到"}, "source_lines": {"type": "array", "items": {"type": "string"}, "description": "BILI_V1（WP1）：本场允许照用的原著短台词（每场 ≤2 句，zh ≤12 字 / ja ≤16 / ko ≤14）"}, "mirror_of": {"type": ["string", "null"], "description": "BILI_V1（WP6）：对照场，填被对照的 scene_id（本集更早的场，或前集 E<nn>-S<nn>）；镜头机位沿用被对照场"}, "time_of_day": {"type": "string"}, "light": {"type": "string"}, "weather": {"type": "string"}, "set_pieces": {"type": "array", "items": {"type": "string"}}, "turn_shot_id": {"type": "string"}, "turn_owner": {"type": "string"}}}
         },
         "cliffhanger": {
           "type": "object",
@@ -175,6 +175,35 @@
         }
       },
       "additionalProperties": true
+    },
+    "ledger": {
+      "type": "array",
+      "description": "BILI_V1（WP6，lines/nalu/runtime/tools/craft_ledger.py）：埋点→回收账本。每集 ≥2 SETUP、≥2 PAYOFF、≥1 CALLBACK（from_episode 早于本集）、最后 10 s 一个 HOOK；PAYOFF 的 pays_off 指向本集或系列账本（sources/<series>/LEDGER.json）里的 SETUP/HOOK（前集写 E02:<id>）。系列前 3 集只提示，之后进改稿循环。",
+      "items": {
+        "type": "object",
+        "required": ["kind"],
+        "properties": {
+          "id": {"type": "string"},
+          "kind": {"enum": ["SETUP", "PAYOFF", "CALLBACK", "HOOK"]},
+          "thread": {"type": "string"},
+          "shot_id": {"type": "string"},
+          "scene_id": {"type": "string"},
+          "anchor": {"type": "string", "description": "没有 shot_id 时：台词或动作文本里的一个片段，用来定位镜头"},
+          "pays_off": {"type": ["string", "null"]},
+          "from_episode": {"type": ["string", "null"], "pattern": "^E[0-9]+$"},
+          "prop": {"type": "string"}
+        }
+      }
+    },
+    "knowledge": {
+      "type": "array",
+      "description": "BILI_V1（WP6）：谁知道什么。{scene_id, who, knows|believes|unaware: 事实} 或 {scene_id, who, type: KNOWS|BELIEVES|UNAWARE, fact, hidden_from?}；至少 1 条 believes（误信）/unaware，或 who: AUDIENCE + hidden_from，或某句台词 double_meaning: true。",
+      "items": {"type": "object"}
+    },
+    "series_card": {
+      "type": "object",
+      "description": "BILI_V1（WP6）：系列卡（也可写在 runtime qingshan.json series_card 或 SERIES_CARD.yaml）。characters[]: {character_id, name, signature_business, signature_prop, cues[], main}；每个主角的 signature_business 本集用 1–3 次。",
+      "properties": {"characters": {"type": "array", "items": {"type": "object"}}}
     },
     "antagonist_groups": {
       "type": "array",
