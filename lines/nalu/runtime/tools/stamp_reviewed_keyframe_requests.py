@@ -7,6 +7,14 @@ task is stamped only if (a) the prompt-batch register report is PASS for this ep
 (b) the registered batch row for that shot names the same keyframe prompt sha256 as the task, and the
 file on disk still hashes to it.  Every other task is left unstamped and the submitter refuses it.
 The digest is computed exactly as submit_giggle_image_manifest does (same resolver, same fields).
+
+A task whose prompt legitimately differs from the batch row (an S6 own keyframe written after the batch
+was registered — device 1101 E27 2026-11-24) is reviewed through
+``tools/attach_keyframe_prompt_batch_finalization.py``, which writes one receipt per task into
+``<preproduction>/keyframe_prompt_batch_finalization/<task_key>.json``.  build_keyframe_manifest
+rebuilds the manifest on every S5 entry, so the receipt is re-attached here (exact final sha, PASS,
+keyframe_prompt, same execution, planned sha = the batch row of its unit) and the task is stamped; the
+D-11 materialized copy is made from this manifest afterwards and keeps both fields.
 """
 from __future__ import annotations
 
@@ -31,18 +39,54 @@ def resolve(value: str) -> Path:
     return path if path.is_absolute() else ENGINE / path
 
 
+RECEIPT_DIR_NAME = "keyframe_prompt_batch_finalization"
+
+
+def portable(path: Path) -> str:
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(ENGINE.resolve()))
+    except ValueError:
+        return str(resolved)  # a runtime outside the engine checkout: absolute (gate trusts the runtime root)
+
+
+def finalization_receipt(receipt_dir: Path, task: dict, batch: dict) -> Path | None:
+    """The reviewed incremental keyframe receipt binding exactly this task's final prompt, else None."""
+    path = receipt_dir / f"{task.get('task_key')}.json"
+    if not path.is_file():
+        return None
+    try:
+        receipt = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    rows = {str(r.get("unit_id")): r for r in batch.get("rows") or []}
+    planned = (rows.get(str(receipt.get("unit_id"))) or {}).get("keyframe_prompt") or {}
+    ok = (receipt.get("status") == "PASS"
+          and receipt.get("artifact_kind") == "keyframe_prompt"
+          and receipt.get("scope") == "INCREMENTAL_EXACT_MATERIALIZATION_QA"
+          and receipt.get("execution_id") == batch.get("execution_id")
+          and receipt.get("task_key") == task.get("task_key")
+          and receipt.get("final_prompt_sha256") == task.get("prompt_sha256")
+          and planned.get("sha256") and receipt.get("planned_prompt_sha256") == planned.get("sha256"))
+    return path if ok else None
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--episode", required=True)
     ap.add_argument("--manifest", type=Path, required=True)
     ap.add_argument("--batch-manifest", type=Path, required=True)
     ap.add_argument("--register-report", type=Path, required=True)
+    ap.add_argument("--receipt-dir", type=Path,
+                    help=f"reviewed keyframe finalization receipts (default <manifest dir>/{RECEIPT_DIR_NAME})")
     args = ap.parse_args(argv)
 
     report = json.loads(args.register_report.read_text(encoding="utf-8"))
     batch = json.loads(args.batch_manifest.read_text(encoding="utf-8"))
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
-    out = {"episode": args.episode, "stamped": [], "left_unstamped": [], "supersedes_declared": {}}
+    receipt_dir = args.receipt_dir or (args.manifest.parent / RECEIPT_DIR_NAME)
+    out = {"episode": args.episode, "stamped": [], "left_unstamped": [], "supersedes_declared": {},
+           "finalization_attached": []}
     transaction_dir = ENGINE / "workflow/tasks/giggle_submit_transactions" / args.episode
     if report.get("status") != "PASS" or report.get("execution_id") != batch.get("execution_id"):
         out["status"] = "BATCH_NOT_REGISTERED_PASS"
@@ -60,10 +104,16 @@ def main(argv=None) -> int:
             continue
         prompt_path = resolve(task["prompt_file"])
         task_sha = task.get("prompt_sha256")
-        if not (reviewed.get(shot) and reviewed[shot] == task_sha and prompt_path.is_file()
-                and sha(prompt_path) == task_sha):
-            out["left_unstamped"].append({"task_key": key, "reason": "PROMPT_NOT_THE_REVIEWED_ONE"})
-            continue
+        on_disk = prompt_path.is_file() and sha(prompt_path) == task_sha
+        if not (on_disk and reviewed.get(shot) and reviewed[shot] == task_sha):
+            receipt = finalization_receipt(receipt_dir, task, batch) if on_disk else None
+            if receipt is None:
+                task.pop("prompt_batch_finalization", None)
+                out["left_unstamped"].append({"task_key": key, "shot_id": shot,
+                                              "reason": "PROMPT_NOT_THE_REVIEWED_ONE"})
+                continue
+            task["prompt_batch_finalization"] = {"path": portable(receipt), "sha256": sha(receipt)}
+            out["finalization_attached"].append(key)
         refs = [resolve(p) for p in task.get("reference_images") or []]
         task["reviewed_request_sha256"] = prd.task_request_digest(
             task, prompt_text=prompt_path.read_text(encoding="utf-8"), reference_paths=refs)["request_sha256"]

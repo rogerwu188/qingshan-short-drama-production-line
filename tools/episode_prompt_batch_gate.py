@@ -10,10 +10,30 @@ from pathlib import Path
 
 ARTIFACTS=('keyframe_prompt','video_prompt','prompt_qa')
 
+def runtime_root(root=None):
+    """The deployment's runtime root: NALU_RUNTIME_ROOT, else the engine's deployment pin
+    (``<engine>/.nalu_deployment.json`` runtime_root, written once by ``nalu_paths.py pin``).
+
+    The pipeline exports NALU_RUNTIME_ROOT, but an agent running an engine tool by hand does not:
+    device 1101 E27 S6 (2026-11-24) — the keyframe finalization attach tool then read only the
+    engine policy, where the runtime-registered E27 execution does not exist.  Every reader of the
+    policy resolves the same root this way, whichever shell starts it.
+    """
+    runtime=os.environ.get('NALU_RUNTIME_ROOT','').strip()
+    if runtime:
+        return Path(runtime)
+    if root is None or os.environ.get('NALU_IGNORE_DEPLOYMENT_PIN')=='1':
+        return None
+    try:
+        value=(json.loads((Path(root)/'.nalu_deployment.json').read_text(encoding='utf-8')) or {}).get('runtime_root')
+    except (OSError,ValueError,TypeError,AttributeError):
+        return None
+    return Path(str(value)).expanduser() if value else None
+
 def _trusted_roots(root):
     roots=[Path(root).resolve()]
-    runtime=os.environ.get('NALU_RUNTIME_ROOT','').strip()
-    if runtime: roots.append(Path(runtime).resolve())
+    runtime=runtime_root(root)
+    if runtime: roots.append(runtime.resolve())
     return roots
 
 def _trusted_path(root, value):
@@ -35,9 +55,9 @@ def policy_candidates(root):
     """
     root=Path(root)
     candidates=[]
-    runtime_root=os.environ.get('NALU_RUNTIME_ROOT','').strip()
-    if runtime_root:
-        candidates.append(Path(runtime_root)/POLICY_RELPATH)
+    runtime=runtime_root(root)
+    if runtime:
+        candidates.append(runtime/POLICY_RELPATH)
     candidates.extend([root/POLICY_RELPATH, root/'configs/EPISODE_PROMPT_BATCH_POLICY.json'])
     return candidates
 
