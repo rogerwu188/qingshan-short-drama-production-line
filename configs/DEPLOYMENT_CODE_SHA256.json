@@ -197,7 +197,7 @@
     },
     {
       "path": "agent_factory/storyclaw_portable/WRITER_CONTRACT.md",
-      "sha256": "5d0976710fcab8a92979bdaa125aa0dc6bf6eca39aa127fb38eab4076ab5b9dd"
+      "sha256": "2a92b0c640f0bacbc653e20d6b764ecec14b8fd6300c174efd4b94f0d63f55b7"
     },
     {
       "path": "configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json",
@@ -429,7 +429,7 @@
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
-      "sha256": "f10bb37527b26db056a980659d11a1aa9562157da4bf0c56ea183ebdcc9676e6"
+      "sha256": "8bce95af534837ae7c0b9d7b9a3aeb6138168628d6ee9842b5438a3043334bab"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -945,7 +945,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/script_pacing_check.py",
-      "sha256": "9f20d01f1ebdc0e2021dfc73b149eeff5a33185cc92b28315617e676c2652a1c"
+      "sha256": "db32240feae5cc37d8c26e7844e19c4922ad93db43aa198e9e0bfd0c0c729355"
     },
     {
       "path": "lines/nalu/runtime/tools/script_review.py",
@@ -8841,7 +8841,7 @@
     },
     {
       "path": "tools/tests/test_nalu_script_pacing.py",
-      "sha256": "acf6f463375320a0b4fb933aeb2683dbb6de5ca8d1029802f98be8ec0972b4fc"
+      "sha256": "46f99e3bab591e62e85fc7041830f0d541b5ccd6297ec953017610213418b09c"
     },
     {
       "path": "tools/tests/test_nalu_selective_bgm_s6.py",

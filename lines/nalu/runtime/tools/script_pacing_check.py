@@ -113,6 +113,11 @@ TARGETS = {
     "visual_variety_every_seconds": 24.0,
     "min_visual_variety": 4,
 }
+#: silent listener / onlooker reaction shots as a share of all shots -- ADVISORY only (warning, never a failure).
+#: 2026-11-23 Bilibili benchmark (BV1JnsS6uEdG, a well-received AI romcom): ~25 % of its shots are silent reactions
+#: (punchline -> cut to the listener's face, 1.5-4 s); our released episodes had 0-9 %.  Target ~1 in 5 shots.
+REACTION_SHOT_SHARE_ADVISORY = 0.15
+REACTION_SHOT_ADVISORY_MIN_SHOTS = 10
 #: a person entering the scene (an arrival is in-place variety)
 _ENTER_WORDS = re.compile(r"\b(?:enter(?:s|ed)?|arriv(?:es|ed|ing)|walks? in|steps? in|comes? in|bursts? in)\b"
                           r"|走进|进来|进门|赶到|赶来|闯进|闯入|入って|現れ|들어오|나타나", re.IGNORECASE)
@@ -683,6 +688,10 @@ def measure(contract: dict[str, Any], language: str | None = None) -> dict[str, 
     speech_seconds = round(sum(min(r["seconds"], sum(ln["units"] for ln in r["lines"]) /
                                    _lang.profile(lang).rate) for r in speaking), 3)
 
+    # silent reaction shots: beat_role REACTION, or a silent face-only shot (STATIC_REACTION)
+    reactions = [r["shot_id"] for r in rows if not r["lines"] and (r["beat_role"] == "REACTION"
+                                                                   or r["kind"] == "STATIC_REACTION")]
+
     cap = line_unit_cap(lang)
     longest = None
     long_lines: list[dict[str, Any]] = []
@@ -758,6 +767,8 @@ def measure(contract: dict[str, Any], language: str | None = None) -> dict[str, 
         "location_count": len(locations) if locations else None, "locations": locations[:8],
         "time_change": len(times_of_day) > 1,
         "scenes_per_2min": round(len(scenes) * 120.0 / duration, 2) if duration else 0.0,
+        "reaction_shot_count": len(reactions),
+        "reaction_shot_ratio": round(len(reactions) / len(rows), 3) if rows else 0.0,
         "scene_changes": changes[:24], "motivated_scene_changes": len(motivated),
         "motivated_scene_changes_per_2min": round(len(motivated) * 120.0 / duration, 2) if duration else 0.0,
         "conversation_splits": [f"{c['from_scene']}>{c['to_scene']}" for c in changes
@@ -1194,6 +1205,10 @@ def evaluate(contract: dict[str, Any], language: str | None = None,
         failures.append("ADAPTATION_PLAN_MISSING")
     elif ad["plot_event_count"] < m["required_turns"]:
         failures.append(f"ADAPTATION_TOO_THIN:{ad['plot_event_count']}<{m['required_turns']}")
+    if (m["shot_count"] >= REACTION_SHOT_ADVISORY_MIN_SHOTS
+            and m["reaction_shot_ratio"] < REACTION_SHOT_SHARE_ADVISORY):
+        # advisory only (fewer gates): about one shot in five should be a listener's silent reaction
+        warnings.append(f"REACTION_SHOTS_FEW:{m['reaction_shot_count']}/{m['shot_count']}")
     if ad["declared"] and ad["source_chapter_count"] <= 1 and ad["plot_event_count"] < m["required_turns"] + 2:
         warnings.append("SINGLE_CHAPTER_EPISODE")
     basis = policy_basis(contract)

@@ -151,6 +151,21 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(m["adaptation"]["source_chapter_count"], 3)
         self.assertAlmostEqual(m["beats_per_minute"], round(5 * 60 / m["duration_seconds"], 2))
 
+    def test_reaction_shot_share_is_measured_and_only_advisory(self) -> None:
+        # 2026-11-23 Bilibili benchmark: ~1 shot in 5 is a silent listener reaction; advisory, never a failure
+        slow = sp.evaluate(slow_contract("zh"))
+        self.assertEqual(slow["metrics"]["reaction_shot_count"], 0)
+        self.assertIn("REACTION_SHOTS_FEW:0/24", slow["warnings"])
+        self.assertFalse(any(f.startswith("REACTION_SHOTS_FEW") for f in slow["failures"]))
+        c = slow_contract("zh")
+        for i in range(0, 24, 4):  # every 4th shot becomes a silent reaction close-up
+            c["shots"][i]["prompt_spec"].update({"dialogue": "", "beat_role": "REACTION"})
+        m = sp.evaluate(c)
+        self.assertEqual(m["metrics"]["reaction_shot_count"], 6)
+        self.assertAlmostEqual(m["metrics"]["reaction_shot_ratio"], 0.25)
+        self.assertFalse(any(w.startswith("REACTION_SHOTS_FEW") for w in m["warnings"]))
+        self.assertEqual(slow["status"], sp.evaluate(slow_contract("zh"))["status"])
+
     def test_talk_only_scene_and_unknown_turn_type(self) -> None:
         c = punchy_contract("zh")
         for s in c["shots"]:
