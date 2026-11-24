@@ -1065,7 +1065,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "062ae4412fcea1538bbc2a0916ea83a574b8b40f064a8460193dadb7efbf9af9"
+      "sha256": "a77a1cd9449df38acb020f90b1bbc799db2ed66d641c30f5b5416c52619a260c"
     },
     {
       "path": "skills/nalu-claude-code/scripts/collective_provision.py",
@@ -1089,7 +1089,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/fleet_sync.py",
-      "sha256": "ee406c17fe7e5e0b81aeb68af55470887010b5b88e5bcf86ae093865bf17bad5"
+      "sha256": "dd86c98901082e64cb44cdfa76db6c6d47363710927926761b9a0dead910aecf"
     },
     {
       "path": "skills/nalu-claude-code/scripts/knowledge_status.py",
@@ -8109,7 +8109,7 @@
     },
     {
       "path": "tools/tests/test_fleet_sync.py",
-      "sha256": "43aa7c17aa8e6a2338fea2cf5f993bba54e752e26807d781960a760c55b1d79c"
+      "sha256": "23d32629af8a09c1c23ad77cb0c6996208be86d32f2e8b84468f44157abcc9f5"
     },
     {
       "path": "tools/tests/test_fleet_sync_language.py",

@@ -367,9 +367,37 @@ PIN_RE = re.compile(r'setup_host\.sh"?\s+--pin\s+([0-9a-f]{40})')
 RESUMABLE_STATES = ("BLOCKED", "FINAL_REVIEW_REQUIRED")
 
 
-def disk_pin() -> str:
-    """The pin in the newest installed copy of this agent's AGENTS.md (after self_update), or ""."""
+def _git_is_ancestor(engine: Path | None, older: str, newer: str) -> bool | None:
+    """True / False when the engine clone knows both commits (one fetch is tried for an unknown one), None when not."""
+    if engine is None or not (Path(engine) / ".git").exists():
+        return None
+    for attempt in (0, 1):
+        try:
+            done = subprocess.run(["git", "-C", str(engine), "merge-base", "--is-ancestor", older, newer],
+                                  capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if done.returncode in (0, 1):
+            return done.returncode == 0
+        if attempt == 0:  # rc 128: a commit the clone has not fetched yet
+            try:
+                subprocess.run(["git", "-C", str(engine), "fetch", "-q", "origin"], capture_output=True, timeout=120)
+            except (OSError, subprocess.SubprocessError):
+                return None
+    return None
+
+
+def disk_pin(engine: Path | None = None) -> str:
+    """The pin the next episode sets up: the latest pin the maintainer pushed through the fleet (~/.nalu_fleet_pin),
+    unless an installed AGENTS.md names a commit that is strictly newer in the engine's history.
+
+    Not newest-by-mtime: the between-episode self_update rewrites AGENTS.md with whatever TalentHub version it sees
+    (that version may still carry an older pin than the fleet sent), and the fresh mtime then beat the fleet pin --
+    …1437 KO E01->E02 2026-11-24 02:09Z set up 2787448 again although update #1866 had sent 8e84065, while …1485,
+    whose self_update was UP_TO_DATE, moved to 8e84065.  ``setup_host.sh`` separately never moves HEAD back."""
     home = Path.home()
+    if engine is None:
+        engine = Path(os.environ.get("NALU_ENGINE_ROOT") or home / "nalu_engine").expanduser()
     found: list[tuple[float, str]] = []
     for root in (home / ".openclaw", home / ".storyclaw", home):
         if not root.is_dir():
@@ -382,15 +410,20 @@ def disk_pin() -> str:
             m = PIN_RE.search(text)
             if m and "nalu" in text.lower():
                 found.append((path.stat().st_mtime, m.group(1)))
+    fleet = ""
     try:  # the latest pin the maintainer pushed through the fleet (agents not talenthub-installed never get a
         # newer AGENTS.md, so the next episode's update would set up the old engine again)
-        fleet_pin = home / ".nalu_fleet_pin"
-        value = fleet_pin.read_text(encoding="utf-8").strip()
+        value = (home / ".nalu_fleet_pin").read_text(encoding="utf-8").strip()
         if re.fullmatch(r"[0-9a-f]{40}", value):
-            found.append((fleet_pin.stat().st_mtime, value))
+            fleet = value
     except OSError:
         pass
-    return max(found)[1] if found else ""
+    ordered = [pin for _, pin in sorted(found, reverse=True)]
+    best = fleet or (ordered[0] if ordered else "")
+    for pin in ordered:  # a strictly newer commit (by history, never by file time) replaces the choice
+        if pin != best and _git_is_ancestor(engine, best, pin):
+            best = pin
+    return best
 
 
 def _run(argv: list[str], timeout: int, extra_env: dict | None = None) -> tuple[int, str]:
@@ -459,7 +492,7 @@ def scripted_update(cp: Any, pin: str, restart_in_flight: bool = False, major: s
             (Path.home() / ".nalu_fleet_pin").write_text(pin + "\n", encoding="utf-8")
         except OSError:
             pass
-    pin = pin or disk_pin()
+    pin = pin or disk_pin(engine)
     if not re.fullmatch(r"[0-9a-f]{40}", pin or ""):
         return False, {"error": "NO_PIN", "self_update": su_out[-300:]}, {}
     before = _engine_sha(engine)
