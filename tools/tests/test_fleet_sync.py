@@ -45,7 +45,7 @@ class FleetSyncTest(unittest.TestCase):
                 sha[0] = new_pin
             return 0, "NALU_SETUP: {}"
         saved = fleet_sync._run, fleet_sync._engine_sha, fleet_sync.disk_pin
-        fleet_sync._run, fleet_sync._engine_sha, fleet_sync.disk_pin = fake_run, lambda e: sha[0], lambda: new_pin
+        fleet_sync._run, fleet_sync._engine_sha, fleet_sync.disk_pin = fake_run, lambda e: sha[0], lambda *a: new_pin
         try:
             with tempfile.TemporaryDirectory() as d:
                 cp = self.cp(Path(d), resumed)
@@ -113,6 +113,42 @@ class FleetSyncTest(unittest.TestCase):
             finally:
                 os.environ["HOME"] = saved_home
                 fleet_sync._run, fleet_sync._engine_sha = saved
+
+    def test_fleet_pin_beats_a_freshly_installed_older_agents_md(self):
+        """…1437 KO E01->E02 2026-11-24: the boundary self_update installed an AGENTS.md (pin 2787448) after the fleet
+        had sent 8e84065; the newer file time must not win over the newer commit."""
+        import os
+        import subprocess
+        import time
+        with tempfile.TemporaryDirectory() as d:
+            eng = Path(d) / "engine"
+            eng.mkdir()
+            git = lambda *a: subprocess.run(["git", "-C", str(eng), *a], capture_output=True, text=True, check=True).stdout.strip()
+            git("init", "-q")
+            for n in ("old", "new"):
+                (eng / "f").write_text(n)
+                git("add", "f")
+                git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", n)
+            new, old = git("rev-parse", "HEAD"), git("rev-parse", "HEAD~1")
+            saved_home = os.environ.get("HOME")
+            os.environ["HOME"] = d
+            try:
+                ws = Path(d) / ".openclaw" / "w"
+                ws.mkdir(parents=True)
+                (Path(d) / ".nalu_fleet_pin").write_text(new + "\n")
+                time.sleep(0.02)
+                (ws / "AGENTS.md").write_text('nalu bash "$S/setup_host.sh" --pin ' + old + "\n")  # newer mtime
+                self.assertEqual(fleet_sync.disk_pin(eng), new)
+                # a TalentHub version strictly newer than the fleet pin still wins
+                (Path(d) / ".nalu_fleet_pin").write_text(old + "\n")
+                (ws / "AGENTS.md").write_text('nalu bash "$S/setup_host.sh" --pin ' + new + "\n")
+                self.assertEqual(fleet_sync.disk_pin(eng), new)
+                # unknown ancestry (commit not in the clone, no remote): the fleet pin wins
+                (Path(d) / ".nalu_fleet_pin").write_text(new + "\n")
+                (ws / "AGENTS.md").write_text('nalu bash "$S/setup_host.sh" --pin ' + "c" * 40 + "\n")
+                self.assertEqual(fleet_sync.disk_pin(eng), new)
+            finally:
+                os.environ["HOME"] = saved_home
 
     def test_disk_pin_reads_the_installed_agents_md(self):
         import os

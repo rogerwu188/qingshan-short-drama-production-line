@@ -769,7 +769,8 @@ def start_next_episode(episode: str) -> dict[str, Any]:
     try:
         import fleet_sync  # noqa: PLC0415
         ok, update, _ = fleet_sync.scripted_update(sys.modules[__name__], "")
-        note(f"{episode}→{nxt} 集间升级：{'OK' if ok else 'SETUP_NOT_READY'} 引擎 {update.get('before')}→{update.get('after')}")
+        note(f"{episode}→{nxt} 集间升级：{'OK' if ok else 'SETUP_NOT_READY'} 引擎 {update.get('before')}→{update.get('after')}"
+             f"（pin {str(update.get('pin') or '')[:7]}）")
     except Exception as exc:  # noqa: BLE001 -- an update failure must not stop the line; the old engine keeps working
         update = {"error": f"{type(exc).__name__}: {exc}"}
     briefs.mkdir(parents=True, exist_ok=True)
