@@ -528,12 +528,39 @@ def scripted_update(cp: Any, pin: str, restart_in_flight: bool = False, major: s
     return st_rc == 0, result, {}
 
 
+def _restart_module(engine: Path, pin: str) -> Any:
+    """engine_restart as of the PIN (``git show``), else the running copy.
+
+    The restart decision belongs to the engine being installed: this fleet_sync runs from the old checkout, and an
+    in-flight episode defers the setup, so a fixed eligibility in the pin could otherwise never reach the device
+    (…1101 E27, 2026-11-24: the running c41d582 copy judged by the HEAD and skipped)."""
+    import importlib.util  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+    rel = "skills/nalu-claude-code/scripts/engine_restart.py"
+    try:
+        subprocess.run(["git", "-C", str(engine), "fetch", "-q", "origin"], capture_output=True, timeout=300)
+        done = subprocess.run(["git", "-C", str(engine), "show", f"{pin}:{rel}"], capture_output=True, text=True,
+                              timeout=30)
+        if done.returncode == 0 and "def prepare(" in done.stdout:
+            path = Path(tempfile.mkdtemp(prefix="nalu_restart_mod_")) / "engine_restart_pin.py"
+            path.write_text(done.stdout, encoding="utf-8")
+            spec = importlib.util.spec_from_file_location(f"engine_restart_pin_{pin[:12]}", path)
+            if spec and spec.loader:
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                return mod
+    except Exception:  # noqa: BLE001 -- the running copy still restarts
+        pass
+    import engine_restart  # noqa: PLC0415
+    return engine_restart
+
+
 def _restart_prepare(cp: Any, pin: str, major: str) -> dict:
     """engine_restart.prepare for the current episode (never raises: a failed restart leaves a normal update)."""
     try:
-        import engine_restart  # noqa: PLC0415
         import device_sn  # noqa: PLC0415
         engine, runtime = cp.roots()
+        engine_restart = _restart_module(engine, pin)
         ep = cp.current_episode() or ""
         again = engine_restart.find_restart(runtime, ep, pin) if ep else None
         if again and again.get("phase") == "ARCHIVED":  # interrupted after the archive: only the start is left
@@ -545,9 +572,8 @@ def _restart_prepare(cp: Any, pin: str, major: str) -> dict:
 
 def _restart_finish(cp: Any, ep: str | None, pin: str) -> dict:
     try:
-        import engine_restart  # noqa: PLC0415
         engine, runtime = cp.roots()
-        return engine_restart.finish(engine, runtime, ep or "", pin)
+        return _restart_module(engine, pin).finish(engine, runtime, ep or "", pin)
     except Exception as exc:  # noqa: BLE001
         return {"phase": "START_FAILED", "reason": f"{type(exc).__name__}: {str(exc)[:200]}"}
 
