@@ -246,6 +246,7 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
    合同 `audio_contract.bgm` 不写或写 `NO_BGM` 时，引擎按默认在最后一场末尾几镜配一段选择性配乐（S6 生成约 8 积分，S7 混音）；
    想自己定配乐节点就写 `{"mode":"SELECTIVE","cues":[...]}`；确实不要配乐才写 `"NONE"`。
    - 编剧自写 `audio_contract.bgm` 时（线主 2026-10-23，城市实验 E03 只配了第 3 场）：cue 在开场钩子之后进入一次、持续到全集结尾（整集铺底，淡入淡出），绝不只配某一场；拿不准就不写 bgm，让本线默认规则生效。
+   - 仅 BILI_V1 且开了 `bgm_mood_cues` 的系列：不写 bgm，在 `pacing.scene_plan[]` 每场写 `mood`（可选 `music_stop: true`），默认变成每集 2–3 条情绪 cue；同一情绪的来源按系列缓存，后续集不再付费。
 5. 直接进入 S3，不等任何确认。
 
 ## 4. S3→S7（每次 exit=4 = 有审核请求）

@@ -59,6 +59,12 @@ except ModuleNotFoundError:  # runtime tools dir only
   - `ctx_craft_profile(ctx)` returns `"LEGACY"` for stage test doubles;
   - `resolve_craft_settings(contract, config, episode)` is also available.
 
+## WP5 music (where the switches act)
+
+- **B, `BILI_V1`:** `nalu_selective_bgm source-plan` resolves the profile once and stamps `craft_profile` on the source plan and the S7 plan (LEGACY plans carry no new key). A cue without a volume, or with the boilerplate 0.14, plays at 0.24 (`bgm_cue_shaping.bed_volume`); the duck stays -10 dB (the authenticity gate's -6..-10 meets the owner's -10..-14 at -10), so pauses and lines both come up 4.7 dB. The simple duck reaches full level only 0.4 s from a line (`duck_guard_s` 0.15 + ramp 0.25; the CAMERA_GRAMMAR_V1 smooth duck already ramps 0.4 s / 1.2 s). `final_cut_audio_bed` reads the plan: pad -25.3 dBFS (#304's -30 + 4.7) and duck <= 14 dB, so under a line the pad stays within ~1.5 dB of #304's level. Release loudness is unchanged (static programme gain to -14 LUFS / TP <= -1.5 after the sum; the foley bus is unchanged and still sums under the same peak ceiling).
+- **C, `bgm_mood_cues`:** `nalu_bgm_default.mood_cues` turns scene moods (`pacing.scene_plan[].mood`, also `pacing_scene_plan` / `scene_states`) into <= 3 cues from `lines/nalu/runtime/configs/BGM_MOOD_PALETTE_V1.json`, only when the writer left `audio_contract.bgm` undecided. `music_stop` (scene card: true = the scene's PUNCHLINE shot, else its last shot, or a shot id; or a shot's own flag) ends the music on that shot's start with a 0.1 s fade; the shot and the rest of its scene stay dry (no pad either). Sources are reused from the series cache `<RUNTIME>/sources/<scope>/bgm/<source_key>/` (`NALU_BGM_SERIES_CACHE_DIR` overrides): a reused source has no transaction in the episode's store, so the budget ledger books 0 credits; an all-cached episode passes credit reconciliation without a key.
+- Turn C on per series: `qingshan.json` `{"project": {"craft_profile": "BILI_V1", "bgm_mood_cues": true}}`.
+
 ## Rules for every WP
 
 - A LEGACY series must stay byte-identical. Branch only when `is_bili_v1(...)` is true, and keep the historical text and code path untouched otherwise.

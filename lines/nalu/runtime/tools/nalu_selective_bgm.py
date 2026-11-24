@@ -31,6 +31,16 @@ Sub-commands (all offline except `generate --paid`):
             with an `Audio.BGM` track + metadata.bgm_contract / bgm_cue_policy so
             audio_postproduction_contract.validate_audio_profile and bgm_authenticity_gate can PASS.
   status    what exists / what is missing for this episode.
+
+Craft profile (lines/nalu/runtime/tools/craft_profile.py, ``~/nalu_lab/bili_work/CHANGE_SPEC.md`` WP5), resolved once
+in ``source-plan`` and carried by the source plan and the plan (LEGACY plans carry no new key):
+
+* BILI_V1 (WP5-B): the bed plays at 0.24 (bgm_cue_shaping.bed_volume) with the same -10 dB duck, full level only
+  0.4 s away from a line (``duck_guard_s``); final_cut_audio_bed raises its pad to match.
+* ``bgm_mood_cues`` (WP5-C, nalu_bgm_default.mood_cues): the declaration carries ``series_cache: true`` and
+  ``hard_stop_shots``.  A completed source of the same brief from an earlier episode of the series is reused from the
+  series cache (``<RUNTIME>/sources/<scope>/bgm/<source_key>/``; ``NALU_BGM_SERIES_CACHE_DIR`` overrides): no POST, no
+  credits, no transaction in this episode's ledger store.  Each verified own source is stored there.
 """
 from __future__ import annotations
 
@@ -38,6 +48,11 @@ import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_paths lives in tools/
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
 import nalu_media_tools as _media
+import shutil
+try:
+    from tools import craft_profile as _cp
+except ModuleNotFoundError:  # pragma: no cover - runtime tools dir only
+    import craft_profile as _cp
 import argparse
 import hashlib
 import json
@@ -67,6 +82,8 @@ DUCK_RANGE_DB = (-10.0, -6.0)         # bgm_authenticity_gate: dialogue_duck_db 
 DUCK_RAMP_S = 0.25
 FADE_IN_S, FADE_OUT_S = 1.5, 2.5   # owner 2026-11-19 (bgm_cue_shaping): no 0.5 s pops / 0.75 s cut-offs
 TX_DIR = ENGINE / "workflow/tasks/giggle_bgm_transactions"
+SERIES_CACHE_ENV = "NALU_BGM_SERIES_CACHE_DIR"
+SERIES_CACHE_RECORD = "TRANSACTION.json"
 
 
 def now() -> str:
@@ -148,6 +165,8 @@ def _source_plan_payload(p: Paths, episode: str) -> dict[str, Any]:
     if not isinstance(contract, dict):
         raise SystemExit(f"generation contract is not a JSON object: {p.contract}")
     bgm = declaration(contract)
+    import bgm_cue_shaping as _shape
+    bili_v1 = _cp.is_bili_v1(contract, episode=episode)
     contract_shots = [row for row in (contract.get("shots") or []) if isinstance(row, dict)]
     shot_by_id = {str(row.get("shot_id") or ""): row for row in contract_shots
                   if str(row.get("shot_id") or "")}
@@ -185,7 +204,8 @@ def _source_plan_payload(p: Paths, episode: str) -> dict[str, Any]:
         duck = float(cue.get("dialogue_duck_db", -8.0))
         if not DUCK_RANGE_DB[0] <= duck <= DUCK_RANGE_DB[1]:
             raise SystemExit(f"cue {cue_id}: dialogue_duck_db {duck} outside {DUCK_RANGE_DB}")
-        volume = float(cue.get("volume", 0.14))
+        volume = (_shape.bed_volume(cue.get("volume"), bili_v1=True) if bili_v1
+                  else float(cue.get("volume", 0.14)))
         if not 0.05 <= volume <= 0.35:
             raise SystemExit(f"cue {cue_id}: volume {volume} outside 0.05..0.35")
         authored_seconds = round(sum(float(shot_by_id[sid].get("target_seconds") or 0) for sid in shots), 3)
@@ -230,8 +250,85 @@ def _source_plan_payload(p: Paths, episode: str) -> dict[str, Any]:
         "planned_credits": PLANNED_CREDITS_PER_TASK * len(sources),
         "planned_credits_basis": "current provider observation: 8 credits per distinct instrumental music prompt",
         "timeline_dependency": "NONE_S6_SOURCE_GENERATION",
+        **_craft_fields(bgm, shot_by_id, bili_v1),
         "status": "PASS",
     }
+
+
+def _craft_fields(bgm: dict[str, Any], shot_by_id: dict[str, Any], bili_v1: bool) -> dict[str, Any]:
+    """Source-plan keys of the craft profile (WP5); {} under LEGACY so a LEGACY plan is unchanged."""
+    if not bili_v1:
+        return {}
+    out: dict[str, Any] = {"craft_profile": _cp.BILI_V1}
+    if bgm.get("mood_cues"):
+        out["mood_cues"] = True
+    if bgm.get("series_cache"):
+        out["series_cache"] = True
+    stops = [str(x) for x in (bgm.get("hard_stop_shots") or []) if str(x) in shot_by_id]
+    if stops:
+        out["hard_stop_shots"] = stops
+    return out
+
+
+# ------------------------------------------------------------------------------------- series cache (WP5-C)
+def series_cache_dir(p: "Paths") -> Path | None:
+    """``<RUNTIME>/sources/<scope>/bgm`` for a current-policy store (``.../giggle_bgm_transactions/<scope>/<EP>``);
+    ``NALU_BGM_SERIES_CACHE_DIR`` overrides; None for a historical per-episode store (no series scope)."""
+    override = os.environ.get(SERIES_CACHE_ENV)
+    if override:
+        return Path(override)
+    tx = Path(p.tx)
+    if tx.parent.parent.name != "giggle_bgm_transactions" or not tx.parent.name:
+        return None
+    return Path(f"{_np.RUNTIME_ROOT}") / "sources" / tx.parent.name / "bgm"
+
+
+def _cache_record(p: "Paths", key: str) -> Path | None:
+    root = series_cache_dir(p)
+    return (root / key / SERIES_CACHE_RECORD) if root is not None and key else None
+
+
+def transaction_path(p: "Paths", generation: dict[str, Any], plan: dict[str, Any] | None = None) -> Path:
+    """This episode's own transaction; else, when the source plan opted into the series cache and the cached
+    source verifies, the series-cache record (a completed transaction of an earlier episode, files local)."""
+    key = str(generation.get("source_key") or "")
+    own = p.tx / f"{key}.json"
+    if own.exists() or not (plan or {}).get("series_cache"):
+        return own
+    record = _cache_record(p, key)
+    if record is not None and record.is_file() and _completed_transaction(record, generation)[0]:
+        return record
+    return own
+
+
+def from_series_cache(p: "Paths", generation: dict[str, Any], plan: dict[str, Any] | None) -> bool:
+    return transaction_path(p, generation, plan) != p.tx / f"{generation.get('source_key')}.json"
+
+
+def store_in_series_cache(p: "Paths", generation: dict[str, Any], tx_path: Path) -> str | None:
+    """Copy a verified own source (every candidate, sha-checked) into the series cache; idempotent, never raises."""
+    try:
+        key = str(generation.get("source_key") or "")
+        record = _cache_record(p, key)
+        if record is None or (record.is_file() and _completed_transaction(record, generation)[0]):
+            return None
+        tx = read_json(tx_path, {}) or {}
+        rows = []
+        for row in _transaction_candidates(tx):
+            src = Path(str(row.get("path") or ""))
+            dst = record.parent / src.name
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if not dst.is_file() or sha256_file(dst) != row.get("sha256"):
+                shutil.copy2(src, dst)
+            rows.append({**row, "path": str(dst)})
+        cached = {**tx, "result": {**(tx.get("result") or {}), "files": rows}, "files": rows,
+                  "series_cache": {"origin_transaction": str(tx_path), "origin_episode": p.episode,
+                                   "stored_at": now(), "note": "reuse costs 0 credits; the charge is booked "
+                                   "once, on the origin episode's own transaction"}}
+        write_json(record, cached)
+        return str(record)
+    except Exception:  # noqa: BLE001 -- the cache is an optimisation; the episode is unaffected
+        return None
 
 
 def cmd_source_plan(a: argparse.Namespace) -> int:
@@ -296,10 +393,13 @@ def _completed_transaction(tx_path: Path, generation: dict[str, Any]) -> tuple[b
     return not failures, failures
 
 
-def _generation_transaction_state(p: Paths, generation: dict[str, Any]) -> tuple[str, list[str]]:
+def _generation_transaction_state(p: Paths, generation: dict[str, Any],
+                                  plan: dict[str, Any] | None = None) -> tuple[str, list[str]]:
     key = str(generation.get("source_key") or "")
     tx_path = p.tx / f"{key}.json"
     if not tx_path.exists():
+        if from_series_cache(p, generation, plan):
+            return "COMPLETED", []
         return "NEW_SUBMISSION", []
     tx = read_json(tx_path, {})
     if not isinstance(tx, dict) or tx.get("schema") != "qingshan.storyclaw_audio_transaction.v1":
@@ -323,7 +423,7 @@ def _pending_generations(
     blocked: list[dict[str, Any]] = []
     for generation in source_plan.get("generations") or []:
         key = str(generation.get("source_key") or "")
-        state, failures = _generation_transaction_state(p, generation)
+        state, failures = _generation_transaction_state(p, generation, source_plan)
         generation["transaction_route"] = state
         if state == "COMPLETED":
             completed.append(key)
@@ -357,9 +457,18 @@ def cmd_verify(a: argparse.Namespace) -> int:
     rows: list[dict[str, Any]] = []
     for generation in source_plan.get("generations") or []:
         key = str(generation.get("source_key") or "")
-        ok, failures = _completed_transaction(p.tx / f"{key}.json", generation)
-        rows.append({"source_key": key, "status": "PASS" if ok else "FAIL", "failures": failures,
-                     "transaction": str(p.tx / f"{key}.json")})
+        tx_path = transaction_path(p, generation, source_plan)
+        ok, failures = _completed_transaction(tx_path, generation)
+        row = {"source_key": key, "status": "PASS" if ok else "FAIL", "failures": failures,
+               "transaction": str(tx_path)}
+        if source_plan.get("series_cache"):   # WP5-C: reuse marker / store a verified own source for the series
+            if tx_path != p.tx / f"{key}.json":
+                row["series_cache"] = "REUSED_ZERO_CREDITS"
+            elif ok:
+                stored = store_in_series_cache(p, generation, tx_path)
+                if stored:
+                    row["series_cache"] = f"STORED:{stored}"
+        rows.append(row)
     good = bool(rows) and all(row["status"] == "PASS" for row in rows)
     print(json.dumps({"status": "PASS" if good else "FAIL", "rows": rows,
                       "source_plan": str(p.source_plan)}, ensure_ascii=False))
@@ -384,9 +493,11 @@ def fit_cues_to_sources(windows: dict[str, tuple[float, float]], source_seconds:
             delays[cid] = round(delays.get(cid, 0.0) + (new_t0 - t0), 3)
 
 
-def longest_source_seconds(p: "Paths", source_key: str) -> float:
+def longest_source_seconds(p: "Paths", source_key: str, source_plan: dict[str, Any] | None = None) -> float:
     """Duration of the longest completed candidate for one source (0.0 when none is on disk yet)."""
-    tx = read_json(p.tx / f"{source_key}.json", {}) or {}
+    tx = read_json(transaction_path(p, {"source_key": source_key, **next(
+        (g for g in (source_plan or {}).get("generations") or [] if g.get("source_key") == source_key), {})},
+        source_plan), {}) or {}
     files = [Path(f["path"]) for f in _transaction_candidates(tx) if Path(f.get("path", "")).is_file()]
     return max((probe_duration(f) for f in files), default=0.0)
 
@@ -463,12 +574,16 @@ def cmd_plan(a: argparse.Namespace) -> int:
             t0_, t1_ = window_for_shots([sid])
             shots_tl.append({"shot_id": sid, "t0": t0_, "t1": t1_, "scene_id": shot.get("scene_id"), "shot": shot})
     shots_tl.sort(key=lambda r: r["t0"])
-    source_len = {cue["source_key"]: longest_source_seconds(p, cue["source_key"]) for cue in source_plan["cues"]}
+    source_len = {cue["source_key"]: longest_source_seconds(p, cue["source_key"], source_plan)
+                  for cue in source_plan["cues"]}
     plan_cues = {cue["cue_id"]: cue for cue in source_plan["cues"]}
+    bili_v1 = source_plan.get("craft_profile") == _cp.BILI_V1
+    stop_ids = set(source_plan.get("hard_stop_shots") or [])
+    stops = sorted(r["t0"] for r in shots_tl if r["shot_id"] in stop_ids) if stop_ids else None
     shaping = _shape.shape([{"cue_id": cid, "source_key": plan_cues[cid]["source_key"], "t0": t0, "t1": t1,
                              "narrative_function": plan_cues[cid].get("narrative_function"),
                              "sting": bool(plan_cues[cid].get("sting"))} for cid, (t0, t1) in windows.items()],
-                           shots_tl, content, source_len)
+                           shots_tl, content, source_len, **({"stops": stops} if stops else {}))
     shaped = {c["cue_id"]: c for c in shaping["cues"]}
     windows = {cid: (c["t0"], c["t1"]) for cid, c in shaped.items()}
     entry_delays = fit_cues_to_cut(windows, content)
@@ -511,6 +626,8 @@ def cmd_plan(a: argparse.Namespace) -> int:
         if smooth is not None and dialogue:
             shape = {"duck_shape": smooth.duck_shape(dialogue)}
         sc = shaped[cue_id]
+        if bili_v1:   # WP5-B: full bed level only 0.4 s (guard + ramp) away from a line
+            shape = {**shape, "duck_guard_s": _shape.BILI_V1_DUCK_GUARD_S}
         cues_out.append({"cue_id": cue_id, "narrative_function": func, "source_key": cue["source_key"],
                          "shots": shots, "timeline_start": t0, "duration": round(t1 - t0, 3),
                          "volume": volume, "dialogue_duck_db": duck, "dialogue_windows": dialogue,
@@ -518,7 +635,7 @@ def cmd_plan(a: argparse.Namespace) -> int:
                          **({"entry_delayed_seconds": entry_delays[cue_id]} if cue_id in entry_delays else {}),
                          **{k: sc[k] for k in ("fade_in_s", "fade_out_s", "entry_type", "end_type", "end_at_boundary",
                                                "sting", "fade_curve", "prelap_s", "hit_at", "merged_cue_ids",
-                                               "flicker_unresolved") if k in sc},
+                                               "flicker_unresolved", "hard_stop") if k in sc},
                          **({"entry_type": "FADE_IN"} if cue_id in entry_delays else {}), **shape})
     cues_out.sort(key=lambda c: c["timeline_start"])
 
@@ -566,6 +683,8 @@ def cmd_plan(a: argparse.Namespace) -> int:
             "actual_ambience_only_seconds": round(content - covered, 3),
             "planned_credits": source_plan["planned_credits"],
             "planned_credits_basis": source_plan["planned_credits_basis"],
+            **{k: source_plan[k] for k in ("craft_profile", "mood_cues", "series_cache", "hard_stop_shots")
+               if k in source_plan},
             "status": "PASS" if not failures else "FAIL", "failures": failures}
     write_json(p.plan, plan)
     print(json.dumps({"status": plan["status"], "cues": len(cues_out), "generations": len(generations),
@@ -656,7 +775,8 @@ def cmd_qa(a: argparse.Namespace) -> int:
     failures = []
     for gen in plan.get("generations") or []:
         key = gen["source_key"]
-        tx = read_json(p.tx / f"{key}.json", {})
+        tx_path = transaction_path(p, gen, plan)
+        tx = read_json(tx_path, {})
         files = [Path(f["path"]) for f in _transaction_candidates(tx)
                  if Path(f.get("path", "")).is_file()]
         if a.candidate:   # offline test route: explicit candidate files
@@ -679,7 +799,9 @@ def cmd_qa(a: argparse.Namespace) -> int:
             continue
         selection["sources"][key] = {"status": "PASS", "report": str(out), "selected": str(sel_path),
                                      "selected_sha256": sha256_file(Path(sel_path)), "task_id": tx.get("task_id"),
-                                     "transaction": str(p.tx / f"{key}.json")}
+                                     "transaction": str(tx_path),
+                                     **({"series_cache": "REUSED_ZERO_CREDITS"}
+                                        if tx_path != p.tx / f"{key}.json" else {})}
     selection["status"] = "PASS" if not failures else "FAIL"; selection["failures"] = failures
     write_json(p.selection, selection)
     print(json.dumps({"status": selection["status"], "failures": failures, "out": str(p.selection)}, ensure_ascii=False))
@@ -710,9 +832,11 @@ def duck_expr(cue: dict) -> str:
         import s7_audio_smoothing
         return s7_audio_smoothing.smooth_duck_expr(cue)
     lin = 10 ** (float(cue["dialogue_duck_db"]) / 20.0)
+    guard = float(cue.get("duck_guard_s") or 0.0)   # BILI_V1: the full duck also covers +-guard around a line
     parts = []
     for w in cue["dialogue_windows"]:
-        s = float(w["start"]) - float(cue["timeline_start"]); e = float(w["end"]) - float(cue["timeline_start"])
+        s = float(w["start"]) - float(cue["timeline_start"]) - guard
+        e = float(w["end"]) - float(cue["timeline_start"]) + guard
         r = DUCK_RAMP_S
         # trapezoid 0..1 over [s-r, s] up, [e, e+r] down
         parts.append(f"max(0,min(1,min((t-({s - r:.3f}))/{r},(({e + r:.3f})-t)/{r})))")
@@ -1021,9 +1145,19 @@ def cmd_reconcile(a: argparse.Namespace) -> int:
                                          "task's own submit window; windows sequential and non-overlapping; provider leaves project_id empty for music")})
         rows.append({"source_key": source_key, "task_id": tx["task_id"], "status": ledger.get("status"),
                      "isolation": isolation, "net": net})
-    good = bool(rows) and all(str(r["status"]).startswith("PASS_") for r in rows)
-    print(json.dumps({"status": "PASS" if good else "FAIL", "rows": rows}, ensure_ascii=False))
+    cached_only = _series_cache_only(p)
+    good = (bool(rows) or cached_only) and all(str(r["status"]).startswith("PASS_") for r in rows)
+    print(json.dumps({"status": "PASS" if good else "FAIL", "rows": rows,
+                      **({"series_cache": "ALL_SOURCES_REUSED_ZERO_CREDITS"} if cached_only and not rows else {})},
+                     ensure_ascii=False))
     return 0 if good else 2
+
+
+def _series_cache_only(p: "Paths") -> bool:
+    """WP5-C: every source of this episode's source plan comes from the series cache (nothing to reconcile)."""
+    plan = read_json(p.source_plan, {}) or {}
+    gens = plan.get("generations") or []
+    return bool(plan.get("series_cache")) and bool(gens) and all(from_series_cache(p, g, plan) for g in gens)
 
 
 def cmd_status(a: argparse.Namespace) -> int:

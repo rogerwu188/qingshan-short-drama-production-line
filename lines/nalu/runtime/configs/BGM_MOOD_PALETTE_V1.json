@@ -1,0 +1,38 @@
+{
+  "schema": "nalu.bgm_mood_palette.v1",
+  "palette_id": "BGM_MOOD_PALETTE_V1",
+  "owner_decision": "2026-11-23 Bilibili benchmark WP5-C (~/nalu_lab/bili_work/CHANGE_SPEC.md): 2-3 mood cues per episode, opt-in per series (craft_profile BILI_V1 + bgm_mood_cues: true). Each brief is one paid source (~8 credits) per series: sources are keyed by sha256(brief)[:16] and cached at <RUNTIME>/sources/<scope>/bgm/. Editing a brief = a new paid source for every series that uses that mood.",
+  "max_cues_per_episode": 3,
+  "moods": {
+    "tender": {
+      "narrative_function": "MOOD_TENDER",
+      "aliases": ["warm", "romance", "romantic", "温情", "温柔", "甜", "暧昧", "心动", "やさしい", "설렘"],
+      "brief": "gentle, warm instrumental underscore for a tender short-drama moment: soft felt piano, light sustained strings and a quiet acoustic guitar, slow and intimate, sits under dialogue; no vocals, no lyrics, no drum hits"
+    },
+    "comic_bounce": {
+      "narrative_function": "MOOD_COMIC_BOUNCE",
+      "aliases": ["comic", "comedy", "funny", "bounce", "playful", "喜剧", "搞笑", "俏皮", "轻快", "コミカル", "코믹"],
+      "brief": "light, bouncy comedic instrumental underscore for a short drama: pizzicato strings, staccato woodwinds and a playful marimba, mid tempo, mischievous and cheerful, leaves room for dialogue; no vocals, no lyrics, no heavy drums"
+    },
+    "heartbreak": {
+      "narrative_function": "MOOD_HEARTBREAK",
+      "aliases": ["sad", "sorrow", "grief", "melancholy", "心碎", "悲伤", "伤感", "虐", "失落", "切ない", "슬픔"],
+      "brief": "melancholic, heartbroken instrumental underscore for a short drama: slow solo piano over low sustained cello and soft string pads, aching and restrained, sits under dialogue; no vocals, no lyrics, no drum hits"
+    },
+    "tension": {
+      "narrative_function": "MOOD_TENSION",
+      "aliases": ["suspense", "conflict", "danger", "confrontation", "紧张", "对峙", "冲突", "危机", "压迫", "緊張", "긴장"],
+      "brief": "tense, suspenseful instrumental underscore for a short-drama confrontation: low pulsing synth bass, tremolo strings and a slow ticking pulse, steady build without a climax, stays under dialogue; no vocals, no lyrics, no loud drum hits"
+    },
+    "triumph": {
+      "narrative_function": "MOOD_TRIUMPH",
+      "aliases": ["victory", "payoff", "revenge", "heroic", "爽", "逆袭", "打脸", "胜利", "高燃", "反击", "勝利", "통쾌"],
+      "brief": "confident, triumphant instrumental underscore for a short-drama payoff: rising strings, bold brass swells and a driving low percussion pulse, uplifting and decisive, controlled so dialogue stays clear; no vocals, no lyrics"
+    },
+    "mystery": {
+      "narrative_function": "MOOD_MYSTERY",
+      "aliases": ["mysterious", "secret", "eerie", "intrigue", "悬疑", "神秘", "诡异", "秘密", "谜", "ミステリー", "미스터리"],
+      "brief": "mysterious, intriguing instrumental underscore for a short drama: sparse celesta and harp notes over dark ambient pads and a soft bowed-metal texture, slow and curious, sits under dialogue; no vocals, no lyrics, no drum hits"
+    }
+  }
+}

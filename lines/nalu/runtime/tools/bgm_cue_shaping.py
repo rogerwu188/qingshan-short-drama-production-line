@@ -25,6 +25,13 @@ Rules (owner 2026-11-19 spec; music MAY change or stop at a scene or mood change
 5. Under dialogue the music ducks by ``DUCK_DB`` (-10 dB: the owner's -10..-14 dB meets the authenticity gate's
    -6..-10 dB at -10), never muted.  Audibility under lines (device 1101 E24) comes from the louder bed pad
    (final_cut_audio_bed.PAD_LEVEL_DBFS), not a shallower duck.
+6. BILI_V1 (craft_profile.py; WP5-B, Bilibili benchmark 2026-11-23: both benchmarks hold the music in pauses at about
+   dialogue level, ours sat at -24..-35 LUFS): the bed plays at ``BILI_V1_BED_VOLUME`` (0.24, was 0.14) with the same
+   -10 dB duck, so pauses come up ~4.7 dB, and it reaches full level only ``BILI_V1_DUCK_GUARD_S`` + ``DUCK_RAMP_S``
+   (0.4 s) away from a line.  ``bed_volume`` is the one place that decides the cue volume.
+7. Hard stop (WP5-C, ``bgm_mood_cues``; ep3 "elevator ding"): ``stops`` (release-timeline seconds of shots the
+   writer marked ``music_stop``) end the cue exactly there with a ``HARD_STOP_FADE_SECONDS`` fade; a cue never
+   runs, extends or merges across a stop.  No stops (every LEGACY contract) = the rules above unchanged.
 
 Pure functions; the S7 BGM plan (nalu_selective_bgm.cmd_plan) applies them before the coverage policy.
 """
@@ -47,6 +54,13 @@ PRELAP_SECONDS = 0.75
 HIT_TOLERANCE_SECONDS = 0.3
 DUCK_DB = -10.0
 SOURCE_TAIL_MARGIN_S = 0.5
+#: WP5-B (BILI_V1): bed volume 0.14 -> 0.24 (+4.7 dB in pauses) with the same DUCK_DB; full level only when no line
+#: is within BILI_V1_DUCK_GUARD_S + the mix ramp (nalu_selective_bgm.DUCK_RAMP_S 0.25) = 0.4 s
+LEGACY_BED_VOLUME = 0.14
+BILI_V1_BED_VOLUME = 0.24
+BILI_V1_DUCK_GUARD_S = 0.15
+#: WP5-C hard stop on a story beat (a shot marked music_stop): the cue ends on the shot start with this fade
+HARD_STOP_FADE_SECONDS = 0.1
 
 END_TYPES = ("FADE_OUT", "CROSSFADE", "HIT_STOP")
 ENTRY_TYPES = ("FADE_IN", "PRELAP", "HIT_ENTRY", "CROSSFADE_IN")
@@ -71,6 +85,17 @@ def min_cue_seconds(environ: dict[str, str] | None = None) -> float:
         return max(4.0, float(env.get(MIN_CUE_ENV) or MIN_CUE_SECONDS))
     except ValueError:
         return MIN_CUE_SECONDS
+
+
+def bed_volume(authored: Any, *, bili_v1: bool) -> float:
+    """The cue volume: LEGACY = the authored value, else 0.14 (unchanged); BILI_V1 = 0.24 when the cue is silent or
+    carries the old boilerplate 0.14 (the tool's documented example), else the authored value."""
+    if authored is None or authored == "":
+        return BILI_V1_BED_VOLUME if bili_v1 else LEGACY_BED_VOLUME
+    value = float(authored)
+    if bili_v1 and abs(value - LEGACY_BED_VOLUME) < 1e-9:
+        return BILI_V1_BED_VOLUME
+    return value
 
 
 def is_sting(cue: dict[str, Any]) -> bool:
@@ -112,12 +137,13 @@ def _near(t: float, points: list[float], tol: float) -> float | None:
 
 
 def shape(cues: list[dict[str, Any]], shots_tl: list[dict[str, Any]], content: float,
-          source_seconds: dict[str, float], *, min_cue: float | None = None) -> dict[str, Any]:
+          source_seconds: dict[str, float], *, min_cue: float | None = None,
+          stops: list[float] | None = None) -> dict[str, Any]:
     """Shape cue windows [{cue_id, source_key, t0, t1, narrative_function?, sting?}] -> {cues, dropped, merged}.
 
     Each output cue carries t0/t1, fade_in_s, fade_out_s, entry_type, end_type, end_at_boundary, sting and
     fade_curve ("qsin" on crossfades).  ``source_seconds``: source_key -> longest generated source (0 = unknown,
-    then nothing is extended past the declared window)."""
+    then nothing is extended past the declared window).  ``stops``: hard-stop times (rule 7; None/[] = none)."""
     min_cue = min_cue_seconds() if min_cue is None else float(min_cue)
     scale = fade_scale()
     fade_in, fade_out, long_fade_out = (round(FADE_IN_SECONDS * scale, 3), round(FADE_OUT_SECONDS * scale, 3),
@@ -125,6 +151,17 @@ def shape(cues: list[dict[str, Any]], shots_tl: list[dict[str, Any]], content: f
     content = float(content)
     b = boundaries(shots_tl, content)
     allowed, hits = b["allowed"], b["hits"]
+    stop_points = sorted({round(float(x), 3) for x in (stops or []) if 0.0 < float(x) <= content})
+    if stop_points:
+        allowed = sorted(set(allowed) | set(stop_points))
+        b = {**b, "stops": stop_points}
+
+    def stop_after(t: float) -> float | None:
+        """The first hard stop strictly after t (a cue starting at t may not run past it)."""
+        return next((x for x in stop_points if x > t + 1e-6), None)
+
+    def stop_between(a0: float, a1: float) -> bool:
+        return any(a0 - 1e-6 <= x <= a1 + 1e-6 for x in stop_points)
 
     def held(key: str, fallback: float) -> float:
         src = float(source_seconds.get(key) or 0.0) - SOURCE_TAIL_MARGIN_S
@@ -137,7 +174,8 @@ def shape(cues: list[dict[str, Any]], shots_tl: list[dict[str, Any]], content: f
     out: list[dict[str, Any]] = []
     for c in work:
         if (out and c["source_key"] == out[-1]["source_key"] and c["t0"] - out[-1]["t1"] < FLICKER_GAP_SECONDS
-                and max(c["t1"], out[-1]["t1"]) - out[-1]["t0"] <= held(c["source_key"], float("inf"))):
+                and max(c["t1"], out[-1]["t1"]) - out[-1]["t0"] <= held(c["source_key"], float("inf"))
+                and not stop_between(out[-1]["t1"], c["t0"])):
             merged_ids.append([out[-1]["cue_id"], c["cue_id"]])
             out[-1]["t1"] = max(out[-1]["t1"], c["t1"])
             out[-1]["merged_cue_ids"] = out[-1].get("merged_cue_ids", [out[-1]["cue_id"]]) + [c["cue_id"]]
@@ -149,6 +187,11 @@ def shape(cues: list[dict[str, Any]], shots_tl: list[dict[str, Any]], content: f
         sting = is_sting(c)
         limit = held(c["source_key"], c["t1"] - c["t0"])
         t0, t1 = c["t0"], c["t1"]
+        cap = stop_after(t0)
+        if cap is not None:   # rule 7: never past a hard stop; an end within SNAP_SECONDS of one lands on it
+            limit = min(limit, cap - t0)
+            if t1 > cap or abs(t1 - cap) <= SNAP_SECONDS and cap - t0 <= limit:
+                t1 = cap
         # 1. the end goes to a boundary: snap, else run on to the next one the source can reach, else back
         at = _near(t1, allowed, SNAP_SECONDS)
         if at is not None and at > t0:
@@ -188,7 +231,10 @@ def shape(cues: list[dict[str, Any]], shots_tl: list[dict[str, Any]], content: f
         else:
             row.update(entry_type="FADE_IN", fade_in_s=fade_in)
         # 4. end
-        if sting or _near(t1, hits, HIT_TOLERANCE_SECONDS) is not None:
+        if cap is not None and abs(t1 - cap) <= 1e-3:
+            row.update(end_type="HIT_STOP", hard_stop=True, hit_at=round(t1, 3),
+                       fade_out_s=HARD_STOP_FADE_SECONDS)
+        elif sting or _near(t1, hits, HIT_TOLERANCE_SECONDS) is not None:
             tail_end = min(content, t1 + HIT_DECAY_SECONDS)
             row.update(end_type="HIT_STOP", t1=round(tail_end, 3), fade_out_s=round(max(0.05, tail_end - t1), 3),
                        hit_at=round(t1, 3))
@@ -225,7 +271,8 @@ def shape(cues: list[dict[str, Any]], shots_tl: list[dict[str, Any]], content: f
                      "crossfade_seconds": CROSSFADE_SECONDS, "fade_in_seconds": fade_in,
                      "fade_out_seconds": fade_out, "long_fade_out_seconds": long_fade_out,
                      **({"fade_scale": scale} if scale != 1.0 else {}),
-                     "hit_decay_seconds": HIT_DECAY_SECONDS, "prelap_seconds": PRELAP_SECONDS, "duck_db": DUCK_DB}}
+                     "hit_decay_seconds": HIT_DECAY_SECONDS, "prelap_seconds": PRELAP_SECONDS, "duck_db": DUCK_DB,
+                     **({"hard_stop_fade_seconds": HARD_STOP_FADE_SECONDS} if stop_points else {})}}
 
 
 def allowed_overlap(a: dict[str, Any], b: dict[str, Any]) -> float:
