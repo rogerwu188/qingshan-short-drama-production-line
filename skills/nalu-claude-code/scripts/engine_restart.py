@@ -52,7 +52,8 @@ PROC_MARKERS = ("paid_stage.sh", "nalu_pipeline.py", "codex_production.py", "fin
                 "post_generation_qa_runner.py", "video_q2_builder.py", "q2_auto_redo.py")
 #: never descended into / never moved (series-level, secrets, our own state)
 SKIP_DIRS = {".git", ".qingshan-venv", "node_modules", "__pycache__", "credentials", "briefs", "series",
-             "voice_refs", "character_sources", "engine_patches", "studio_assets"}
+             "voice_refs", "character_sources", "engine_patches", "studio_assets",
+             "sources", "brand", "distribution", "archives", "local_tools"}  # owner inputs / publish records
 SCAN_DEPTH = 4
 
 

@@ -1085,7 +1085,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/engine_restart.py",
-      "sha256": "fcc16349dd09f74dc0322438286f177a3356cdbf89908e3458b394925155d30d"
+      "sha256": "a3443b380a4073687eda79b8a30f82cb525ca2df1763571f6aa448e01e31abfa"
     },
     {
       "path": "skills/nalu-claude-code/scripts/fleet_sync.py",
