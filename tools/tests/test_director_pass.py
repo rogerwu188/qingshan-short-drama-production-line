@@ -460,22 +460,35 @@ class AuthoredCutTest(unittest.TestCase):
 
 
 class H3MinUnitKnobTest(unittest.TestCase):
-    def test_default_four_and_two_when_flipped(self):
+    def test_provider_minimum_two_and_the_legacy_floor_stays_four(self):
         from tools import h3_limits
         from tools import hopsapi_video_client as hv
         from tools import speaking_unit_duration as sud
         from tools import build_video_unit_grouping_spec as grouping
-        self.assertEqual(h3_limits.min_unit_seconds({}), 4)
-        self.assertEqual(h3_limits.min_unit_seconds({"NALU_H3_MIN_UNIT_SECONDS": "2"}), 2)
-        self.assertEqual(h3_limits.min_unit_seconds({"NALU_H3_MIN_UNIT_SECONDS": "1"}), 4)    # out of range
-        self.assertEqual(h3_limits.min_unit_seconds({"NALU_H3_MIN_UNIT_SECONDS": "abc"}), 4)
-        for env, floor in (({}, 4), ({"NALU_H3_MIN_UNIT_SECONDS": "2"}, 2)):
-            with mock.patch.dict(os.environ, env, clear=False):
-                if not env:
-                    os.environ.pop("NALU_H3_MIN_UNIT_SECONDS", None)
+        missing = Path("/nonexistent/H3_LIMITS_V1.json")
+        self.assertEqual(h3_limits.min_unit_seconds({}, config_path=missing), 4)
+        self.assertIn(h3_limits.min_unit_seconds({}), (2, 4))                 # shipped config
+        self.assertEqual(h3_limits.unit_floor_seconds({}), 4)                 # LEGACY grouping / speaking floor
+        self.assertEqual(h3_limits.unit_floor_seconds({"NALU_H3_MIN_UNIT_SECONDS": "2"}), 4)
+        self.assertEqual(h3_limits.unit_floor_seconds({"NALU_H3_UNIT_FLOOR_SECONDS": "2",
+                                                       "NALU_H3_MIN_UNIT_SECONDS": "2"}), 2)
+        self.assertEqual(h3_limits.unit_floor_seconds({"NALU_H3_UNIT_FLOOR_SECONDS": "2",
+                                                       "NALU_H3_MIN_UNIT_SECONDS": "4"}), 4)   # never below min
+        self.assertEqual(h3_limits.min_unit_seconds({"NALU_H3_MIN_UNIT_SECONDS": "4"}), 4)
+        self.assertEqual(h3_limits.min_unit_seconds({"NALU_H3_MIN_UNIT_SECONDS": "1"}, config_path=missing), 4)
+        self.assertEqual(h3_limits.min_unit_seconds({"NALU_H3_MIN_UNIT_SECONDS": "abc"}, config_path=missing), 4)
+        with tempfile.TemporaryDirectory() as d:
+            two = Path(d) / "H3_LIMITS_V1.json"
+            two.write_text(json.dumps({"min_unit_seconds": 2}), encoding="utf-8")
+            self.assertEqual(h3_limits.min_unit_seconds({}, config_path=two), 2)
+            self.assertEqual(h3_limits.unit_floor_seconds({}, config_path=two), 4)
+        for floor in (4, 2):
+            with mock.patch.dict(os.environ, {"NALU_H3_MIN_UNIT_SECONDS": str(floor)}):
+                os.environ.pop("NALU_H3_UNIT_FLOOR_SECONDS", None)
                 self.assertEqual(hv.min_duration_seconds(), floor)
-                self.assertEqual(grouping.provider_min_seconds("MiniMax-H3"), float(floor))
-                self.assertEqual(sud.group_duration(["你好"], "zh")["duration_seconds"], float(floor))
+                # grouping / speaking units keep the 4 s floor either way (no 2 s talking units)
+                self.assertEqual(grouping.provider_min_seconds("MiniMax-H3"), 4.0)
+                self.assertEqual(sud.group_duration(["你好"], "zh")["duration_seconds"], 4.0)
                 self.assertEqual(dp.unit_min_seconds(), floor)
                 self.assertEqual(dp.dedicated_reaction_max(), 3 if floor == 4 else 6)
                 self.assertEqual(hv.estimated_task_credits(2, resolution="480p"),
@@ -496,10 +509,33 @@ class H3MinUnitKnobTest(unittest.TestCase):
             self.assertIn("SHORT_UNIT:E05-S02-02:4->2", report["applied"])
             self.assertEqual(by_id(out)["E05-S02-02"]["target_seconds"], 2.0)
             self.assertEqual(dp.reaction_coverage(out)["dedicated_max"], 6)
-        os.environ.pop("NALU_H3_MIN_UNIT_SECONDS", None)
-        out, report = dp.direct(c)
+        with mock.patch.dict(os.environ, {"NALU_H3_MIN_UNIT_SECONDS": "4"}):
+            out, report = dp.direct(c)
         self.assertFalse([a for a in report["applied"] if a.startswith("SHORT_UNIT")])
         self.assertEqual(by_id(out)["E05-S02-02"]["target_seconds"], 4.0)
+
+    def test_only_director_short_units_are_requested_below_the_floor(self):
+        from tools import build_video_unit_grouping_spec as grouping
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lines" / "nalu" / "runtime" / "tools"))
+        import build_nalu_preproduction as bnp
+        silent = {"shot_id": "X-01", "prompt_spec": {"dialogue": "", "cast": []},
+                  "director_short_unit": {"seconds": 2.0}}
+        talking = {"shot_id": "X-02", "prompt_spec": {"dialogue": "你好", "cast": [
+            {"character_id": "A", "face_visibility": "FRONT_FACE_VISIBLE"}]}, "director_short_unit": {"seconds": 2.0}}
+        plain = {"shot_id": "X-03", "prompt_spec": {"dialogue": "", "cast": []}}
+        with mock.patch.dict(os.environ, {"NALU_H3_MIN_UNIT_SECONDS": "2"}):
+            self.assertEqual(grouping.short_unit_minimum([silent]), 2.0)
+            self.assertIsNone(grouping.short_unit_minimum([plain]))
+            self.assertIsNone(grouping.short_unit_minimum([silent, plain]))   # grouped: the unit floor applies
+            self.assertIsNone(grouping.short_unit_minimum([talking]))
+        with mock.patch.dict(os.environ, {"NALU_H3_MIN_UNIT_SECONDS": "4"}):
+            self.assertIsNone(grouping.short_unit_minimum([silent]))
+        plan = {"duration_policy_seconds": {"minimum": 4.0}, "runtime_seconds": 4.0, "units": [
+            {"unit_id": "U1", "duration_seconds": 2.0, "duration_exception_reason": "PROVIDER_MINIMUM_PADDED",
+             "provider_minimum_seconds": 2.0},
+            {"unit_id": "U2", "duration_seconds": 2.0, "duration_exception_reason": "PROVIDER_MINIMUM_PADDED"}]}
+        slots = [u["duration_seconds"] for u in bnp.project_provider_slots(plan)["units"]]
+        self.assertEqual(slots, [2, 4])
 
 
 class DigitalPushTest(unittest.TestCase):

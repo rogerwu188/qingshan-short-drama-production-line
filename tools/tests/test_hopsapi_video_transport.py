@@ -131,7 +131,8 @@ class ProviderSwitchTests(unittest.TestCase):
     def test_planning_estimate_is_rounded_up_and_configurable(self):
         from tools import hopsapi_video_client as hops
         self.assertEqual(hops.estimated_task_credits(4, 2, environ={}), 7)       # 6.24 -> 7 (probe 6.23)
-        self.assertEqual(hops.estimated_task_credits(3, 2, environ={}), 7)       # floor 4 s
+        self.assertEqual(hops.estimated_task_credits(3, 2, environ={"NALU_H3_MIN_UNIT_SECONDS": "4"}), 7)  # floor 4 s
+        self.assertLess(hops.estimated_task_credits(2, 2, environ={"NALU_H3_MIN_UNIT_SECONDS": "2"}), 7)  # 2 s floor
         self.assertEqual(hops.estimated_task_credits(4, 7, environ={}), 9)       # 6.24 + 2 imgs x 4 s x 0.32
         self.assertEqual(hops.estimated_task_credits(5, 1, environ={"HOPSAPI_H3_CREDITS_PER_SECOND": "2"}), 10)
         self.assertGreaterEqual(hops.estimated_batch_credits(12, 3, environ={}), 3 * 7)
@@ -239,14 +240,14 @@ class CreateAndIdempotencyTests(HopsapiTestBase):
         with self.assertRaises(video.ProviderInsufficientCreditsError):
             self.submit(self.task(), fake)
 
-    def test_three_second_unit_is_refused_before_upload_or_intent(self):
+    def test_one_second_unit_is_refused_before_upload_or_intent(self):
         fake = FakeHops()
-        task = self.task(duration=3)
+        task = self.task(duration=1)   # below any H3 floor (4 s, or 2 s once flipped)
         with self.assertRaisesRegex(ValueError, "HOPSAPI_H3_DURATION_OUT_OF_RANGE"):
             self.submit(task, fake)
         self.assertEqual(fake.calls, [])
         self.assertFalse(video.transaction_path(self.transactions, task).exists())
-        self.assertEqual(video.hopsapi_request_window_failures(task), ["HOPSAPI_H3_DURATION_OUT_OF_RANGE:3"])
+        self.assertEqual(video.hopsapi_request_window_failures(task), ["HOPSAPI_H3_DURATION_OUT_OF_RANGE:1"])
 
     def test_create_outside_the_durable_submitter_is_blocked(self):
         from tools import hopsapi_video_client as hops

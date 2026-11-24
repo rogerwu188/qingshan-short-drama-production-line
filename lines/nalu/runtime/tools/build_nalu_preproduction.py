@@ -1591,6 +1591,11 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
             "zone_id": row["zone_id"],
             "global_space_map_id": row["global_space_map_id"],
             "prompt_spec": prompt_spec,
+            # BILI_V1 director short reaction / insert unit (director_pass._apply_short_units, H3 <= 2 s): the
+            # grouping builder requests it at the provider minimum instead of padding it to the unit floor
+            **({"director_short_unit": dict(spec["director"]["short_unit"])}
+               if isinstance(spec.get("director"), dict) and isinstance(spec["director"].get("short_unit"), dict)
+               else {}),
             "wardrobe_contract": {
                 "schema": bible["schema"],
                 "episode_bible_id": bible["bible_id"],
@@ -3394,7 +3399,9 @@ def project_provider_slots(plan: dict[str, Any]) -> dict[str, Any]:
         content = float(unit["duration_seconds"])
         slot = int(math.ceil(content - 1e-9))
         if unit.get("duration_exception_reason") == "PROVIDER_MINIMUM_PADDED":  # CAMERA_GRAMMAR_V1 short shot
-            slot = max(slot, int(math.ceil(float((plan.get("duration_policy_seconds") or {}).get("minimum") or 3))))
+            # a director short reaction / insert unit carries its own (2 s) provider minimum; others the plan floor
+            minimum = unit.get("provider_minimum_seconds") or (plan.get("duration_policy_seconds") or {}).get("minimum")
+            slot = max(slot, int(math.ceil(float(minimum or 3))))
         unit["authorized_content_seconds"] = round(content, 3)
         unit["authorized_tail_handle_seconds"] = round(max(0.25, slot - content), 3)
         unit["provider_slot_projection"] = ("CEIL_TO_INTEGER_PROVIDER_SECONDS" if slot != content

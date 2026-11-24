@@ -154,6 +154,21 @@ class CutRespectingGroupingTest(unittest.TestCase):
             self.skipTest(f"build_nalu_preproduction not importable here: {exc}")
         projected = bnp.project_provider_slots(copy.deepcopy(plan))
         self.assertEqual([u["duration_seconds"] for u in projected["units"]], [5, 4, 5])  # padded to the 4 s floor
+        # H3 takes 2 s (owner 2026-11-24): only the BILI_V1 director's silent short unit is requested at 2 s;
+        # the same plain 2 s shot keeps the 4 s floor (LEGACY grouping unchanged)
+        shots = _scene(rows, "S01")
+        shots[1]["director_short_unit"] = {"seconds": 2.0}
+        with patch.dict(os.environ, {"NALU_H3_MIN_UNIT_SECONDS": "2"}):
+            production, spec = grouping.build(_manifest(shots), "sha")
+            self.assertEqual(spec["groups"][1]["provider_minimum_seconds"], 2.0)
+            self.assertEqual(spec["duration_policy_seconds"]["minimum"], 4.0)
+            with patch.object(cvp, "validate_transition_sequence", lambda units: None):
+                plan = cvp.compile_grouping_spec(production, spec)
+            projected = bnp.project_provider_slots(copy.deepcopy(plan))
+            self.assertEqual([u["duration_seconds"] for u in projected["units"]], [5, 2, 5])
+        with patch.dict(os.environ, {"NALU_H3_MIN_UNIT_SECONDS": "4"}):
+            _production, spec = grouping.build(_manifest(shots), "sha")
+            self.assertNotIn("provider_minimum_seconds", spec["groups"][1])
 
     def test_old_one_to_one_and_short_unit_rules_do_not_block_stamped_plans(self):
         rows = [(f"{i:02d}", 3.5, ["A"] if i % 2 else ["B"]) for i in range(1, 15)]

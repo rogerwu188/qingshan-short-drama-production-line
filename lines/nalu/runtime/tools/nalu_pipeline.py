@@ -1021,10 +1021,10 @@ def ctx_render_style(ctx: Any) -> str:
 
 
 def _h3_min_unit_seconds() -> int:
-    """The shortest H3 unit (tools/h3_limits.py: NALU_H3_MIN_UNIT_SECONDS > configs/H3_LIMITS_V1.json > 4)."""
+    """The grouping floor (tools/h3_limits.unit_floor_seconds: stays 4 when H3 accepts 2 s; LEGACY grouping unchanged)."""
     try:
         import h3_limits as _limits  # noqa: PLC0415 -- engine tools/ is on sys.path
-        return _limits.min_unit_seconds()
+        return _limits.unit_floor_seconds()
     except Exception:  # noqa: BLE001
         return 4
 
