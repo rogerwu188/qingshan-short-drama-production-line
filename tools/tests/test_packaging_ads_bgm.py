@@ -508,6 +508,13 @@ class BgmDefaultTests(unittest.TestCase):
             self.assertEqual(plan["planned_credits"], 8)
             self.assertEqual(plan["cues"][0]["volume"], 0.14)       # tool defaults, not changed here
             self.assertEqual(plan["cues"][0]["dialogue_duck_db"], -8.0)
+            self.assertNotIn("craft_profile", plan)                   # LEGACY: no WP5 key
+            # BILI_V1 (WP5-B): the same default cue plays at 0.24 (pauses +4.7 dB); the S7 duck stays -10 dB
+            bili = root / "E01_BILI.json"
+            bili.write_text(json.dumps({**payload, "craft_profile": "BILI_V1"}, ensure_ascii=False), encoding="utf-8")
+            plan = sbgm._source_plan_payload(sbgm.Paths("E01", contract=bili, work=root / "work"), "E01")
+            self.assertEqual((plan["cues"][0]["volume"], plan["craft_profile"]), (0.24, "BILI_V1"))
+            self.assertEqual(plan["planned_credits"], 8)
             opted_out = root / "none.json"
             opted_out.write_text(json.dumps(contract("NONE")), encoding="utf-8")
             self.assertEqual(bgm_default.write_effective_contract(opted_out, root / "x.json")["contract"],

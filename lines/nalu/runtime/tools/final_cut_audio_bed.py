@@ -82,6 +82,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import nalu_paths as _np  # noqa: E402
+import bgm_cue_shaping as _shape  # noqa: E402
 sys.path.insert(0, str(Path(f"{_np.ENGINE_ROOT}")))
 from tools import dialogue_voice_metrics as dvm  # noqa: E402
 from tools.final_cut_audience_detectors import DEFAULTS as DETECTOR_DEFAULTS, decide_loudness  # noqa: E402
@@ -107,6 +108,20 @@ PAD_LEVEL_DBFS = -30.0
 DUCK_THRESHOLD_DBFS = -30.0
 DUCK_RATIO = 20.0
 DUCK_MAX_DB = 10.0
+#: BILI_V1 (craft_profile.py, WP5-B; the BGM plan carries ``craft_profile``): the cue bed is 0.14 -> 0.24
+#: (bgm_cue_shaping.BILI_V1_BED_VOLUME, +4.7 dB), so the pad keeps #304's relation to the cue (+4.7 dB, -25.3 dBFS)
+#: and ducks up to 14 dB (the deep edge of the owner's 2026-11-19 -10..-14 dB range): under a line (peaks ~-16 dBFS)
+#: it stays within ~1.5 dB of #304's level (-38.6 vs -40 dBFS), in the pauses it comes up with the cue.
+BILI_V1_PAD_GAIN_DB = round(20.0 * math.log10(_shape.BILI_V1_BED_VOLUME / _shape.LEGACY_BED_VOLUME), 2)
+BILI_V1_PAD_LEVEL_DBFS = round(PAD_LEVEL_DBFS + BILI_V1_PAD_GAIN_DB, 2)
+BILI_V1_DUCK_MAX_DB = 14.0
+
+
+def pad_levels(bgm_plan: dict[str, Any] | None) -> tuple[float, float]:
+    """(pad level dBFS, pad duck max dB): BILI_V1 when the BGM plan says so, else #304's (-30, 10)."""
+    if isinstance(bgm_plan, dict) and bgm_plan.get("craft_profile") == "BILI_V1":
+        return BILI_V1_PAD_LEVEL_DBFS, BILI_V1_DUCK_MAX_DB
+    return PAD_LEVEL_DBFS, DUCK_MAX_DB
 DUCK_ATTACK_S = 0.150
 DUCK_RELEASE_S = 0.600
 
@@ -394,12 +409,14 @@ def plan_pad_regions(cues: list[dict[str, Any]], content_end: float, total_s: fl
     cues_sorted = sorted(cues, key=lambda c: float(c["timeline_start"]))
     regions: list[dict[str, Any]] = []
     cursor = 0.0
+    dry = False   # WP5-C: the gap after a hard stop (``hard_stop`` cue) is the deliberate dry beat -- no pad there
     for cue in cues_sorted:
         s = float(cue["timeline_start"]); e = s + float(cue["duration"])
-        if s - cursor > PAD_EDGE_FADE_S * 2:
+        if s - cursor > PAD_EDGE_FADE_S * 2 and not dry:
             regions.append({"start": cursor, "end": s, "source_key": cue["source_key"], "after_cue": None, "before_cue": cue["cue_id"]})
         cursor = max(cursor, e)
-    if cues_sorted and total_s - cursor > PAD_EDGE_FADE_S * 2:
+        dry = bool(cue.get("hard_stop"))
+    if cues_sorted and total_s - cursor > PAD_EDGE_FADE_S * 2 and not dry:
         last = cues_sorted[-1]
         regions.append({"start": cursor, "end": total_s, "source_key": last["source_key"], "after_cue": last["cue_id"], "before_cue": None})
     return regions
@@ -434,12 +451,12 @@ def loop_to_length(x: np.ndarray, n: int) -> np.ndarray:
     return out
 
 
-def make_pad_source(cue_audio: np.ndarray) -> np.ndarray:
+def make_pad_source(cue_audio: np.ndarray, level_dbfs: float = PAD_LEVEL_DBFS) -> np.ndarray:
     from scipy.signal import butter, sosfiltfilt
     sos = butter(4, PAD_LOWPASS_HZ, btype="lowpass", fs=SR, output="sos")
     y = sosfiltfilt(sos, cue_audio.astype(np.float64), axis=0)
     rms = math.sqrt(float(np.mean(y ** 2))) + 1e-12
-    return (y / rms * db_to_lin(PAD_LEVEL_DBFS)).astype(np.float32)
+    return (y / rms * db_to_lin(level_dbfs)).astype(np.float32)
 
 
 def render_pad(regions: list[dict[str, Any]], sources: dict[str, np.ndarray], total_n: int, content_end: float) -> np.ndarray:
@@ -629,20 +646,23 @@ def main(argv: list[str] | None = None) -> int:
         if not (a.bgm_plan and a.bgm_selection):
             raise SystemExit("wall_to_wall needs --bgm-plan and --bgm-selection (the pad is built from the paid cues only)")
         plan = read_json(a.bgm_plan); selection = read_json(a.bgm_selection)
+        pad_level_dbfs, pad_duck_max_db = pad_levels(plan)
         pad_regions = plan_pad_regions(plan.get("cues", []), content_end, total_s)
         sources: dict[str, np.ndarray] = {}
         for key in {r["source_key"] for r in pad_regions}:
             src = Path(selection["sources"][key]["selected"])
             pad_sources[key] = str(src)
-            sources[key] = make_pad_source(decode_audio(src))
+            sources[key] = make_pad_source(decode_audio(src), pad_level_dbfs)
         pad = render_pad(pad_regions, sources, total_n, content_end)
         env_db, hop = envelope_db(native.mean(axis=1))
-        pad = apply_gain_curve(pad, duck_gain_db(env_db), hop)
-        duck_applied = {"threshold_dbfs": DUCK_THRESHOLD_DBFS, "ratio": DUCK_RATIO, "max_db": DUCK_MAX_DB,
+        gain = duck_gain_db(env_db, max_db=pad_duck_max_db)
+        pad = apply_gain_curve(pad, gain, hop)
+        duck_applied = {"threshold_dbfs": DUCK_THRESHOLD_DBFS, "ratio": DUCK_RATIO, "max_db": pad_duck_max_db,
                         "attack_s": DUCK_ATTACK_S, "release_s": DUCK_RELEASE_S,
-                        "median_duck_db_in_speech": round(float(np.median(duck_gain_db(env_db)[env_db > -24])), 2) if np.any(env_db > -24) else None}
+                        "median_duck_db_in_speech": round(float(np.median(gain[env_db > -24])), 2) if np.any(env_db > -24) else None}
     else:
         duck_applied = None
+        pad_level_dbfs = PAD_LEVEL_DBFS
 
     sfx, sfx_record = foley_bus(native, segments, grouping, contract, windows, native + bed + pad, a.seed, a.report)
     mix = (native.astype(np.float32) + bed + pad + sfx).astype(np.float32)
@@ -669,7 +689,7 @@ def main(argv: list[str] | None = None) -> int:
         "input": {"path": str(a.input), "sha256": before["sha256"]},
         "output": {"path": str(a.out), "sha256": after["sha256"], "video_stream_bit_exact": True},
         "params": {"seed": a.seed, "music_mode": a.music_mode, "bed_specs": BED_SPECS, "bed_xfade_s": BED_XFADE_S,
-                   "pad_level_dbfs": PAD_LEVEL_DBFS, "pad_lowpass_hz": PAD_LOWPASS_HZ, "pad_edge_fade_s": PAD_EDGE_FADE_S,
+                   "pad_level_dbfs": pad_level_dbfs, "pad_lowpass_hz": PAD_LOWPASS_HZ, "pad_edge_fade_s": PAD_EDGE_FADE_S,
                    "pad_loop_xfade_s": PAD_LOOP_XFADE_S, "duck": duck_applied, "loudnorm": {"I": RELEASE_LUFS, "TP": LOUDNORM_TP, **loudnorm}},
         "bed_plan": bed_plan, "bed_rms_dbfs": round(lin_to_db(math.sqrt(float(np.mean(bed_mono ** 2)))), 2),
         "bed_min_frame_dbfs": round(float(frame_rms_db(bed_mono).min()), 2),

@@ -35,6 +35,16 @@ class BgmAuthenticityContractTests(unittest.TestCase):
         })
         self.assertEqual(validate_bgm_contract(project), [])
 
+    def test_duck_range_is_minus_14_to_minus_6(self):
+        # owner 2026-11-19 -10..-14 dB; BILI_V1 (WP5-B) stamps -14, LEGACY stamps -10
+        for duck, ok in ((-6, True), (-10, True), (-14, True), (-5, False), (-15, False)):
+            project = self.layered_project({
+                "source_type": "GENERATED_EPISODE_BGM", "dialogue_duck_db": duck, "generation_task_id": "task-1",
+                "generation_receipt": "workflow/tasks/bgm.json", "source_sha256": "d" * 64,
+                "credit_evidence": "workflow/credit_reports/bgm.json"})
+            failures = validate_bgm_contract(project)
+            self.assertEqual("BGM_DIALOGUE_DUCK_MUST_BE_MINUS_14_TO_MINUS_6_DB" not in failures, ok, duck)
+
     def test_generated_bgm_ignores_unrelated_metadata(self):
         project = self.layered_project({
             "source_type": "GENERATED_EPISODE_BGM",

@@ -6611,6 +6611,11 @@ def bgm_credit_reconciled(ctx: Ctx) -> bool:
         return False
     rows = [read_json(path, {}) or {} for path in sorted(tx_dir.glob("*.json"))] if tx_dir.is_dir() else []
     completed = [row for row in rows if row.get("state") == "TERMINAL_COMPLETED" and row.get("task_id")]
+    if not rows:  # WP5-C (BILI_V1 mood cues): every source reused from the series cache -> nothing was charged
+        source_plan = read_json(bgm_work_dir(ctx) / f"{ctx.episode}_BGM_SOURCE_PLAN.json", {}) or {}
+        if source_plan.get("series_cache") and source_plan.get("generations"):
+            import nalu_selective_bgm as _sbgm  # noqa: PLC0415
+            return _sbgm._series_cache_only(_sbgm.Paths(ctx.episode, work=bgm_work_dir(ctx), transactions=tx_dir))
     return bool(completed) and all(
         str((row.get("credit") or {}).get("statement_status") or "").startswith("PASS_") for row in completed)
 

@@ -122,6 +122,27 @@ class PadAndDuckTests(unittest.TestCase):
         self.assertEqual(regions[0]["before_cue"], "C2")
         self.assertIsNone(regions[1]["before_cue"])
 
+    def test_no_pad_in_the_dry_beat_after_a_hard_stop(self):
+        # WP5-C: the gap after a cue that ends on a marked music_stop stays dry (the ambient bed still runs)
+        cues = [{"cue_id": "C1", "source_key": "k1", "timeline_start": 0.0, "duration": 20.0, "hard_stop": True},
+                {"cue_id": "C2", "source_key": "k2", "timeline_start": 40.0, "duration": 30.0}]
+        regions = bed.plan_pad_regions(cues, content_end=90.0, total_s=93.0)
+        self.assertEqual([(r["start"], r["end"]) for r in regions], [(70.0, 93.0)])
+
+    def test_pad_levels_follow_the_craft_profile(self):
+        # LEGACY = #304 (pad -30 dBFS, duck <= 10 dB); BILI_V1 (WP5-B): +4.7 dB with the cue bed, duck <= 14 dB
+        self.assertEqual(bed.pad_levels(None), (-30.0, 10.0))
+        self.assertEqual(bed.pad_levels({"craft_profile": "LEGACY"}), (-30.0, 10.0))
+        level, duck = bed.pad_levels({"craft_profile": "BILI_V1"})
+        self.assertAlmostEqual(level, -25.32, places=2)
+        self.assertEqual(duck, 14.0)
+        self.assertTrue(10.0 <= duck <= 14.0)                         # owner 2026-11-19 range
+        speech = np.array([-16.0])                                    # line peaks on this line
+        under_legacy = -30.0 + float(bed.duck_gain_db(speech)[0])
+        under_bili = level + float(bed.duck_gain_db(speech, max_db=duck)[0])
+        self.assertLess(abs(under_bili - under_legacy), 1.5)          # under a line: ~#304's level (+1.4 dB)
+        self.assertGreater(level - (-30.0), 4.0)                      # in a pause: up with the cue
+
     def test_duck_gain_follows_the_stated_law(self):
         env = np.array([-60.0, -30.0, -20.0, -16.0, 0.0])
         g = bed.duck_gain_db(env)

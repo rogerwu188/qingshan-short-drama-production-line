@@ -274,6 +274,7 @@
 - **原则**：台词清楚可懂，一个人一种声线；L-cut 让台词盖到反应上；配乐铺在台词下面，不抢台词。*Intelligible dialogue, one voice per character; L-cuts carry lines; score stays under dialogue.*
 - **为什么**：竖屏观众很多时候半听半看，声音一断就出戏。
 - **Codex**：用 `sound_bridge_from_previous_seconds`；`audio_contract.bgm` 不写，或者写成整集一条 cue（沿用本线默认）。不写逐个爽点的音效 cue，原因见 §4 冲突 4。
+- **BILI_V1 例外**（`craft_profile: BILI_V1`，B 站对标 WP5；LEGACY 剧不变）：停顿里配乐抬高 ~4.7 dB（铺底 0.24，台词下压 −14 dB，台词下音量基本不变）；系列开了 `bgm_mood_cues` 时，`pacing.scene_plan[]` 每场可写 `mood`（tender / comic_bounce / heartbreak / tension / triumph / mystery，见 `lines/nalu/runtime/configs/BGM_MOOD_PALETTE_V1.json`），同一情绪的连续场次并成一条 cue，每集最多 3 条，换情绪落在场次切点上交叉淡化；笑点要“音乐一停”就在该场写 `music_stop: true`（落在该场 PUNCHLINE 镜开头，0.1 s 收）。每种情绪每个系列只付一次（约 8 积分）。
 - **终审**：声音那一遍：有没有听不清的句子、声线变化、配乐盖住台词（记时间）。
 - **中**：好：「你被开除了。」的尾音盖在经理僵住的脸上。坏：同一个人前后两句声音不像同一个人。
 - **EN**：好：她的低语延续到下一镜那扇空门上。坏：配乐突然响起，盖住了关键台词。
@@ -418,7 +419,7 @@ C-14 默认LOCKED，推近只给最大的爽点。C-15 插入镜只拍证据，�
 1. **剪到峰值不是自动的。** 无台词单元按 4 s 生成，S7 只从**尾部**剪掉 handle，留下的是开头的 authored 秒数；`performance_cut` 从不剪进 take 内部，没人说话的无台词单元也不做剪辑。所以 v1 要求 Codex 让动作从第 0 帧开始、峰值落在写的时长之内。如果 H3 起动慢，峰值会掉进被剪掉的尾巴里。要真正「剪到峰值」，需要 S7 对无台词单元按运动峰值选窗口，这是引擎改动，**待线主决定**。
 2. **成本上升（和 NALU cost first 冲突）。** 平均 2–3 s 一镜，意味着 110 s 约 40–50 个镜头。每个单元按至少 4 s 计费，生成总时长约 170–200 s，现在约 115–120 s。按 480p 1.09 积分/s 估算，每集多出约 60–90 积分（按 1.56 积分/s 估算是 +90–130），关键帧也会相应增加。缓解办法：同一说话人的连续台词并成一个单元；回到同一机位时复用关键帧（`MONOLOGUE_SAME_SETUP_KEYFRAME_REUSE`）。但反应镜和插入镜都是独立单元。**是否接受这部分成本，待线主决定**；另一种做法是只把核心爽点段落剪快。
 3. **写作指南和 v1 相反（只是指导，不是门禁）。** WRITER_CONTRACT 的 CAMERA_GRAMMAR_V1 要求「每个新地点前两镜给 WIDE/MEDIUM_WIDE」，H3 指南 §5 写「每场有远、中、近，开场一个远景」，§8 写「≤12 s 的同机位独白组」。v1 取消建立镜，并建议约 8 s 就插一个反应镜。如果采纳 v1，需要同步修改这两份文档（本草案没有改）。`script_length_check` 按 authored 秒数的 1.3 倍检查，短镜头不受影响；`post_generation_qa` 的 static hold 上限是 2.0 s（E01 是 4.0 s），和 v1 方向一致。
-4. **爽点音效 cue 已删。** 本线的 nalu runtime 没有便宜的逐点音效钩子：选择性配乐每个不同的 brief 都要付费生成（约 8 积分），并且要求 ≥8 s 的纯环境窗口；引擎的 `sound_cue_contract.py`（SFX 层）没有接进 nalu runtime。按指示，因为不便宜，所以删掉；配乐继续使用现有的整集默认铺底。
+4. **爽点音效 cue 已删。** 本线的 nalu runtime 没有便宜的逐点音效钩子：选择性配乐每个不同的 brief 都要付费生成（约 8 积分），并且要求 ≥8 s 的纯环境窗口；引擎的 `sound_cue_contract.py`（SFX 层）没有接进 nalu runtime。按指示，因为不便宜，所以删掉；配乐继续使用现有的整集默认铺底。BILI_V1 + `bgm_mood_cues` 例外（WP5-C）：不是逐爽点 cue，而是每集 2–3 条按场次情绪的 cue，来源按系列缓存（`<RUNTIME>/sources/<scope>/bgm/`），首集约 +16–24 积分，之后约 0。
 5. **知识库阈值和 release_train 默认值不同。** release_train 的默认值是：≥3 台设备**或** ≥5 个（设备，集）组合、30 天内；canary 是 ≥3 集，判定标准是「不更差」。线主给的是 3 集 / 2 台设备 / 14 天，以及 ≥5 集、下降 ≥50%。需要为 `CRAFT_STD_GAP|*` 这类 cluster 单独配置，或者接受默认值。另外，`authoring` 的「本集导演经验」一节上限是 1500 字（`MAX_SECTION_CHARS`），所以上面的压缩版要**单独**放进写作提示，不能挤占这一节的预算。
 
 ## 附：v0 → v1 编号对照
