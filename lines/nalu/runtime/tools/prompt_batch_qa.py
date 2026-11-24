@@ -46,8 +46,10 @@ WORK = Path(_np.WORK_ROOT).expanduser().resolve()  # one definition in nalu_path
 
 
 # A DIRECTOR_PROMPT_V2 identity reference line: a face/body plate, or (CAMERA_GRAMMAR_V1, lab E05) a multi-view
-# character sheet of one person.
-V2_IDENTITY_LINE = r"^@Image\d+ is (?:.+'s (?:face and body|look)\.|a character sheet of one person: )"
+# character sheet of one person, or (h3_director_prompt_v2 OTS back-view / hidden-face listener) a restricted
+# "<name>'s identity reference: use @ImageN only for ..." row (lab E27: 2-cast OTS units counted 1).
+V2_IDENTITY_LINE = (r"^@Image\d+ is (?:.+'s (?:face and body|look)\.|a character sheet of one person: "
+                    r"|.+'s identity reference: use @Image\d+ only for )")
 
 
 # Keyframe 「地点：<location>｜房间：<room>」 and 「→ <global space map> → SUBSPACE」: any authored id format.
