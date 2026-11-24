@@ -182,6 +182,11 @@ class MetricsTest(unittest.TestCase):
         c = punchy_contract("zh")
         c["craft_profile"] = "BILI_V1"
         # punchy has five silent REACTION shots (one per scene), each after a PAYOFF, not a REVEAL / TURN
+        with mock.patch.dict(os.environ, {"NALU_H3_MIN_UNIT_SECONDS": "2"}):
+            r = sp.evaluate(c)   # shipped 2 s units: cap 6, a dedicated reaction may follow any trigger beat
+        self.assertFalse(any(f.startswith("DEDICATED_REACTION_OVER") for f in r["failures"]))
+        self.assertFalse(any(w.startswith("DEDICATED_REACTION_MISPLACED") for w in r["warnings"]))
+        self.enterContext(mock.patch.dict(os.environ, {"NALU_H3_MIN_UNIT_SECONDS": "4"}))  # the 4 s rule below
         r = sp.evaluate(c)
         self.assertIn("DEDICATED_REACTION_OVER:5>3", r["failures"])
         self.assertTrue(any(w.startswith("DEDICATED_REACTION_MISPLACED:") for w in r["warnings"]))
