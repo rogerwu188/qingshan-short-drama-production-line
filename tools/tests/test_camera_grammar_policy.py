@@ -127,6 +127,24 @@ class H3PromptTest(unittest.TestCase):
         self.assertEqual(h3.locked_camera_move_conflicts("camera: " + locked + "\nphysical_continuity: x"), [])
         self.assertIn("a motivated move", h3._camera({**_plan("PAN", "LEFT_TO_RIGHT"), **MARK}))
 
+    def test_close_scales_get_shallow_depth_of_field(self):
+        # 2026-11-23 Bilibili benchmark: close shots on a long lens, background in soft bokeh
+        for scale in ("CLOSE_UP", "MEDIUM_CLOSE_UP", "EXTREME_CLOSE_UP"):
+            self.assertIn(cg.SHALLOW_DOF_EN, h3._camera_grammar_clause({**_plan(scale=scale), **MARK}), scale)
+            self.assertIn(cg.SHALLOW_DOF_EN, h3._camera_grammar_clause({**_plan("DOLLY", "PUSH_IN", scale), **MARK}))
+            self.assertIn(cg.SHALLOW_DOF_ZH, cg.fixed_element_rule(scale)["picture_range_zh"])
+            self.assertIn(cg.SHALLOW_DOF_EN, cg.fixed_element_rule(scale)["picture_range_en"])
+        for scale in ("MEDIUM", "WIDE"):
+            self.assertNotIn("depth of field", h3._camera_grammar_clause({**_plan(scale=scale), **MARK}))
+            self.assertNotIn(cg.SHALLOW_DOF_ZH, cg.fixed_element_rule(scale)["picture_range_zh"])
+        # unstamped plans stay byte-identical; an authored depth intent wins
+        self.assertEqual(h3._camera_grammar_clause(_plan(scale="CLOSE_UP")), "")
+        authored = {**_plan(scale="CLOSE_UP"), **MARK, "depth_of_field_intent": "DEEP_SPATIAL_READABILITY"}
+        self.assertNotIn(cg.SHALLOW_DOF_EN, h3._camera_scoped(authored, {}))
+        self.assertIn("deep enough focus", h3._camera_scoped(authored, {}))
+        locked = h3._camera_scoped({**_plan(scale="CLOSE_UP"), **MARK}, {})
+        self.assertEqual(h3.locked_camera_move_conflicts("camera: " + locked + "\nphysical_continuity: x"), [])
+
 
 class CutOpenerTest(unittest.TestCase):
     def _inputs(self, tmp, mode, grammar=True, scene2="SC1"):

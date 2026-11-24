@@ -145,8 +145,18 @@ def _camera_grammar_clause(plan: dict[str, Any]) -> str:
     if str(plan.get("motion_family") or "STATIC").upper() in {"STATIC", "LOCKED"}:
         # the camera lock itself is FIXED_CAMERA_POSITION (provider-expert wording, 2026-10-26); this only
         # keeps the action inside the frame instead of restating the lock
-        return "; the action plays inside the frame"
-    return "; a motivated move: it starts with the action, settles on the end framing and holds; never sweep across empty space"
+        return "; the action plays inside the frame" + _close_dof_clause(plan)
+    return ("; a motivated move: it starts with the action, settles on the end framing and holds; never sweep across "
+            "empty space" + _close_dof_clause(plan))
+
+
+def _close_dof_clause(plan: dict[str, Any]) -> str:
+    """Shallow depth of field on close scales (2026-11-23 Bilibili benchmark); an authored depth intent wins."""
+    if plan.get("depth_of_field_intent"):
+        return ""
+    if _cgp.normalise_scale(plan.get("shot_scale")) not in _cgp.CLOSE_SCALES:
+        return ""
+    return "; " + _cgp.SHALLOW_DOF_EN
 
 
 # ---------------------------------------------------------------------------
