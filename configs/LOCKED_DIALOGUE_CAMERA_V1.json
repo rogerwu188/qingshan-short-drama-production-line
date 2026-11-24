@@ -15,7 +15,8 @@
     "BILI_V1": {
       "authority": "Line owner 2026-11-23 (Bilibili benchmark ep2 + ep3, CHANGE_SPEC WP3 rule 3): one slow push-in per scene (about 1 unit in 5), on the line the writer marks as the scene's hardest; craft_profile BILI_V1 only",
       "locked_off_share_min": 0.55,
-      "push_in_marker": "camera_plan.bili_slow_push_in (lines/nalu/runtime/tools/director_pass.py); never undone by S7 push-in compensation"
+      "push_in_marker": "camera_plan.bili_slow_push_in (lines/nalu/runtime/tools/director_pass.py); never undone by S7 push-in compensation",
+      "push_in_realised_by": "S7 digital push (tools/push_in_compensation.digital_push_plan: face-centred crop-zoom 1.00 -> <= 1.10, smoothstep over the kept span, before the subtitle burn); the H3 prompt sentence is only a hint (lab 2026-11-24 unit iv: H3 ignored it)"
     }
   }
 }

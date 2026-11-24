@@ -191,7 +191,8 @@ class PushInTest(unittest.TestCase):
 
     def test_object_first_or_authored_move_is_the_scenes_move(self):
         c = contract()
-        c["shots"][0]["prompt_spec"]["object_first"] = True
+        # the entrance tilts up from the object to the face: that is the scene's move (WP6 object_first_of)
+        c["shots"][0]["prompt_spec"]["object_first"] = {"subject": "PROP", "of": "PROP-CUP", "then": "TILT_UP"}
         c["shots"][4]["prompt_spec"]["camera_plan"].update(motion_family="PAN", motion_direction="LEFT_TO_RIGHT")
         out, report = dp.direct(c)
         self.assertEqual(report["metrics"]["push_ins_per_scene"], {})
@@ -499,6 +500,123 @@ class H3MinUnitKnobTest(unittest.TestCase):
         out, report = dp.direct(c)
         self.assertFalse([a for a in report["applied"] if a.startswith("SHORT_UNIT")])
         self.assertEqual(by_id(out)["E05-S02-02"]["target_seconds"], 4.0)
+
+
+class DigitalPushTest(unittest.TestCase):
+    """WP3 lab 2026-11-24 (unit iv): H3 ignored "slow push-in about 10 %" -> S7 realises it as a digital push."""
+
+    @staticmethod
+    def faces(growth, n=9, end=4.0):
+        return [{"t": end * i / (n - 1), "width": 0.16 * (1 + growth * i / (n - 1)), "cx": 0.6, "cy": 0.25}
+                for i in range(n)]
+
+    def test_plan_eases_from_one_to_the_target_on_the_face(self):
+        from tools import push_in_compensation as pic
+        plan = pic.digital_push_plan([], (0.5, 4.5))
+        crops = [p["crop"] for p in plan["curve"]]
+        self.assertEqual((crops[0], crops[-1]), (1.0, pic.DIGITAL_PUSH_ZOOM))
+        self.assertAlmostEqual(crops[len(crops) // 2], 1.05, places=3)            # smoothstep midpoint
+        self.assertLess(crops[1] - crops[0], crops[len(crops) // 2] - crops[len(crops) // 2 - 1])   # eases in
+        self.assertEqual(plan["centre_source"], "DEFAULT")
+        self.assertEqual(pic.crop_window(0.0, plan, 768, 1344)[0], 1.0)            # before the span: untouched
+        c, x0, y0 = pic.crop_window(4.5, plan, 768, 1344)
+        self.assertAlmostEqual(c, 1.10)
+        self.assertAlmostEqual(x0 + 0.5 * 768 / c, 0.5 * 768)                     # the centre stays put
+        on_face = pic.digital_push_plan(self.faces(0.0), (0.0, 4.0))
+        self.assertEqual((on_face["anchor"]["cx"], on_face["zoom"]), (0.6, 1.10))
+        topped = pic.digital_push_plan(self.faces(0.086), (0.0, 4.0))             # H3 already drifted in 8.6 %
+        self.assertEqual(topped["zoom"], pic.DIGITAL_PUSH_MIN_ZOOM)
+        self.assertAlmostEqual(pic.digital_push_plan(self.faces(0.03), (0.0, 4.0))["zoom"], round(1.10 / 1.03, 4))
+
+    def test_report_applies_only_marked_units_and_legacy_report_is_unchanged(self):
+        from tools import push_in_compensation as pic
+        clips = {"U1": Path("u1.mp4"), "U2": Path("u2.mp4")}
+        windows = {"U1": (0.0, 4.0), "U2": (0.0, 4.0)}
+        legacy = {"units": [{"unit_id": "U1", "camera_plan": {"motion_family": "DOLLY"}},
+                            {"unit_id": "U2", "camera_plan": {"motion_family": "DOLLY"}}]}
+
+        def render(clip, out, plan):
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(json.dumps(plan["curve"][-1]).encode())
+            return {"frames": 1}
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(pic, "sha256_file", lambda _p: "sha"):
+            report = pic.build_report("E01", legacy, clips, windows, Path(d), measure_fn=lambda *_: [],
+                                      render_fn=render)
+            self.assertNotIn("digital_push_units", report)
+            self.assertEqual({r["status"] for r in report["units"].values()}, {"SKIPPED_MOVING_CAMERA"})
+            marked = json.loads(json.dumps(legacy))
+            marked["units"][1]["camera_plan"]["bili_slow_push_in"] = True
+            report = pic.build_report("E01", marked, clips, windows, Path(d), measure_fn=lambda *_: [],
+                                      render_fn=render)
+            self.assertEqual(report["digital_push_units"], ["U2"])
+            self.assertEqual(report["compensated_units"], ["U2"])                  # handed to the AgentCut build
+            self.assertEqual(report["units"]["U2"]["kind"], pic.DIGITAL_PUSH_KIND)
+
+    def test_render_on_a_real_clip(self):
+        import shutil
+        import subprocess
+        if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
+            self.skipTest("ffmpeg not installed")
+        try:
+            import cv2  # noqa: F401
+        except ImportError:
+            self.skipTest("OpenCV not installed")
+        from tools import push_in_compensation as pic
+        with tempfile.TemporaryDirectory() as d:
+            src = Path(d) / "U1.mp4"
+            subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=144x256:rate=24:duration=2",
+                            "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-c:v", "libx264", "-pix_fmt",
+                            "yuv420p", "-c:a", "aac", "-shortest", str(src)], check=True)
+            out = Path(d) / "out" / "U1.mp4"
+            info = pic.render(src, out, pic.digital_push_plan([], (0.0, 2.0)))
+            self.assertTrue(info["audio_bit_exact"])
+            self.assertEqual(pic.probe(out)["frames"], pic.probe(src)["frames"])
+
+    def test_s7_step_runs_for_bili_v1_outside_camera_grammar(self):
+        import nalu_pipeline as npl
+        import push_in_compensation as flat_pic
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "video").mkdir()
+            (d / "assembly").mkdir()
+            (d / "video" / "E05-VU-001.mp4").write_bytes(b"clip")
+            (d / "video" / "E05-VU-002.mp4").write_bytes(b"clip")
+            (d / "grouping.json").write_text(json.dumps({"units": [
+                {"unit_id": "E05-VU-001", "camera_plan": {"motion_family": "LOCKED"}},
+                {"unit_id": "E05-VU-002", "camera_plan": {"motion_family": "DOLLY", "bili_slow_push_in": True}}]}))
+            p = SimpleNamespace(video_media=d / "video", assembly=d / "assembly", grouping_plan=d / "grouping.json")
+
+            def render(clip, out, plan, **_k):
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(b"pushed")
+                return {"frames": 1}
+            for profile, expect in (("LEGACY", None), ("BILI_V1", ["E05-VU-002"])):
+                ctx = SimpleNamespace(episode="E05", p=p, craft_profile=profile, render_style="anime")
+                res = npl.StageResult(npl.PASS)
+                with mock.patch.object(flat_pic, "render", render), \
+                        mock.patch.object(flat_pic, "face_backend", side_effect=AssertionError("no faces for anime")), \
+                        mock.patch.object(npl, "_probe_seconds", return_value=4.0):
+                    path = npl.s7_push_in_compensation(ctx, res, {"episode": "E05"})
+                if expect is None:
+                    self.assertIsNone(path)
+                    continue
+                report = json.loads(path.read_text())
+                self.assertEqual(report["digital_push_units"], expect)
+                self.assertEqual(report["units"]["E05-VU-001"]["status"], "SKIPPED_MOVING_CAMERA")  # no compensation
+
+
+class PostureHoldTest(unittest.TestCase):
+    def test_bili_v1_units_keep_the_first_frame_posture_unless_the_beats_change_it(self):
+        from tools import h3_provider_prompt_renderer as r
+        from tools.tests.test_h3_director_prompt_v2 import fixture
+        unit, plan = fixture()
+        legacy = r.render_h3_prompt(unit, plan)[0]
+        self.assertNotIn(r.POSTURE_HOLD, legacy)
+        unit, plan = fixture()
+        unit["craft_profile"] = "BILI_V1"
+        self.assertIn(r.POSTURE_HOLD, r.render_h3_prompt(unit, plan)[0])
+        self.assertEqual(r.posture_hold_sentence(["Alpha stands up and walks to the door"]), "")
+        self.assertEqual(r.posture_hold_sentence(["Alpha leans forward and points at the contract"]), r.POSTURE_HOLD)
 
 
 class PipelineHookTest(unittest.TestCase):

@@ -309,7 +309,9 @@ blocking check; direct the episode the way people watch films:
   hand and the object. A large action (enters, walks, grabs, shoves) still gets its own shot.
   (3) Camera locked by default; ONE slow push-in per scene (about 10 %), on the line you mark as the scene's
   hardest: `prompt_spec.hardest_line: true` on exactly one speaking shot per scene (a `beat_role: TURN` line is
-  used when nothing is marked). S7 never stabilises it away. An object-first entrance (`prompt_spec.object_first`)
+  used when nothing is marked). H3 does not obey a push sentence reliably, so S7 performs it as a digital, face-centred
+  crop-zoom (up to 10 %, eased) before the subtitles; S7 never stabilises it away. Nobody changes posture in a BILI_V1
+  unit unless its action says so (the prompt holds the first-frame posture). An object-first entrance (`prompt_spec.object_first`)
   is that scene's one move instead.
   (4) Reactions (owner's cheap rule): after every `ATTACK` / `REVEAL` / `PUNCHLINE` / `TURN` / `PAYOFF` line the
   person it lands on reacts — (a) in the same shot as the in-frame listener (`action.listener_reaction` +

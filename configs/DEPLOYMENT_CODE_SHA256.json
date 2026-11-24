@@ -197,7 +197,7 @@
     },
     {
       "path": "agent_factory/storyclaw_portable/WRITER_CONTRACT.md",
-      "sha256": "c62953b5b7552ca7da3d5632c82380cab2ccfae1e604c43be348b95ca5ad5e2d"
+      "sha256": "e5dbb17e3e3a4ed6da93d78cb140046a98850ab6b429826b29e98fb8e264177a"
     },
     {
       "path": "configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json",
@@ -293,7 +293,7 @@
     },
     {
       "path": "configs/LOCKED_DIALOGUE_CAMERA_V1.json",
-      "sha256": "52c93b48e435060bc8481cb606cf3c0a8019119c7f67d7b758c004bc6185c001"
+      "sha256": "e88cf78f8b45e4787535163f47ac4d9805d6ec0b5ddd9ea94dc7f00dec972fd9"
     },
     {
       "path": "configs/MEASURED_EDIT_POLICY_V1.json",
@@ -445,7 +445,7 @@
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
-      "sha256": "a3f4fbffbb58927110a7344cdd5921e47a80e419468197b54086cc69cd87a715"
+      "sha256": "17c3425bf132ec5aad4efe60b1cb4d13fde189495076e91bf414561d352e219f"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -865,7 +865,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "a2d19d0485d118c5fb1c509f6428aa12e010c5b8b7f399e48b8783e0d451cd60"
+      "sha256": "7c617c22bc67e1dd67f8bd1fca9f46c74dbbe0ea49475669e074f4e1f040456e"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -5377,7 +5377,7 @@
     },
     {
       "path": "tools/h3_director_prompt_v2.py",
-      "sha256": "940e8173414753e0fc7bb7d065fe2dce17503587df24e74a42a17287f3e9c5d1"
+      "sha256": "c9c17e2fa1f59d32a41c97a998b7cae785b3c5092bc4605da1edc061e818e1a8"
     },
     {
       "path": "tools/h3_english_contract_io.py",
@@ -5405,7 +5405,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "4677df240bc263c62b64c076b58cf7f9a32646f209d935ef8681ee41c1c0425f"
+      "sha256": "0b63015a5baa2bc983f419ea3415edfa64f23c9163849be6606ae63a78ab10b6"
     },
     {
       "path": "tools/h3_reference_sheet_guard.py",
@@ -6045,7 +6045,7 @@
     },
     {
       "path": "tools/push_in_compensation.py",
-      "sha256": "d1b1ddb882c9d8dd641011eece9f914d1a26b2f8e74f61378da26ecbc5831f62"
+      "sha256": "5f394ab460d4b6a8e8f39f6ec7b243267a32e3ec510b1d3a73cd5e1153f21b76"
     },
     {
       "path": "tools/qa_bgm_candidates.py",
@@ -7921,7 +7921,7 @@
     },
     {
       "path": "tools/tests/test_director_pass.py",
-      "sha256": "c17121ea332035c455fd264a6f652404984df291e8fefa43ae6ce2c9c82caf6a"
+      "sha256": "7a56a0b91d71cb16d8c4bfcc20b0d3f6c73b8f66f27a224e79973a8edabed519"
     },
     {
       "path": "tools/tests/test_dramatic_quality_gate.py",

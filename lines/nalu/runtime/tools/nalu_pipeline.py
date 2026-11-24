@@ -13644,11 +13644,14 @@ def s7_push_in_compensation(ctx: Ctx, res: StageResult, contract: dict[str, Any]
     Free; any failure only skips the step (recorded), never blocks S7."""
     import camera_grammar_policy as _cgp
     import push_in_compensation as _pic
-    if not _cgp.active(contract, episode=ctx.episode):
+    # BILI_V1 (WP3): the same step realises each authored slow push-in as a digital crop-zoom (H3 ignores the prompt)
+    bili = ctx_craft_profile(ctx) == "BILI_V1"
+    if not (_cgp.active(contract, episode=ctx.episode) or bili):
         return None
     p = ctx.p
     report_path = p.assembly / f"{ctx.episode}_PUSH_IN_COMPENSATION.json"
-    if not _pic.applies(ctx_render_style(ctx)):  # InsightFace face widths: NOT_APPLICABLE to anime
+    faces = _pic.applies(ctx_render_style(ctx))
+    if not faces and not bili:  # InsightFace face widths: NOT_APPLICABLE to anime
         write_json(report_path, _pic.not_applicable_report(ctx.episode, ctx_render_style(ctx)))
         res.details["push_in_compensation"] = {"report": str(report_path), "status": "NOT_APPLICABLE"}
         return None
@@ -13659,10 +13662,16 @@ def s7_push_in_compensation(ctx: Ctx, res: StageResult, contract: dict[str, Any]
             read_json(p.assembly / f"{ctx.episode}_DIALOGUE_TAIL_TRIM.json", {}) or {},
             read_json(p.assembly / f"{ctx.episode}_DIALOGUE_HEAD_TRIM.json", {}) or {})
         ffmpeg, ffprobe = _media.require_ffmpeg(), _media.require_ffprobe()
-        app = _pic.face_backend()
+        app = _pic.face_backend() if faces else None
+        grouping_plan = read_json(p.grouping_plan, {}) or {}
+        if not _cgp.active(contract, episode=ctx.episode) or not faces:
+            # BILI_V1 outside CAMERA_GRAMMAR_V1 / anime: only the authored pushes, never a compensation
+            grouping_plan = {**grouping_plan, "units": [u for u in grouping_plan.get("units") or []
+                                                        if _pic.authored_push_unit(u)]}
         report = _pic.build_report(
-            ctx.episode, read_json(p.grouping_plan, {}) or {}, clips, windows, p.assembly / "push_in_compensation",
-            measure_fn=lambda clip, times: _pic.measure(clip, times, app, ffmpeg),
+            ctx.episode, grouping_plan, clips, windows, p.assembly / "push_in_compensation",
+            measure_fn=(lambda clip, times: _pic.measure(clip, times, app, ffmpeg)) if faces else
+            (lambda clip, times: []),
             render_fn=lambda clip, out, plan: _pic.render(clip, out, plan, ffmpeg=ffmpeg, ffprobe=ffprobe))
         write_json(report_path, report)
     except Exception as exc:  # noqa: BLE001 -- a polish step, never a blocker

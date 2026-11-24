@@ -1411,6 +1411,12 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         if not _same(outgoing, last_exit):
             action_lines.append(f"Hand off to the next shot on: {outgoing}.")
         evidence["TRANSITION.OUTGOING"] = outgoing if not _same(outgoing, last_exit) else last_exit
+    if v1._bili.active(unit):  # BILI_V1 (WP3 lab unit i): nobody stands up / sits down unless the beats say so
+        hold = v1.posture_hold_sentence([str((b or {}).get(k) or "") for b in english_beats
+                                         for k in ("entry_state", "primary_action", "exit_state")])
+        if hold:
+            action_lines.append(hold + ".")
+            evidence["PHYSICAL.POSTURE_HOLD"] = hold
     if plan.get("interaction_topology_required"):
         action_lines.append(TOPOLOGY_V2 + ".")
         evidence["PHYSICAL.INTERACTION_TOPOLOGY"] = TOPOLOGY_V2

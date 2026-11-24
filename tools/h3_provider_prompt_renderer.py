@@ -545,6 +545,22 @@ SOFT_PROFILE = "SOFT_PROFILE"
 SOFT_PROFILE_PART = "soft-focus profile at the frame edge"
 
 
+#: craft_profile BILI_V1 (WP3 lab 2026-11-24, unit i: a speaker seated in the start frame stood up mid-line, unprompted):
+#: unless the beats ask for a posture change, every person keeps the posture of the first frame
+POSTURE_HOLD = ("Everyone keeps the posture of the first frame for the whole clip: whoever is seated stays seated, "
+                "whoever stands stays standing; nobody stands up, sits down, kneels or walks away")
+_POSTURE_CHANGE = re.compile(
+    r"\b(?:stand(?:s|ing)? up|stood up|rise[sn]?|rising|rose|get(?:s|ting)? up|got up|sit(?:s|ting)? down|sat down|"
+    r"take(?:s)? a seat|kneel(?:s|ing)?|knelt|crouch(?:es|ing|ed)?|squat(?:s|ting)?|lie(?:s)? down|lay down|"
+    r"walk(?:s|ing|ed)?|step(?:s|ping|ped)?|stride(?:s)?|strode|enter(?:s|ing|ed)?|leave(?:s)?|left the|exit(?:s|ing)?|"
+    r"turn(?:s|ing|ed)? (?:and walk|away and)|jump(?:s|ed)?|fall(?:s)?|fell|collapse(?:s|d)?)\b", re.IGNORECASE)
+
+
+def posture_hold_sentence(texts: list[str]) -> str:
+    """POSTURE_HOLD, or '' when the unit's own beats change someone's posture or position."""
+    return "" if _POSTURE_CHANGE.search(" ".join(t for t in texts if t)) else POSTURE_HOLD
+
+
 def soft_profile_clause(label: str) -> str:
     """The one canonical soft-profile listener sentence (no trailing period)."""
     return (f"{label} is in the foreground at the frame edge, seen in profile and slightly out of focus, listening; "
