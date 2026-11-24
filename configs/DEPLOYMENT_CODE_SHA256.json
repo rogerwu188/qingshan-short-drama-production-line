@@ -7445,7 +7445,7 @@
     },
     {
       "path": "tools/tests/test_bili_wp1_adaptation.py",
-      "sha256": "cd1071dbeefc1e50b049cec35800a52b0b93f7c6d51e78de016aee72cb0c88cf"
+      "sha256": "2f916dad42c689f4932482defe232af9d71194b339e2233fc9a8b6dc332fea7a"
     },
     {
       "path": "tools/tests/test_billing_key_guard.py",
