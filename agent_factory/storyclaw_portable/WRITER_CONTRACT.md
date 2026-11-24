@@ -296,6 +296,21 @@ blocking check; direct the episode the way people watch films:
   Never write the speaker turning to look at a window / door / off-screen object, or "eyes fixed on X", inside a
   speaking shot: H3 pans to reveal what they look at and loses the speaker (line owner 2026-10-24, lab Holmes E03).
   A look at something gets its own silent shot, or an insert of the thing.
+- **Reactions carry the scene (2026-11-23 Bilibili benchmark, a well-received AI romcom: ~25 % of its shots are
+  silent reactions; our episodes had 0–9 %).** About one shot in five is a silent close-up of the person a line
+  lands on (`beat_role: REACTION`, `REACTION_CUT` in, 1.5–2.5 s in the edit): after every accusation, insult,
+  punchline or reveal, not only after payoffs. The face does the work — eyes widen, a slow blink, jaw sets, lips
+  press, a glance away and back — never a hand gesture; add `sound_bridge_from_previous_seconds` so the line's tail
+  plays over it. The episode ends on faces: after the cliffhanger line, one or two silent reaction close-ups
+  (≤ 2 s each) of the people it hits, the strongest last. Script self-check advisory `REACTION_SHOTS_FEW` (never
+  blocks). Each reaction is a 4 s H3 unit (~4–5 credits + its keyframe); keep the authored runtime by trimming
+  talk, not by adding minutes.
+- **Comic beats are played straight** (same benchmark; only where the source or the series is comic — never turn a
+  serious series comic). The characters never know it is funny: absurd or petty stakes said with full melodrama
+  (tears, oaths, slow push of emotion), deadpan against hysteria (one explodes, the other answers flat), and an
+  argument that escalates by ever more specific evidence (names, numbers, a remembered detail) until the most
+  specific line tops it; a timid or literal-minded third voice deflates it. The joke lands on the listener's silent
+  reaction, not on a mugging face, a caption, a sticker or a cartoon sound.
 - Every on-screen spoken line is written to take about 3.5 s to say (English ~9–11 words, Chinese ~14–16
   characters; line owner 2026-10-29, lab E08: with the 4 s HopsAPI minimum, shorter lines made H3 invent speech that
   S7 trimmed away, 96 s final instead of ~110 s). A shorter line gets a performed action in the same shot or is
