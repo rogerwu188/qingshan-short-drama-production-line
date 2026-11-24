@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2599,
+  "file_count": 2600,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -197,7 +197,7 @@
     },
     {
       "path": "agent_factory/storyclaw_portable/WRITER_CONTRACT.md",
-      "sha256": "65d1bb346a326951bf0142e0f34e89298b61fa5694eba958c0320087abeb1eea"
+      "sha256": "c62953b5b7552ca7da3d5632c82380cab2ccfae1e604c43be348b95ca5ad5e2d"
     },
     {
       "path": "configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json",
@@ -445,7 +445,7 @@
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
-      "sha256": "689199cf16872ee224bff4fb7408a5d22c28d9e69811b23ae9225dc04c382cdc"
+      "sha256": "a3f4fbffbb58927110a7344cdd5921e47a80e419468197b54086cc69cd87a715"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -753,7 +753,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/director_pass.py",
-      "sha256": "a196e3bedb9e6eef03d0ab88812c8edc009b28ae4490c031c3a72bb7e459e83f"
+      "sha256": "c9545f5a05594b9b2735a6730ddff9227fe492738018891b0aac34d37a7455d8"
     },
     {
       "path": "lines/nalu/runtime/tools/extend_global_space_map.py",
@@ -865,7 +865,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "370d16366b7ef79c6e2453f9528002e00b7de7c8508e743081914ce382931c39"
+      "sha256": "a2d19d0485d118c5fb1c509f6428aa12e010c5b8b7f399e48b8783e0d451cd60"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -901,7 +901,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_writer_selfcheck_seq29.py",
-      "sha256": "dc3d7b6f239bb0558b98edbe874842e7441f1060671bdcd8b1216973276371db"
+      "sha256": "5b32e964577dfbc197a4840ab133273ff350a4f5581962ccdbde2b5b5ae2939c"
     },
     {
       "path": "lines/nalu/runtime/tools/owner_decision_queue.py",
@@ -997,7 +997,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/script_pacing_check.py",
-      "sha256": "5667fff27436eecc932f00c18225def451510d85dada7459249fb2ac40515685"
+      "sha256": "f581b90775f88debd52dc678ad3155d249072166fd70abb78113a34ac8b0a5d0"
     },
     {
       "path": "lines/nalu/runtime/tools/script_review.py",
@@ -3909,7 +3909,7 @@
     },
     {
       "path": "tools/build_video_unit_grouping_spec.py",
-      "sha256": "463fce06f6d1029f2bf67e9bd595b6e058d1e7733d2c64f126f5d24165d5f83b"
+      "sha256": "09c1946720f6df1dae344a993a2df6bafaa650400022971c967c4a0a8603cd18"
     },
     {
       "path": "tools/build_writer_agent_image_batch.py",
@@ -5392,6 +5392,10 @@
       "sha256": "05ea9755e653215e37d1d7e86b8f931bc39a2336db866a9f27eb24ab5cf10351"
     },
     {
+      "path": "tools/h3_limits.py",
+      "sha256": "477622a6d4d3bf321e5df32f568fd72aad60c9086751edc20512bc0cdab3dc72"
+    },
+    {
       "path": "tools/h3_native_audio_whitelist_gate.py",
       "sha256": "8fa7d3326bdfc486338912e1a90ba8ad219e999145566237fce68901c71aa411"
     },
@@ -5501,7 +5505,7 @@
     },
     {
       "path": "tools/hopsapi_video_client.py",
-      "sha256": "06c7e87060c929ebe730bd2d6d8dbff0bba8a2c55685e766f7fbf8e50f82bdd8"
+      "sha256": "e15eba1a2361efbf5555cab8ab5a9883ce7d7b6c5a67b442bd48e237c9c5a37d"
     },
     {
       "path": "tools/hotfix_e16_expression_arcs.py",
@@ -6869,7 +6873,7 @@
     },
     {
       "path": "tools/speaking_unit_duration.py",
-      "sha256": "d7601d8c15efb71a7ea9e9e466437f6cff8904393b9d1e7db65f55b267dd080d"
+      "sha256": "70f86cf58f5abc58825b54eb187ae7e95ca8cb3fcaab24a6429222a9439bdeaf"
     },
     {
       "path": "tools/stage_e36_v23_platform_payload.py",
@@ -7057,7 +7061,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "a9a51bcd9545621c47fc612d144cc56bd1be5df025f7650795f56d3eb68a579c"
+      "sha256": "e6e73c9f4254f527c52f49c741017d1e9f2631f9b094df3da875d4df104dbc12"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -7917,7 +7921,7 @@
     },
     {
       "path": "tools/tests/test_director_pass.py",
-      "sha256": "3842495c42495ebbf7a12c33f9d65ff45384915d6f314809d40597552ea7ab67"
+      "sha256": "c17121ea332035c455fd264a6f652404984df291e8fefa43ae6ce2c9c82caf6a"
     },
     {
       "path": "tools/tests/test_dramatic_quality_gate.py",

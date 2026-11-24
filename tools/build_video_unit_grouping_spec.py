@@ -83,8 +83,13 @@ def provider_min_seconds(model: str | None) -> float:
     """Shortest provider request.  Only CAMERA_GRAMMAR_V1 plans call this.  MiniMax-H3 was 3 s on Giggle;
     the HopsAPI router (owner 2026-10-29) accepts integer 4-15 s, so every stamped unit -- speaking units
     4-5 s, silent inserts -- is at least 4 s (a shorter authored shot is PROVIDER_MINIMUM_PADDED to 4 s and
-    the S7 head/tail trim removes the handle)."""
-    return 4.0
+    the S7 head/tail trim removes the handle).  The floor is one knob, tools/h3_limits.py (default 4; the owner
+    lowers it to 2 when the router accepts it)."""
+    try:
+        from tools import h3_limits as _limits  # noqa: PLC0415
+    except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
+        import h3_limits as _limits  # type: ignore  # noqa: PLC0415
+    return float(_limits.min_unit_seconds())
 
 
 def visible_subjects(shot: dict[str, Any]) -> set[str]:
@@ -160,9 +165,10 @@ def cast_changing_cut(previous: dict[str, Any], shot: dict[str, Any]) -> bool:
 
 
 def cut_grammar_target(model: str | None) -> tuple[float, float, float]:
-    """(preferred_min, preferred_max, multi_shot_max): the line's preferred window clamped to 4-8 s."""
+    """(preferred_min, preferred_max, multi_shot_max): the line's preferred window clamped to floor-8 s."""
     _hmin, pmin, pmax, hmax = _unit_duration_policy()
-    target_min = max(provider_min_seconds(model), min(pmin, 4.0))
+    floor = provider_min_seconds(model)
+    target_min = max(floor, min(pmin, floor))  # = the provider floor (4 s today, tools/h3_limits.py)
     target_max = max(target_min, min(pmax, MULTI_SHOT_MAX_SECONDS))
     return target_min, target_max, max(target_max, min(hmax, MULTI_SHOT_MAX_SECONDS))
 

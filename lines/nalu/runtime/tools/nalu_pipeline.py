@@ -1020,6 +1020,15 @@ def ctx_render_style(ctx: Any) -> str:
     return getattr(ctx, "render_style", None) or "live_action"
 
 
+def _h3_min_unit_seconds() -> int:
+    """The shortest H3 unit (tools/h3_limits.py: NALU_H3_MIN_UNIT_SECONDS > configs/H3_LIMITS_V1.json > 4)."""
+    try:
+        import h3_limits as _limits  # noqa: PLC0415 -- engine tools/ is on sys.path
+        return _limits.min_unit_seconds()
+    except Exception:  # noqa: BLE001
+        return 4
+
+
 def resolve_craft_settings(contract: Any, config: Any, episode: str | None = None) -> dict[str, Any]:
     """The series' craft profile settings (craft_profile.py: ``craft_profile`` LEGACY | BILI_V1,
     ``bgm_mood_cues``, ``writer_format``): generation contract -> production brief -> runtime config
@@ -1265,7 +1274,7 @@ class Ctx:
             preferred = policy.get("preferred_seconds") or "4,6"
             env["QINGSHAN_UNIT_PREFERRED_SECONDS"] = ",".join(map(str, preferred)) if isinstance(preferred, (list, tuple)) else str(preferred)
             env["QINGSHAN_UNIT_MAX_SECONDS"] = str(policy.get("max_seconds") or 8)
-            env["QINGSHAN_UNIT_MIN_SECONDS"] = str(policy.get("min_seconds") or 4)
+            env["QINGSHAN_UNIT_MIN_SECONDS"] = str(policy.get("min_seconds") or _h3_min_unit_seconds())
         if self.p.scope["character_registry"].is_file():
             env["QINGSHAN_CHARACTER_REGISTRY"] = str(self.p.scope["character_registry"])
         try:

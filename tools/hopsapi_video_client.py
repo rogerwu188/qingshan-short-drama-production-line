@@ -69,7 +69,7 @@ DEFAULT_CONSOLE_URL = "https://hopsapi.com"
 H3_MODEL = "MiniMax-H3"
 H3_MODELS = {"minimax-h3", "h3"}
 OMNI_TASK = "OmniVideo"
-MIN_DURATION_SECONDS = 4
+MIN_DURATION_SECONDS = 4  # the historical floor; the live value is min_duration_seconds() (configs/H3_LIMITS_V1.json)
 MAX_DURATION_SECONDS = 15
 RESOLUTIONS = {"480p", "768p"}
 MAX_IMAGES = 9
@@ -262,6 +262,15 @@ def h3_extra_image_credits_per_second(config_path: str | Path | None = None,
                                          DEFAULT_H3_480P_EXTRA_IMAGE_CREDITS_PER_SECOND), config_path, environ)
 
 
+def min_duration_seconds(environ: dict[str, str] | None = None) -> int:
+    """The shortest H3 request (tools/h3_limits.py: env NALU_H3_MIN_UNIT_SECONDS > configs/H3_LIMITS_V1.json > 4)."""
+    try:
+        from tools import h3_limits as _limits  # noqa: PLC0415
+    except ModuleNotFoundError:  # engine tools/ dir on sys.path only
+        import h3_limits as _limits  # type: ignore  # noqa: PLC0415
+    return _limits.min_unit_seconds(environ)
+
+
 def _ceil(value: Decimal) -> int:
     return int(value.to_integral_value(rounding=ROUND_CEILING))
 
@@ -269,7 +278,7 @@ def _ceil(value: Decimal) -> int:
 def estimated_task_credits(seconds: float, image_count: int = 0, *, config_path: str | Path | None = None,
                            environ: dict[str, str] | None = None, resolution: Any = "768p") -> int:
     """Conservative (rounded-up) credits one HopsAPI H3 task may cost at ``resolution`` (480p / 768p)."""
-    seconds_d = Decimal(str(max(float(seconds or 0), float(MIN_DURATION_SECONDS))))
+    seconds_d = Decimal(str(max(float(seconds or 0), float(min_duration_seconds(environ)))))
     total = seconds_d * h3_credits_per_second(config_path, environ, resolution)
     extra = max(0, int(image_count or 0) - FREE_REFERENCE_IMAGES)
     total += Decimal(extra) * seconds_d * h3_extra_image_credits_per_second(config_path, environ, resolution)
@@ -280,7 +289,7 @@ def estimated_batch_credits(total_seconds: float, tasks: int, *, config_path: st
                             environ: dict[str, str] | None = None, resolution: Any = "768p") -> int:
     """Planning price for ``tasks`` tasks totalling ``total_seconds``: rounded up, plus one credit of
     rounding headroom per task so it never undercuts the sum of per-task estimates."""
-    floor_seconds = max(float(total_seconds or 0), float(MIN_DURATION_SECONDS * max(0, int(tasks or 0))))
+    floor_seconds = max(float(total_seconds or 0), float(min_duration_seconds(environ) * max(0, int(tasks or 0))))
     return (_ceil(Decimal(str(floor_seconds)) * h3_credits_per_second(config_path, environ, resolution))
             + max(0, int(tasks or 0)))
 
@@ -439,8 +448,9 @@ def build_omni_request(*, prompt: str, image_urls: list[str], audio_urls: list[s
                        generate_audio: bool = True) -> dict[str, Any]:
     if not is_h3(model):
         raise ValueError(f"HopsAPI route serves MiniMax-H3 only, got {model!r}")
-    if int(duration) != duration or not MIN_DURATION_SECONDS <= int(duration) <= MAX_DURATION_SECONDS:
-        raise ValueError(f"HOPSAPI_H3_DURATION_OUT_OF_RANGE:{duration} (integer {MIN_DURATION_SECONDS}-"
+    floor = min_duration_seconds()
+    if int(duration) != duration or not floor <= int(duration) <= MAX_DURATION_SECONDS:
+        raise ValueError(f"HOPSAPI_H3_DURATION_OUT_OF_RANGE:{duration} (integer {floor}-"
                          f"{MAX_DURATION_SECONDS} s)")
     if str(resolution).lower() not in RESOLUTIONS:
         raise ValueError(f"HOPSAPI_H3_RESOLUTION_UNSUPPORTED:{resolution}")

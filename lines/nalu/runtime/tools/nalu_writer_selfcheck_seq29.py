@@ -234,7 +234,7 @@ def provider_floor_seconds(contract: dict[str, Any]) -> float:
     if not _cg.active(contract, episode=str(contract.get("episode") or "")):
         return 0.0
     import speaking_unit_duration as _sud
-    return float(_sud.MIN_SECONDS)
+    return float(_sud.min_seconds())
 
 
 def short_speaking_line_warnings(contract: dict[str, Any]) -> list[dict[str, Any]]:

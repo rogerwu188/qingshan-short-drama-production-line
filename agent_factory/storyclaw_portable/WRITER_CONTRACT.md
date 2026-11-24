@@ -318,6 +318,9 @@ blocking check; direct the episode the way people watch films:
   silent reaction close-up (`beat_role: REACTION`, ≥ 4 s billed): at most 3 per episode, only after a `REVEAL` /
   `TURN` / `ENDING` beat. S1 taste codes `REACTION_BEAT_UNCOVERED`, `DEDICATED_REACTION_OVER` (revise loop, then
   admitted). Keep the `sound_bridge_from_previous_seconds` L-cut onto a reaction.
+  The director also adds at most 3 authored cuts / reverse angles per episode (turn first, then reveals, payoffs),
+  each worth one more start keyframe; your own authored cuts count toward the 3. A reaction also counts when your
+  action line already shows the person it lands on reacting in frame, or when their own next line follows.
   (5) Silence: one music passage per episode — 3–4 silent shots tagged `beat_role: MUSIC_PASSAGE`, ≤ 8 s together;
   other silent runs ≤ 4 s. The dialogue-time ratio is reported against 50–75 % and no longer fails (the 0.75 floor
   does not apply).

@@ -69,7 +69,36 @@ MUSIC_PASSAGE_SECONDS_MAX = 8.0
 MUSIC_PASSAGES_MAX = 1
 #: a lead-in reaction adds this much to the speaking shot (CHANGE_SPEC WP3 L4 7: <= +2 s)
 LEAD_IN_SECONDS = 1.5
-UNIT_MIN_SECONDS = 4.0          # HopsAPI H3 floor (tools/speaking_unit_duration.MIN_SECONDS)
+UNIT_MIN_SECONDS = 4.0          # historical HopsAPI H3 floor; live value: unit_min_seconds() (tools/h3_limits.py)
+#: authored cuts / reverse angles the director adds per episode (each = one more start keyframe; WP2 compiles every
+#: transition CONTINUOUS_ACTION, cost-neutral).  Turns first, then reveals, then payoffs / attacks / punchlines.
+AUTHORED_CUT_MAX = 3
+CUT_PRIORITY = {"TURN": 0, "REVEAL": 1, "PAYOFF": 2, "ATTACK": 2, "PUNCHLINE": 2}
+CUT_MODES = frozenset({"MOTIVATED_CUT", "REACTION_CUT", "MATCH_CUT", "HARD_CUT", "SMASH_CUT"})
+#: with a 2 s H3 floor (owner 2026-11-23, not live yet): dedicated reaction / insert units are cut short (ep3 rhythm:
+#: ~48 % of shots under 2 s) and, at the same credits, twice as many are affordable
+SHORT_UNIT_SECONDS = 2.0
+SHORT_UNIT_RANGE = (1.5, 2.5)
+SHORT_ROLES = frozenset({REACTION_ROLE, "INSERT"})
+
+
+def unit_min_seconds() -> int:
+    """The shortest H3 unit (tools/h3_limits.py: NALU_H3_MIN_UNIT_SECONDS > configs/H3_LIMITS_V1.json > 4)."""
+    try:
+        try:
+            from tools import h3_limits as _limits  # noqa: PLC0415
+        except ModuleNotFoundError:
+            sys.path.append(str(Path(__file__).resolve().parents[4] / "tools"))
+            import h3_limits as _limits  # type: ignore  # noqa: PLC0415
+        return _limits.min_unit_seconds()
+    except Exception:  # noqa: BLE001 -- the historical floor
+        return int(UNIT_MIN_SECONDS)
+
+
+def dedicated_reaction_max(min_seconds: int | None = None) -> int:
+    """3 per episode at the 4 s floor (owner's cheap rule); the same credits buy proportionally more short units."""
+    floor = unit_min_seconds() if min_seconds is None else min_seconds
+    return DEDICATED_REACTION_MAX if floor >= 4 else DEDICATED_REACTION_MAX * 4 // max(1, floor)
 UNIT_HARD_MAX_SECONDS = 15.0    # tools/speaking_unit_duration.GROUP_HARD_MAX_SECONDS
 TWO_PERSON_UNIT_MAX_SECONDS = 12.0
 LISTENER_IN_FRAME_TARGET = 0.40
@@ -99,7 +128,10 @@ LARGE_ACTION = re.compile(
     r"grab(?:s|bing)?|shov(?:e|es|ing)|slap(?:s|ping)?|punch(?:es|ing)?|kick(?:s|ing)?|tackl(?:e|es|ing)|"
     r"draw(?:s|ing)? (?:a|his|her|the) (?:sword|blade|gun)|kneel(?:s|ing)?|storm(?:s|ing)? (?:in|out|off))\b",
     re.IGNORECASE)
-_PARTIAL_OR_HIDDEN = re.compile(r"OTS|BACK|_ONLY|FACE_OUT_OF_FRAME|OFFSCREEN|VOICE|HIDDEN|PROFILE|HANDS", re.I)
+#: a listener declared with one of these is a second sharp front face: the director turns it into an OTS figure;
+#: any other declared value (OTS / back / profile / bust / off-screen ...) is the writer's choice and is kept
+_FRONT_FACE = frozenset({"FRONT_FACE_VISIBLE", "FRONT_FACE", "FACE_VISIBLE", "VISIBLE", "FULL_FACE",
+                         "VISIBLE_PER_FRAME_CONTENT", "VISIBLE_AND_IDENTITY_LOCKED"})
 
 
 # --------------------------------------------------------------------------- small readers
@@ -289,11 +321,27 @@ def content_failures(before: dict[str, Any], after: dict[str, Any]) -> list[str]
 
 
 # --------------------------------------------------------------------------- measurements (any profile)
+def _reactor_acts(shot: dict[str, Any], reactor: str) -> bool:
+    """An authored (screenplay) action line whose subject is the reacting character, who is in frame."""
+    action = _action(shot)
+    sources = action.get("field_sources") if isinstance(action.get("field_sources"), dict) else {}
+    authored = _clean(sources.get("primary_action") or action.get("source")).lower() == "screenplay"
+    if not authored or reactor not in visible_cast(shot):
+        return False
+    if _clean(action.get("subject_id") or action.get("initiator_entity_id")) == reactor:
+        return True
+    row = _cast_row(shot, reactor) or {}
+    name = _clean(row.get("character"))
+    return bool(name) and name != reactor and name in _clean(action.get("primary_action"))
+
+
 def reaction_coverage(contract: dict[str, Any]) -> dict[str, Any]:
     """The owner's cheap reaction rule, measured.  ``uncovered``: trigger shots with no reaction (a/b/c);
     ``dedicated``: silent ``beat_role: REACTION`` shots; ``misplaced``: dedicated ones not after a
     REVEAL / TURN / ENDING beat and not part of the episode's last shots."""
     shots = [s for s in (contract or {}).get("shots") or [] if isinstance(s, dict)]
+    floor = unit_min_seconds()
+    short = floor <= 2  # 2 s units: a dedicated reaction may follow any trigger beat
     covered: dict[str, str] = {}
     uncovered: list[str] = []
     dedicated: list[str] = []
@@ -309,7 +357,8 @@ def reaction_coverage(contract: dict[str, Any]) -> dict[str, Any]:
             while run_start > 0 and beat_role(shots[run_start - 1]) == REACTION_ROLE and not speaking(shots[run_start - 1]):
                 run_start -= 1
             prev = beat_role(shots[run_start - 1]) if run_start else ""
-            if prev not in DEDICATED_ALLOWED_AFTER and i < tail_from:
+            allowed = DEDICATED_ALLOWED_AFTER | (TRIGGER_ROLES if short else frozenset())
+            if prev not in allowed and i < tail_from:
                 misplaced.append(sid)
         if beat_role(shot) not in TRIGGER_ROLES:
             continue
@@ -317,17 +366,21 @@ def reaction_coverage(contract: dict[str, Any]) -> dict[str, Any]:
         nxt = shots[i + 1] if i + 1 < len(shots) else None
         if listener_reaction(shot) and len(visible_cast(shot)) >= 2:
             covered[sid] = "A_IN_FRAME"
+        elif reactor and any(s is not None and _reactor_acts(s, reactor) for s in (shot, nxt)):
+            covered[sid] = "A_IN_FRAME"    # the screenplay's own action line for the reactor (e.g. 他低低笑了一声)
         elif nxt is not None and listener_reaction(nxt) and len(visible_cast(nxt)) >= 2 and not speaking(nxt):
             covered[sid] = "A_IN_FRAME"
         elif (nxt is not None and speaking(nxt) and lead_in_reaction(nxt)
               and (not reactor or not speaker_id(nxt) or speaker_id(nxt) == reactor)):
             covered[sid] = "B_LEAD_IN"
+        elif nxt is not None and speaking(nxt) and reactor and speaker_id(nxt) == reactor:
+            covered[sid] = "B_NEXT_LINE"   # the reactor's own reply opens on his face (cheap rule b)
         elif nxt is not None and beat_role(nxt) == REACTION_ROLE and not speaking(nxt):
             covered[sid] = "C_DEDICATED"
         else:
             uncovered.append(sid)
     return {"triggers": len(covered) + len(uncovered), "covered": covered, "uncovered": uncovered,
-            "dedicated": dedicated, "dedicated_count": len(dedicated), "dedicated_max": DEDICATED_REACTION_MAX,
+            "dedicated": dedicated, "dedicated_count": len(dedicated), "dedicated_max": dedicated_reaction_max(floor),
             "misplaced_dedicated": misplaced}
 
 
@@ -390,8 +443,8 @@ def _apply_listener(contract: dict[str, Any], shot: dict[str, Any], scene_people
         prior = _spec(shot).get("director") if isinstance(_spec(shot).get("director"), dict) else {}
         if face == OTS_LISTENER and prior.get("listener_framing") == OTS_LISTENER:
             return OTS_LISTENER              # this pass already framed it (idempotent)
-        if face and _PARTIAL_OR_HIDDEN.search(face):
-            return f"WRITER_{face}"          # the writer chose the listener's framing: keep it
+        if face and face not in _FRONT_FACE:
+            return f"WRITER_{face}"          # the writer chose the listener's framing (OTS, profile, bust): keep it
         row["face_visibility"] = OTS_LISTENER
         applied.append(f"LISTENER_OTS:{sid}:{lid}")
         return OTS_LISTENER
@@ -458,6 +511,59 @@ def _apply_mirror(shot: dict[str, Any], hint: dict[str, Any], applied: list[str]
     return True
 
 
+def _transition_mode(shot: dict[str, Any]) -> str:
+    return _clean(shot.get("incoming_transition_mode")).upper()
+
+
+def _set_transition(shot: dict[str, Any], mode: str, reason: str) -> None:
+    shot["incoming_transition_mode"] = mode
+    for holder in (shot, _spec(shot)):
+        block = holder.get("internal_transition_authoring")
+        if isinstance(block, dict):
+            block.update(transition_mode=mode, reason=reason)
+
+
+def _apply_cuts(shots: list[dict[str, Any]], applied: list[str], advisories: list[str]) -> None:
+    """Up to AUTHORED_CUT_MAX authored cuts / reverse angles per episode (minus the writer's own), on the speaking
+    shots where the angle change is worth its keyframe: the turn first, then reveals, then payoffs / attacks.  Only a
+    continuous shot that changes speaker inside a scene (a reverse angle) is cut; a scene's first shot already is."""
+    existing = [i for i in range(1, len(shots)) if _transition_mode(shots[i]) in CUT_MODES
+                and _clean(shots[i].get("scene_id")) == _clean(shots[i - 1].get("scene_id"))]
+    budget = AUTHORED_CUT_MAX - len(existing)
+    candidates = []
+    for i in range(1, len(shots)):
+        shot, prev = shots[i], shots[i - 1]
+        role = beat_role(shot)
+        if (role not in CUT_PRIORITY or not speaking(shot) or _transition_mode(shot) in CUT_MODES
+                or _clean(shot.get("scene_id")) != _clean(prev.get("scene_id"))
+                or (speaking(prev) and speaker_id(prev) == speaker_id(shot))):
+            continue
+        candidates.append((CUT_PRIORITY[role], i))
+    if len(candidates) > max(0, budget):
+        advisories.append(f"AUTHORED_CUTS_CAPPED:{len(candidates)}>{max(0, budget)}")
+    for _rank, i in sorted(candidates)[:max(0, budget)]:
+        shot = shots[i]
+        mode = "MOTIVATED_CUT" if beat_role(shot) == "TURN" else "REACTION_CUT"
+        _set_transition(shot, mode, f"director: reverse angle on the {beat_role(shot).lower()} line")
+        shot.setdefault("prompt_spec", {}).setdefault("director", {})["authored_cut"] = {
+            "mode": mode, "rule": f"<= {AUTHORED_CUT_MAX} per episode; each costs one start keyframe"}
+        applied.append(f"AUTHORED_CUT:{_clean(shot.get('shot_id'))}:{mode}")
+
+
+def _apply_short_units(shots: list[dict[str, Any]], applied: list[str]) -> None:
+    """2 s H3 floor: a dedicated silent reaction / insert plays 1.5-2.5 s (ep3 rhythm) and is requested at 2 s."""
+    for shot in shots:
+        if beat_role(shot) not in SHORT_ROLES or speaking(shot):
+            continue
+        old = _num(shot.get("target_seconds"))
+        new = old if SHORT_UNIT_RANGE[0] <= old <= SHORT_UNIT_RANGE[1] else SHORT_UNIT_SECONDS
+        shot.setdefault("prompt_spec", {}).setdefault("director", {})["short_unit"] = {
+            "seconds": new, "rule": "H3 floor <= 2 s: dedicated reaction / insert units run 1.5-2.5 s"}
+        if new != old:
+            shot["target_seconds"] = new
+            applied.append(f"SHORT_UNIT:{_clean(shot.get('shot_id'))}:{old:g}->{new:g}")
+
+
 def direct(contract: dict[str, Any], *, force: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
     """(directed contract, report).  LEGACY (and ``force`` False) -> the input object itself, untouched."""
     if not isinstance(contract, dict):
@@ -496,6 +602,15 @@ def direct(contract: dict[str, Any], *, force: bool = False) -> tuple[dict[str, 
             advisories.append(f"PUSH_IN_EXTRA_MARK:{scene_id}:{len(marked)}")
         target = marked[:1] or [i for i in idx if beat_role(shots[i]) == "TURN" and speaking(shots[i])][:1]
         already = any(is_push_in(_camera_plan(shots[i])) for i in idx)
+        if not already:
+            # a push-in the writer / screenplay compiler already authored on a line is the scene's one push: mark it
+            # so S7 lock-off / push-in compensation never stabilise it away
+            authored_push = [i for i in idx if speaking(shots[i]) and _camera_plan(shots[i]).get("motion_family")
+                             == "DOLLY" and _camera_plan(shots[i]).get("motion_direction") == "PUSH_IN"]
+            if authored_push:
+                _camera_plan(shots[authored_push[0]])[PUSH_MARK] = True
+                applied.append(f"PUSH_IN_ADOPTED:{_clean(shots[authored_push[0]].get('shot_id'))}")
+                already = True
         for i in idx:
             shot = shots[i]
             spec = shot.setdefault("prompt_spec", {})
@@ -513,7 +628,7 @@ def direct(contract: dict[str, Any], *, force: bool = False) -> tuple[dict[str, 
                     if not prior.get("lead_in_seconds_added"):
                         old = _num(shot.get("target_seconds"))
                         cap = TWO_PERSON_UNIT_MAX_SECONDS if len(visible_cast(shot)) >= 2 else UNIT_HARD_MAX_SECONDS
-                        new = round(min(cap, max(UNIT_MIN_SECONDS, old + LEAD_IN_SECONDS)), 3)
+                        new = round(min(cap, max(float(unit_min_seconds()), old + LEAD_IN_SECONDS)), 3)
                         if new > old:
                             shot["target_seconds"] = new
                             decided["lead_in_seconds_added"] = round(new - old, 3)
@@ -527,6 +642,9 @@ def direct(contract: dict[str, Any], *, force: bool = False) -> tuple[dict[str, 
             _apply_push(shots[target[0]], applied)
         elif len(idx) >= 3 and not marked and not moved and not already:
             advisories.append(f"PUSH_IN_UNMARKED:{scene_id}")
+    _apply_cuts(shots, applied, advisories)
+    if unit_min_seconds() <= 2:
+        _apply_short_units(shots, applied)
     reactions = reaction_coverage(out)
     music = music_passages(out)
     advisories += [f"DEDICATED_REACTION_MISPLACED:{sid}" for sid in reactions["misplaced_dedicated"]]

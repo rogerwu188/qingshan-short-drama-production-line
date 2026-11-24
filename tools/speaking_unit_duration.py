@@ -46,7 +46,16 @@ except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
 
 SCHEMA = "qingshan.speaking_unit_duration.v1"
 LINE_PAD_SECONDS = 0.5
-MIN_SECONDS = 4  # HopsAPI H3 request floor (owner 2026-10-29; was 3 on Giggle)
+MIN_SECONDS = 4  # HopsAPI H3 request floor (owner 2026-10-29; was 3 on Giggle); live value: min_seconds()
+
+
+def min_seconds() -> int:
+    """The H3 request floor (tools/h3_limits.py: NALU_H3_MIN_UNIT_SECONDS > configs/H3_LIMITS_V1.json > 4)."""
+    try:
+        from tools import h3_limits as _limits  # noqa: PLC0415
+    except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
+        import h3_limits as _limits  # type: ignore  # noqa: PLC0415
+    return _limits.min_unit_seconds()
 MAX_SECONDS = 5
 #: one speaker's consecutive lines in one take (owner 2026-11-01): preferred cap / H3 request maximum
 GROUP_MAX_SECONDS = 12
@@ -120,7 +129,7 @@ def group_duration(line_lists: list[list[str] | str], language: str = "zh",
     MIN_SECONDS, against GROUP_MAX_SECONDS (fits) / GROUP_HARD_MAX_SECONDS (over the preferred cap) / beyond
     (the writer must split it with a cutaway)."""
     line = round(sum(estimated_line_seconds(lines, language, delivery) for lines in line_lists), 3)
-    need = float(max(MIN_SECONDS, math.ceil(line + LINE_PAD_SECONDS - 1e-9))) if line > 0 else 0.0
+    need = float(max(min_seconds(), math.ceil(line + LINE_PAD_SECONDS - 1e-9))) if line > 0 else 0.0
     verdict = ("FITS" if need <= GROUP_MAX_SECONDS else
                "OVER_PREFERRED_CAP" if need <= GROUP_HARD_MAX_SECONDS else "WRITER_SPLIT_REQUIRED")
     return {"estimated_line_seconds": line, "duration_seconds": need, "verdict": verdict,
@@ -137,7 +146,7 @@ def speaking_duration(authored: float, lines: list[str] | str, language: str = "
         return {"authored_seconds": authored, "estimated_line_seconds": line, "duration_seconds": authored,
                 "action": "NO_SPOKEN_LINE"}
     if need <= max_seconds_for(lines) + 1e-9:
-        new = float(max(MIN_SECONDS, math.ceil(need - 1e-9)))
+        new = float(max(min_seconds(), math.ceil(need - 1e-9)))
         action = "UNCHANGED" if abs(new - authored) < 1e-9 else ("SHORTENED" if new < authored else "LENGTHENED")
     else:
         new = float(math.ceil(need - 1e-9)) if authored > line + SHORTEN_ABOVE_LINE_PLUS else authored
@@ -160,7 +169,7 @@ def monologue_group_durations(estimates: list[float]) -> list[float]:
     if not raw:
         return []
     total = sum(raw)
-    target = float(max(MIN_SECONDS, math.ceil(total - 1e-9)))
+    target = float(max(min_seconds(), math.ceil(total - 1e-9)))
     if target > GROUP_HARD_MAX_SECONDS:  # over the request window: the writer splits it (R12), keep the estimates
         return [round(x, 3) for x in raw]
     out = [round(x, 1) for x in raw[:-1]]  # tenths: readable per-line windows in the prompt

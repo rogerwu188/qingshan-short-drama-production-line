@@ -392,6 +392,115 @@ class LegacyByteIdentityTest(unittest.TestCase):
             self.assertEqual(self._sha(dpg.evaluate(c, policy, "LEGACY")), self.GOLDEN[f"dpg_{name}"], name)
 
 
+FIXTURE_E25 = ROOT / "tools" / "tests" / "fixtures" / "director_pass" / "E25_SCREENPLAY_V1_CONTRACT.json"
+
+
+class ScreenplayE25Test(unittest.TestCase):
+    """The approved E25 妖皇宫 rewrite as WP2 (PR #331) compiles it (62 s / 15 shots, a frozen copy so this PR stands
+    alone): under BILI_V1 its authored business counts as visual action and its reactions are covered."""
+
+    def setUp(self):
+        self.c = json.loads(FIXTURE_E25.read_text(encoding="utf-8"))
+
+    def test_pacing_passes_under_bili_v1_and_legacy_is_unchanged(self):
+        import script_pacing_check as sp
+        directed, report = dp.direct(self.c)
+        self.assertEqual(report["status"], "PASS")
+        r = sp.evaluate(directed, "zh")
+        # ADAPTATION_TOO_THIN is WP1's (it deletes the event floor under BILI_V1); nothing else may fail
+        self.assertEqual([f for f in r["failures"] if not f.startswith("ADAPTATION_TOO_THIN")], [])
+        self.assertLessEqual(r["metrics"]["dialogue_only_ratio"], 0.6)
+        self.assertGreaterEqual(r["metrics"]["visual_action_ratio"], 0.3)
+        self.assertEqual(r["metrics"]["reaction_coverage"]["uncovered"], [])
+        legacy = dict(self.c, craft_profile="LEGACY")
+        self.assertTrue(any(f.startswith("DIALOGUE_ONLY_TOO_HIGH") for f in sp.evaluate(legacy, "zh")["failures"]))
+
+    def test_director_on_the_fixture(self):
+        directed, report = dp.direct(self.c)
+        self.assertIn("PUSH_IN_ADOPTED:E25-S01-11", report["applied"])   # the compiler's push on the turn, kept
+        cuts = [a for a in report["applied"] if a.startswith("AUTHORED_CUT:")]
+        self.assertEqual(cuts[0], "AUTHORED_CUT:E25-S01-11:MOTIVATED_CUT")  # the turn first
+        self.assertEqual(len(cuts), dp.AUTHORED_CUT_MAX)
+        self.assertEqual(by_id(directed)["E25-S01-11"]["incoming_transition_mode"], "MOTIVATED_CUT")
+        self.assertEqual(dp.content_fingerprint(self.c), dp.content_fingerprint(directed))
+        listener = {r["character_id"]: r["face_visibility"] for r in by_id(directed)["E25-S01-10"]["prompt_spec"]["cast"]}
+        self.assertEqual(listener["CHAR-SHANGYUJIN"], "THREE_QUARTER_BUST")   # writer's framing kept
+
+    def test_bili_action_lexicon(self):
+        import script_pacing_check as sp
+
+        def spoken(text, **action):
+            return {"prompt_spec": {"dialogue": "甲：嗯。", "action": {"primary_action": text, **action},
+                                    "cast": [{"character_id": "A"}]}}
+        for text in ("白桃停下令牌，嗒地磕在扶手上。", "她把令牌亮出来。", "他把她的手按下。", "拍了两下手背。",
+                     "机の上に置いた。", "잔을 내려놓는다.", "He taps the token on the armrest."):
+            self.assertEqual(sp.shot_kind(spoken(text), True, bili=True), "TALK_WITH_ACTION", text)
+            self.assertEqual(sp.shot_kind(spoken(text), True), "TALKING_HEAD", text)   # LEGACY lexicon unchanged
+        self.assertEqual(sp.shot_kind(spoken("甲对乙说出「嗯」", source="fallback"), True, bili=True), "TALKING_HEAD")
+        touch = spoken("说着", interaction_mode="CONTACT", subject_id="A", target_entity_id="B")
+        self.assertEqual(sp.shot_kind(touch, True, bili=True), "TALK_WITH_ACTION")
+
+
+class AuthoredCutTest(unittest.TestCase):
+    def test_turn_first_capped_and_writer_cuts_count(self):
+        c = contract()
+        for sid, role in (("E05-S01-03", "REVEAL"), ("E05-S01-04", "PAYOFF")):
+            by_id(c)[sid]["prompt_spec"]["beat_role"] = role
+        out, report = dp.direct(c)
+        cuts = [a for a in report["applied"] if a.startswith("AUTHORED_CUT:")]
+        self.assertEqual(cuts, ["AUTHORED_CUT:E05-S01-03:REACTION_CUT", "AUTHORED_CUT:E05-S01-02:REACTION_CUT",
+                                "AUTHORED_CUT:E05-S01-04:REACTION_CUT"])
+        c = contract()
+        c["shots"][2]["incoming_transition_mode"] = "HARD_CUT"
+        c["shots"][3]["incoming_transition_mode"] = "HARD_CUT"
+        c["shots"][1]["incoming_transition_mode"] = "MATCH_CUT"
+        out, report = dp.direct(c)
+        self.assertFalse([a for a in report["applied"] if a.startswith("AUTHORED_CUT:")])
+
+
+class H3MinUnitKnobTest(unittest.TestCase):
+    def test_default_four_and_two_when_flipped(self):
+        from tools import h3_limits
+        from tools import hopsapi_video_client as hv
+        from tools import speaking_unit_duration as sud
+        from tools import build_video_unit_grouping_spec as grouping
+        self.assertEqual(h3_limits.min_unit_seconds({}), 4)
+        self.assertEqual(h3_limits.min_unit_seconds({"NALU_H3_MIN_UNIT_SECONDS": "2"}), 2)
+        self.assertEqual(h3_limits.min_unit_seconds({"NALU_H3_MIN_UNIT_SECONDS": "1"}), 4)    # out of range
+        self.assertEqual(h3_limits.min_unit_seconds({"NALU_H3_MIN_UNIT_SECONDS": "abc"}), 4)
+        for env, floor in (({}, 4), ({"NALU_H3_MIN_UNIT_SECONDS": "2"}, 2)):
+            with mock.patch.dict(os.environ, env, clear=False):
+                if not env:
+                    os.environ.pop("NALU_H3_MIN_UNIT_SECONDS", None)
+                self.assertEqual(hv.min_duration_seconds(), floor)
+                self.assertEqual(grouping.provider_min_seconds("MiniMax-H3"), float(floor))
+                self.assertEqual(sud.group_duration(["你好"], "zh")["duration_seconds"], float(floor))
+                self.assertEqual(dp.unit_min_seconds(), floor)
+                self.assertEqual(dp.dedicated_reaction_max(), 3 if floor == 4 else 6)
+                self.assertEqual(hv.estimated_task_credits(2, resolution="480p"),
+                                 hv.estimated_task_credits(floor, resolution="480p"))
+                if floor == 4:
+                    with self.assertRaises(ValueError):
+                        hv.build_omni_request(prompt="x", image_urls=["u"], audio_urls=[], duration=2, resolution="480p")
+                else:
+                    self.assertEqual(hv.build_omni_request(prompt="x", image_urls=["u"], audio_urls=[], duration=2,
+                                                           resolution="480p")["input"]["duration"], 2)
+
+    def test_short_dedicated_units_only_at_two_seconds(self):
+        c = contract()
+        c["shots"][5]["prompt_spec"]["beat_role"] = "REACTION"
+        c["shots"][5]["target_seconds"] = 4.0
+        with mock.patch.dict(os.environ, {"NALU_H3_MIN_UNIT_SECONDS": "2"}):
+            out, report = dp.direct(c)
+            self.assertIn("SHORT_UNIT:E05-S02-02:4->2", report["applied"])
+            self.assertEqual(by_id(out)["E05-S02-02"]["target_seconds"], 2.0)
+            self.assertEqual(dp.reaction_coverage(out)["dedicated_max"], 6)
+        os.environ.pop("NALU_H3_MIN_UNIT_SECONDS", None)
+        out, report = dp.direct(c)
+        self.assertFalse([a for a in report["applied"] if a.startswith("SHORT_UNIT")])
+        self.assertEqual(by_id(out)["E05-S02-02"]["target_seconds"], 4.0)
+
+
 class PipelineHookTest(unittest.TestCase):
     def _run(self, c, profile):
         import nalu_pipeline as npl

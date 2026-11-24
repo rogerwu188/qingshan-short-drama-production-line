@@ -1,0 +1,3509 @@
+{
+ "schema": "qingshan.generation_contract.v3",
+ "episode": "E25",
+ "version": "v1",
+ "craft_profile": "BILI_V1",
+ "writer_format": "SCREENPLAY_V1",
+ "project_id": "NALU-ZAONIE",
+ "episode_title": "妖皇称臣",
+ "camera_grammar_policy": "CAMERA_GRAMMAR_V1",
+ "h3_prompt_style": "DIRECTOR_PROMPT_V2",
+ "dialogue_language": "zh",
+ "pacing_policy": "SHORT_DRAMA_PACING_V1",
+ "writer_selfcheck_seq29": {
+  "enforced": true
+ },
+ "visual_culture_contract": {
+  "schema": "qingshan.visual_culture_contract.v1",
+  "status": "LOCKED",
+  "profile_id": "LINGYAO-XIANXIA",
+  "decision_owner": "WRITER_DIRECTOR",
+  "decision_basis": "竖屏 9:16 仙侠古装，写实摄影，人物造型统一",
+  "source_ref": "SERIES_CARD.yaml",
+  "story_world": "东亚古代仙侠天界",
+  "era_lock": "EAST_ASIAN_PERIOD",
+  "production_design": "古代东亚宫殿与山门，无现代物件",
+  "image_texture": "写实摄影，自然皮肤，布料纹理"
+ },
+ "character_entities": [
+  {
+   "character_id": "CHAR-BAITAODIJI",
+   "canonical_name": "白桃帝姬",
+   "aliases": [],
+   "voice_entity_id": "白桃帝姬",
+   "identity_reference_entity_id": "CHAR-BAITAODIJI",
+   "appearance_ch1": "鹅蛋脸、尖下颌、细长凤眼、挑眉、薄唇，高挑，金冠束高马尾",
+   "apparent_age_range": "24-28",
+   "gender": "女",
+   "wardrobe_garments": {
+    "outer_layer": "白金色天界战袍，腰间挂战神令"
+   },
+   "identity_source": {
+    "mode": "TEXT_DESIGN"
+   },
+   "english_name": "Bai Tao",
+   "signature_business": "翘着二郎腿转令牌",
+   "signature_prop": "战神令",
+   "want": "交差，不想替天君卖命",
+   "fear": "在天君面前丢脸"
+  },
+  {
+   "character_id": "CHAR-ZHANLEI",
+   "canonical_name": "战雷",
+   "aliases": [],
+   "voice_entity_id": "战雷",
+   "identity_reference_entity_id": "CHAR-ZHANLEI",
+   "appearance_ch1": "方脸宽下颌、浓平眉、短须，肩背宽厚",
+   "apparent_age_range": "35-45",
+   "gender": "男",
+   "wardrobe_garments": {
+    "outer_layer": "深青色妖界战甲"
+   },
+   "identity_source": {
+    "mode": "TEXT_DESIGN"
+   },
+   "english_name": "Zhan Lei"
+  },
+  {
+   "character_id": "CHAR-QILINHUMAN",
+   "canonical_name": "麒麟",
+   "aliases": [],
+   "voice_entity_id": "麒麟",
+   "identity_reference_entity_id": "CHAR-QILINHUMAN",
+   "appearance_ch1": "少年脸、圆眼、下颌窄、额前碎发，清瘦",
+   "apparent_age_range": "18-22",
+   "gender": "男",
+   "wardrobe_garments": {
+    "outer_layer": "黑色交领长袍"
+   },
+   "identity_source": {
+    "mode": "TEXT_DESIGN"
+   },
+   "english_name": "Qilin"
+  },
+  {
+   "character_id": "CHAR-SHANGYUJIN",
+   "canonical_name": "商余烬",
+   "aliases": [],
+   "voice_entity_id": "商余烬",
+   "identity_reference_entity_id": "CHAR-SHANGYUJIN",
+   "appearance_ch1": "长脸、高鼻梁、狭长眼、剑眉、薄唇，身形修长",
+   "apparent_age_range": "25-32",
+   "gender": "男",
+   "wardrobe_garments": {
+    "outer_layer": "墨黑妖皇交领长袍，银色腰封"
+   },
+   "identity_source": {
+    "mode": "TEXT_DESIGN"
+   },
+   "english_name": "Shang Yujin",
+   "signature_business": "回头给人一个放心的眼神",
+   "signature_prop": "墨黑袍的袖口",
+   "want": "护住师父，把害她的天君拉下来",
+   "fear": "师父知道他的真身后离开"
+  },
+  {
+   "character_id": "CHAR-LONGYECHE",
+   "canonical_name": "龙夜澈",
+   "aliases": [],
+   "voice_entity_id": "龙夜澈",
+   "identity_reference_entity_id": "CHAR-LONGYECHE",
+   "appearance_ch1": "瓜子脸、桃花眼、细眉，长发半束",
+   "apparent_age_range": "25-32",
+   "gender": "男",
+   "wardrobe_garments": {
+    "outer_layer": "深紫色交领长袍"
+   },
+   "identity_source": {
+    "mode": "TEXT_DESIGN"
+   },
+   "english_name": "Long Yeche"
+  },
+  {
+   "character_id": "CHAR-MINGDI",
+   "canonical_name": "冥帝",
+   "aliases": [],
+   "voice_entity_id": "冥帝",
+   "identity_reference_entity_id": "CHAR-MINGDI",
+   "appearance_ch1": "国字脸、深眼窝、一字眉、鬓角斑白",
+   "apparent_age_range": "30-38",
+   "gender": "男",
+   "wardrobe_garments": {
+    "outer_layer": "暗紫色冥界帝袍"
+   },
+   "identity_source": {
+    "mode": "TEXT_DESIGN"
+   },
+   "english_name": "Ming Di"
+  }
+ ],
+ "protagonist_ids": [
+  "CHAR-SHANGYUJIN"
+ ],
+ "non_character_entities": [],
+ "scene_states": [
+  {
+   "scene_id": "E25-S01",
+   "location_id": "LOC-YAOHUANG-HALL",
+   "time_id": "日",
+   "time_of_day_state": "日",
+   "weather": "晴",
+   "weather_state": "晴",
+   "lighting": "殿门逆光",
+   "target_seconds": 62.0,
+   "ambient_life": {
+    "grade": "B",
+    "motion_trend": "殿门逆光里浮尘缓慢翻动，柱间垂幔轻摆",
+    "first_frame_state": "首帧逆光已从殿门斜照到台阶上",
+    "reaction_progression": "有人进门时门口光线被身影切断又恢复"
+   },
+   "weather_provenance": {
+    "source_type": "SCREENPLAY",
+    "source_ref": "E25_CAST_PROPS.yaml:LOC-YAOHUANG-HALL",
+    "visibility_mode": "VISIBLE"
+   }
+  }
+ ],
+ "shots": [
+  {
+   "shot_id": "E25-S01-01",
+   "scene_id": "E25-S01",
+   "location_id": "LOC-YAOHUANG-HALL",
+   "target_seconds": 4.0,
+   "shot_size": "WIDE",
+   "camera": "WIDE，固定机位",
+   "subspace_id": "妖皇宝座",
+   "frame_content": "妖皇宝座上，白桃帝姬翘着二郎腿，右手指尖转着战神令。台阶下，战雷右手握着长枪拱手而立；麒麟抱臂靠着殿柱，瞪着她。",
+   "blocking": "妖皇宝座上，白桃帝姬翘着二郎腿，右手指尖转着战神令。台阶下，战雷右手握着长枪拱手而立；麒麟抱臂靠着殿柱，瞪着她。",
+   "entry_state": "开场：妖皇宝座上，白桃帝姬翘着二郎腿，右手指尖转着战神令。台阶下，战雷右手握着长枪拱手而立；麒麟抱臂靠着殿柱，瞪着她。",
+   "completion_state": "妖皇宝座上，白桃帝姬翘着二郎腿，右手指尖转着战神令。台阶下，战雷右手握着长枪拱手而立；麒麟抱臂靠着殿柱，瞪着她。",
+   "first_frame_motion_state": "开场：妖皇宝座上，白桃帝姬翘着二郎腿，右手指尖转着战神令。台阶下，战雷右手握着长枪拱手而立；麒麟抱臂靠着殿柱，瞪着她。",
+   "state_delta_dimensions": [
+    "CONTACT"
+   ],
+   "state_delta_evidence": {
+    "CONTACT": {
+     "entry": "开场：妖皇宝座上，白桃帝姬翘着二郎腿，右手指尖转着战神令。台阶下，战雷右手握着长枪拱手而立；麒麟抱臂靠着殿柱，瞪着她。",
+     "exit": "妖皇宝座上，白桃帝姬翘着二郎腿，右手指尖转着战神令。台阶下，战雷右手握着长枪拱手而立；麒麟抱臂靠着殿柱，瞪着她。"
+    }
+   },
+   "dialogue_delivery": {
+    "chinese_characters_per_second": 4.0
+   },
+   "prompt_spec": {
+    "space": {
+     "location": "LOC-YAOHUANG-HALL",
+     "subspace": "妖皇宝座"
+    },
+    "scene_state": {
+     "time": "日",
+     "weather": "晴",
+     "light": "殿门逆光"
+    },
+    "cast": [
+     {
+      "character": "白桃帝姬",
+      "character_id": "CHAR-BAITAODIJI",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "白金色天界战袍，腰间挂战神令"
+      }
+     },
+     {
+      "character": "战雷",
+      "character_id": "CHAR-ZHANLEI",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "深青色妖界战甲"
+      }
+     },
+     {
+      "character": "麒麟",
+      "character_id": "CHAR-QILINHUMAN",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "黑色交领长袍"
+      }
+     }
+    ],
+    "dialogue": "",
+    "dialogue_delivery": {
+     "chinese_characters_per_second": 4.0
+    },
+    "action": {
+     "subject_id": "CHAR-BAITAODIJI",
+     "initiator_entity_id": "CHAR-BAITAODIJI",
+     "target_entity_id": "CHAR-ZHANLEI",
+     "interaction_mode": "CONTACT",
+     "action_kind": "NON_COMBAT",
+     "primary_action": "妖皇宝座上，白桃帝姬翘着二郎腿，右手指尖转着战神令。台阶下，战雷右手握着长枪拱手而立；麒麟抱臂靠着殿柱，瞪着她。",
+     "start_state": "开场：妖皇宝座上，白桃帝姬翘着二郎腿，右手指尖转着战神令。台阶下，战雷右手握着长枪拱手而立；麒麟抱臂靠着殿柱，瞪着她。",
+     "completion_state": "妖皇宝座上，白桃帝姬翘着二郎腿，右手指尖转着战神令。台阶下，战雷右手握着长枪拱手而立；麒麟抱臂靠着殿柱，瞪着她。",
+     "physical_causality": "白桃帝姬的动作直接作用于战雷，对方随之反应",
+     "state_delta_dimensions": [
+      "CONTACT"
+     ],
+     "state_delta_evidence": {
+      "CONTACT": {
+       "entry": "开场：妖皇宝座上，白桃帝姬翘着二郎腿，右手指尖转着战神令。台阶下，战雷右手握着长枪拱手而立；麒麟抱臂靠着殿柱，瞪着她。",
+       "exit": "妖皇宝座上，白桃帝姬翘着二郎腿，右手指尖转着战神令。台阶下，战雷右手握着长枪拱手而立；麒麟抱臂靠着殿柱，瞪着她。"
+      }
+     },
+     "source": "screenplay",
+     "field_sources": {
+      "primary_action": "screenplay",
+      "entry_state": "screenplay",
+      "completion_state": "screenplay",
+      "body_action": "fallback",
+      "delivery": "fallback"
+     },
+     "action_en": "On the Demon Emperor's throne Bai Tao sits with one leg crossed over the other, spinning the war-god token between the fingertips of her right hand; below the steps Zhan Lei holds his spear in his right hand and bows with clasped hands, and Qilin leans on a pillar with his arms folded, glaring at her.",
+     "contact_point": "妖皇宝座上，白桃帝姬翘着二郎腿，右手指尖转着战神令。台阶下，战雷右手握着长枪拱手而立；麒麟抱臂靠着殿柱，瞪着她。"
+    },
+    "camera_plan": {
+     "shot_scale": "WIDE",
+     "camera_height": "EYE_LEVEL",
+     "camera_side": "AXIS_A",
+     "motion_family": "LOCKED",
+     "motion_direction": "NONE",
+     "lens_intent": "单人固定：拿一句臣服回去交差，最好别打",
+     "axis_relation": "SAME_SIDE",
+     "start_framing": "白桃帝姬、战雷、麒麟在妖皇宫正殿妖皇宝座旁，殿门逆光",
+     "end_framing": "白桃帝姬、战雷、麒麟在妖皇宫正殿妖皇宝座旁，殿门逆光",
+     "motivation": "固定看清白桃帝姬这一拍"
+    },
+    "role_semantic_disambiguation": {
+     "status": "PASS",
+     "primary_actor": "白桃帝姬",
+     "primary_actor_id": "CHAR-BAITAODIJI",
+     "primary_actor_kind": "CHARACTER",
+     "dialogue_speaker": "",
+     "dialogue_speaker_id": "",
+     "dialogue_listener": "",
+     "dialogue_listener_id": "",
+     "lip_owner_id": "",
+     "entity_states": {
+      "CHAR-BAITAODIJI": "妖皇宝座上，白桃帝姬翘着二郎腿，右手指尖转着战神令。台阶下，战雷右手握着长枪拱手而立；麒麟抱臂靠着殿柱，瞪着她。",
+      "CHAR-ZHANLEI": "战雷在妖皇宝座旁",
+      "CHAR-QILINHUMAN": "麒麟在妖皇宝座旁"
+     },
+     "entity_presence": {
+      "CHAR-BAITAODIJI": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-ZHANLEI": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-QILINHUMAN": "VISIBLE_AND_IDENTITY_LOCKED"
+     }
+    },
+    "props": [
+     {
+      "prop": "战神令",
+      "prop_id": "PROP-ZHANSHENLING",
+      "entity_id": "PROP-ZHANSHENLING",
+      "owner_id": "CHAR-BAITAODIJI",
+      "owner_name": "白桃帝姬",
+      "hand": "右手"
+     },
+     {
+      "prop": "长枪",
+      "prop_id": "PROP-ZHANLEI-SPEAR",
+      "entity_id": "PROP-ZHANLEI-SPEAR",
+      "owner_id": "CHAR-ZHANLEI",
+      "owner_name": "战雷",
+      "hand": "右手"
+     }
+    ],
+    "sound": {
+     "ambience": "空旷石殿的回声，殿外远远的风声与旗角翻动",
+     "sfx": [],
+     "music": "SELECTIVE_BGM"
+    },
+    "beat_role": "ACTION",
+    "internal_transition_authoring": {
+     "transition_mode": "CONTINUOUS_ACTION",
+     "reason": "S01第1拍接上一拍"
+    },
+    "signature_business": "CHAR-BAITAODIJI",
+    "object_first": {
+     "subject": "PROP",
+     "of": "战神令",
+     "then": "TILT_UP"
+    }
+   },
+   "internal_transition_authoring": {
+    "transition_mode": "CONTINUOUS_ACTION",
+    "reason": "S01第1拍接上一拍"
+   },
+   "incoming_transition_mode": "CONTINUOUS_ACTION",
+   "axis": "宝座—殿门一线，台阶在中",
+   "screenplay_ref": {
+    "line_no": 7,
+    "kind": "silent"
+   }
+  },
+  {
+   "shot_id": "E25-S01-02",
+   "scene_id": "E25-S01",
+   "location_id": "LOC-YAOHUANG-HALL",
+   "target_seconds": 4.0,
+   "shot_size": "MEDIUM_CLOSE_UP",
+   "camera": "MEDIUM_CLOSE_UP，固定机位，过肩战雷",
+   "subspace_id": "台阶",
+   "frame_content": "白桃帝姬对战雷说出「三天到了。你们的妖皇呢？」",
+   "blocking": "白桃帝姬对战雷说出「三天到了。你们的妖皇呢？」",
+   "entry_state": "白桃帝姬、战雷在妖皇宫正殿；承上一拍：妖皇宝座上，白桃帝姬翘着二郎腿，右手指尖转着战神令。台阶下，战雷右手握着长枪拱手而立；麒麟抱臂靠着殿柱，瞪着她",
+   "completion_state": "白桃帝姬说完「三天到了。你们的妖皇呢？」，战雷还没有接话",
+   "first_frame_motion_state": "白桃帝姬、战雷在妖皇宫正殿；承上一拍：妖皇宝座上，白桃帝姬翘着二郎腿，右手指尖转着战神令。台阶下，战雷右手握着长枪拱手而立；麒麟抱臂靠着殿柱，瞪着她",
+   "state_delta_dimensions": [
+    "POSTURE"
+   ],
+   "state_delta_evidence": {
+    "POSTURE": {
+     "entry": "白桃帝姬、战雷在妖皇宫正殿；承上一拍：妖皇宝座上，白桃帝姬翘着二郎腿，右手指尖转着战神令。台阶下，战雷右手握着长枪拱手而立；麒麟抱臂靠着殿柱，瞪着她",
+     "exit": "白桃帝姬说完「三天到了。你们的妖皇呢？」，战雷还没有接话"
+    }
+   },
+   "dialogue_delivery": {
+    "chinese_characters_per_second": 4.0
+   },
+   "dialogue": "白桃帝姬：三天到了。你们的妖皇呢？",
+   "prompt_spec": {
+    "space": {
+     "location": "LOC-YAOHUANG-HALL",
+     "subspace": "台阶"
+    },
+    "scene_state": {
+     "time": "日",
+     "weather": "晴",
+     "light": "殿门逆光"
+    },
+    "cast": [
+     {
+      "character": "白桃帝姬",
+      "character_id": "CHAR-BAITAODIJI",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "白金色天界战袍，腰间挂战神令"
+      }
+     },
+     {
+      "character": "战雷",
+      "character_id": "CHAR-ZHANLEI",
+      "life_state": "alive",
+      "face_visibility": "BACK_AND_SHOULDERS_ONLY",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "深青色妖界战甲"
+      }
+     }
+    ],
+    "dialogue": "白桃帝姬：三天到了。你们的妖皇呢？",
+    "dialogue_delivery": {
+     "chinese_characters_per_second": 4.0
+    },
+    "action": {
+     "subject_id": "CHAR-BAITAODIJI",
+     "initiator_entity_id": "CHAR-BAITAODIJI",
+     "target_entity_id": "CHAR-BAITAODIJI",
+     "interaction_mode": "NONE",
+     "action_kind": "NON_COMBAT",
+     "primary_action": "白桃帝姬对战雷说出「三天到了。你们的妖皇呢？」",
+     "start_state": "白桃帝姬、战雷在妖皇宫正殿；承上一拍：妖皇宝座上，白桃帝姬翘着二郎腿，右手指尖转着战神令。台阶下，战雷右手握着长枪拱手而立；麒麟抱臂靠着殿柱，瞪着她",
+     "completion_state": "白桃帝姬说完「三天到了。你们的妖皇呢？」，战雷还没有接话",
+     "physical_causality": "由白桃帝姬的这一句/这一动作引出",
+     "state_delta_dimensions": [
+      "POSTURE"
+     ],
+     "state_delta_evidence": {
+      "POSTURE": {
+       "entry": "白桃帝姬、战雷在妖皇宫正殿；承上一拍：妖皇宝座上，白桃帝姬翘着二郎腿，右手指尖转着战神令。台阶下，战雷右手握着长枪拱手而立；麒麟抱臂靠着殿柱，瞪着她",
+       "exit": "白桃帝姬说完「三天到了。你们的妖皇呢？」，战雷还没有接话"
+      }
+     },
+     "source": "fallback",
+     "field_sources": {
+      "primary_action": "fallback",
+      "entry_state": "carried",
+      "completion_state": "fallback",
+      "body_action": "screenplay",
+      "delivery": "screenplay"
+     },
+     "performance": {
+      "emotion": "傲",
+      "emotion_basis": "parenthetical",
+      "body_action": "白桃帝姬不抬眼，悠悠",
+      "delivery": "不抬眼，悠悠",
+      "delivery_en": "without looking up, slow and lazy, almost bored"
+     }
+    },
+    "camera_plan": {
+     "shot_scale": "MEDIUM_CLOSE_UP",
+     "camera_height": "EYE_LEVEL",
+     "camera_side": "AXIS_A",
+     "motion_family": "LOCKED",
+     "motion_direction": "NONE",
+     "lens_intent": "过肩固定：拿一句臣服回去交差，最好别打",
+     "axis_relation": "SAME_SIDE",
+     "start_framing": "白桃帝姬在妖皇宫正殿台阶旁，战雷的后脑与肩在前景虚化，殿门逆光；白桃帝姬视线略偏离镜头，朝战雷一侧",
+     "end_framing": "白桃帝姬在妖皇宫正殿台阶旁，战雷的后脑与肩在前景虚化，殿门逆光；白桃帝姬视线略偏离镜头，朝战雷一侧",
+     "motivation": "固定看清白桃帝姬这一拍"
+    },
+    "role_semantic_disambiguation": {
+     "status": "PASS",
+     "primary_actor": "白桃帝姬",
+     "primary_actor_id": "CHAR-BAITAODIJI",
+     "primary_actor_kind": "CHARACTER",
+     "dialogue_speaker": "白桃帝姬",
+     "dialogue_speaker_id": "CHAR-BAITAODIJI",
+     "dialogue_listener": "战雷",
+     "dialogue_listener_id": "CHAR-ZHANLEI",
+     "lip_owner_id": "CHAR-BAITAODIJI",
+     "entity_states": {
+      "CHAR-BAITAODIJI": "白桃帝姬说完「三天到了。你们的妖皇呢？」，战雷还没有接话",
+      "CHAR-ZHANLEI": "战雷在台阶旁"
+     },
+     "entity_presence": {
+      "CHAR-BAITAODIJI": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-ZHANLEI": "VISIBLE_AND_IDENTITY_LOCKED"
+     }
+    },
+    "props": [],
+    "sound": {
+     "ambience": "空旷石殿的回声，殿外远远的风声与旗角翻动",
+     "sfx": [],
+     "music": "SELECTIVE_BGM"
+    },
+    "beat_role": "LINE",
+    "internal_transition_authoring": {
+     "transition_mode": "CONTINUOUS_ACTION",
+     "reason": "S01第2拍接上一拍"
+    }
+   },
+   "internal_transition_authoring": {
+    "transition_mode": "CONTINUOUS_ACTION",
+    "reason": "S01第2拍接上一拍"
+   },
+   "incoming_transition_mode": "CONTINUOUS_ACTION",
+   "axis": "宝座—殿门一线，台阶在中",
+   "screenplay_ref": {
+    "line_no": 8,
+    "kind": "dialogue"
+   }
+  },
+  {
+   "shot_id": "E25-S01-03",
+   "scene_id": "E25-S01",
+   "location_id": "LOC-YAOHUANG-HALL",
+   "target_seconds": 4.0,
+   "shot_size": "MEDIUM_CLOSE_UP",
+   "camera": "MEDIUM_CLOSE_UP，固定机位，过肩白桃帝姬",
+   "subspace_id": "殿柱",
+   "frame_content": "战雷对白桃帝姬说出「还没找到。请帝姬再宽限两日。」",
+   "blocking": "战雷对白桃帝姬说出「还没找到。请帝姬再宽限两日。」",
+   "entry_state": "战雷、白桃帝姬在妖皇宫正殿；承上一拍：白桃帝姬说完「三天到了。你们的妖皇呢？」，战雷还没有接话",
+   "completion_state": "战雷说完「还没找到。请帝姬再宽限两日。」，白桃帝姬还没有接话",
+   "first_frame_motion_state": "战雷、白桃帝姬在妖皇宫正殿；承上一拍：白桃帝姬说完「三天到了。你们的妖皇呢？」，战雷还没有接话",
+   "state_delta_dimensions": [
+    "POSTURE"
+   ],
+   "state_delta_evidence": {
+    "POSTURE": {
+     "entry": "战雷、白桃帝姬在妖皇宫正殿；承上一拍：白桃帝姬说完「三天到了。你们的妖皇呢？」，战雷还没有接话",
+     "exit": "战雷说完「还没找到。请帝姬再宽限两日。」，白桃帝姬还没有接话"
+    }
+   },
+   "dialogue_delivery": {
+    "chinese_characters_per_second": 4.0
+   },
+   "dialogue": "战雷：还没找到。请帝姬再宽限两日。",
+   "prompt_spec": {
+    "space": {
+     "location": "LOC-YAOHUANG-HALL",
+     "subspace": "殿柱"
+    },
+    "scene_state": {
+     "time": "日",
+     "weather": "晴",
+     "light": "殿门逆光"
+    },
+    "cast": [
+     {
+      "character": "战雷",
+      "character_id": "CHAR-ZHANLEI",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "深青色妖界战甲"
+      }
+     },
+     {
+      "character": "白桃帝姬",
+      "character_id": "CHAR-BAITAODIJI",
+      "life_state": "alive",
+      "face_visibility": "BACK_AND_SHOULDERS_ONLY",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "白金色天界战袍，腰间挂战神令"
+      }
+     }
+    ],
+    "dialogue": "战雷：还没找到。请帝姬再宽限两日。",
+    "dialogue_delivery": {
+     "chinese_characters_per_second": 4.0
+    },
+    "action": {
+     "subject_id": "CHAR-ZHANLEI",
+     "initiator_entity_id": "CHAR-ZHANLEI",
+     "target_entity_id": "CHAR-ZHANLEI",
+     "interaction_mode": "NONE",
+     "action_kind": "NON_COMBAT",
+     "primary_action": "战雷对白桃帝姬说出「还没找到。请帝姬再宽限两日。」",
+     "start_state": "战雷、白桃帝姬在妖皇宫正殿；承上一拍：白桃帝姬说完「三天到了。你们的妖皇呢？」，战雷还没有接话",
+     "completion_state": "战雷说完「还没找到。请帝姬再宽限两日。」，白桃帝姬还没有接话",
+     "physical_causality": "由战雷的这一句/这一动作引出",
+     "state_delta_dimensions": [
+      "POSTURE"
+     ],
+     "state_delta_evidence": {
+      "POSTURE": {
+       "entry": "战雷、白桃帝姬在妖皇宫正殿；承上一拍：白桃帝姬说完「三天到了。你们的妖皇呢？」，战雷还没有接话",
+       "exit": "战雷说完「还没找到。请帝姬再宽限两日。」，白桃帝姬还没有接话"
+      }
+     },
+     "source": "fallback",
+     "field_sources": {
+      "primary_action": "fallback",
+      "entry_state": "carried",
+      "completion_state": "fallback",
+      "body_action": "screenplay",
+      "delivery": "screenplay"
+     },
+     "performance": {
+      "emotion": "怯",
+      "emotion_basis": "parenthetical",
+      "body_action": "战雷低头",
+      "delivery": "低头",
+      "delivery_en": "head lowered, quiet and careful"
+     }
+    },
+    "camera_plan": {
+     "shot_scale": "MEDIUM_CLOSE_UP",
+     "camera_height": "EYE_LEVEL",
+     "camera_side": "AXIS_A",
+     "motion_family": "LOCKED",
+     "motion_direction": "NONE",
+     "lens_intent": "过肩固定：拿一句臣服回去交差，最好别打",
+     "axis_relation": "SAME_SIDE",
+     "start_framing": "战雷在妖皇宫正殿殿柱旁，白桃帝姬的后脑与肩在前景虚化，殿门逆光；战雷视线略偏离镜头，朝白桃帝姬一侧",
+     "end_framing": "战雷在妖皇宫正殿殿柱旁，白桃帝姬的后脑与肩在前景虚化，殿门逆光；战雷视线略偏离镜头，朝白桃帝姬一侧",
+     "motivation": "固定看清战雷这一拍"
+    },
+    "role_semantic_disambiguation": {
+     "status": "PASS",
+     "primary_actor": "战雷",
+     "primary_actor_id": "CHAR-ZHANLEI",
+     "primary_actor_kind": "CHARACTER",
+     "dialogue_speaker": "战雷",
+     "dialogue_speaker_id": "CHAR-ZHANLEI",
+     "dialogue_listener": "白桃帝姬",
+     "dialogue_listener_id": "CHAR-BAITAODIJI",
+     "lip_owner_id": "CHAR-ZHANLEI",
+     "entity_states": {
+      "CHAR-ZHANLEI": "战雷说完「还没找到。请帝姬再宽限两日。」，白桃帝姬还没有接话",
+      "CHAR-BAITAODIJI": "白桃帝姬在殿柱旁"
+     },
+     "entity_presence": {
+      "CHAR-ZHANLEI": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-BAITAODIJI": "VISIBLE_AND_IDENTITY_LOCKED"
+     }
+    },
+    "props": [],
+    "sound": {
+     "ambience": "空旷石殿的回声，殿外远远的风声与旗角翻动",
+     "sfx": [],
+     "music": "SELECTIVE_BGM"
+    },
+    "beat_role": "LINE",
+    "internal_transition_authoring": {
+     "transition_mode": "CONTINUOUS_ACTION",
+     "reason": "S01第3拍接上一拍"
+    }
+   },
+   "internal_transition_authoring": {
+    "transition_mode": "CONTINUOUS_ACTION",
+    "reason": "S01第3拍接上一拍"
+   },
+   "incoming_transition_mode": "CONTINUOUS_ACTION",
+   "axis": "宝座—殿门一线，台阶在中",
+   "screenplay_ref": {
+    "line_no": 9,
+    "kind": "dialogue"
+   }
+  },
+  {
+   "shot_id": "E25-S01-04",
+   "scene_id": "E25-S01",
+   "location_id": "LOC-YAOHUANG-HALL",
+   "target_seconds": 4.0,
+   "shot_size": "MEDIUM",
+   "camera": "MEDIUM，固定机位，过肩战雷",
+   "subspace_id": "殿门",
+   "frame_content": "白桃停下令牌，\"嗒\"地磕在宝座扶手上。",
+   "blocking": "白桃停下令牌，\"嗒\"地磕在宝座扶手上。",
+   "entry_state": "白桃帝姬、麒麟、战雷在妖皇宫正殿；承上一拍：战雷说完「还没找到。请帝姬再宽限两日。」，白桃帝姬还没有接话",
+   "completion_state": "白桃停下令牌，\"嗒\"地磕在宝座扶手上。",
+   "first_frame_motion_state": "白桃帝姬、麒麟、战雷在妖皇宫正殿；承上一拍：战雷说完「还没找到。请帝姬再宽限两日。」，白桃帝姬还没有接话",
+   "state_delta_dimensions": [
+    "CONTACT",
+    "POSTURE"
+   ],
+   "state_delta_evidence": {
+    "CONTACT": {
+     "entry": "白桃帝姬、麒麟、战雷在妖皇宫正殿；承上一拍：战雷说完「还没找到。请帝姬再宽限两日。」，白桃帝姬还没有接话",
+     "exit": "白桃停下令牌，\"嗒\"地磕在宝座扶手上。"
+    },
+    "POSTURE": {
+     "entry": "白桃帝姬、麒麟、战雷在妖皇宫正殿；承上一拍：战雷说完「还没找到。请帝姬再宽限两日。」，白桃帝姬还没有接话",
+     "exit": "白桃停下令牌，\"嗒\"地磕在宝座扶手上。"
+    }
+   },
+   "dialogue_delivery": {
+    "chinese_characters_per_second": 4.0
+   },
+   "dialogue": "白桃帝姬：三天变五天，你当我是来做客的？",
+   "prompt_spec": {
+    "space": {
+     "location": "LOC-YAOHUANG-HALL",
+     "subspace": "殿门"
+    },
+    "scene_state": {
+     "time": "日",
+     "weather": "晴",
+     "light": "殿门逆光"
+    },
+    "cast": [
+     {
+      "character": "白桃帝姬",
+      "character_id": "CHAR-BAITAODIJI",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "白金色天界战袍，腰间挂战神令"
+      }
+     },
+     {
+      "character": "麒麟",
+      "character_id": "CHAR-QILINHUMAN",
+      "life_state": "alive",
+      "face_visibility": "THREE_QUARTER_BUST",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "黑色交领长袍"
+      }
+     },
+     {
+      "character": "战雷",
+      "character_id": "CHAR-ZHANLEI",
+      "life_state": "alive",
+      "face_visibility": "BACK_AND_SHOULDERS_ONLY",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "深青色妖界战甲"
+      }
+     }
+    ],
+    "dialogue": "白桃帝姬：三天变五天，你当我是来做客的？",
+    "dialogue_delivery": {
+     "chinese_characters_per_second": 4.0
+    },
+    "action": {
+     "subject_id": "CHAR-BAITAODIJI",
+     "initiator_entity_id": "CHAR-BAITAODIJI",
+     "target_entity_id": "CHAR-BAITAODIJI",
+     "interaction_mode": "NONE",
+     "action_kind": "NON_COMBAT",
+     "primary_action": "白桃停下令牌，\"嗒\"地磕在宝座扶手上。",
+     "start_state": "白桃帝姬、麒麟、战雷在妖皇宫正殿；承上一拍：战雷说完「还没找到。请帝姬再宽限两日。」，白桃帝姬还没有接话",
+     "completion_state": "白桃停下令牌，\"嗒\"地磕在宝座扶手上。",
+     "physical_causality": "由白桃帝姬的这一句/这一动作引出",
+     "state_delta_dimensions": [
+      "CONTACT",
+      "POSTURE"
+     ],
+     "state_delta_evidence": {
+      "CONTACT": {
+       "entry": "白桃帝姬、麒麟、战雷在妖皇宫正殿；承上一拍：战雷说完「还没找到。请帝姬再宽限两日。」，白桃帝姬还没有接话",
+       "exit": "白桃停下令牌，\"嗒\"地磕在宝座扶手上。"
+      },
+      "POSTURE": {
+       "entry": "白桃帝姬、麒麟、战雷在妖皇宫正殿；承上一拍：战雷说完「还没找到。请帝姬再宽限两日。」，白桃帝姬还没有接话",
+       "exit": "白桃停下令牌，\"嗒\"地磕在宝座扶手上。"
+      }
+     },
+     "source": "screenplay",
+     "field_sources": {
+      "primary_action": "screenplay",
+      "entry_state": "carried",
+      "completion_state": "screenplay",
+      "body_action": "screenplay",
+      "delivery": "screenplay"
+     },
+     "performance": {
+      "emotion": "讥",
+      "emotion_basis": "parenthetical",
+      "body_action": "白桃停下令牌，\"嗒\"地磕在宝座扶手上。",
+      "delivery": "冷笑",
+      "delivery_en": "a cold little laugh first, then each word clipped",
+      "business_en": "Bai Tao stops the token and raps it once on the throne's armrest with a sharp click."
+     },
+     "listener_reaction": "麒麟：离开柱子，右拳攥紧",
+     "listener_reaction_en": "Qilin pushes off the pillar, his right fist clenching.",
+     "action_en": "Bai Tao stops the token and raps it once on the throne's armrest with a sharp click."
+    },
+    "camera_plan": {
+     "shot_scale": "MEDIUM",
+     "camera_height": "EYE_LEVEL",
+     "camera_side": "AXIS_A",
+     "motion_family": "LOCKED",
+     "motion_direction": "NONE",
+     "lens_intent": "过肩固定：拿一句臣服回去交差，最好别打",
+     "axis_relation": "SAME_SIDE",
+     "start_framing": "白桃帝姬、麒麟在妖皇宫正殿殿门旁，战雷的后脑与肩在前景虚化，殿门逆光；白桃帝姬视线略偏离镜头，朝战雷一侧",
+     "end_framing": "白桃帝姬、麒麟在妖皇宫正殿殿门旁，战雷的后脑与肩在前景虚化，殿门逆光；白桃帝姬视线略偏离镜头，朝战雷一侧",
+     "motivation": "固定看清白桃帝姬这一拍"
+    },
+    "role_semantic_disambiguation": {
+     "status": "PASS",
+     "primary_actor": "白桃帝姬",
+     "primary_actor_id": "CHAR-BAITAODIJI",
+     "primary_actor_kind": "CHARACTER",
+     "dialogue_speaker": "白桃帝姬",
+     "dialogue_speaker_id": "CHAR-BAITAODIJI",
+     "dialogue_listener": "战雷",
+     "dialogue_listener_id": "CHAR-ZHANLEI",
+     "lip_owner_id": "CHAR-BAITAODIJI",
+     "entity_states": {
+      "CHAR-BAITAODIJI": "白桃停下令牌，\"嗒\"地磕在宝座扶手上。",
+      "CHAR-QILINHUMAN": "麒麟在殿门旁",
+      "CHAR-ZHANLEI": "战雷在殿门旁"
+     },
+     "entity_presence": {
+      "CHAR-BAITAODIJI": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-QILINHUMAN": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-ZHANLEI": "VISIBLE_AND_IDENTITY_LOCKED"
+     }
+    },
+    "props": [
+     {
+      "prop": "战神令",
+      "prop_id": "PROP-ZHANSHENLING",
+      "entity_id": "PROP-ZHANSHENLING",
+      "owner_id": "CHAR-BAITAODIJI",
+      "owner_name": "白桃帝姬",
+      "hand": "右手"
+     }
+    ],
+    "sound": {
+     "ambience": "空旷石殿的回声，殿外远远的风声与旗角翻动",
+     "sfx": [],
+     "music": "SELECTIVE_BGM"
+    },
+    "beat_role": "PAYOFF",
+    "internal_transition_authoring": {
+     "transition_mode": "CONTINUOUS_ACTION",
+     "reason": "S01第4拍接上一拍"
+    }
+   },
+   "internal_transition_authoring": {
+    "transition_mode": "CONTINUOUS_ACTION",
+    "reason": "S01第4拍接上一拍"
+   },
+   "incoming_transition_mode": "CONTINUOUS_ACTION",
+   "axis": "宝座—殿门一线，台阶在中",
+   "screenplay_ref": {
+    "line_no": 11,
+    "kind": "dialogue"
+   }
+  },
+  {
+   "shot_id": "E25-S01-05",
+   "scene_id": "E25-S01",
+   "location_id": "LOC-YAOHUANG-HALL",
+   "target_seconds": 4.0,
+   "shot_size": "MEDIUM_CLOSE_UP",
+   "camera": "MEDIUM_CLOSE_UP，固定机位",
+   "subspace_id": "妖皇宝座",
+   "frame_content": "商余烬对白桃帝姬说出「找我何事？」",
+   "blocking": "商余烬对白桃帝姬说出「找我何事？」",
+   "entry_state": "白桃帝姬在妖皇宫正殿；承上一拍：白桃停下令牌，\"嗒\"地磕在宝座扶手上",
+   "completion_state": "商余烬说完「找我何事？」，白桃帝姬还没有接话",
+   "first_frame_motion_state": "白桃帝姬在妖皇宫正殿；承上一拍：白桃停下令牌，\"嗒\"地磕在宝座扶手上",
+   "state_delta_dimensions": [
+    "POSTURE"
+   ],
+   "state_delta_evidence": {
+    "POSTURE": {
+     "entry": "白桃帝姬在妖皇宫正殿；承上一拍：白桃停下令牌，\"嗒\"地磕在宝座扶手上",
+     "exit": "商余烬说完「找我何事？」，白桃帝姬还没有接话"
+    }
+   },
+   "dialogue_delivery": {
+    "chinese_characters_per_second": 4.0
+   },
+   "dialogue": "商余烬：找我何事？",
+   "prompt_spec": {
+    "space": {
+     "location": "LOC-YAOHUANG-HALL",
+     "subspace": "妖皇宝座"
+    },
+    "scene_state": {
+     "time": "日",
+     "weather": "晴",
+     "light": "殿门逆光"
+    },
+    "cast": [
+     {
+      "character": "白桃帝姬",
+      "character_id": "CHAR-BAITAODIJI",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "白金色天界战袍，腰间挂战神令"
+      }
+     }
+    ],
+    "dialogue": "商余烬：找我何事？",
+    "dialogue_delivery": {
+     "chinese_characters_per_second": 4.0
+    },
+    "action": {
+     "subject_id": "CHAR-BAITAODIJI",
+     "initiator_entity_id": "CHAR-BAITAODIJI",
+     "target_entity_id": "CHAR-BAITAODIJI",
+     "interaction_mode": "NONE",
+     "action_kind": "NON_COMBAT",
+     "primary_action": "商余烬对白桃帝姬说出「找我何事？」",
+     "start_state": "白桃帝姬在妖皇宫正殿；承上一拍：白桃停下令牌，\"嗒\"地磕在宝座扶手上",
+     "completion_state": "商余烬说完「找我何事？」，白桃帝姬还没有接话",
+     "physical_causality": "由白桃帝姬的这一句/这一动作引出",
+     "state_delta_dimensions": [
+      "POSTURE"
+     ],
+     "state_delta_evidence": {
+      "POSTURE": {
+       "entry": "白桃帝姬在妖皇宫正殿；承上一拍：白桃停下令牌，\"嗒\"地磕在宝座扶手上",
+       "exit": "商余烬说完「找我何事？」，白桃帝姬还没有接话"
+      }
+     },
+     "source": "fallback",
+     "field_sources": {
+      "primary_action": "fallback",
+      "entry_state": "carried",
+      "completion_state": "fallback",
+      "body_action": "screenplay",
+      "delivery": "screenplay"
+     },
+     "performance": {
+      "emotion": "冷",
+      "emotion_basis": "parenthetical",
+      "body_action": "商余烬淡淡",
+      "delivery": "淡淡",
+      "delivery_en": "flat and calm, carrying from outside the hall"
+     }
+    },
+    "camera_plan": {
+     "shot_scale": "MEDIUM_CLOSE_UP",
+     "camera_height": "EYE_LEVEL",
+     "camera_side": "AXIS_A",
+     "motion_family": "LOCKED",
+     "motion_direction": "NONE",
+     "lens_intent": "单人固定：拿一句臣服回去交差，最好别打",
+     "axis_relation": "SAME_SIDE",
+     "start_framing": "白桃帝姬在妖皇宫正殿妖皇宝座旁，殿门逆光",
+     "end_framing": "白桃帝姬在妖皇宫正殿妖皇宝座旁，殿门逆光",
+     "motivation": "固定看清白桃帝姬这一拍"
+    },
+    "role_semantic_disambiguation": {
+     "status": "PASS",
+     "primary_actor": "白桃帝姬",
+     "primary_actor_id": "CHAR-BAITAODIJI",
+     "primary_actor_kind": "CHARACTER",
+     "dialogue_speaker": "商余烬",
+     "dialogue_speaker_id": "CHAR-SHANGYUJIN",
+     "dialogue_listener": "白桃帝姬",
+     "dialogue_listener_id": "CHAR-BAITAODIJI",
+     "lip_owner_id": "",
+     "entity_states": {
+      "CHAR-BAITAODIJI": "白桃帝姬在妖皇宝座旁"
+     },
+     "entity_presence": {
+      "CHAR-BAITAODIJI": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-SHANGYUJIN": "OFFSCREEN_VOICE_ONLY"
+     }
+    },
+    "props": [],
+    "sound": {
+     "ambience": "空旷石殿的回声，殿外远远的风声与旗角翻动",
+     "sfx": [],
+     "music": "SELECTIVE_BGM"
+    },
+    "beat_role": "LINE",
+    "internal_transition_authoring": {
+     "transition_mode": "CONTINUOUS_ACTION",
+     "reason": "S01第5拍接上一拍"
+    },
+    "offscreen_character_ids": [
+     "CHAR-SHANGYUJIN"
+    ]
+   },
+   "internal_transition_authoring": {
+    "transition_mode": "CONTINUOUS_ACTION",
+    "reason": "S01第5拍接上一拍"
+   },
+   "incoming_transition_mode": "CONTINUOUS_ACTION",
+   "axis": "宝座—殿门一线，台阶在中",
+   "screenplay_ref": {
+    "line_no": 13,
+    "kind": "dialogue"
+   }
+  },
+  {
+   "shot_id": "E25-S01-06",
+   "scene_id": "E25-S01",
+   "location_id": "LOC-YAOHUANG-HALL",
+   "target_seconds": 4.0,
+   "shot_size": "WIDE",
+   "camera": "WIDE，固定机位",
+   "subspace_id": "台阶",
+   "frame_content": "众妖回头。殿门逆光，商余烬走进殿门，龙夜澈、冥帝一左一右跟在他身后。",
+   "blocking": "众妖回头。殿门逆光，商余烬走进殿门，龙夜澈、冥帝一左一右跟在他身后。",
+   "entry_state": "商余烬、龙夜澈、冥帝、白桃帝姬在妖皇宫正殿；承上一拍：商余烬说完「找我何事？」，白桃帝姬还没有接话",
+   "completion_state": "众妖回头。殿门逆光，商余烬走进殿门，龙夜澈、冥帝一左一右跟在他身后。",
+   "first_frame_motion_state": "商余烬、龙夜澈、冥帝、白桃帝姬在妖皇宫正殿；承上一拍：商余烬说完「找我何事？」，白桃帝姬还没有接话",
+   "state_delta_dimensions": [
+    "POSITION"
+   ],
+   "state_delta_evidence": {
+    "POSITION": {
+     "entry": "商余烬、龙夜澈、冥帝、白桃帝姬在妖皇宫正殿；承上一拍：商余烬说完「找我何事？」，白桃帝姬还没有接话",
+     "exit": "众妖回头。殿门逆光，商余烬走进殿门，龙夜澈、冥帝一左一右跟在他身后。"
+    }
+   },
+   "dialogue_delivery": {
+    "chinese_characters_per_second": 4.0
+   },
+   "prompt_spec": {
+    "space": {
+     "location": "LOC-YAOHUANG-HALL",
+     "subspace": "台阶"
+    },
+    "scene_state": {
+     "time": "日",
+     "weather": "晴",
+     "light": "殿门逆光"
+    },
+    "cast": [
+     {
+      "character": "商余烬",
+      "character_id": "CHAR-SHANGYUJIN",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "墨黑妖皇交领长袍，银色腰封"
+      }
+     },
+     {
+      "character": "龙夜澈",
+      "character_id": "CHAR-LONGYECHE",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "深紫色交领长袍"
+      }
+     },
+     {
+      "character": "冥帝",
+      "character_id": "CHAR-MINGDI",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "暗紫色冥界帝袍"
+      }
+     },
+     {
+      "character": "白桃帝姬",
+      "character_id": "CHAR-BAITAODIJI",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "白金色天界战袍，腰间挂战神令"
+      }
+     }
+    ],
+    "dialogue": "",
+    "dialogue_delivery": {
+     "chinese_characters_per_second": 4.0
+    },
+    "action": {
+     "subject_id": "CHAR-SHANGYUJIN",
+     "initiator_entity_id": "CHAR-SHANGYUJIN",
+     "target_entity_id": "CHAR-SHANGYUJIN",
+     "interaction_mode": "NONE",
+     "action_kind": "NON_COMBAT",
+     "primary_action": "众妖回头。殿门逆光，商余烬走进殿门，龙夜澈、冥帝一左一右跟在他身后。",
+     "start_state": "商余烬、龙夜澈、冥帝、白桃帝姬在妖皇宫正殿；承上一拍：商余烬说完「找我何事？」，白桃帝姬还没有接话",
+     "completion_state": "众妖回头。殿门逆光，商余烬走进殿门，龙夜澈、冥帝一左一右跟在他身后。",
+     "physical_causality": "由商余烬的这一句/这一动作引出",
+     "state_delta_dimensions": [
+      "POSITION"
+     ],
+     "state_delta_evidence": {
+      "POSITION": {
+       "entry": "商余烬、龙夜澈、冥帝、白桃帝姬在妖皇宫正殿；承上一拍：商余烬说完「找我何事？」，白桃帝姬还没有接话",
+       "exit": "众妖回头。殿门逆光，商余烬走进殿门，龙夜澈、冥帝一左一右跟在他身后。"
+      }
+     },
+     "source": "screenplay",
+     "field_sources": {
+      "primary_action": "screenplay",
+      "entry_state": "carried",
+      "completion_state": "screenplay",
+      "body_action": "fallback",
+      "delivery": "fallback"
+     },
+     "listener_reaction": "白桃帝姬：二郎腿放下，坐直",
+     "listener_reaction_en": "Bai Tao uncrosses her legs and sits up straight.",
+     "action_en": "Everyone in the hall turns; against the bright doorway Shang Yujin walks in through the hall doors, Long Yeche on his left and Ming Di on his right."
+    },
+    "camera_plan": {
+     "shot_scale": "WIDE",
+     "camera_height": "EYE_LEVEL",
+     "camera_side": "AXIS_A",
+     "motion_family": "LOCKED",
+     "motion_direction": "NONE",
+     "lens_intent": "单人固定：拿一句臣服回去交差，最好别打",
+     "axis_relation": "SAME_SIDE",
+     "start_framing": "商余烬、龙夜澈、冥帝、白桃帝姬在妖皇宫正殿台阶旁，殿门逆光",
+     "end_framing": "商余烬、龙夜澈、冥帝、白桃帝姬在妖皇宫正殿台阶旁，殿门逆光",
+     "motivation": "固定看清商余烬这一拍"
+    },
+    "role_semantic_disambiguation": {
+     "status": "PASS",
+     "primary_actor": "商余烬",
+     "primary_actor_id": "CHAR-SHANGYUJIN",
+     "primary_actor_kind": "CHARACTER",
+     "dialogue_speaker": "",
+     "dialogue_speaker_id": "",
+     "dialogue_listener": "",
+     "dialogue_listener_id": "",
+     "lip_owner_id": "",
+     "entity_states": {
+      "CHAR-SHANGYUJIN": "众妖回头。殿门逆光，商余烬走进殿门，龙夜澈、冥帝一左一右跟在他身后。",
+      "CHAR-LONGYECHE": "龙夜澈在台阶旁",
+      "CHAR-MINGDI": "冥帝在台阶旁",
+      "CHAR-BAITAODIJI": "白桃帝姬在台阶旁"
+     },
+     "entity_presence": {
+      "CHAR-SHANGYUJIN": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-LONGYECHE": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-MINGDI": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-BAITAODIJI": "VISIBLE_AND_IDENTITY_LOCKED"
+     }
+    },
+    "props": [],
+    "sound": {
+     "ambience": "空旷石殿的回声，殿外远远的风声与旗角翻动",
+     "sfx": [],
+     "music": "SELECTIVE_BGM"
+    },
+    "beat_role": "ACTION",
+    "internal_transition_authoring": {
+     "transition_mode": "CONTINUOUS_ACTION",
+     "reason": "S01第6拍接上一拍"
+    }
+   },
+   "internal_transition_authoring": {
+    "transition_mode": "CONTINUOUS_ACTION",
+    "reason": "S01第6拍接上一拍"
+   },
+   "incoming_transition_mode": "CONTINUOUS_ACTION",
+   "axis": "宝座—殿门一线，台阶在中",
+   "screenplay_ref": {
+    "line_no": 14,
+    "kind": "silent"
+   }
+  },
+  {
+   "shot_id": "E25-S01-07",
+   "scene_id": "E25-S01",
+   "location_id": "LOC-YAOHUANG-HALL",
+   "target_seconds": 4.5,
+   "shot_size": "MEDIUM_CLOSE_UP",
+   "camera": "MEDIUM_CLOSE_UP，固定机位，过肩商余烬",
+   "subspace_id": "殿柱",
+   "frame_content": "白桃帝姬对商余烬说出「妖皇竟然是你——被你师父赶出师门了？」",
+   "blocking": "白桃帝姬对商余烬说出「妖皇竟然是你——被你师父赶出师门了？」",
+   "entry_state": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：众妖回头。殿门逆光，商余烬走进殿门，龙夜澈、冥帝一左一右跟在他身后",
+   "completion_state": "白桃帝姬说完「妖皇竟然是你——被你师父赶出师…」，商余烬还没有接话",
+   "first_frame_motion_state": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：众妖回头。殿门逆光，商余烬走进殿门，龙夜澈、冥帝一左一右跟在他身后",
+   "state_delta_dimensions": [
+    "POSTURE"
+   ],
+   "state_delta_evidence": {
+    "POSTURE": {
+     "entry": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：众妖回头。殿门逆光，商余烬走进殿门，龙夜澈、冥帝一左一右跟在他身后",
+     "exit": "白桃帝姬说完「妖皇竟然是你——被你师父赶出师…」，商余烬还没有接话"
+    }
+   },
+   "dialogue_delivery": {
+    "chinese_characters_per_second": 4.0
+   },
+   "dialogue": "白桃帝姬：妖皇竟然是你——被你师父赶出师门了？",
+   "prompt_spec": {
+    "space": {
+     "location": "LOC-YAOHUANG-HALL",
+     "subspace": "殿柱"
+    },
+    "scene_state": {
+     "time": "日",
+     "weather": "晴",
+     "light": "殿门逆光"
+    },
+    "cast": [
+     {
+      "character": "白桃帝姬",
+      "character_id": "CHAR-BAITAODIJI",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "白金色天界战袍，腰间挂战神令"
+      }
+     },
+     {
+      "character": "商余烬",
+      "character_id": "CHAR-SHANGYUJIN",
+      "life_state": "alive",
+      "face_visibility": "BACK_AND_SHOULDERS_ONLY",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "墨黑妖皇交领长袍，银色腰封"
+      }
+     }
+    ],
+    "dialogue": "白桃帝姬：妖皇竟然是你——被你师父赶出师门了？",
+    "dialogue_delivery": {
+     "chinese_characters_per_second": 4.0
+    },
+    "action": {
+     "subject_id": "CHAR-BAITAODIJI",
+     "initiator_entity_id": "CHAR-BAITAODIJI",
+     "target_entity_id": "CHAR-BAITAODIJI",
+     "interaction_mode": "NONE",
+     "action_kind": "NON_COMBAT",
+     "primary_action": "白桃帝姬对商余烬说出「妖皇竟然是你——被你师父赶出师门了？」",
+     "start_state": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：众妖回头。殿门逆光，商余烬走进殿门，龙夜澈、冥帝一左一右跟在他身后",
+     "completion_state": "白桃帝姬说完「妖皇竟然是你——被你师父赶出师…」，商余烬还没有接话",
+     "physical_causality": "由白桃帝姬的这一句/这一动作引出",
+     "state_delta_dimensions": [
+      "POSTURE"
+     ],
+     "state_delta_evidence": {
+      "POSTURE": {
+       "entry": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：众妖回头。殿门逆光，商余烬走进殿门，龙夜澈、冥帝一左一右跟在他身后",
+       "exit": "白桃帝姬说完「妖皇竟然是你——被你师父赶出师…」，商余烬还没有接话"
+      }
+     },
+     "source": "fallback",
+     "field_sources": {
+      "primary_action": "fallback",
+      "entry_state": "carried",
+      "completion_state": "fallback",
+      "body_action": "screenplay",
+      "delivery": "screenplay"
+     },
+     "performance": {
+      "emotion": "疑",
+      "emotion_basis": "parenthetical",
+      "body_action": "白桃帝姬上下打量，挑眉",
+      "delivery": "上下打量，挑眉",
+      "delivery_en": "looks him up and down, one eyebrow raised, the question teasing"
+     }
+    },
+    "camera_plan": {
+     "shot_scale": "MEDIUM_CLOSE_UP",
+     "camera_height": "EYE_LEVEL",
+     "camera_side": "AXIS_A",
+     "motion_family": "LOCKED",
+     "motion_direction": "NONE",
+     "lens_intent": "过肩固定：拿一句臣服回去交差，最好别打",
+     "axis_relation": "SAME_SIDE",
+     "start_framing": "白桃帝姬在妖皇宫正殿殿柱旁，商余烬的后脑与肩在前景虚化，殿门逆光；白桃帝姬视线略偏离镜头，朝商余烬一侧",
+     "end_framing": "白桃帝姬在妖皇宫正殿殿柱旁，商余烬的后脑与肩在前景虚化，殿门逆光；白桃帝姬视线略偏离镜头，朝商余烬一侧",
+     "motivation": "固定看清白桃帝姬这一拍"
+    },
+    "role_semantic_disambiguation": {
+     "status": "PASS",
+     "primary_actor": "白桃帝姬",
+     "primary_actor_id": "CHAR-BAITAODIJI",
+     "primary_actor_kind": "CHARACTER",
+     "dialogue_speaker": "白桃帝姬",
+     "dialogue_speaker_id": "CHAR-BAITAODIJI",
+     "dialogue_listener": "商余烬",
+     "dialogue_listener_id": "CHAR-SHANGYUJIN",
+     "lip_owner_id": "CHAR-BAITAODIJI",
+     "entity_states": {
+      "CHAR-BAITAODIJI": "白桃帝姬说完「妖皇竟然是你——被你师父赶出师…」，商余烬还没有接话",
+      "CHAR-SHANGYUJIN": "商余烬在殿柱旁"
+     },
+     "entity_presence": {
+      "CHAR-BAITAODIJI": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-SHANGYUJIN": "VISIBLE_AND_IDENTITY_LOCKED"
+     }
+    },
+    "props": [],
+    "sound": {
+     "ambience": "空旷石殿的回声，殿外远远的风声与旗角翻动",
+     "sfx": [],
+     "music": "SELECTIVE_BGM"
+    },
+    "beat_role": "REVEAL",
+    "internal_transition_authoring": {
+     "transition_mode": "CONTINUOUS_ACTION",
+     "reason": "S01第7拍接上一拍"
+    }
+   },
+   "internal_transition_authoring": {
+    "transition_mode": "CONTINUOUS_ACTION",
+    "reason": "S01第7拍接上一拍"
+   },
+   "incoming_transition_mode": "CONTINUOUS_ACTION",
+   "axis": "宝座—殿门一线，台阶在中",
+   "screenplay_ref": {
+    "line_no": 16,
+    "kind": "dialogue"
+   }
+  },
+  {
+   "shot_id": "E25-S01-08",
+   "scene_id": "E25-S01",
+   "location_id": "LOC-YAOHUANG-HALL",
+   "target_seconds": 4.0,
+   "shot_size": "MEDIUM_CLOSE_UP",
+   "camera": "MEDIUM_CLOSE_UP，固定机位，过肩白桃帝姬",
+   "subspace_id": "殿门",
+   "frame_content": "商余烬对白桃帝姬说出「私事。」",
+   "blocking": "商余烬对白桃帝姬说出「私事。」",
+   "entry_state": "商余烬、白桃帝姬在妖皇宫正殿；承上一拍：白桃帝姬说完「妖皇竟然是你——被你师父赶出师…」，商余烬还没有接话",
+   "completion_state": "商余烬说完「私事。」，白桃帝姬还没有接话",
+   "first_frame_motion_state": "商余烬、白桃帝姬在妖皇宫正殿；承上一拍：白桃帝姬说完「妖皇竟然是你——被你师父赶出师…」，商余烬还没有接话",
+   "state_delta_dimensions": [
+    "POSTURE"
+   ],
+   "state_delta_evidence": {
+    "POSTURE": {
+     "entry": "商余烬、白桃帝姬在妖皇宫正殿；承上一拍：白桃帝姬说完「妖皇竟然是你——被你师父赶出师…」，商余烬还没有接话",
+     "exit": "商余烬说完「私事。」，白桃帝姬还没有接话"
+    }
+   },
+   "dialogue_delivery": {
+    "chinese_characters_per_second": 4.0
+   },
+   "dialogue": "商余烬：私事。",
+   "prompt_spec": {
+    "space": {
+     "location": "LOC-YAOHUANG-HALL",
+     "subspace": "殿门"
+    },
+    "scene_state": {
+     "time": "日",
+     "weather": "晴",
+     "light": "殿门逆光"
+    },
+    "cast": [
+     {
+      "character": "商余烬",
+      "character_id": "CHAR-SHANGYUJIN",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "墨黑妖皇交领长袍，银色腰封"
+      }
+     },
+     {
+      "character": "白桃帝姬",
+      "character_id": "CHAR-BAITAODIJI",
+      "life_state": "alive",
+      "face_visibility": "BACK_AND_SHOULDERS_ONLY",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "白金色天界战袍，腰间挂战神令"
+      }
+     }
+    ],
+    "dialogue": "商余烬：私事。",
+    "dialogue_delivery": {
+     "chinese_characters_per_second": 4.0
+    },
+    "action": {
+     "subject_id": "CHAR-SHANGYUJIN",
+     "initiator_entity_id": "CHAR-SHANGYUJIN",
+     "target_entity_id": "CHAR-SHANGYUJIN",
+     "interaction_mode": "NONE",
+     "action_kind": "NON_COMBAT",
+     "primary_action": "商余烬对白桃帝姬说出「私事。」",
+     "start_state": "商余烬、白桃帝姬在妖皇宫正殿；承上一拍：白桃帝姬说完「妖皇竟然是你——被你师父赶出师…」，商余烬还没有接话",
+     "completion_state": "商余烬说完「私事。」，白桃帝姬还没有接话",
+     "physical_causality": "由商余烬的这一句/这一动作引出",
+     "state_delta_dimensions": [
+      "POSTURE"
+     ],
+     "state_delta_evidence": {
+      "POSTURE": {
+       "entry": "商余烬、白桃帝姬在妖皇宫正殿；承上一拍：白桃帝姬说完「妖皇竟然是你——被你师父赶出师…」，商余烬还没有接话",
+       "exit": "商余烬说完「私事。」，白桃帝姬还没有接话"
+      }
+     },
+     "source": "fallback",
+     "field_sources": {
+      "primary_action": "fallback",
+      "entry_state": "carried",
+      "completion_state": "fallback",
+      "body_action": "screenplay",
+      "delivery": "screenplay"
+     },
+     "performance": {
+      "emotion": "坚",
+      "emotion_basis": "parenthetical",
+      "body_action": "商余烬不停步，冰冷",
+      "delivery": "不停步，冰冷",
+      "delivery_en": "without breaking stride, ice cold, one word"
+     }
+    },
+    "camera_plan": {
+     "shot_scale": "MEDIUM_CLOSE_UP",
+     "camera_height": "EYE_LEVEL",
+     "camera_side": "AXIS_A",
+     "motion_family": "LOCKED",
+     "motion_direction": "NONE",
+     "lens_intent": "过肩固定：拿一句臣服回去交差，最好别打",
+     "axis_relation": "SAME_SIDE",
+     "start_framing": "商余烬在妖皇宫正殿殿门旁，白桃帝姬的后脑与肩在前景虚化，殿门逆光；商余烬视线略偏离镜头，朝白桃帝姬一侧",
+     "end_framing": "商余烬在妖皇宫正殿殿门旁，白桃帝姬的后脑与肩在前景虚化，殿门逆光；商余烬视线略偏离镜头，朝白桃帝姬一侧",
+     "motivation": "固定看清商余烬这一拍"
+    },
+    "role_semantic_disambiguation": {
+     "status": "PASS",
+     "primary_actor": "商余烬",
+     "primary_actor_id": "CHAR-SHANGYUJIN",
+     "primary_actor_kind": "CHARACTER",
+     "dialogue_speaker": "商余烬",
+     "dialogue_speaker_id": "CHAR-SHANGYUJIN",
+     "dialogue_listener": "白桃帝姬",
+     "dialogue_listener_id": "CHAR-BAITAODIJI",
+     "lip_owner_id": "CHAR-SHANGYUJIN",
+     "entity_states": {
+      "CHAR-SHANGYUJIN": "商余烬说完「私事。」，白桃帝姬还没有接话",
+      "CHAR-BAITAODIJI": "白桃帝姬在殿门旁"
+     },
+     "entity_presence": {
+      "CHAR-SHANGYUJIN": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-BAITAODIJI": "VISIBLE_AND_IDENTITY_LOCKED"
+     }
+    },
+    "props": [],
+    "sound": {
+     "ambience": "空旷石殿的回声，殿外远远的风声与旗角翻动",
+     "sfx": [],
+     "music": "SELECTIVE_BGM"
+    },
+    "beat_role": "LINE",
+    "internal_transition_authoring": {
+     "transition_mode": "CONTINUOUS_ACTION",
+     "reason": "S01第8拍接上一拍"
+    }
+   },
+   "internal_transition_authoring": {
+    "transition_mode": "CONTINUOUS_ACTION",
+    "reason": "S01第8拍接上一拍"
+   },
+   "incoming_transition_mode": "CONTINUOUS_ACTION",
+   "axis": "宝座—殿门一线，台阶在中",
+   "screenplay_ref": {
+    "line_no": 17,
+    "kind": "dialogue"
+   }
+  },
+  {
+   "shot_id": "E25-S01-09",
+   "scene_id": "E25-S01",
+   "location_id": "LOC-YAOHUANG-HALL",
+   "target_seconds": 4.5,
+   "shot_size": "MEDIUM",
+   "camera": "MEDIUM，固定机位",
+   "subspace_id": "妖皇宝座",
+   "frame_content": "白桃起身，走下两级台阶，把战神令亮到商余烬眼前。",
+   "blocking": "白桃起身，走下两级台阶，把战神令亮到商余烬眼前。",
+   "entry_state": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：商余烬说完「私事。」，白桃帝姬还没有接话",
+   "completion_state": "白桃起身，走下两级台阶，把战神令亮到商余烬眼前。",
+   "first_frame_motion_state": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：商余烬说完「私事。」，白桃帝姬还没有接话",
+   "state_delta_dimensions": [
+    "POSSESSION",
+    "POSITION",
+    "POSTURE"
+   ],
+   "state_delta_evidence": {
+    "POSSESSION": {
+     "entry": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：商余烬说完「私事。」，白桃帝姬还没有接话",
+     "exit": "白桃起身，走下两级台阶，把战神令亮到商余烬眼前。"
+    },
+    "POSITION": {
+     "entry": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：商余烬说完「私事。」，白桃帝姬还没有接话",
+     "exit": "白桃起身，走下两级台阶，把战神令亮到商余烬眼前。"
+    },
+    "POSTURE": {
+     "entry": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：商余烬说完「私事。」，白桃帝姬还没有接话",
+     "exit": "白桃起身，走下两级台阶，把战神令亮到商余烬眼前。"
+    }
+   },
+   "dialogue_delivery": {
+    "chinese_characters_per_second": 4.0
+   },
+   "dialogue": "白桃帝姬：天君让我来灭你。不想被灭，就俯首称臣。",
+   "prompt_spec": {
+    "space": {
+     "location": "LOC-YAOHUANG-HALL",
+     "subspace": "妖皇宝座"
+    },
+    "scene_state": {
+     "time": "日",
+     "weather": "晴",
+     "light": "殿门逆光"
+    },
+    "cast": [
+     {
+      "character": "白桃帝姬",
+      "character_id": "CHAR-BAITAODIJI",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "白金色天界战袍，腰间挂战神令"
+      }
+     },
+     {
+      "character": "商余烬",
+      "character_id": "CHAR-SHANGYUJIN",
+      "life_state": "alive",
+      "face_visibility": "THREE_QUARTER_BUST",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "墨黑妖皇交领长袍，银色腰封"
+      }
+     }
+    ],
+    "dialogue": "白桃帝姬：天君让我来灭你。不想被灭，就俯首称臣。",
+    "dialogue_delivery": {
+     "chinese_characters_per_second": 4.0
+    },
+    "action": {
+     "subject_id": "CHAR-BAITAODIJI",
+     "initiator_entity_id": "CHAR-BAITAODIJI",
+     "target_entity_id": "CHAR-BAITAODIJI",
+     "interaction_mode": "NONE",
+     "action_kind": "NON_COMBAT",
+     "primary_action": "白桃起身，走下两级台阶，把战神令亮到商余烬眼前。",
+     "start_state": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：商余烬说完「私事。」，白桃帝姬还没有接话",
+     "completion_state": "白桃起身，走下两级台阶，把战神令亮到商余烬眼前。",
+     "physical_causality": "由白桃帝姬的这一句/这一动作引出",
+     "state_delta_dimensions": [
+      "POSSESSION",
+      "POSITION",
+      "POSTURE"
+     ],
+     "state_delta_evidence": {
+      "POSSESSION": {
+       "entry": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：商余烬说完「私事。」，白桃帝姬还没有接话",
+       "exit": "白桃起身，走下两级台阶，把战神令亮到商余烬眼前。"
+      },
+      "POSITION": {
+       "entry": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：商余烬说完「私事。」，白桃帝姬还没有接话",
+       "exit": "白桃起身，走下两级台阶，把战神令亮到商余烬眼前。"
+      },
+      "POSTURE": {
+       "entry": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：商余烬说完「私事。」，白桃帝姬还没有接话",
+       "exit": "白桃起身，走下两级台阶，把战神令亮到商余烬眼前。"
+      }
+     },
+     "source": "screenplay",
+     "field_sources": {
+      "primary_action": "screenplay",
+      "entry_state": "carried",
+      "completion_state": "screenplay",
+      "body_action": "screenplay",
+      "delivery": "screenplay"
+     },
+     "performance": {
+      "emotion": "狠",
+      "emotion_basis": "parenthetical",
+      "body_action": "白桃起身，走下两级台阶，把战神令亮到商余烬眼前。",
+      "delivery": "压低声，威胁",
+      "delivery_en": "voice dropped low, a threat, hard on the last words",
+      "business_en": "Bai Tao rises, walks down two steps and holds the war-god token up in front of Shang Yujin's eyes."
+     },
+     "action_en": "Bai Tao rises, walks down two steps and holds the war-god token up in front of Shang Yujin's eyes."
+    },
+    "camera_plan": {
+     "shot_scale": "MEDIUM",
+     "camera_height": "EYE_LEVEL",
+     "camera_side": "AXIS_A",
+     "motion_family": "LOCKED",
+     "motion_direction": "NONE",
+     "lens_intent": "单人固定：拿一句臣服回去交差，最好别打",
+     "axis_relation": "SAME_SIDE",
+     "start_framing": "白桃帝姬、商余烬在妖皇宫正殿妖皇宝座旁，殿门逆光；白桃帝姬视线略偏离镜头，朝商余烬一侧",
+     "end_framing": "白桃帝姬、商余烬在妖皇宫正殿妖皇宝座旁，殿门逆光；白桃帝姬视线略偏离镜头，朝商余烬一侧",
+     "motivation": "固定看清白桃帝姬这一拍"
+    },
+    "role_semantic_disambiguation": {
+     "status": "PASS",
+     "primary_actor": "白桃帝姬",
+     "primary_actor_id": "CHAR-BAITAODIJI",
+     "primary_actor_kind": "CHARACTER",
+     "dialogue_speaker": "白桃帝姬",
+     "dialogue_speaker_id": "CHAR-BAITAODIJI",
+     "dialogue_listener": "商余烬",
+     "dialogue_listener_id": "CHAR-SHANGYUJIN",
+     "lip_owner_id": "CHAR-BAITAODIJI",
+     "entity_states": {
+      "CHAR-BAITAODIJI": "白桃起身，走下两级台阶，把战神令亮到商余烬眼前。",
+      "CHAR-SHANGYUJIN": "商余烬在妖皇宝座旁"
+     },
+     "entity_presence": {
+      "CHAR-BAITAODIJI": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-SHANGYUJIN": "VISIBLE_AND_IDENTITY_LOCKED"
+     }
+    },
+    "props": [
+     {
+      "prop": "战神令",
+      "prop_id": "PROP-ZHANSHENLING",
+      "entity_id": "PROP-ZHANSHENLING",
+      "owner_id": "CHAR-BAITAODIJI",
+      "owner_name": "白桃帝姬",
+      "hand": "右手"
+     }
+    ],
+    "sound": {
+     "ambience": "空旷石殿的回声，殿外远远的风声与旗角翻动",
+     "sfx": [],
+     "music": "SELECTIVE_BGM"
+    },
+    "beat_role": "PAYOFF",
+    "internal_transition_authoring": {
+     "transition_mode": "CONTINUOUS_ACTION",
+     "reason": "S01第9拍接上一拍"
+    }
+   },
+   "internal_transition_authoring": {
+    "transition_mode": "CONTINUOUS_ACTION",
+    "reason": "S01第9拍接上一拍"
+   },
+   "incoming_transition_mode": "CONTINUOUS_ACTION",
+   "axis": "宝座—殿门一线，台阶在中",
+   "screenplay_ref": {
+    "line_no": 19,
+    "kind": "dialogue"
+   }
+  },
+  {
+   "shot_id": "E25-S01-10",
+   "scene_id": "E25-S01",
+   "location_id": "LOC-YAOHUANG-HALL",
+   "target_seconds": 4.0,
+   "shot_size": "MEDIUM",
+   "camera": "MEDIUM，固定机位",
+   "subspace_id": "台阶",
+   "frame_content": "商余烬看着令牌，低低笑了一声。",
+   "blocking": "商余烬看着令牌，低低笑了一声。",
+   "entry_state": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：白桃起身，走下两级台阶，把战神令亮到商余烬眼前",
+   "completion_state": "白桃帝姬说完「你笑什么？」，商余烬还没有接话",
+   "first_frame_motion_state": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：白桃起身，走下两级台阶，把战神令亮到商余烬眼前",
+   "state_delta_dimensions": [
+    "POSTURE"
+   ],
+   "state_delta_evidence": {
+    "POSTURE": {
+     "entry": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：白桃起身，走下两级台阶，把战神令亮到商余烬眼前",
+     "exit": "白桃帝姬说完「你笑什么？」，商余烬还没有接话"
+    }
+   },
+   "dialogue_delivery": {
+    "chinese_characters_per_second": 4.0
+   },
+   "dialogue": "白桃帝姬：你笑什么？",
+   "prompt_spec": {
+    "space": {
+     "location": "LOC-YAOHUANG-HALL",
+     "subspace": "台阶"
+    },
+    "scene_state": {
+     "time": "日",
+     "weather": "晴",
+     "light": "殿门逆光"
+    },
+    "cast": [
+     {
+      "character": "白桃帝姬",
+      "character_id": "CHAR-BAITAODIJI",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "白金色天界战袍，腰间挂战神令"
+      }
+     },
+     {
+      "character": "商余烬",
+      "character_id": "CHAR-SHANGYUJIN",
+      "life_state": "alive",
+      "face_visibility": "THREE_QUARTER_BUST",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "墨黑妖皇交领长袍，银色腰封"
+      }
+     }
+    ],
+    "dialogue": "白桃帝姬：你笑什么？",
+    "dialogue_delivery": {
+     "chinese_characters_per_second": 4.0
+    },
+    "action": {
+     "subject_id": "CHAR-BAITAODIJI",
+     "initiator_entity_id": "CHAR-BAITAODIJI",
+     "target_entity_id": "CHAR-BAITAODIJI",
+     "interaction_mode": "NONE",
+     "action_kind": "NON_COMBAT",
+     "primary_action": "商余烬看着令牌，低低笑了一声。",
+     "start_state": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：白桃起身，走下两级台阶，把战神令亮到商余烬眼前",
+     "completion_state": "白桃帝姬说完「你笑什么？」，商余烬还没有接话",
+     "physical_causality": "由白桃帝姬的这一句/这一动作引出",
+     "state_delta_dimensions": [
+      "POSTURE"
+     ],
+     "state_delta_evidence": {
+      "POSTURE": {
+       "entry": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：白桃起身，走下两级台阶，把战神令亮到商余烬眼前",
+       "exit": "白桃帝姬说完「你笑什么？」，商余烬还没有接话"
+      }
+     },
+     "source": "screenplay",
+     "field_sources": {
+      "primary_action": "screenplay",
+      "entry_state": "carried",
+      "completion_state": "fallback",
+      "body_action": "screenplay",
+      "delivery": "screenplay"
+     },
+     "performance": {
+      "emotion": "疑",
+      "emotion_basis": "parenthetical",
+      "body_action": "白桃帝姬狐疑",
+      "delivery": "狐疑",
+      "delivery_en": "suspicious, the question sharp"
+     },
+     "action_en": "Shang Yujin looks at the token and gives one low laugh."
+    },
+    "camera_plan": {
+     "shot_scale": "MEDIUM",
+     "camera_height": "EYE_LEVEL",
+     "camera_side": "AXIS_A",
+     "motion_family": "LOCKED",
+     "motion_direction": "NONE",
+     "lens_intent": "单人固定：拿一句臣服回去交差，最好别打",
+     "axis_relation": "SAME_SIDE",
+     "start_framing": "白桃帝姬、商余烬在妖皇宫正殿台阶旁，殿门逆光；白桃帝姬视线略偏离镜头，朝商余烬一侧",
+     "end_framing": "白桃帝姬、商余烬在妖皇宫正殿台阶旁，殿门逆光；白桃帝姬视线略偏离镜头，朝商余烬一侧",
+     "motivation": "固定看清白桃帝姬这一拍"
+    },
+    "role_semantic_disambiguation": {
+     "status": "PASS",
+     "primary_actor": "白桃帝姬",
+     "primary_actor_id": "CHAR-BAITAODIJI",
+     "primary_actor_kind": "CHARACTER",
+     "dialogue_speaker": "白桃帝姬",
+     "dialogue_speaker_id": "CHAR-BAITAODIJI",
+     "dialogue_listener": "商余烬",
+     "dialogue_listener_id": "CHAR-SHANGYUJIN",
+     "lip_owner_id": "CHAR-BAITAODIJI",
+     "entity_states": {
+      "CHAR-BAITAODIJI": "白桃帝姬说完「你笑什么？」，商余烬还没有接话",
+      "CHAR-SHANGYUJIN": "商余烬在台阶旁"
+     },
+     "entity_presence": {
+      "CHAR-BAITAODIJI": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-SHANGYUJIN": "VISIBLE_AND_IDENTITY_LOCKED"
+     }
+    },
+    "props": [
+     {
+      "prop": "战神令",
+      "prop_id": "PROP-ZHANSHENLING",
+      "entity_id": "PROP-ZHANSHENLING",
+      "owner_id": "CHAR-BAITAODIJI",
+      "owner_name": "白桃帝姬",
+      "hand": "右手"
+     }
+    ],
+    "sound": {
+     "ambience": "空旷石殿的回声，殿外远远的风声与旗角翻动",
+     "sfx": [],
+     "music": "SELECTIVE_BGM"
+    },
+    "beat_role": "LINE",
+    "internal_transition_authoring": {
+     "transition_mode": "CONTINUOUS_ACTION",
+     "reason": "S01第10拍接上一拍"
+    }
+   },
+   "internal_transition_authoring": {
+    "transition_mode": "CONTINUOUS_ACTION",
+    "reason": "S01第10拍接上一拍"
+   },
+   "incoming_transition_mode": "CONTINUOUS_ACTION",
+   "axis": "宝座—殿门一线，台阶在中",
+   "screenplay_ref": {
+    "line_no": 21,
+    "kind": "dialogue"
+   }
+  },
+  {
+   "shot_id": "E25-S01-11",
+   "scene_id": "E25-S01",
+   "location_id": "LOC-YAOHUANG-HALL",
+   "target_seconds": 5.0,
+   "shot_size": "CLOSE_UP",
+   "camera": "CLOSE_UP，缓推约一成，「动机：本场转折」",
+   "subspace_id": "殿柱",
+   "frame_content": "商余烬对白桃帝姬说出「之前忘了礼数。带我去见天君，我当面称臣。」",
+   "blocking": "商余烬对白桃帝姬说出「之前忘了礼数。带我去见天君，我当面称臣。」",
+   "entry_state": "商余烬、白桃帝姬在妖皇宫正殿；承上一拍：白桃帝姬说完「你笑什么？」，商余烬还没有接话",
+   "completion_state": "白桃帝姬嘴张了一下又闭上，把战神令慢慢收回腰间。",
+   "first_frame_motion_state": "商余烬、白桃帝姬在妖皇宫正殿；承上一拍：白桃帝姬说完「你笑什么？」，商余烬还没有接话",
+   "state_delta_dimensions": [
+    "POSTURE"
+   ],
+   "state_delta_evidence": {
+    "POSTURE": {
+     "entry": "商余烬、白桃帝姬在妖皇宫正殿；承上一拍：白桃帝姬说完「你笑什么？」，商余烬还没有接话",
+     "exit": "白桃帝姬嘴张了一下又闭上，把战神令慢慢收回腰间。"
+    }
+   },
+   "dialogue_delivery": {
+    "chinese_characters_per_second": 4.0
+   },
+   "dialogue": "商余烬：之前忘了礼数。带我去见天君，我当面称臣。",
+   "prompt_spec": {
+    "space": {
+     "location": "LOC-YAOHUANG-HALL",
+     "subspace": "殿柱"
+    },
+    "scene_state": {
+     "time": "日",
+     "weather": "晴",
+     "light": "殿门逆光"
+    },
+    "cast": [
+     {
+      "character": "商余烬",
+      "character_id": "CHAR-SHANGYUJIN",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "墨黑妖皇交领长袍，银色腰封"
+      }
+     },
+     {
+      "character": "白桃帝姬",
+      "character_id": "CHAR-BAITAODIJI",
+      "life_state": "alive",
+      "face_visibility": "THREE_QUARTER_BUST",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "白金色天界战袍，腰间挂战神令"
+      }
+     }
+    ],
+    "dialogue": "商余烬：之前忘了礼数。带我去见天君，我当面称臣。",
+    "dialogue_delivery": {
+     "chinese_characters_per_second": 4.0
+    },
+    "action": {
+     "subject_id": "CHAR-SHANGYUJIN",
+     "initiator_entity_id": "CHAR-SHANGYUJIN",
+     "target_entity_id": "CHAR-SHANGYUJIN",
+     "interaction_mode": "NONE",
+     "action_kind": "NON_COMBAT",
+     "primary_action": "商余烬对白桃帝姬说出「之前忘了礼数。带我去见天君，我当面称臣。」",
+     "start_state": "商余烬、白桃帝姬在妖皇宫正殿；承上一拍：白桃帝姬说完「你笑什么？」，商余烬还没有接话",
+     "completion_state": "白桃帝姬嘴张了一下又闭上，把战神令慢慢收回腰间。",
+     "physical_causality": "由商余烬的这一句/这一动作引出",
+     "state_delta_dimensions": [
+      "POSTURE"
+     ],
+     "state_delta_evidence": {
+      "POSTURE": {
+       "entry": "商余烬、白桃帝姬在妖皇宫正殿；承上一拍：白桃帝姬说完「你笑什么？」，商余烬还没有接话",
+       "exit": "白桃帝姬嘴张了一下又闭上，把战神令慢慢收回腰间。"
+      }
+     },
+     "source": "fallback",
+     "field_sources": {
+      "primary_action": "fallback",
+      "entry_state": "carried",
+      "completion_state": "screenplay",
+      "body_action": "screenplay",
+      "delivery": "screenplay"
+     },
+     "performance": {
+      "emotion": "戏",
+      "emotion_basis": "parenthetical",
+      "body_action": "商余烬轻笑，坦然",
+      "delivery": "轻笑，坦然",
+      "delivery_en": "a light laugh, then open and easy, as if it costs him nothing"
+     },
+     "listener_reaction": "白桃帝姬：嘴张了一下又闭上，把战神令慢慢收回腰间",
+     "listener_reaction_en": "Bai Tao opens her mouth, closes it again, and slowly tucks the war-god token back at her waist."
+    },
+    "camera_plan": {
+     "shot_scale": "CLOSE_UP",
+     "camera_height": "EYE_LEVEL",
+     "camera_side": "AXIS_A",
+     "motion_family": "DOLLY",
+     "motion_direction": "PUSH_IN",
+     "lens_intent": "单人推近：正主进门一口答应称臣，她准备好的狠话全落空",
+     "axis_relation": "SAME_SIDE",
+     "start_framing": "商余烬、白桃帝姬在妖皇宫正殿殿柱旁，殿门逆光；商余烬视线略偏离镜头，朝白桃帝姬一侧",
+     "end_framing": "商余烬、白桃帝姬在妖皇宫正殿殿柱旁，殿门逆光；商余烬视线略偏离镜头，朝白桃帝姬一侧（推近后略紧）",
+     "motivation": "动机：本场转折——正主进门一口答应称臣，她准备好的狠话全落空"
+    },
+    "role_semantic_disambiguation": {
+     "status": "PASS",
+     "primary_actor": "商余烬",
+     "primary_actor_id": "CHAR-SHANGYUJIN",
+     "primary_actor_kind": "CHARACTER",
+     "dialogue_speaker": "商余烬",
+     "dialogue_speaker_id": "CHAR-SHANGYUJIN",
+     "dialogue_listener": "白桃帝姬",
+     "dialogue_listener_id": "CHAR-BAITAODIJI",
+     "lip_owner_id": "CHAR-SHANGYUJIN",
+     "entity_states": {
+      "CHAR-SHANGYUJIN": "白桃帝姬嘴张了一下又闭上，把战神令慢慢收回腰间。",
+      "CHAR-BAITAODIJI": "白桃帝姬在殿柱旁"
+     },
+     "entity_presence": {
+      "CHAR-SHANGYUJIN": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-BAITAODIJI": "VISIBLE_AND_IDENTITY_LOCKED"
+     }
+    },
+    "props": [
+     {
+      "prop": "战神令",
+      "prop_id": "PROP-ZHANSHENLING",
+      "entity_id": "PROP-ZHANSHENLING",
+      "owner_id": "CHAR-BAITAODIJI",
+      "owner_name": "白桃帝姬",
+      "hand": "右手"
+     }
+    ],
+    "sound": {
+     "ambience": "空旷石殿的回声，殿外远远的风声与旗角翻动",
+     "sfx": [],
+     "music": "SELECTIVE_BGM"
+    },
+    "beat_role": "TURN",
+    "internal_transition_authoring": {
+     "transition_mode": "CONTINUOUS_ACTION",
+     "reason": "S01第11拍接上一拍"
+    },
+    "double_meaning": true
+   },
+   "internal_transition_authoring": {
+    "transition_mode": "CONTINUOUS_ACTION",
+    "reason": "S01第11拍接上一拍"
+   },
+   "incoming_transition_mode": "CONTINUOUS_ACTION",
+   "axis": "宝座—殿门一线，台阶在中",
+   "screenplay_ref": {
+    "line_no": 22,
+    "kind": "dialogue"
+   }
+  },
+  {
+   "shot_id": "E25-S01-12",
+   "scene_id": "E25-S01",
+   "location_id": "LOC-YAOHUANG-HALL",
+   "target_seconds": 4.0,
+   "shot_size": "MEDIUM_CLOSE_UP",
+   "camera": "MEDIUM_CLOSE_UP，固定机位，过肩商余烬",
+   "subspace_id": "殿门",
+   "frame_content": "白桃帝姬对商余烬说出「……那就走。」",
+   "blocking": "白桃帝姬对商余烬说出「……那就走。」",
+   "entry_state": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：白桃帝姬嘴张了一下又闭上，把战神令慢慢收回腰间",
+   "completion_state": "白桃帝姬说完「……那就走。」，商余烬还没有接话",
+   "first_frame_motion_state": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：白桃帝姬嘴张了一下又闭上，把战神令慢慢收回腰间",
+   "state_delta_dimensions": [
+    "POSTURE"
+   ],
+   "state_delta_evidence": {
+    "POSTURE": {
+     "entry": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：白桃帝姬嘴张了一下又闭上，把战神令慢慢收回腰间",
+     "exit": "白桃帝姬说完「……那就走。」，商余烬还没有接话"
+    }
+   },
+   "dialogue_delivery": {
+    "chinese_characters_per_second": 4.0
+   },
+   "dialogue": "白桃帝姬：……那就走。",
+   "prompt_spec": {
+    "space": {
+     "location": "LOC-YAOHUANG-HALL",
+     "subspace": "殿门"
+    },
+    "scene_state": {
+     "time": "日",
+     "weather": "晴",
+     "light": "殿门逆光"
+    },
+    "cast": [
+     {
+      "character": "白桃帝姬",
+      "character_id": "CHAR-BAITAODIJI",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "白金色天界战袍，腰间挂战神令"
+      }
+     },
+     {
+      "character": "商余烬",
+      "character_id": "CHAR-SHANGYUJIN",
+      "life_state": "alive",
+      "face_visibility": "BACK_AND_SHOULDERS_ONLY",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "墨黑妖皇交领长袍，银色腰封"
+      }
+     }
+    ],
+    "dialogue": "白桃帝姬：……那就走。",
+    "dialogue_delivery": {
+     "chinese_characters_per_second": 4.0
+    },
+    "action": {
+     "subject_id": "CHAR-BAITAODIJI",
+     "initiator_entity_id": "CHAR-BAITAODIJI",
+     "target_entity_id": "CHAR-BAITAODIJI",
+     "interaction_mode": "NONE",
+     "action_kind": "NON_COMBAT",
+     "primary_action": "白桃帝姬对商余烬说出「……那就走。」",
+     "start_state": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：白桃帝姬嘴张了一下又闭上，把战神令慢慢收回腰间",
+     "completion_state": "白桃帝姬说完「……那就走。」，商余烬还没有接话",
+     "physical_causality": "由白桃帝姬的这一句/这一动作引出",
+     "state_delta_dimensions": [
+      "POSTURE"
+     ],
+     "state_delta_evidence": {
+      "POSTURE": {
+       "entry": "白桃帝姬、商余烬在妖皇宫正殿；承上一拍：白桃帝姬嘴张了一下又闭上，把战神令慢慢收回腰间",
+       "exit": "白桃帝姬说完「……那就走。」，商余烬还没有接话"
+      }
+     },
+     "source": "fallback",
+     "field_sources": {
+      "primary_action": "fallback",
+      "entry_state": "carried",
+      "completion_state": "fallback",
+      "body_action": "screenplay",
+      "delivery": "screenplay"
+     },
+     "performance": {
+      "emotion": "倦",
+      "emotion_basis": "parenthetical",
+      "body_action": "白桃帝姬干巴巴",
+      "delivery": "干巴巴",
+      "delivery_en": "flat and deflated, the threat gone out of her"
+     }
+    },
+    "camera_plan": {
+     "shot_scale": "MEDIUM_CLOSE_UP",
+     "camera_height": "EYE_LEVEL",
+     "camera_side": "AXIS_A",
+     "motion_family": "LOCKED",
+     "motion_direction": "NONE",
+     "lens_intent": "过肩固定：拿一句臣服回去交差，最好别打",
+     "axis_relation": "SAME_SIDE",
+     "start_framing": "白桃帝姬在妖皇宫正殿殿门旁，商余烬的后脑与肩在前景虚化，殿门逆光；白桃帝姬视线略偏离镜头，朝商余烬一侧",
+     "end_framing": "白桃帝姬在妖皇宫正殿殿门旁，商余烬的后脑与肩在前景虚化，殿门逆光；白桃帝姬视线略偏离镜头，朝商余烬一侧",
+     "motivation": "固定看清白桃帝姬这一拍"
+    },
+    "role_semantic_disambiguation": {
+     "status": "PASS",
+     "primary_actor": "白桃帝姬",
+     "primary_actor_id": "CHAR-BAITAODIJI",
+     "primary_actor_kind": "CHARACTER",
+     "dialogue_speaker": "白桃帝姬",
+     "dialogue_speaker_id": "CHAR-BAITAODIJI",
+     "dialogue_listener": "商余烬",
+     "dialogue_listener_id": "CHAR-SHANGYUJIN",
+     "lip_owner_id": "CHAR-BAITAODIJI",
+     "entity_states": {
+      "CHAR-BAITAODIJI": "白桃帝姬说完「……那就走。」，商余烬还没有接话",
+      "CHAR-SHANGYUJIN": "商余烬在殿门旁"
+     },
+     "entity_presence": {
+      "CHAR-BAITAODIJI": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-SHANGYUJIN": "VISIBLE_AND_IDENTITY_LOCKED"
+     }
+    },
+    "props": [],
+    "sound": {
+     "ambience": "空旷石殿的回声，殿外远远的风声与旗角翻动",
+     "sfx": [],
+     "music": "SELECTIVE_BGM"
+    },
+    "beat_role": "LINE",
+    "internal_transition_authoring": {
+     "transition_mode": "CONTINUOUS_ACTION",
+     "reason": "S01第12拍接上一拍"
+    }
+   },
+   "internal_transition_authoring": {
+    "transition_mode": "CONTINUOUS_ACTION",
+    "reason": "S01第12拍接上一拍"
+   },
+   "incoming_transition_mode": "CONTINUOUS_ACTION",
+   "axis": "宝座—殿门一线，台阶在中",
+   "screenplay_ref": {
+    "line_no": 24,
+    "kind": "dialogue"
+   }
+  },
+  {
+   "shot_id": "E25-S01-13",
+   "scene_id": "E25-S01",
+   "location_id": "LOC-YAOHUANG-HALL",
+   "target_seconds": 4.0,
+   "shot_size": "MEDIUM",
+   "camera": "MEDIUM，固定机位",
+   "subspace_id": "妖皇宝座",
+   "frame_content": "麒麟冲上一步，抓住商余烬的袖子。",
+   "blocking": "麒麟冲上一步，抓住商余烬的袖子。",
+   "entry_state": "麒麟、商余烬在妖皇宫正殿；承上一拍：白桃帝姬说完「……那就走。」，商余烬还没有接话",
+   "completion_state": "麒麟冲上一步，抓住商余烬的袖子。",
+   "first_frame_motion_state": "麒麟、商余烬在妖皇宫正殿；承上一拍：白桃帝姬说完「……那就走。」，商余烬还没有接话",
+   "state_delta_dimensions": [
+    "CONTACT",
+    "POSITION",
+    "POSTURE"
+   ],
+   "state_delta_evidence": {
+    "CONTACT": {
+     "entry": "麒麟、商余烬在妖皇宫正殿；承上一拍：白桃帝姬说完「……那就走。」，商余烬还没有接话",
+     "exit": "麒麟冲上一步，抓住商余烬的袖子。"
+    },
+    "POSITION": {
+     "entry": "麒麟、商余烬在妖皇宫正殿；承上一拍：白桃帝姬说完「……那就走。」，商余烬还没有接话",
+     "exit": "麒麟冲上一步，抓住商余烬的袖子。"
+    },
+    "POSTURE": {
+     "entry": "麒麟、商余烬在妖皇宫正殿；承上一拍：白桃帝姬说完「……那就走。」，商余烬还没有接话",
+     "exit": "麒麟冲上一步，抓住商余烬的袖子。"
+    }
+   },
+   "dialogue_delivery": {
+    "chinese_characters_per_second": 4.0
+   },
+   "dialogue": "麒麟：带上我。",
+   "prompt_spec": {
+    "space": {
+     "location": "LOC-YAOHUANG-HALL",
+     "subspace": "妖皇宝座"
+    },
+    "scene_state": {
+     "time": "日",
+     "weather": "晴",
+     "light": "殿门逆光"
+    },
+    "cast": [
+     {
+      "character": "麒麟",
+      "character_id": "CHAR-QILINHUMAN",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "黑色交领长袍"
+      }
+     },
+     {
+      "character": "商余烬",
+      "character_id": "CHAR-SHANGYUJIN",
+      "life_state": "alive",
+      "face_visibility": "THREE_QUARTER_BUST",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "墨黑妖皇交领长袍，银色腰封"
+      }
+     }
+    ],
+    "dialogue": "麒麟：带上我。",
+    "dialogue_delivery": {
+     "chinese_characters_per_second": 4.0
+    },
+    "action": {
+     "subject_id": "CHAR-QILINHUMAN",
+     "initiator_entity_id": "CHAR-QILINHUMAN",
+     "target_entity_id": "CHAR-SHANGYUJIN",
+     "interaction_mode": "CONTACT",
+     "action_kind": "NON_COMBAT",
+     "primary_action": "麒麟冲上一步，抓住商余烬的袖子。",
+     "start_state": "麒麟、商余烬在妖皇宫正殿；承上一拍：白桃帝姬说完「……那就走。」，商余烬还没有接话",
+     "completion_state": "麒麟冲上一步，抓住商余烬的袖子。",
+     "physical_causality": "麒麟的动作直接作用于商余烬，对方随之反应",
+     "state_delta_dimensions": [
+      "CONTACT",
+      "POSITION",
+      "POSTURE"
+     ],
+     "state_delta_evidence": {
+      "CONTACT": {
+       "entry": "麒麟、商余烬在妖皇宫正殿；承上一拍：白桃帝姬说完「……那就走。」，商余烬还没有接话",
+       "exit": "麒麟冲上一步，抓住商余烬的袖子。"
+      },
+      "POSITION": {
+       "entry": "麒麟、商余烬在妖皇宫正殿；承上一拍：白桃帝姬说完「……那就走。」，商余烬还没有接话",
+       "exit": "麒麟冲上一步，抓住商余烬的袖子。"
+      },
+      "POSTURE": {
+       "entry": "麒麟、商余烬在妖皇宫正殿；承上一拍：白桃帝姬说完「……那就走。」，商余烬还没有接话",
+       "exit": "麒麟冲上一步，抓住商余烬的袖子。"
+      }
+     },
+     "source": "screenplay",
+     "field_sources": {
+      "primary_action": "screenplay",
+      "entry_state": "carried",
+      "completion_state": "screenplay",
+      "body_action": "screenplay",
+      "delivery": "fallback"
+     },
+     "performance": {
+      "emotion": "急",
+      "emotion_basis": "parenthetical",
+      "body_action": "麒麟冲上一步，抓住商余烬的袖子。",
+      "delivery": "按「急」说出这一句",
+      "business_en": "Qilin rushes one step forward and grabs Shang Yujin's sleeve."
+     },
+     "action_en": "Qilin rushes one step forward and grabs Shang Yujin's sleeve.",
+     "contact_point": "麒麟冲上一步，抓住商余烬的袖子"
+    },
+    "camera_plan": {
+     "shot_scale": "MEDIUM",
+     "camera_height": "EYE_LEVEL",
+     "camera_side": "AXIS_A",
+     "motion_family": "LOCKED",
+     "motion_direction": "NONE",
+     "lens_intent": "单人固定：拿一句臣服回去交差，最好别打",
+     "axis_relation": "SAME_SIDE",
+     "start_framing": "麒麟、商余烬在妖皇宫正殿妖皇宝座旁，殿门逆光；麒麟视线略偏离镜头，朝对方一侧",
+     "end_framing": "麒麟、商余烬在妖皇宫正殿妖皇宝座旁，殿门逆光；麒麟视线略偏离镜头，朝对方一侧",
+     "motivation": "固定看清麒麟这一拍"
+    },
+    "role_semantic_disambiguation": {
+     "status": "PASS",
+     "primary_actor": "麒麟",
+     "primary_actor_id": "CHAR-QILINHUMAN",
+     "primary_actor_kind": "CHARACTER",
+     "dialogue_speaker": "麒麟",
+     "dialogue_speaker_id": "CHAR-QILINHUMAN",
+     "dialogue_listener": "",
+     "dialogue_listener_id": null,
+     "lip_owner_id": "CHAR-QILINHUMAN",
+     "entity_states": {
+      "CHAR-QILINHUMAN": "麒麟冲上一步，抓住商余烬的袖子。",
+      "CHAR-SHANGYUJIN": "商余烬在妖皇宝座旁"
+     },
+     "entity_presence": {
+      "CHAR-QILINHUMAN": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-SHANGYUJIN": "VISIBLE_AND_IDENTITY_LOCKED"
+     }
+    },
+    "props": [],
+    "sound": {
+     "ambience": "空旷石殿的回声，殿外远远的风声与旗角翻动",
+     "sfx": [],
+     "music": "SELECTIVE_BGM"
+    },
+    "beat_role": "LINE",
+    "internal_transition_authoring": {
+     "transition_mode": "CONTINUOUS_ACTION",
+     "reason": "S01第13拍接上一拍"
+    }
+   },
+   "internal_transition_authoring": {
+    "transition_mode": "CONTINUOUS_ACTION",
+    "reason": "S01第13拍接上一拍"
+   },
+   "incoming_transition_mode": "CONTINUOUS_ACTION",
+   "axis": "宝座—殿门一线，台阶在中",
+   "screenplay_ref": {
+    "line_no": 25,
+    "kind": "dialogue"
+   }
+  },
+  {
+   "shot_id": "E25-S01-14",
+   "scene_id": "E25-S01",
+   "location_id": "LOC-YAOHUANG-HALL",
+   "target_seconds": 4.0,
+   "shot_size": "MEDIUM",
+   "camera": "MEDIUM，固定机位",
+   "subspace_id": "台阶",
+   "frame_content": "商余烬把麒麟的手按下，拍了两下他的手背。",
+   "blocking": "商余烬把麒麟的手按下，拍了两下他的手背。",
+   "entry_state": "商余烬、麒麟在妖皇宫正殿；承上一拍：麒麟冲上一步，抓住商余烬的袖子",
+   "completion_state": "商余烬把麒麟的手按下，拍了两下他的手背。",
+   "first_frame_motion_state": "商余烬、麒麟在妖皇宫正殿；承上一拍：麒麟冲上一步，抓住商余烬的袖子",
+   "state_delta_dimensions": [
+    "CONTACT",
+    "POSTURE"
+   ],
+   "state_delta_evidence": {
+    "CONTACT": {
+     "entry": "商余烬、麒麟在妖皇宫正殿；承上一拍：麒麟冲上一步，抓住商余烬的袖子",
+     "exit": "商余烬把麒麟的手按下，拍了两下他的手背。"
+    },
+    "POSTURE": {
+     "entry": "商余烬、麒麟在妖皇宫正殿；承上一拍：麒麟冲上一步，抓住商余烬的袖子",
+     "exit": "商余烬把麒麟的手按下，拍了两下他的手背。"
+    }
+   },
+   "dialogue_delivery": {
+    "chinese_characters_per_second": 4.0
+   },
+   "dialogue": "商余烬：你留下。",
+   "prompt_spec": {
+    "space": {
+     "location": "LOC-YAOHUANG-HALL",
+     "subspace": "台阶"
+    },
+    "scene_state": {
+     "time": "日",
+     "weather": "晴",
+     "light": "殿门逆光"
+    },
+    "cast": [
+     {
+      "character": "商余烬",
+      "character_id": "CHAR-SHANGYUJIN",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "墨黑妖皇交领长袍，银色腰封"
+      }
+     },
+     {
+      "character": "麒麟",
+      "character_id": "CHAR-QILINHUMAN",
+      "life_state": "alive",
+      "face_visibility": "THREE_QUARTER_BUST",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "黑色交领长袍"
+      }
+     }
+    ],
+    "dialogue": "商余烬：你留下。",
+    "dialogue_delivery": {
+     "chinese_characters_per_second": 4.0
+    },
+    "action": {
+     "subject_id": "CHAR-SHANGYUJIN",
+     "initiator_entity_id": "CHAR-SHANGYUJIN",
+     "target_entity_id": "CHAR-QILINHUMAN",
+     "interaction_mode": "CONTACT",
+     "action_kind": "NON_COMBAT",
+     "primary_action": "商余烬把麒麟的手按下，拍了两下他的手背。",
+     "start_state": "商余烬、麒麟在妖皇宫正殿；承上一拍：麒麟冲上一步，抓住商余烬的袖子",
+     "completion_state": "商余烬把麒麟的手按下，拍了两下他的手背。",
+     "physical_causality": "商余烬的动作直接作用于麒麟，对方随之反应",
+     "state_delta_dimensions": [
+      "CONTACT",
+      "POSTURE"
+     ],
+     "state_delta_evidence": {
+      "CONTACT": {
+       "entry": "商余烬、麒麟在妖皇宫正殿；承上一拍：麒麟冲上一步，抓住商余烬的袖子",
+       "exit": "商余烬把麒麟的手按下，拍了两下他的手背。"
+      },
+      "POSTURE": {
+       "entry": "商余烬、麒麟在妖皇宫正殿；承上一拍：麒麟冲上一步，抓住商余烬的袖子",
+       "exit": "商余烬把麒麟的手按下，拍了两下他的手背。"
+      }
+     },
+     "source": "screenplay",
+     "field_sources": {
+      "primary_action": "screenplay",
+      "entry_state": "carried",
+      "completion_state": "screenplay",
+      "body_action": "screenplay",
+      "delivery": "screenplay"
+     },
+     "performance": {
+      "emotion": "怜",
+      "emotion_basis": "parenthetical",
+      "body_action": "商余烬把麒麟的手按下，拍了两下他的手背。",
+      "delivery": "回头，柔声，放心",
+      "delivery_en": "turning back to him, soft and reassuring",
+      "business_en": "Shang Yujin presses Qilin's hand down and pats the back of it twice."
+     },
+     "listener_reaction": "麒麟：咬牙，松开手",
+     "listener_reaction_en": "Qilin clenches his jaw and lets go.",
+     "action_en": "Shang Yujin presses Qilin's hand down and pats the back of it twice.",
+     "contact_point": "商余烬把麒麟的手按下，拍了两下他的手背。"
+    },
+    "camera_plan": {
+     "shot_scale": "MEDIUM",
+     "camera_height": "EYE_LEVEL",
+     "camera_side": "AXIS_A",
+     "motion_family": "LOCKED",
+     "motion_direction": "NONE",
+     "lens_intent": "单人固定：拿一句臣服回去交差，最好别打",
+     "axis_relation": "SAME_SIDE",
+     "start_framing": "商余烬、麒麟在妖皇宫正殿台阶旁，殿门逆光；商余烬视线略偏离镜头，朝麒麟一侧",
+     "end_framing": "商余烬、麒麟在妖皇宫正殿台阶旁，殿门逆光；商余烬视线略偏离镜头，朝麒麟一侧",
+     "motivation": "固定看清商余烬这一拍"
+    },
+    "role_semantic_disambiguation": {
+     "status": "PASS",
+     "primary_actor": "商余烬",
+     "primary_actor_id": "CHAR-SHANGYUJIN",
+     "primary_actor_kind": "CHARACTER",
+     "dialogue_speaker": "商余烬",
+     "dialogue_speaker_id": "CHAR-SHANGYUJIN",
+     "dialogue_listener": "麒麟",
+     "dialogue_listener_id": "CHAR-QILINHUMAN",
+     "lip_owner_id": "CHAR-SHANGYUJIN",
+     "entity_states": {
+      "CHAR-SHANGYUJIN": "商余烬把麒麟的手按下，拍了两下他的手背。",
+      "CHAR-QILINHUMAN": "麒麟在台阶旁"
+     },
+     "entity_presence": {
+      "CHAR-SHANGYUJIN": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-QILINHUMAN": "VISIBLE_AND_IDENTITY_LOCKED"
+     }
+    },
+    "props": [],
+    "sound": {
+     "ambience": "空旷石殿的回声，殿外远远的风声与旗角翻动",
+     "sfx": [],
+     "music": "SELECTIVE_BGM"
+    },
+    "beat_role": "LINE",
+    "internal_transition_authoring": {
+     "transition_mode": "CONTINUOUS_ACTION",
+     "reason": "S01第14拍接上一拍"
+    },
+    "signature_business": "CHAR-SHANGYUJIN"
+   },
+   "internal_transition_authoring": {
+    "transition_mode": "CONTINUOUS_ACTION",
+    "reason": "S01第14拍接上一拍"
+   },
+   "incoming_transition_mode": "CONTINUOUS_ACTION",
+   "axis": "宝座—殿门一线，台阶在中",
+   "screenplay_ref": {
+    "line_no": 27,
+    "kind": "dialogue"
+   }
+  },
+  {
+   "shot_id": "E25-S01-15",
+   "scene_id": "E25-S01",
+   "location_id": "LOC-YAOHUANG-HALL",
+   "target_seconds": 4.0,
+   "shot_size": "WIDE",
+   "camera": "WIDE，固定机位",
+   "subspace_id": "殿柱",
+   "frame_content": "白桃走在前面，商余烬、龙夜澈、冥帝跟着出殿，战雷朝众人的背影拱手。",
+   "blocking": "白桃走在前面，商余烬、龙夜澈、冥帝跟着出殿，战雷朝众人的背影拱手。",
+   "entry_state": "白桃帝姬、商余烬、龙夜澈、冥帝、战雷在妖皇宫正殿；承上一拍：商余烬把麒麟的手按下，拍了两下他的手背",
+   "completion_state": "白桃走在前面，商余烬、龙夜澈、冥帝跟着出殿，战雷朝众人的背影拱手。",
+   "first_frame_motion_state": "白桃帝姬、商余烬、龙夜澈、冥帝、战雷在妖皇宫正殿；承上一拍：商余烬把麒麟的手按下，拍了两下他的手背",
+   "state_delta_dimensions": [
+    "POSITION"
+   ],
+   "state_delta_evidence": {
+    "POSITION": {
+     "entry": "白桃帝姬、商余烬、龙夜澈、冥帝、战雷在妖皇宫正殿；承上一拍：商余烬把麒麟的手按下，拍了两下他的手背",
+     "exit": "白桃走在前面，商余烬、龙夜澈、冥帝跟着出殿，战雷朝众人的背影拱手。"
+    }
+   },
+   "dialogue_delivery": {
+    "chinese_characters_per_second": 4.0
+   },
+   "prompt_spec": {
+    "space": {
+     "location": "LOC-YAOHUANG-HALL",
+     "subspace": "殿柱"
+    },
+    "scene_state": {
+     "time": "日",
+     "weather": "晴",
+     "light": "殿门逆光"
+    },
+    "cast": [
+     {
+      "character": "白桃帝姬",
+      "character_id": "CHAR-BAITAODIJI",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "白金色天界战袍，腰间挂战神令"
+      }
+     },
+     {
+      "character": "商余烬",
+      "character_id": "CHAR-SHANGYUJIN",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "墨黑妖皇交领长袍，银色腰封"
+      }
+     },
+     {
+      "character": "龙夜澈",
+      "character_id": "CHAR-LONGYECHE",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "深紫色交领长袍"
+      }
+     },
+     {
+      "character": "冥帝",
+      "character_id": "CHAR-MINGDI",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "暗紫色冥界帝袍"
+      }
+     },
+     {
+      "character": "战雷",
+      "character_id": "CHAR-ZHANLEI",
+      "life_state": "alive",
+      "face_visibility": "FRONT_FACE_VISIBLE",
+      "first_frame_visible": true,
+      "wardrobe_garments": {
+       "outer_layer": "深青色妖界战甲"
+      }
+     }
+    ],
+    "dialogue": "",
+    "dialogue_delivery": {
+     "chinese_characters_per_second": 4.0
+    },
+    "action": {
+     "subject_id": "CHAR-BAITAODIJI",
+     "initiator_entity_id": "CHAR-BAITAODIJI",
+     "target_entity_id": "CHAR-BAITAODIJI",
+     "interaction_mode": "NONE",
+     "action_kind": "NON_COMBAT",
+     "primary_action": "白桃走在前面，商余烬、龙夜澈、冥帝跟着出殿，战雷朝众人的背影拱手。",
+     "start_state": "白桃帝姬、商余烬、龙夜澈、冥帝、战雷在妖皇宫正殿；承上一拍：商余烬把麒麟的手按下，拍了两下他的手背",
+     "completion_state": "白桃走在前面，商余烬、龙夜澈、冥帝跟着出殿，战雷朝众人的背影拱手。",
+     "physical_causality": "由白桃帝姬的这一句/这一动作引出",
+     "state_delta_dimensions": [
+      "POSITION"
+     ],
+     "state_delta_evidence": {
+      "POSITION": {
+       "entry": "白桃帝姬、商余烬、龙夜澈、冥帝、战雷在妖皇宫正殿；承上一拍：商余烬把麒麟的手按下，拍了两下他的手背",
+       "exit": "白桃走在前面，商余烬、龙夜澈、冥帝跟着出殿，战雷朝众人的背影拱手。"
+      }
+     },
+     "source": "screenplay",
+     "field_sources": {
+      "primary_action": "screenplay",
+      "entry_state": "carried",
+      "completion_state": "screenplay",
+      "body_action": "fallback",
+      "delivery": "fallback"
+     },
+     "action_en": "Bai Tao leads the way out; Shang Yujin, Long Yeche and Ming Di follow her out of the hall, and Zhan Lei bows with clasped hands toward their backs."
+    },
+    "camera_plan": {
+     "shot_scale": "WIDE",
+     "camera_height": "EYE_LEVEL",
+     "camera_side": "AXIS_A",
+     "motion_family": "LOCKED",
+     "motion_direction": "NONE",
+     "lens_intent": "单人固定：拿一句臣服回去交差，最好别打",
+     "axis_relation": "SAME_SIDE",
+     "start_framing": "白桃帝姬、商余烬、龙夜澈、冥帝、战雷在妖皇宫正殿殿柱旁，殿门逆光",
+     "end_framing": "白桃帝姬、商余烬、龙夜澈、冥帝、战雷在妖皇宫正殿殿柱旁，殿门逆光",
+     "motivation": "固定看清白桃帝姬这一拍"
+    },
+    "role_semantic_disambiguation": {
+     "status": "PASS",
+     "primary_actor": "白桃帝姬",
+     "primary_actor_id": "CHAR-BAITAODIJI",
+     "primary_actor_kind": "CHARACTER",
+     "dialogue_speaker": "",
+     "dialogue_speaker_id": "",
+     "dialogue_listener": "",
+     "dialogue_listener_id": "",
+     "lip_owner_id": "",
+     "entity_states": {
+      "CHAR-BAITAODIJI": "白桃走在前面，商余烬、龙夜澈、冥帝跟着出殿，战雷朝众人的背影拱手。",
+      "CHAR-SHANGYUJIN": "商余烬在殿柱旁",
+      "CHAR-LONGYECHE": "龙夜澈在殿柱旁",
+      "CHAR-MINGDI": "冥帝在殿柱旁",
+      "CHAR-ZHANLEI": "战雷在殿柱旁"
+     },
+     "entity_presence": {
+      "CHAR-BAITAODIJI": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-SHANGYUJIN": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-LONGYECHE": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-MINGDI": "VISIBLE_AND_IDENTITY_LOCKED",
+      "CHAR-ZHANLEI": "VISIBLE_AND_IDENTITY_LOCKED"
+     }
+    },
+    "props": [],
+    "sound": {
+     "ambience": "空旷石殿的回声，殿外远远的风声与旗角翻动",
+     "sfx": [],
+     "music": "SELECTIVE_BGM"
+    },
+    "beat_role": "ENDING",
+    "internal_transition_authoring": {
+     "transition_mode": "CONTINUOUS_ACTION",
+     "reason": "S01第15拍接上一拍"
+    }
+   },
+   "internal_transition_authoring": {
+    "transition_mode": "CONTINUOUS_ACTION",
+    "reason": "S01第15拍接上一拍"
+   },
+   "incoming_transition_mode": "CONTINUOUS_ACTION",
+   "axis": "宝座—殿门一线，台阶在中",
+   "screenplay_ref": {
+    "line_no": 29,
+    "kind": "silent"
+   }
+  }
+ ],
+ "internal_transition_authoring": [
+  {
+   "from_shot_id": "E25-S01-01",
+   "to_shot_id": "E25-S01-02",
+   "transition_mode": "CONTINUOUS_ACTION",
+   "reason": "S01第1拍到第2拍：同场连续"
+  },
+  {
+   "from_shot_id": "E25-S01-02",
+   "to_shot_id": "E25-S01-03",
+   "transition_mode": "CONTINUOUS_ACTION",
+   "reason": "S01第2拍到第3拍：同场连续"
+  },
+  {
+   "from_shot_id": "E25-S01-03",
+   "to_shot_id": "E25-S01-04",
+   "transition_mode": "CONTINUOUS_ACTION",
+   "reason": "S01第3拍到第4拍：同场连续"
+  },
+  {
+   "from_shot_id": "E25-S01-04",
+   "to_shot_id": "E25-S01-05",
+   "transition_mode": "CONTINUOUS_ACTION",
+   "reason": "S01第4拍到第5拍：同场连续"
+  },
+  {
+   "from_shot_id": "E25-S01-05",
+   "to_shot_id": "E25-S01-06",
+   "transition_mode": "CONTINUOUS_ACTION",
+   "reason": "S01第5拍到第6拍：同场连续"
+  },
+  {
+   "from_shot_id": "E25-S01-06",
+   "to_shot_id": "E25-S01-07",
+   "transition_mode": "CONTINUOUS_ACTION",
+   "reason": "S01第6拍到第7拍：同场连续"
+  },
+  {
+   "from_shot_id": "E25-S01-07",
+   "to_shot_id": "E25-S01-08",
+   "transition_mode": "CONTINUOUS_ACTION",
+   "reason": "S01第7拍到第8拍：同场连续"
+  },
+  {
+   "from_shot_id": "E25-S01-08",
+   "to_shot_id": "E25-S01-09",
+   "transition_mode": "CONTINUOUS_ACTION",
+   "reason": "S01第8拍到第9拍：同场连续"
+  },
+  {
+   "from_shot_id": "E25-S01-09",
+   "to_shot_id": "E25-S01-10",
+   "transition_mode": "CONTINUOUS_ACTION",
+   "reason": "S01第9拍到第10拍：同场连续"
+  },
+  {
+   "from_shot_id": "E25-S01-10",
+   "to_shot_id": "E25-S01-11",
+   "transition_mode": "CONTINUOUS_ACTION",
+   "reason": "S01第10拍到第11拍：同场连续"
+  },
+  {
+   "from_shot_id": "E25-S01-11",
+   "to_shot_id": "E25-S01-12",
+   "transition_mode": "CONTINUOUS_ACTION",
+   "reason": "S01第11拍到第12拍：同场连续"
+  },
+  {
+   "from_shot_id": "E25-S01-12",
+   "to_shot_id": "E25-S01-13",
+   "transition_mode": "CONTINUOUS_ACTION",
+   "reason": "S01第12拍到第13拍：同场连续"
+  },
+  {
+   "from_shot_id": "E25-S01-13",
+   "to_shot_id": "E25-S01-14",
+   "transition_mode": "CONTINUOUS_ACTION",
+   "reason": "S01第13拍到第14拍：同场连续"
+  },
+  {
+   "from_shot_id": "E25-S01-14",
+   "to_shot_id": "E25-S01-15",
+   "transition_mode": "CONTINUOUS_ACTION",
+   "reason": "S01第14拍到第15拍：同场连续"
+  }
+ ],
+ "audio_contract": {
+  "dialogue_units": [
+   {
+    "shot_id": "E25-S01-02",
+    "speaker_id": "CHAR-BAITAODIJI",
+    "listener_id": "CHAR-ZHANLEI",
+    "text": "三天到了。你们的妖皇呢？",
+    "emotion": "傲",
+    "language": "zh-CN"
+   },
+   {
+    "shot_id": "E25-S01-03",
+    "speaker_id": "CHAR-ZHANLEI",
+    "listener_id": "CHAR-BAITAODIJI",
+    "text": "还没找到。请帝姬再宽限两日。",
+    "emotion": "怯",
+    "language": "zh-CN"
+   },
+   {
+    "shot_id": "E25-S01-04",
+    "speaker_id": "CHAR-BAITAODIJI",
+    "listener_id": "CHAR-ZHANLEI",
+    "text": "三天变五天，你当我是来做客的？",
+    "emotion": "讥",
+    "language": "zh-CN"
+   },
+   {
+    "shot_id": "E25-S01-05",
+    "speaker_id": "CHAR-SHANGYUJIN",
+    "listener_id": "CHAR-BAITAODIJI",
+    "text": "找我何事？",
+    "emotion": "冷",
+    "language": "zh-CN",
+    "offscreen": true
+   },
+   {
+    "shot_id": "E25-S01-07",
+    "speaker_id": "CHAR-BAITAODIJI",
+    "listener_id": "CHAR-SHANGYUJIN",
+    "text": "妖皇竟然是你——被你师父赶出师门了？",
+    "emotion": "疑",
+    "language": "zh-CN"
+   },
+   {
+    "shot_id": "E25-S01-08",
+    "speaker_id": "CHAR-SHANGYUJIN",
+    "listener_id": "CHAR-BAITAODIJI",
+    "text": "私事。",
+    "emotion": "坚",
+    "language": "zh-CN"
+   },
+   {
+    "shot_id": "E25-S01-09",
+    "speaker_id": "CHAR-BAITAODIJI",
+    "listener_id": "CHAR-SHANGYUJIN",
+    "text": "天君让我来灭你。不想被灭，就俯首称臣。",
+    "emotion": "狠",
+    "language": "zh-CN"
+   },
+   {
+    "shot_id": "E25-S01-10",
+    "speaker_id": "CHAR-BAITAODIJI",
+    "listener_id": "CHAR-SHANGYUJIN",
+    "text": "你笑什么？",
+    "emotion": "疑",
+    "language": "zh-CN"
+   },
+   {
+    "shot_id": "E25-S01-11",
+    "speaker_id": "CHAR-SHANGYUJIN",
+    "listener_id": "CHAR-BAITAODIJI",
+    "text": "之前忘了礼数。带我去见天君，我当面称臣。",
+    "emotion": "戏",
+    "language": "zh-CN"
+   },
+   {
+    "shot_id": "E25-S01-12",
+    "speaker_id": "CHAR-BAITAODIJI",
+    "listener_id": "CHAR-SHANGYUJIN",
+    "text": "……那就走。",
+    "emotion": "倦",
+    "language": "zh-CN"
+   },
+   {
+    "shot_id": "E25-S01-13",
+    "speaker_id": "CHAR-QILINHUMAN",
+    "text": "带上我。",
+    "emotion": "急",
+    "language": "zh-CN"
+   },
+   {
+    "shot_id": "E25-S01-14",
+    "speaker_id": "CHAR-SHANGYUJIN",
+    "listener_id": "CHAR-QILINHUMAN",
+    "text": "你留下。",
+    "emotion": "怜",
+    "language": "zh-CN"
+   }
+  ],
+  "ambient_by_scene": {
+   "E25-S01": {
+    "ambience": "空旷石殿的回声，殿外远远的风声与旗角翻动"
+   }
+  },
+  "bgm": "NO_BGM"
+ },
+ "props": {
+  "reference_cards": [
+   {
+    "entity_id": "PROP-ZHANSHENLING",
+    "name": "战神令",
+    "aliases": [
+     "令牌"
+    ],
+    "owner_id": "CHAR-BAITAODIJI",
+    "hand": "右手",
+    "description": "掌心大小的金色令牌，正面刻\"战神\"二字",
+    "description_en": "a palm-sized gold token engraved with the two characters for 'war god'",
+    "acquired": {
+     "episode": "E25",
+     "shot_id": "E25-S01-01"
+    },
+    "used_in_shot_ids": [
+     "E25-S01-01",
+     "E25-S01-04",
+     "E25-S01-09",
+     "E25-S01-10",
+     "E25-S01-11"
+    ],
+    "payoff_shot_ids": [
+     "E25-S01-11"
+    ]
+   },
+   {
+    "entity_id": "PROP-ZHANLEI-SPEAR",
+    "name": "长枪",
+    "owner_id": "CHAR-ZHANLEI",
+    "hand": "右手",
+    "description": "黑铁长枪，枪缨暗红",
+    "description_en": "a black iron spear with a dark red tassel",
+    "acquired": {
+     "episode": "E25",
+     "shot_id": "E25-S01-01"
+    },
+    "used_in_shot_ids": [
+     "E25-S01-01"
+    ],
+    "payoff_shot_ids": [
+     "E25-S01-01"
+    ]
+   }
+  ]
+ },
+ "entity_introductions": [
+  {
+   "entity_id": "CHAR-BAITAODIJI",
+   "first_shot_id": "E25-S01-01",
+   "setup": {
+    "kind": "shot",
+    "ref": "E25-S01-01"
+   },
+   "payoff_shot_id": "E25-S01-15"
+  },
+  {
+   "entity_id": "CHAR-ZHANLEI",
+   "first_shot_id": "E25-S01-01",
+   "setup": {
+    "kind": "shot",
+    "ref": "E25-S01-01"
+   },
+   "payoff_shot_id": "E25-S01-15"
+  },
+  {
+   "entity_id": "CHAR-QILINHUMAN",
+   "first_shot_id": "E25-S01-01",
+   "setup": {
+    "kind": "shot",
+    "ref": "E25-S01-01"
+   },
+   "payoff_shot_id": "E25-S01-15"
+  },
+  {
+   "entity_id": "CHAR-SHANGYUJIN",
+   "first_shot_id": "E25-S01-06",
+   "setup": {
+    "kind": "shot",
+    "ref": "E25-S01-06"
+   },
+   "payoff_shot_id": "E25-S01-15"
+  },
+  {
+   "entity_id": "CHAR-LONGYECHE",
+   "first_shot_id": "E25-S01-06",
+   "setup": {
+    "kind": "shot",
+    "ref": "E25-S01-06"
+   },
+   "payoff_shot_id": "E25-S01-15"
+  },
+  {
+   "entity_id": "CHAR-MINGDI",
+   "first_shot_id": "E25-S01-06",
+   "setup": {
+    "kind": "shot",
+    "ref": "E25-S01-06"
+   },
+   "payoff_shot_id": "E25-S01-15"
+  }
+ ],
+ "pacing": {
+  "hook": {
+   "at_seconds": 0,
+   "shot_id": "E25-S01-01",
+   "type": "shock",
+   "line_or_shot_id": "E25-S01-01",
+   "note": "白桃翘着二郎腿坐在别人的宝座上转令牌",
+   "authored_type": "visual"
+  },
+  "beat_sheet": [
+   {
+    "shot_id": "E25-S01-04",
+    "type": "THREAT_ESCALATION",
+    "setup_shot_id": "E25-S01-03"
+   },
+   {
+    "shot_id": "E25-S01-07",
+    "type": "IDENTITY_REVEAL",
+    "setup_shot_id": "E25-S01-06"
+   },
+   {
+    "shot_id": "E25-S01-09",
+    "type": "CONFRONTATION",
+    "setup_shot_id": "E25-S01-08"
+   },
+   {
+    "shot_id": "E25-S01-11",
+    "type": "REVERSAL",
+    "setup_shot_id": "E25-S01-10"
+   }
+  ],
+  "cliffhanger": {
+   "shot_id": "E25-S01-15",
+   "open_question": "商余烬主动去天宫\"当面称臣\"，他到底想对天君做什么？"
+  },
+  "scene_plan": [
+   {
+    "scene_id": "E25-S01",
+    "objective": "拿一句臣服回去交差，最好别打",
+    "objective_owner": "CHAR-BAITAODIJI",
+    "conflict": "妖皇不在，战雷只会求宽限",
+    "physical_action": "正主进门一口答应称臣，她准备好的狠话全落空",
+    "turn": "正主进门一口答应称臣，她准备好的狠话全落空",
+    "scene_type": "争吵→喜剧落空",
+    "source_detail_ids": [
+     "翘着二郎腿",
+     "拱了拱手",
+     "宽限两天",
+     "上下打量",
+     "赶出师门",
+     "私事",
+     "商余烬轻笑"
+    ],
+    "mirror_of": null,
+    "time_of_day": "日",
+    "light": "殿门逆光",
+    "weather": "晴",
+    "set_pieces": [
+     "妖皇宝座",
+     "台阶",
+     "殿柱",
+     "殿门"
+    ],
+    "turn_shot_id": "E25-S01-11",
+    "turn_owner": "CHAR-SHANGYUJIN",
+    "mood": "comic_bounce",
+    "music_stop": "E25-S01-12",
+    "goals": [
+     {
+      "who": "CHAR-BAITAODIJI",
+      "goal": "拿一句臣服回去交差，最好别打"
+     },
+     {
+      "who": "CHAR-ZHANLEI",
+      "goal": "拖时间等妖皇"
+     },
+     {
+      "who": "CHAR-QILINHUMAN",
+      "goal": "护住妖界"
+     }
+    ]
+   }
+  ]
+ },
+ "adaptation_plan": {
+  "source_chapters": [
+   226
+  ],
+  "plot_events": [
+   {
+    "event": "妖皇正主现身，一口答应去天宫当面称臣",
+    "chapter": 226,
+    "role": "MAIN"
+   }
+  ],
+  "cut": [
+   "删去青山、战小玉斗嘴找人，敖释记账，黑蟒问战雷",
+   "删去三人飞往妖界的赶路过程，直接从三日期满的对峙开场"
+  ]
+ },
+ "source_binding": {
+  "work": "造孽啊！疯批徒弟想逼我退位",
+  "author": "东南雀",
+  "primary_source_chapter": "226",
+  "source_chapters": [
+   "226"
+  ]
+ },
+ "arc_ledger": {
+  "episode": "E25",
+  "carry_in": "",
+  "ending_hook": "商余烬主动去天宫\"当面称臣\"，他到底想对天君做什么？"
+ },
+ "series_card": {
+  "characters": [
+   {
+    "name": "商余烬",
+    "want": "护住师父，把害她的天君拉下来",
+    "fear": "师父知道他的真身后离开",
+    "voice": "话少，句子短，冷",
+    "signature_business": "回头给人一个放心的眼神",
+    "signature_prop": "墨黑袍的袖口",
+    "character_id": "CHAR-SHANGYUJIN"
+   },
+   {
+    "name": "白桃帝姬",
+    "want": "交差，不想替天君卖命",
+    "fear": "在天君面前丢脸",
+    "voice": "慢悠悠，带刺",
+    "signature_business": "翘着二郎腿转令牌",
+    "signature_prop": "战神令",
+    "character_id": "CHAR-BAITAODIJI"
+   }
+  ],
+  "premise": "穿书成战神的凌瑶，被自己养大的疯批徒弟一步步逼着退位",
+  "engine": "把\"徒弟逼宫\"当\"徒弟护短\"来演：每一次逼迫，背后都是护着她",
+  "series_id": "NALU-ZAONIE"
+ },
+ "screenplay_v1": {
+  "schema": "nalu.screenplay_v1.block.v1",
+  "scenes": [
+   {
+    "scene_id": "E25-S01",
+    "heading": "妖皇宫正殿 · 日 · 殿门逆光",
+    "location_id": "LOC-YAOHUANG-HALL",
+    "time_of_day": "日",
+    "light": "殿门逆光",
+    "weather": "晴",
+    "set_pieces": [
+     "妖皇宝座",
+     "台阶",
+     "殿柱",
+     "殿门"
+    ],
+    "present": [
+     "CHAR-BAITAODIJI",
+     "CHAR-ZHANLEI",
+     "CHAR-QILINHUMAN",
+     "CHAR-SHANGYUJIN",
+     "CHAR-LONGYECHE",
+     "CHAR-MINGDI"
+    ],
+    "card": {
+     "objective": "拿一句臣服回去交差，最好别打",
+     "objective_owner": "CHAR-BAITAODIJI",
+     "conflict": "妖皇不在，战雷只会求宽限",
+     "physical_action": "正主进门一口答应称臣，她准备好的狠话全落空",
+     "turn": "正主进门一口答应称臣，她准备好的狠话全落空",
+     "scene_type": "争吵→喜剧落空",
+     "source_detail_ids": [
+      "翘着二郎腿",
+      "拱了拱手",
+      "宽限两天",
+      "上下打量",
+      "赶出师门",
+      "私事",
+      "商余烬轻笑"
+     ],
+     "mirror_of": null,
+     "time_of_day": "日",
+     "light": "殿门逆光",
+     "weather": "晴",
+     "set_pieces": [
+      "妖皇宝座",
+      "台阶",
+      "殿柱",
+      "殿门"
+     ],
+     "turn_shot_id": "E25-S01-11",
+     "turn_owner": "CHAR-SHANGYUJIN",
+     "mood": "comic_bounce",
+     "music_stop": "E25-S01-12",
+     "goals": [
+      {
+       "who": "CHAR-BAITAODIJI",
+       "goal": "拿一句臣服回去交差，最好别打"
+      },
+      {
+       "who": "CHAR-ZHANLEI",
+       "goal": "拖时间等妖皇"
+      },
+      {
+       "who": "CHAR-QILINHUMAN",
+       "goal": "护住妖界"
+      }
+     ]
+    },
+    "lines": [
+     {
+      "kind": "action",
+      "text": "妖皇宝座上，白桃帝姬翘着二郎腿，右手指尖转着战神令。台阶下，战雷右手握着长枪拱手而立；麒麟抱臂靠着殿柱，瞪着她。",
+      "subject": "CHAR-BAITAODIJI",
+      "named": [
+       "CHAR-BAITAODIJI",
+       "CHAR-ZHANLEI",
+       "CHAR-QILINHUMAN"
+      ],
+      "shot_id": "E25-S01-01"
+     },
+     {
+      "kind": "dialogue",
+      "speaker": "CHAR-BAITAODIJI",
+      "listener": "CHAR-ZHANLEI",
+      "text": "三天到了。你们的妖皇呢？",
+      "paren": "不抬眼，悠悠，对战雷",
+      "emotion": "傲",
+      "shot_id": "E25-S01-02"
+     },
+     {
+      "kind": "dialogue",
+      "speaker": "CHAR-ZHANLEI",
+      "listener": "CHAR-BAITAODIJI",
+      "text": "还没找到。请帝姬再宽限两日。",
+      "paren": "低头",
+      "emotion": "怯",
+      "shot_id": "E25-S01-03"
+     },
+     {
+      "kind": "action",
+      "text": "白桃停下令牌，\"嗒\"地磕在宝座扶手上。",
+      "subject": "CHAR-BAITAODIJI",
+      "named": [
+       "CHAR-BAITAODIJI"
+      ],
+      "shot_id": "E25-S01-04"
+     },
+     {
+      "kind": "dialogue",
+      "speaker": "CHAR-BAITAODIJI",
+      "listener": "CHAR-ZHANLEI",
+      "text": "三天变五天，你当我是来做客的？",
+      "paren": "冷笑",
+      "emotion": "讥",
+      "shot_id": "E25-S01-04"
+     },
+     {
+      "kind": "reaction",
+      "who": "CHAR-QILINHUMAN",
+      "text": "离开柱子，右拳攥紧",
+      "shot_id": "E25-S01-04",
+      "placement": "after"
+     },
+     {
+      "kind": "dialogue",
+      "speaker": "CHAR-SHANGYUJIN",
+      "listener": "CHAR-BAITAODIJI",
+      "text": "找我何事？",
+      "paren": "OS，殿外，淡淡",
+      "emotion": "冷",
+      "shot_id": "E25-S01-05",
+      "offscreen": true
+     },
+     {
+      "kind": "action",
+      "text": "众妖回头。殿门逆光，商余烬走进殿门，龙夜澈、冥帝一左一右跟在他身后。",
+      "subject": "CHAR-SHANGYUJIN",
+      "named": [
+       "CHAR-SHANGYUJIN",
+       "CHAR-LONGYECHE",
+       "CHAR-MINGDI"
+      ],
+      "shot_id": "E25-S01-06"
+     },
+     {
+      "kind": "reaction",
+      "who": "CHAR-BAITAODIJI",
+      "text": "二郎腿放下，坐直",
+      "shot_id": "E25-S01-06",
+      "placement": "after"
+     },
+     {
+      "kind": "dialogue",
+      "speaker": "CHAR-BAITAODIJI",
+      "listener": "CHAR-SHANGYUJIN",
+      "text": "妖皇竟然是你——被你师父赶出师门了？",
+      "paren": "上下打量，挑眉",
+      "emotion": "疑",
+      "shot_id": "E25-S01-07"
+     },
+     {
+      "kind": "dialogue",
+      "speaker": "CHAR-SHANGYUJIN",
+      "listener": "CHAR-BAITAODIJI",
+      "text": "私事。",
+      "paren": "不停步，冰冷",
+      "emotion": "坚",
+      "shot_id": "E25-S01-08"
+     },
+     {
+      "kind": "action",
+      "text": "白桃起身，走下两级台阶，把战神令亮到商余烬眼前。",
+      "subject": "CHAR-BAITAODIJI",
+      "named": [
+       "CHAR-BAITAODIJI",
+       "CHAR-SHANGYUJIN"
+      ],
+      "shot_id": "E25-S01-09"
+     },
+     {
+      "kind": "dialogue",
+      "speaker": "CHAR-BAITAODIJI",
+      "listener": "CHAR-SHANGYUJIN",
+      "text": "天君让我来灭你。不想被灭，就俯首称臣。",
+      "paren": "压低声，威胁",
+      "emotion": "狠",
+      "shot_id": "E25-S01-09"
+     },
+     {
+      "kind": "action",
+      "text": "商余烬看着令牌，低低笑了一声。",
+      "subject": "CHAR-SHANGYUJIN",
+      "named": [
+       "CHAR-SHANGYUJIN"
+      ],
+      "shot_id": "E25-S01-10"
+     },
+     {
+      "kind": "dialogue",
+      "speaker": "CHAR-BAITAODIJI",
+      "listener": "CHAR-SHANGYUJIN",
+      "text": "你笑什么？",
+      "paren": "狐疑",
+      "emotion": "疑",
+      "shot_id": "E25-S01-10"
+     },
+     {
+      "kind": "dialogue",
+      "speaker": "CHAR-SHANGYUJIN",
+      "listener": "CHAR-BAITAODIJI",
+      "text": "之前忘了礼数。带我去见天君，我当面称臣。",
+      "paren": "轻笑，坦然",
+      "emotion": "戏",
+      "shot_id": "E25-S01-11"
+     },
+     {
+      "kind": "reaction",
+      "who": "CHAR-BAITAODIJI",
+      "text": "嘴张了一下又闭上，把战神令慢慢收回腰间",
+      "shot_id": "E25-S01-11",
+      "placement": "after"
+     },
+     {
+      "kind": "dialogue",
+      "speaker": "CHAR-BAITAODIJI",
+      "listener": "CHAR-SHANGYUJIN",
+      "text": "……那就走。",
+      "paren": "干巴巴",
+      "emotion": "倦",
+      "shot_id": "E25-S01-12"
+     },
+     {
+      "kind": "action",
+      "text": "麒麟冲上一步，抓住商余烬的袖子",
+      "subject": "",
+      "named": [
+       "CHAR-QILINHUMAN",
+       "CHAR-SHANGYUJIN"
+      ],
+      "shot_id": "E25-S01-13"
+     },
+     {
+      "kind": "dialogue",
+      "speaker": "CHAR-QILINHUMAN",
+      "listener": null,
+      "text": "带上我。",
+      "paren": "",
+      "emotion": "急",
+      "shot_id": "E25-S01-13"
+     },
+     {
+      "kind": "action",
+      "text": "商余烬把麒麟的手按下，拍了两下他的手背。",
+      "subject": "CHAR-SHANGYUJIN",
+      "named": [
+       "CHAR-SHANGYUJIN",
+       "CHAR-QILINHUMAN"
+      ],
+      "shot_id": "E25-S01-14"
+     },
+     {
+      "kind": "dialogue",
+      "speaker": "CHAR-SHANGYUJIN",
+      "listener": "CHAR-QILINHUMAN",
+      "text": "你留下。",
+      "paren": "回头，柔声，放心",
+      "emotion": "怜",
+      "shot_id": "E25-S01-14"
+     },
+     {
+      "kind": "reaction",
+      "who": "CHAR-QILINHUMAN",
+      "text": "咬牙，松开手",
+      "shot_id": "E25-S01-14",
+      "placement": "after"
+     },
+     {
+      "kind": "action",
+      "text": "白桃走在前面，商余烬、龙夜澈、冥帝跟着出殿，战雷朝众人的背影拱手。",
+      "subject": "CHAR-BAITAODIJI",
+      "named": [
+       "CHAR-BAITAODIJI",
+       "CHAR-SHANGYUJIN",
+       "CHAR-LONGYECHE",
+       "CHAR-MINGDI",
+       "CHAR-ZHANLEI"
+      ],
+      "shot_id": "E25-S01-15"
+     }
+    ],
+    "shot_ids": [
+     "E25-S01-01",
+     "E25-S01-02",
+     "E25-S01-03",
+     "E25-S01-04",
+     "E25-S01-05",
+     "E25-S01-06",
+     "E25-S01-07",
+     "E25-S01-08",
+     "E25-S01-09",
+     "E25-S01-10",
+     "E25-S01-11",
+     "E25-S01-12",
+     "E25-S01-13",
+     "E25-S01-14",
+     "E25-S01-15"
+    ]
+   }
+  ],
+  "props": [
+   {
+    "id": "PROP-ZHANSHENLING",
+    "name": "战神令",
+    "aliases": [
+     "令牌"
+    ],
+    "owner": "CHAR-BAITAODIJI",
+    "hand": "右手",
+    "used_in": [
+     "E25-S01-01",
+     "E25-S01-04",
+     "E25-S01-09",
+     "E25-S01-10",
+     "E25-S01-11"
+    ]
+   },
+   {
+    "id": "PROP-ZHANLEI-SPEAR",
+    "name": "长枪",
+    "aliases": [],
+    "owner": "CHAR-ZHANLEI",
+    "hand": "右手",
+    "used_in": [
+     "E25-S01-01"
+    ]
+   }
+  ]
+ },
+ "pacing_scene_plan": [
+  {
+   "scene_id": "E25-S01",
+   "objective": "拿一句臣服回去交差，最好别打",
+   "objective_owner": "CHAR-BAITAODIJI",
+   "conflict": "妖皇不在，战雷只会求宽限",
+   "physical_action": "正主进门一口答应称臣，她准备好的狠话全落空",
+   "turn": "正主进门一口答应称臣，她准备好的狠话全落空",
+   "scene_type": "争吵→喜剧落空",
+   "source_detail_ids": [
+    "翘着二郎腿",
+    "拱了拱手",
+    "宽限两天",
+    "上下打量",
+    "赶出师门",
+    "私事",
+    "商余烬轻笑"
+   ],
+   "mirror_of": null,
+   "time_of_day": "日",
+   "light": "殿门逆光",
+   "weather": "晴",
+   "set_pieces": [
+    "妖皇宝座",
+    "台阶",
+    "殿柱",
+    "殿门"
+   ],
+   "turn_shot_id": "E25-S01-11",
+   "turn_owner": "CHAR-SHANGYUJIN",
+   "mood": "comic_bounce",
+   "music_stop": "E25-S01-12",
+   "goals": [
+    {
+     "who": "CHAR-BAITAODIJI",
+     "goal": "拿一句臣服回去交差，最好别打"
+    },
+    {
+     "who": "CHAR-ZHANLEI",
+     "goal": "拖时间等妖皇"
+    },
+    {
+     "who": "CHAR-QILINHUMAN",
+     "goal": "护住妖界"
+    }
+   ]
+  }
+ ],
+ "ledger": [
+  {
+   "id": "L-TOKEN",
+   "kind": "SETUP",
+   "thread": "战神令",
+   "prop": "战神令",
+   "scene_id": "E25-S01",
+   "anchor": "转着战神令"
+  },
+  {
+   "id": "L-QILIN",
+   "kind": "SETUP",
+   "thread": "麒麟护妖界",
+   "scene_id": "E25-S01",
+   "shot_id": "E25-S01-04"
+  },
+  {
+   "id": "L-MASTER",
+   "kind": "CALLBACK",
+   "thread": "被师父赶出师门",
+   "scene_id": "E25-S01",
+   "anchor": "赶出师门",
+   "from_episode": "E24"
+  },
+  {
+   "id": "L-TOKEN-PAY",
+   "kind": "PAYOFF",
+   "thread": "战神令",
+   "scene_id": "E25-S01",
+   "anchor": "收回腰间",
+   "pays_off": "L-TOKEN"
+  },
+  {
+   "id": "L-QILIN-PAY",
+   "kind": "PAYOFF",
+   "thread": "麒麟护妖界",
+   "scene_id": "E25-S01",
+   "anchor": "你留下",
+   "pays_off": "L-QILIN"
+  },
+  {
+   "id": "L-TIANGONG",
+   "kind": "HOOK",
+   "thread": "去天宫当面称臣",
+   "scene_id": "E25-S01",
+   "anchor": "跟着出殿"
+  }
+ ],
+ "knowledge": [
+  {
+   "scene_id": "E25-S01",
+   "who": "CHAR-BAITAODIJI",
+   "believes": "妖皇只是个好拿捏的新主，带回去一跪就能交差"
+  },
+  {
+   "scene_id": "E25-S01",
+   "who": "AUDIENCE",
+   "knows": "商余烬另有打算，\"称臣\"只是借口"
+  }
+ ]
+}
