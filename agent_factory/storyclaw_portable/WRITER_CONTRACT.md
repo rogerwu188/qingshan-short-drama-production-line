@@ -235,8 +235,11 @@ Every other series keeps the sections above unchanged.
   `docs/knowledge/SCREENPLAY_FORMAT_V1.md`; worked example (E25, ch.226): `tools/tests/fixtures/screenplay_e25/`.
 - **Compile.** `python3 lines/nalu/runtime/tools/screenplay_compile.py <EP>` writes the four legacy layers, so S2–S8 are
   untouched. S1 recompiles by itself when the screenplay is newer than the contract. Exit 3 = English twins missing:
-  translate `<EP>_SCREENPLAY_EN_REQUEST.json` literally (object, hand, verb, who acts on whom) into
-  `<EP>_SCREENPLAY_EN.json` and compile again.
+  **always answer the request in the same run** -- translate every row of `<EP>_SCREENPLAY_EN_REQUEST.json`
+  literally (object, hand, verb, who acts on whom) into `<EP>_SCREENPLAY_EN.json` (keep the existing rows) and compile
+  again until exit 0, after every screenplay edit. An unanswered request stops S1 with
+  `SCREENPLAY_EN_TRANSLATION_REQUIRED:<key>:<n>` before any gate runs; it is a translation request, never an S1
+  integrity round, and the Codex tick resumes you once per request.
 - **Derived, not authored.** One dialogue line = one shot. Action lines become the shot's `primary_action` /
   `business_en`, reaction beats `listener_reaction(_en)` or `lead_in_reaction(_en)`, props `props.reference_cards` and
   the per-shot `props`. The emotion comes from the line's parenthetical and the scene type (`（情绪=怒）` overrides);

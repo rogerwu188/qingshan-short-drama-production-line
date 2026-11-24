@@ -54,7 +54,7 @@ The light YAML is a stdlib subset: block mappings and lists, flow `[...]` / `{..
 ## Compilation
 
 - **Shots.** One dialogue line becomes one shot (`beat_role: LINE` unless tagged). An action line attaches to the next line's shot. It attaches back to the previous shot when its subject just spoke and the next line belongs to someone else. A trailing action block, or a `（无声）` line, becomes its own silent 4 s shot.
-- **Reactions.** A reaction becomes `listener_reaction` (+ `_en`) on the shot it follows. When nothing precedes it, or an action is still pending, it becomes `lead_in_reaction` on the next shot. WP3's director pass decides the final placement.
+- **Reactions.** A reaction becomes `listener_reaction` (+ `_en`) on the shot it follows. When nothing precedes it, or an action is still pending, it becomes `lead_in_reaction` on the next shot. WP3's director pass decides the final placement. The reacting characters are named in `listener_reaction_by` / `lead_in_reaction_by`. When a line's only action line belongs to someone else (商余烬 laughs, 白桃 asks 你笑什么), that character is the shot's action subject; the speaker keeps the lips.
 - **Who is in frame.** The speaker (face), whoever the shot's actions name, the reaction owners, and the addressee as an over-the-shoulder listener (`BACK_AND_SHOULDERS_ONLY`). An OS line plays on the listener's face.
 - **Props.** Props become `props.reference_cards` (owner, hand, description + `description_en`) and each shot's `props`, whenever the shot declares the prop or its action or reaction names it.
 - **Scene cards.** A card becomes `pacing.scene_plan`:
@@ -64,7 +64,8 @@ The light YAML is a stdlib subset: block mappings and lists, flow `[...]` / `{..
   - `mood` and `music_stop` (WP5-C).
 - **Emotion.** The emotion is derived, never authored per shot. The source is, in order: the parenthetical's cue words and the speaker's own action (`configs/SCREENPLAY_LEXICON_V1.json` `emotion_cues`), then the scene type, then the punctuation. `（情绪=怒）` overrides. `performance.emotion_basis` records which one was used.
 - **Durations.** A dialogue shot gets the seq29 rule-5a duration (line seconds + 0.5, at least the 4 s H3 floor). A silent shot gets 4 s.
-- **English twins.** `business_en`, `action_en`, `delivery_en`, `listener_reaction_en`, `lead_in_reaction_en` and `description_en` are looked up in `<EP>_SCREENPLAY_EN.json` by `sha256(field + zh)[:16]`. Missing rows are written to `<EP>_SCREENPLAY_EN_REQUEST.json`. The compile then exits 3, and S1 reports `SCRIPT_INTEGRITY_FAIL:SCREENPLAY_EN_TWIN_MISSING`.
+- **English twins.** Every zh field the H3 prompt needs has an English twin (WP4 `EN_TWIN_MISSING`): `action.business_en` (= `action_en`, the whole primary action), `performance.business_en` (the speaker's own action), `delivery_en`, `listener_reaction_en`, `lead_in_reaction_en` and `description_en`. Authored rows are looked up in `<EP>_SCREENPLAY_EN.json` by `sha256(field + zh)[:16]`; missing rows are written to `<EP>_SCREENPLAY_EN_REQUEST.json` (exactly the missing ones) and the compile exits 3. The writer always answers the request in the same run and recompiles. A compiler fallback (a line with no action, a line with no delivery cue) gets the compiler's own English, marked `fallback` in `field_sources`, and is never sent to the translator.
+- **Translation request at S1.** An unanswered request stops S1 with `SCREENPLAY_EN_TRANSLATION_REQUIRED:<key>:<n>` before any gate runs. It is not an integrity round. The Codex tick resumes the writer once per request key (`codex_production.translation_request_pending`).
 - **Fallbacks.** A field the screenplay does not give is filled from the line itself and recorded in `prompt_spec.action.field_sources` as `fallback`. `action.source` is `screenplay` or `fallback`. WP7 reports the share.
 - **WP6 fields.** `ledger` (CAST_PROPS), `knowledge` (OUTLINE) and the series card go through `craft_ledger.screenplay_fields` / `apply_fields`, which resolve `scene_id` + `anchor` to a shot. Without the module, they are copied as written.
 - **Stamps.** The contract is stamped `craft_profile: BILI_V1`, `writer_format: SCREENPLAY_V1`, `camera_grammar_policy: CAMERA_GRAMMAR_V1` and `h3_prompt_style: DIRECTOR_PROMPT_V2`. It also carries a `screenplay_v1` block (scenes, lines, props) that the checks read.
@@ -73,7 +74,7 @@ The light YAML is a stdlib subset: block mappings and lists, flow `[...]` / `{..
 
 - `nalu_pipeline.s1_screenplay_compile` runs first in `stage_s1`, before the layers are hashed. It recompiles only when a screenplay input is newer than the contract, and keeps the previous layers once as `*.pre_compile`. An episode past a paid stage is never recompiled.
 - The five input files are part of `fp_s1` and the S1 layer hashes, so an S1 PASS cannot survive a screenplay edit.
-- Compile errors, missing English twins and a `build_<ep>_layers.py` generator are S1 integrity blockers. They go through the bounded writer loop, then the script is admitted and the gap recorded. The line never stalls.
+- Compile errors and a `build_<ep>_layers.py` generator are S1 integrity blockers. They go through the bounded writer loop, then the script is admitted and the gap recorded. The line never stalls.
 
 ## Anti-template checks (replace the blacklists)
 

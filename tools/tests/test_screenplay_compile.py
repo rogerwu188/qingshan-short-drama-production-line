@@ -216,6 +216,12 @@ class CompileE25Test(unittest.TestCase):
                                               "locations": [{"id": "LOC-X", "name": "殿"}]}, {}, {}, episode="E01")
         self.assertEqual("乙：抬头", out["contract"]["shots"][0]["prompt_spec"]["action"]["lead_in_reaction"])
 
+    def test_partner_action_and_reactions_name_the_reacting_character(self):
+        spec = shot(self.c, "E25-S01-10")["prompt_spec"]  # 商余烬看着令牌，低低笑了一声 / 白桃：你笑什么？
+        self.assertEqual("CHAR-SHANGYUJIN", spec["action"]["subject_id"])
+        self.assertEqual("CHAR-BAITAODIJI", spec["role_semantic_disambiguation"]["lip_owner_id"])
+        self.assertEqual(["CHAR-QILINHUMAN"], shot(self.c, "E25-S01-04")["prompt_spec"]["action"]["listener_reaction_by"])
+
     def test_touch_in_the_two_person_beats(self):
         a13 = shot(self.c, "E25-S01-13")["prompt_spec"]["action"]
         self.assertEqual(("CHAR-QILINHUMAN", "CHAR-SHANGYUJIN", "CONTACT"),
@@ -314,6 +320,48 @@ class EnglishTwinTest(unittest.TestCase):
             self.assertTrue((Path(d) / "E25_GENERATION_CONTRACT_v1.json.pre_compile").is_file())
 
 
+class TranslationCycleTest(unittest.TestCase):
+    """Missing English twins -> exactly those rows requested -> the writer fills them -> the contract passes WP4."""
+
+    def test_missing_twin_request_fill_pass(self):
+        from tools import bili_carry
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            for f in FIXTURE.iterdir():
+                shutil.copy(f, d)
+            full = json.loads((d / "E25_SCREENPLAY_EN.json").read_text(encoding="utf-8"))
+            dropped = sorted(full["rows"])[:3]
+            partial = {**full, "rows": {k: v for k, v in full["rows"].items() if k not in dropped}}
+            (d / "E25_SCREENPLAY_EN.json").write_text(json.dumps(partial, ensure_ascii=False), encoding="utf-8")
+            self.assertEqual(3, spc.main(["E25", "--scripts-dir", tmp]))
+            request = json.loads((d / "E25_SCREENPLAY_EN_REQUEST.json").read_text(encoding="utf-8"))
+            self.assertEqual(dropped, sorted(r["key"] for r in request["rows"]))  # exactly the missing ones
+            contract = json.loads((d / "E25_GENERATION_CONTRACT_v1.json").read_text(encoding="utf-8"))
+            self.assertTrue(bili_carry.en_twin_failures(contract))
+            # the writer answers each row (here: the reference translation) and recompiles
+            partial["rows"].update({r["key"]: full["rows"][r["key"]] for r in request["rows"]})
+            (d / "E25_SCREENPLAY_EN.json").write_text(json.dumps(partial, ensure_ascii=False), encoding="utf-8")
+            self.assertEqual(0, spc.main(["E25", "--scripts-dir", tmp]))
+            self.assertFalse((d / "E25_SCREENPLAY_EN_REQUEST.json").exists())
+            contract = json.loads((d / "E25_GENERATION_CONTRACT_v1.json").read_text(encoding="utf-8"))
+            self.assertEqual([], bili_carry.en_twin_failures(contract))
+
+    def test_fallbacks_carry_compiler_english(self):
+        a = shot(compiled()["contract"], "E25-S01-08")["prompt_spec"]["action"]  # 商余烬：私事。 (no action line)
+        self.assertEqual("Shang Yujin says the line to Bai Tao", a["business_en"])
+        self.assertEqual("fallback", a["field_sources"]["business_en"])
+        b = shot(compiled()["contract"], "E25-S01-13")["prompt_spec"]["action"]["performance"]  # no parenthetical
+        self.assertTrue(b["delivery_en"].startswith("urgent"))
+
+    def test_codex_tick_resumes_the_writer_once_per_request(self):
+        import codex_production as cxp
+        blocker = "SCREENPLAY_EN_TRANSLATION_REQUIRED:abc123def456:3 (translate ...)"
+        with unittest.mock.patch.object(cxp, "_s1_blockers", return_value=[blocker]):
+            self.assertEqual("abc123def456", cxp.translation_request_pending("E25", {}))
+            self.assertEqual("", cxp.translation_request_pending("E25", {"translation_resumed": ["abc123def456"]}))
+        self.assertIn("SCREENPLAY_EN.json", cxp.TRANSLATION_REQUEST_MESSAGE)
+
+
 class PipelinePreStepTest(unittest.TestCase):
     def _ctx(self, d: Path, writer_format: str | None):
         import nalu_pipeline as npl
@@ -336,11 +384,19 @@ class PipelinePreStepTest(unittest.TestCase):
             self.assertEqual("UP_TO_DATE", npl.s1_screenplay_compile(ctx, p)["status"])
             self.assertEqual({"series_card", "outline", "screenplay", "cast_props", "en_answers"},
                              set(npl.screenplay_input_paths(p)))
+            answers = (d / "E25_SCREENPLAY_EN.json").read_text(encoding="utf-8")
             (d / "E25_SCREENPLAY_EN.json").unlink()
             os.utime(d / "E25_SCREENPLAY.md")
             row = npl.s1_screenplay_compile(ctx, p)
-            self.assertTrue(any(b.startswith("SCRIPT_INTEGRITY_FAIL:SCREENPLAY_EN_TWIN_MISSING") for b in row["blockers"]))
-            self.assertTrue(all(b.startswith(npl.S1_INTEGRITY_PREFIXES) for b in row["blockers"]))
+            # a translation request routed to the writer, never an S1 integrity round
+            self.assertEqual(1, len(row["blockers"]))
+            self.assertTrue(row["blockers"][0].startswith(npl.SCREENPLAY_EN_TRANSLATION_REQUIRED + ":"))
+            self.assertFalse(row["blockers"][0].startswith(npl.S1_INTEGRITY_PREFIXES))
+            self.assertEqual(row["en_missing"], row["translation_request"]["missing"])
+            # the writer answers the request -> recompile -> clean
+            (d / "E25_SCREENPLAY_EN.json").write_text(answers, encoding="utf-8")
+            row = npl.s1_screenplay_compile(ctx, p)
+            self.assertEqual(("COMPILED", []), (row["status"], row["blockers"]))
 
     def test_legacy_and_contract_json_are_untouched(self):
         with tempfile.TemporaryDirectory() as tmp:

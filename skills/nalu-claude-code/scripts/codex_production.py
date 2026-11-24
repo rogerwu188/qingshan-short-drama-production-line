@@ -1398,6 +1398,22 @@ def integrity_revision_pending(episode: str, session: dict[str, Any]) -> str:
     return rnd if rnd and rnd not in (session.get("integrity_revise_resumed") or []) else ""
 
 
+TRANSLATION_REQUEST_MESSAGE = ("S1 的 SCREENPLAY_EN_TRANSLATION_REQUIRED 是翻译请求，不是阻塞、也不算改稿轮次（writer_format SCREENPLAY_V1，"
+                               "WP4 要求每个中文字段都有英文孪生字段）：打开 workflow/claude_writer_agent/scripts/<EP>_SCREENPLAY_EN_REQUEST.json，"
+                               "把每一行的 zh 直译成一句英文（保留物件、哪只手、动词和谁对谁，不改写成情绪词），按 key 写进 "
+                               "<EP>_SCREENPLAY_EN.json（{\"schema\": \"nalu.screenplay_en.v1\", \"rows\": {key: english}}，保留已有行），"
+                               "然后跑 lines/nalu/runtime/tools/screenplay_compile.py <EP> 直到退出码 0，再重跑 S1→S3。免费，不问线主，不报 BLOCKED。")
+
+
+def translation_request_pending(episode: str, session: dict[str, Any]) -> str:
+    """The SCREENPLAY_V1 English-twin request key S1 is waiting on that the session was not yet resumed for, or ''.
+    Each request (its row keys) is resumed once; an answered request changes the key or clears the blocker."""
+    blockers = _s1_blockers(episode)
+    key = next((str(b).split(":", 2)[1] for b in blockers
+                if str(b).startswith("SCREENPLAY_EN_TRANSLATION_REQUIRED:")), "")
+    return key if key and key not in (session.get("translation_resumed") or []) else ""
+
+
 def tick(system: bool = False) -> dict[str, Any]:
     _, runtime = roots()
     did: list[str] = []
@@ -1501,6 +1517,17 @@ def tick(system: bool = False) -> dict[str, Any]:
         session["pacing_revise_resumed"] = sorted(set(session.get("pacing_revise_resumed") or []) | {rnd})
         write_json(d / "session.json", session)
         did.append(f"resume_pacing_revision:{rnd}:{out.get('status')}")
+        if out.get("status") == "STARTED":
+            return res
+        reason = f"RESUME_FAILED:{out.get('reason') or out.get('status')}"
+    elif state == "BLOCKED" and translation_request_pending(ep, session):
+        # SCREENPLAY_V1 English twins (WP2/WP4): the writer's own free work, resumed once per request
+        key = translation_request_pending(ep, session)
+        out = resume(ep, TRANSLATION_REQUEST_MESSAGE)
+        session = read_json(d / "session.json")
+        session["translation_resumed"] = sorted(set(session.get("translation_resumed") or []) | {key})
+        write_json(d / "session.json", session)
+        did.append(f"resume_translation_request:{key}:{out.get('status')}")
         if out.get("status") == "STARTED":
             return res
         reason = f"RESUME_FAILED:{out.get('reason') or out.get('status')}"

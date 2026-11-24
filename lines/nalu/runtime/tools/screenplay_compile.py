@@ -844,6 +844,11 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
             own_actions = [a for a in sh["actions"] if a.get("subject") == speaker or a.get("inline")]
             subject = speaker if speaking and not offscreen_speaker else \
                 (next((a.get("subject") for a in sh["actions"] if a.get("subject")), "") or speaker)
+            if speaking and not offscreen_speaker and not own_actions:
+                # the line's only action belongs to someone else (商余烬 laughs, 白桃 asks "你笑什么"): the frame's
+                # action -- and the reaction WP3 measures -- is that character's, the speaker keeps the lips
+                partner = next((a.get("subject") for a in sh["actions"] if a.get("subject") not in ("", speaker)), "")
+                subject = partner or subject
             if not subject:
                 subject = present[0] if present else ""
             addressee = _addressee(paren, cast) if speaking else ""
@@ -949,6 +954,15 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                 if own_actions else ""
             action_en = tr.get("action", "".join(action_texts), shot_id) if action_texts else ""
             delivery_en = tr.get("delivery", delivery, shot_id) if speaking and cues else ""
+            # WP4 EN twins: an authored zh field is translated (request rows); a compiler fallback gets the
+            # compiler's own English (marked fallback, never sent to the translator)
+            if speaking and not action_texts:
+                action_en = (f"{_en_name(cast, speaker)} says the line to {_en_name(cast, addressee)}"
+                             if addressee else f"{_en_name(cast, speaker)} says the line")
+                sources["business_en"] = FALLBACK
+            if speaking and not cues:
+                delivery_en = EMOTION_EN.get(emotion, "steady") + ", clear and natural, the voice unchanged"
+                sources["delivery_en"] = FALLBACK
             reaction_en = tr.get("reaction", reaction_zh, shot_id) if reaction_zh else ""
             lead_en = tr.get("reaction", lead_zh, shot_id) if lead_zh else ""
             beat_role = "LINE" if speaking else "ACTION"
@@ -1053,6 +1067,10 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                     action["lead_in_reaction_en"] = lead_en
             if action_en:
                 action["action_en"] = action_en
+                action["business_en"] = action_en  # WP4: primary_action's English twin
+            for key, rows in (("listener_reaction_by", sh["reactions"]), ("lead_in_reaction_by", sh["lead_in"])):
+                if rows:
+                    action[key] = list(dict.fromkeys(r["who_id"] for r in rows))
             if touch_partner:
                 action["contact_point"] = next((a["text"] for a in sh["actions"] if _contact(a["text"])), "")
             tag_heads = [t.partition(":")[0] for t in tags]
@@ -1444,6 +1462,17 @@ def _series_card_block(card: dict[str, Any]) -> dict[str, Any]:
             pass
     out.update({k: card[k] for k in ("premise", "engine", "series_id") if card.get(k)})
     return out if out.get("characters") else {}
+
+
+EMOTION_EN = {"急": "urgent", "怒": "angry", "惧": "afraid", "喜": "glad", "疑": "doubtful", "讥": "mocking",
+              "慌": "flustered", "狠": "menacing", "哀": "sad", "羞": "shy", "傲": "haughty", "怯": "timid",
+              "冷": "cold", "厌": "disgusted", "悔": "regretful", "惊": "startled", "怜": "tender", "嫉": "jealous",
+              "贪": "greedy", "倦": "weary", "戏": "teasing", "愧": "ashamed", "盼": "hopeful", "坚": "firm"}
+
+
+def _en_name(cast: "Cast", cid: str) -> str:
+    row = cast.rows.get(cid) or {}
+    return _clean(row.get("english_name")) or ("the other person" if not cid else cid)
 
 
 def _music_stop(value: Any, episode: str) -> Any:

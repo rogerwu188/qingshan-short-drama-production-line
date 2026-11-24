@@ -197,7 +197,7 @@
     },
     {
       "path": "agent_factory/storyclaw_portable/WRITER_CONTRACT.md",
-      "sha256": "3060ff3e559385848ebd10ec73bd56747a8f068849d3a3cc237c0083e58962ef"
+      "sha256": "abc934e52fe64b2c3844856ca3c8832e1f03af40b65374dfcf56fc7214fdb561"
     },
     {
       "path": "configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json",
@@ -473,7 +473,7 @@
     },
     {
       "path": "docs/knowledge/SCREENPLAY_FORMAT_V1.md",
-      "sha256": "b551d8fbb83d687b024a5254cdaac2067f0f4ec37980435b95ee00e1514a16ea"
+      "sha256": "b5f132355d5747a7ef55ae983dc1fefb6bdfa21c3f7c4754cb36c397b9bef6b4"
     },
     {
       "path": "docs/knowledge/VALIDATION_REPORT.md",
@@ -861,7 +861,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "0edb5ac365565cab5776b7362bf5cd4c298e71855e82d8a5a9e54d28f11680a9"
+      "sha256": "1fcd018832179d1d06a1df6a60ecf5a024d0818c49acbdc7a0aaf9fa1c374abe"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -989,7 +989,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/screenplay_compile.py",
-      "sha256": "3a5e2b0b3b823a486ea29f65d71ce7adbca8b0f5ab96ab2d9a461a327a413a47"
+      "sha256": "035269d744fbff4207581c9f4335c9742ec99b636eb9d974b7828c910524734d"
     },
     {
       "path": "lines/nalu/runtime/tools/script_pacing_check.py",
@@ -1093,7 +1093,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "520dbdc9c8b041577dad737c366710615fd6eb8067c081bc70756085a517d4c6"
+      "sha256": "9a109100233babb2b0c17f62039c6cdfa63dbc36976e23f423e4f6c45cd1504c"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -1113,7 +1113,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "d469ad6152c8fd29b59dd4c0c14600cfde953e20bf08441ee443410d68953c4e"
+      "sha256": "caaf8d805c807fee2377ba5f77f844feb9d8fed07f9e4736dbb58f7cefa7c61b"
     },
     {
       "path": "skills/nalu-claude-code/scripts/collective_provision.py",
@@ -7437,7 +7437,7 @@
     },
     {
       "path": "tools/tests/test_bili_wp1_adaptation.py",
-      "sha256": "02fec2a6ec47e4757f9b04916e3620663b9bfbb65a81dcde879e51220644d20b"
+      "sha256": "cd1071dbeefc1e50b049cec35800a52b0b93f7c6d51e78de016aee72cb0c88cf"
     },
     {
       "path": "tools/tests/test_billing_key_guard.py",
@@ -9441,7 +9441,7 @@
     },
     {
       "path": "tools/tests/test_screenplay_compile.py",
-      "sha256": "96ac4943ef8bab382cdc59cbac3c8bdfbeb2f07da3a39f663fe9884bd1f348d2"
+      "sha256": "dbd4c453733c978c1d4045dc353bede63bea349bf8307d5fe97db24f6d49e807"
     },
     {
       "path": "tools/tests/test_script_density_gate_preflight.py",

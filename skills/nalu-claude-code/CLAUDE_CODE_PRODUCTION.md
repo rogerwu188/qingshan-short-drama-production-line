@@ -141,9 +141,10 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 - 情绪由括号和场景类型推出来，不逐镜指定、不轮转（`EMOTION_PERIODIC`，完整性）；要指定就写 `（情绪=怒）`。
 - 每 3 句台词至少 1 行动作（`ACTION_LINES_THIN`）；每个两人以上的场至少一次点名双方的触碰或递物（`NO_TOUCH_IN_TWO_PERSON_SCENE`）；道具都要声明并在动作行里用到（`PROP_UNDECLARED` / `PROP_UNUSED`）。
 - 对白默认听者在画内（过肩后脑/肩，说话的仍只有一人）；说话时可以带一个持续的小动作；反应写进同框听者或下一句的开头。
-然后跑 `$P lines/nalu/runtime/tools/screenplay_compile.py <EP>`：生成四层（叙事正典、导演稿、合同、manifest）。退出码 3 = 还缺英文：
-把 `<EP>_SCREENPLAY_EN_REQUEST.json` 的每行 zh 直译成一句英文（保留物件、哪只手、动词和谁对谁，不改写成情绪词），写进 `<EP>_SCREENPLAY_EN.json`
-（`{"schema": "nalu.screenplay_en.v1", "rows": {key: english}}`），再跑一次。S1 遇到剧本比合同新会自动重编译；改稿只改这四个文件，不手改四层。
+然后跑 `$P lines/nalu/runtime/tools/screenplay_compile.py <EP>`：生成四层（叙事正典、导演稿、合同、manifest）。**退出码 3 = 还缺英文，必须当场答完**：
+把 `<EP>_SCREENPLAY_EN_REQUEST.json` 的每行 zh 直译成一句英文（保留物件、哪只手、动词和谁对谁，不改写成情绪词），按 key 写进 `<EP>_SCREENPLAY_EN.json`
+（`{"schema": "nalu.screenplay_en.v1", "rows": {key: english}}`，保留已有行），再跑一次，直到退出码 0。每次改剧本后都要重跑并答完新出现的请求行
+（H3 只收英文；S1 见到未答的请求报 `SCREENPLAY_EN_TRANSLATION_REQUIRED`，这是翻译请求，不算改稿轮次）。S1 遇到剧本比合同新会自动重编译；改稿只改这四个文件，不手改四层。
 `lines/nalu/runtime/tools/build_<ep>_layers.py` 存在即报 `GENERATOR_SCRIPT_PRESENT`（完整性）。之后照常 `run --until S3`。
 <!-- BILI_V1_SCREENPLAY_V1:END -->
 写 `lines/nalu/runtime/tools/build_<ep小写>_layers.py`（作品文本，.gitignore 已拦，不入库），由叙事正典和简报生成

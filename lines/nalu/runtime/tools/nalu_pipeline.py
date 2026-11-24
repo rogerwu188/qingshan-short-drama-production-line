@@ -2172,6 +2172,11 @@ def s1_repair_scene_order(ctx: Any, p: Any) -> dict[str, Any]:
         return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}"}
 
 
+#: S1 blocker for a SCREENPLAY_V1 episode whose English twins are not answered yet (WP2/WP4); the Codex tick resumes
+#: the writer once per request (codex_production.translation_request_pending); not an integrity round
+SCREENPLAY_EN_TRANSLATION_REQUIRED = "SCREENPLAY_EN_TRANSLATION_REQUIRED"
+
+
 def screenplay_input_paths(p: Any) -> dict[str, Path]:
     """SCREENPLAY_V1 inputs beside the episode's contract (screenplay_compile.paths): series card, outline,
     screenplay, cast/props, English twins."""
@@ -2221,8 +2226,16 @@ def s1_screenplay_compile(ctx: Any, p: Any) -> dict[str, Any]:
         row["report"] = str(files["report"])
         row["blockers"] += [f"SCRIPT_INTEGRITY_FAIL:SCREENPLAY_COMPILE:{e}" for e in (report.get("errors") or [])[:6]]
         if report.get("en_missing"):
-            row["blockers"].append(f"SCRIPT_INTEGRITY_FAIL:SCREENPLAY_EN_TWIN_MISSING:{report['en_missing']}"
-                                   f" (translate {files['en_request'].name} into {files['en_answers'].name})")
+            # a translation request, not a script defect: the writer answers it and S1 recompiles; it never uses
+            # up an S1 integrity round (stage_s1 returns before the gates and the round ledger)
+            request = read_json(files["en_request"], {}) or {}
+            keys = sorted(str(r.get("key")) for r in request.get("rows") or [] if isinstance(r, dict))
+            row["translation_request"] = {"request": str(files["en_request"]), "answers": str(files["en_answers"]),
+                                          "missing": report["en_missing"],
+                                          "key": sha256_text(json.dumps(keys))[:12]}
+            row["blockers"].append(f"{SCREENPLAY_EN_TRANSLATION_REQUIRED}:{row['translation_request']['key']}:"
+                                   f"{report['en_missing']} (translate {files['en_request'].name} into "
+                                   f"{files['en_answers'].name}, then rerun S1)")
         return row
     except Exception as exc:  # noqa: BLE001 -- a compile must never break S1
         return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}", "blockers": []}
@@ -2293,6 +2306,13 @@ def stage_s1(ctx: Ctx) -> StageResult:
         if screenplay_compile.get("status") != "NOT_APPLICABLE":
             res.details["screenplay_compile"] = screenplay_compile
             res.blockers += list(screenplay_compile.get("blockers") or [])
+        return res
+    translation = [b for b in screenplay_compile.get("blockers") or []
+                   if str(b).startswith(SCREENPLAY_EN_TRANSLATION_REQUIRED)]
+    if translation and not screenplay_compile.get("errors") and not missing:
+        # SCREENPLAY_V1: the writer owes the English twins first -- no gate runs, no integrity round is counted
+        res = StageResult(BLOCKED, layer_sha256={}, screenplay_compile=screenplay_compile)
+        res.blockers = translation
         return res
     scene_order_repair = s1_repair_scene_order(ctx, p)
     layer_shas = {name: sha256_file(path) for name, path in p.layers().items()}
