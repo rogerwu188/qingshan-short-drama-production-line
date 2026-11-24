@@ -26,6 +26,16 @@ class SheetIdentityLineTests(unittest.TestCase):
                 "back views in the same clothes; these are views of a single person, render Holmes only once.\n")
         self.assertEqual(self.count(text), 2)
 
+    def test_back_view_identity_reference_counts(self) -> None:
+        # h3_director_prompt_v2 renders an OTS / hidden-face listener this way (lab E27 VU-012)
+        text = ("@Image1 is the opening frame: match its setting.\n"
+                "@Image3 is Mia's face and body.\n"
+                "@Image4 is Ann's identity reference: use @Image4 only for Ann's hair, build and wardrobe from "
+                "behind; Ann's face is not shown.\n"
+                "@Image5 is Bo's identity reference: use @Image5 only for Bo's build and wardrobe; "
+                "Bo's face is not shown.\n")
+        self.assertEqual(self.count(text), 3)
+
     def test_opening_frame_is_not_an_identity(self) -> None:
         self.assertEqual(self.count("@Image1 is the opening frame: match its setting.\n"), 0)
 

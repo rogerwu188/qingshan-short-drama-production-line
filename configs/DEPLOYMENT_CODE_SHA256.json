@@ -933,7 +933,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_qa.py",
-      "sha256": "f89f3e3fe176e09a85263d79e6b83b6c919333b6ae4ea6c23e88aa2b505e5507"
+      "sha256": "e7097a316c8ac9bd41a8138728bec25c58f6c56d4dc94ad6197252440d533ac4"
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_register.py",
@@ -9157,7 +9157,7 @@
     },
     {
       "path": "tools/tests/test_prompt_batch_qa_sheet_identity.py",
-      "sha256": "e7f6324705cf3d486397dd07cee77ceb75feb003bde88ebde1c9752c395e7f65"
+      "sha256": "2180184bc0730bbd0f9ea6ba167b2cf6f94462b0ae28b7a8f0abc43023d01e78"
     },
     {
       "path": "tools/tests/test_prompt_batch_register_monologue_reuse.py",
