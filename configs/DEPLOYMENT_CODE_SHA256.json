@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2569,
+  "file_count": 2571,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -1084,8 +1084,12 @@
       "sha256": "964c7b7e3005111bde258023635ed1ce7fcd75d7ac3d21abc5cbdcee8fe67582"
     },
     {
+      "path": "skills/nalu-claude-code/scripts/engine_restart.py",
+      "sha256": "a3443b380a4073687eda79b8a30f82cb525ca2df1763571f6aa448e01e31abfa"
+    },
+    {
       "path": "skills/nalu-claude-code/scripts/fleet_sync.py",
-      "sha256": "ca249bff8414f5c8c12799325639e9b5f6c7786d263b2e75d94b1577cde2cf88"
+      "sha256": "ee406c17fe7e5e0b81aeb68af55470887010b5b88e5bcf86ae093865bf17bad5"
     },
     {
       "path": "skills/nalu-claude-code/scripts/knowledge_status.py",
@@ -7962,6 +7966,10 @@
     {
       "path": "tools/tests/test_editorial_pacing_contract.py",
       "sha256": "4c2f68038c7f3c7e367f4c19bb6024e0d4fac3a73cb76f10e090673b77eaf040"
+    },
+    {
+      "path": "tools/tests/test_engine_restart.py",
+      "sha256": "880e54e579710682bda32b5d180a21559176c8d40b64a66d734bdad4e45b3dd5"
     },
     {
       "path": "tools/tests/test_english_contract_forbidden_terms_lint.py",
