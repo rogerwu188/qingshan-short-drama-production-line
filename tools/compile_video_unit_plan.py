@@ -166,7 +166,7 @@ def compile_grouping_spec(production: dict[str, Any], spec: dict[str, Any]) -> d
             unit["duration_exception_reason"] = exception_reason
         # CAMERA_GRAMMAR_V1 monologue groups (owner 2026-11-01): carried for the keyframe builder (reuse of the
         # same speaker's earlier same-setup keyframe) and the writer report; absent on every other spec
-        for key in ("speaking_group", "same_setup_as_unit", "writer_warning"):
+        for key in ("speaking_group", "same_setup_as_unit", "writer_warning", "provider_minimum_seconds"):
             if cut_grammar and group.get(key):
                 unit[key] = group[key]
         units.append(unit)

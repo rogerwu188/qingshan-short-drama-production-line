@@ -50,12 +50,13 @@ MIN_SECONDS = 4  # HopsAPI H3 request floor (owner 2026-10-29; was 3 on Giggle);
 
 
 def min_seconds() -> int:
-    """The H3 request floor (tools/h3_limits.py: NALU_H3_MIN_UNIT_SECONDS > configs/H3_LIMITS_V1.json > 4)."""
+    """The speaking-unit floor (tools/h3_limits.unit_floor_seconds: 4 even when H3 accepts 2 s -- a 2 s talking unit
+    would clip the line or make H3 invent speech)."""
     try:
         from tools import h3_limits as _limits  # noqa: PLC0415
     except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
         import h3_limits as _limits  # type: ignore  # noqa: PLC0415
-    return _limits.min_unit_seconds()
+    return _limits.unit_floor_seconds()
 MAX_SECONDS = 5
 #: one speaker's consecutive lines in one take (owner 2026-11-01): preferred cap / H3 request maximum
 GROUP_MAX_SECONDS = 12

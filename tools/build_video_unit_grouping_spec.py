@@ -89,7 +89,28 @@ def provider_min_seconds(model: str | None) -> float:
         from tools import h3_limits as _limits  # noqa: PLC0415
     except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
         import h3_limits as _limits  # type: ignore  # noqa: PLC0415
-    return float(_limits.min_unit_seconds())
+    # the grouping floor (unit_floor_seconds), not the provider minimum: H3 taking 2 s must not regroup LEGACY
+    # units into 2 s pieces; only director short units (short_unit_minimum) are requested shorter
+    return float(_limits.unit_floor_seconds())
+
+
+def short_unit_minimum(group: list[dict[str, Any]]) -> float | None:
+    """A lone silent shot the BILI_V1 director pass timed as a short reaction / insert (prompt_spec.director.short_unit,
+    written only when H3 accepts <= 2 s): its own provider minimum (h3_limits.min_unit_seconds).  Otherwise None."""
+    if len(group) != 1:
+        return None
+    shot = group[0]
+    director = (shot.get("prompt_spec") or {}).get("director")
+    marked = isinstance(shot.get("director_short_unit"), dict) or (
+        isinstance(director, dict) and isinstance(director.get("short_unit"), dict))
+    if not marked or on_screen_speaking(shot):
+        return None
+    try:
+        from tools import h3_limits as _limits  # noqa: PLC0415
+    except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
+        import h3_limits as _limits  # type: ignore  # noqa: PLC0415
+    minimum = float(_limits.min_unit_seconds())
+    return minimum if minimum < float(_limits.unit_floor_seconds()) else None
 
 
 def visible_subjects(shot: dict[str, Any]) -> set[str]:
@@ -528,6 +549,9 @@ def build(manifest: dict[str, Any], source_sha: str) -> tuple[dict[str, Any], di
                 "SCENE_LOCAL_REMAINDER" if duration < _pmin else "CONTINUOUS_CAUSAL_ACTION"
             )
             if cut_grammar:
+                short_min = short_unit_minimum(group)
+                if short_min is not None:
+                    row["provider_minimum_seconds"] = short_min
                 row["duration_exception_reason"] = (
                     "PROVIDER_MINIMUM_PADDED" if duration < provider_min_seconds(manifest.get("model"))
                     else "AUTHORED_CUT_BOUNDARY" if duration < _pmin
