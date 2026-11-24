@@ -53,14 +53,22 @@ CLOSE_SCALES = ("CLOSE_UP", "EXTREME_CLOSE_UP", "MEDIUM_CLOSE_UP")
 MEDIUM_SCALES = ("MEDIUM",)
 MEDIUM_MAX_FIXED_ELEMENTS = 2
 
+#: Close-scale depth of field (2026-11-23 Bilibili benchmark, BV1JnsS6uEdG: a well-received AI drama shoots
+#: ~75 % of its shots as CU/ECU on a long lens -- sharp face, background melted into soft bokeh -- which reads as
+#: premium TV and hides background drift / clutter; our close shots render the whole room sharp).  Stated in the
+#: keyframe picture range (the start frame H3 animates) and in the CAMERA_GRAMMAR_V1 H3 camera line.
+SHALLOW_DOF_ZH = "浅景深（shallow depth of field）：脸部清晰，背景柔和虚化"
+SHALLOW_DOF_EN = "shallow depth of field: the face is sharp, the background falls into a soft blur"
+
 #: explicit picture range per close/medium scale (the keyframe prompt states it, the reviewer reads it)
 PICTURE_RANGE = {
-    "EXTREME_CLOSE_UP": ("只取脸部或一个局部（face or one detail only），主体位于画面中央并占满画面",
-                         "face or one detail only, centred and filling the frame"),
-    "CLOSE_UP": ("头肩（framed head and shoulders），脸位于画面中央三分之一，人物占满画面",
-                 "head and shoulders, face in the central third, the person fills the frame"),
-    "MEDIUM_CLOSE_UP": ("胸口中部以上（framed from mid-chest up），脸位于画面中央三分之一，人物占满画面",
-                        "framed from mid-chest up, face in the central third, the person fills the frame"),
+    "EXTREME_CLOSE_UP": ("只取脸部或一个局部（face or one detail only），主体位于画面中央并占满画面；" + SHALLOW_DOF_ZH,
+                         "face or one detail only, centred and filling the frame; " + SHALLOW_DOF_EN),
+    "CLOSE_UP": ("头肩（framed head and shoulders），脸位于画面中央三分之一，人物占满画面；" + SHALLOW_DOF_ZH,
+                 "head and shoulders, face in the central third, the person fills the frame; " + SHALLOW_DOF_EN),
+    "MEDIUM_CLOSE_UP": ("胸口中部以上（framed from mid-chest up），脸位于画面中央三分之一，人物占满画面；" + SHALLOW_DOF_ZH,
+                        "framed from mid-chest up, face in the central third, the person fills the frame; "
+                        + SHALLOW_DOF_EN),
     "MEDIUM": ("腰部以上（framed from the waist up），人物位于画面中部",
                "framed from the waist up, the person in the middle of the frame"),
 }

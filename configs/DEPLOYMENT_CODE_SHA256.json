@@ -221,7 +221,7 @@
     },
     {
       "path": "configs/CAMERA_GRAMMAR_V1.json",
-      "sha256": "59ba34e6927716e1ed6c54eecf986d37b9e496aafa111f104f0081177ea1bf7e"
+      "sha256": "1a78af52abd96eee541cf64f5889fa84daa15041aaa5180f33f97fa5b0657fef"
     },
     {
       "path": "configs/COMBAT_ACTION_LIBRARY_V1.json",
@@ -429,7 +429,7 @@
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
-      "sha256": "f10bb37527b26db056a980659d11a1aa9562157da4bf0c56ea183ebdcc9676e6"
+      "sha256": "97402144f7ed1e2a787eb0327cb7fb84e25fc485edf7640b0aed5f337c12ab17"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -3885,7 +3885,7 @@
     },
     {
       "path": "tools/camera_grammar_policy.py",
-      "sha256": "3fea7fdeea6f47a4d9d9de180be2b400da1ce0adb14684e9945aa5d30abd816f"
+      "sha256": "5e4337ec2914391e3383208584bc792137b98f4a531ce158276be36d979fc873"
     },
     {
       "path": "tools/camera_language_selector.py",
@@ -5333,7 +5333,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "79722bce5a9e216f5ecff79cfde4a8333f617bad0a585c5685f35d233575621c"
+      "sha256": "8fcfafb583facc21c07581b266fc332d322bc6642c6b08429bf5b0a0f3c83800"
     },
     {
       "path": "tools/h3_reference_sheet_guard.py",
@@ -7513,7 +7513,7 @@
     },
     {
       "path": "tools/tests/test_camera_grammar_policy.py",
-      "sha256": "7485724c56755d4f2f18626807b597bc7aad7b7308f398671059b9cde9c88ce7"
+      "sha256": "189359665f84b60a342e90ddd145d590982ee70b33c824797a38e6e3668c8d99"
     },
     {
       "path": "tools/tests/test_camera_grammar_start_frames.py",

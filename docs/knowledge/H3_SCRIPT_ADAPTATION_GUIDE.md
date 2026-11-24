@@ -174,6 +174,7 @@
 - **近景关键帧不要求房间固定元素**（线主 2026-10-24，E03-S01-01：中近景关键帧提示词要求「五个固定元素必须全部出现」，生图就画成了大全景、Helen 小小地坐在左边）：
   CAMERA_GRAMMAR_V1 的集里关键帧按景别要求固定元素——CLOSE_UP / EXTREME_CLOSE_UP / MEDIUM_CLOSE_UP 一个都不要求（最多一两件在人身后虚化露出局部，人物占满画面，
   中近景 = 胸口中部以上、脸在画面中央三分之一）；MEDIUM 最多 2 件；WIDE / MEDIUM_WIDE / FULL 照旧全部出现。关键帧审核 `space_anchors_match` 按同一规则判。
+  近景三档（CLOSE_UP / MEDIUM_CLOSE_UP / EXTREME_CLOSE_UP）一律浅景深：脸清晰、背景柔和虚化（2026-11-23 B 站对标：好评 AI 短剧约 75% 是长焦特写+背景虚化，质感像电视剧，也盖住背景漂移；我们的近景整间屋子都是清的）。关键帧取景范围和 H3 镜头句自动写入，写手不用写；要深焦就写 `depth_of_field_intent`。
   不写建立镜交代房间（v1 C-01）：空间靠冲突里的过肩双人镜（`MEDIUM`，最多 2 件固定元素）交代，远景只给空间本身就是戏的时刻。
 - **关键帧的取景要写成画面范围**（实验集 2026-10-22：中近景被生图画成站立全身「定妆照」）：`start_framing` 写清从哪里截
   （"framed from mid-chest up"、"head and shoulders"、"seated behind the desk, waist up"）和人在做什么、看向谁；
