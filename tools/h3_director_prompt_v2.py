@@ -896,6 +896,42 @@ def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: se
     return lines
 
 
+def _bili_v1_parts(unit: dict[str, Any], plan: dict[str, Any], source: dict[str, Any], translated: dict[str, Any],
+                   spec: dict[str, Any], parts: list[str], evidence: dict[str, str], prefix: str,
+                   label_by_id: dict[str, str], speaker_label: str, kept: list[str], scrub: Any) -> list[str]:
+    """BILI_V1 only (CHANGE_SPEC WP4 items 2-3): the beat's authored lead-in reaction first ("For the first 1.5
+    seconds, before speaking, ..."), then the authored micro-expression / body-sync / contact the writer wrote
+    (field_sources "authored"; a preproduction fallback template stays omitted as before)."""
+    action = spec.get("action") if isinstance(spec.get("action"), dict) else {}
+    role = spec.get("role_semantic_disambiguation") or {}
+    owner_id = str(role.get("dialogue_speaker_id") or "") if speaker_label else str(
+        role.get("primary_actor_id") or action.get("subject_id") or "")
+    owner_label = speaker_label or label_by_id.get(owner_id, "")
+    owners = ([(owner_id, owner_label)] if owner_label else []) + [
+        (cid, label) for cid, label in label_by_id.items() if label != owner_label]
+    lead = v1._bili.lead_in_sentences(action, owners)
+    if lead:
+        evidence[f"{prefix}.LEAD_IN_REACTION"] = " ".join(lead)
+        parts = [*lead, *parts]
+    authored_rows = (
+        ("MICROEXPRESSION", "microexpression_cue", "Face", v1._bili.authored(action, "microexpression_design")),
+        ("BODY_SYNC", "body_sync_cue", "Body", True),  # performance.body_sync: writer-authored only, no template
+        ("CONTACT_POINT", "contact_point", "Contact", v1._bili.authored(action, "contact_point")),
+    )
+    for fact, key, head, is_authored in authored_rows:
+        fact_id = f"{prefix}.{fact}"
+        if not is_authored or not source.get(key) or evidence.get(fact_id):
+            continue
+        text = scrub(translated.get(key) or "")
+        if not v1._bili.english(text):
+            continue
+        sentence = _sentence(f"{head}: {text}")
+        parts.append(sentence)
+        evidence[fact_id] = sentence
+        kept.append(fact_id)
+    return parts
+
+
 def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dict[str, Any], *,
                        crossmodal_rows: list[dict[str, Any]], language: str, visible_total: int,
                        background_total: int, unbound_total: int) -> tuple[str, dict[str, Any]]:
@@ -910,6 +946,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     }
     crossmodal_by_speaker = {str(row.get("speaker") or "").strip(): row for row in crossmodal_rows}
     stamped = v1.director_active(unit, plan)  # CAMERA_GRAMMAR_V1 camera plans
+    bili = v1._bili.active(unit)  # BILI_V1 carry-through (CHANGE_SPEC WP4); False on every LEGACY unit
+    kept_fact_ids: list[str] = []  # BILI_V1: authored facts V2 states instead of omitting (coverage receipt)
 
     # --- subjects and per-beat presence ----------------------------------------------------------------
     sources = subject_sources(unit)
@@ -1041,6 +1079,9 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
                          f" {window}: only {s['label']}'s {part} in frame; {s['label']}'s face is not shown."
                          if part else f" {window}: {s['label']}'s face stays out of frame.")
             lines.append(line)
+        held = v1._bili.held_prop_sentences(unit, label_by_id) if bili else []
+        if held:  # BILI_V1 (WP4 item 5): declared props in hand, not only when an action names them
+            lines.append("In hand: " + "; ".join(held) + ".")
         tail = []
         if len(people) > 1:
             tail.append("Each keeps only their own clothes.")
@@ -1311,6 +1352,9 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
                 parts.append(business_line)
                 evidence[f"{prefix}.PERFORMANCE_BUSINESS"] = business_line
                 business_rendered = True
+        if bili:
+            parts = _bili_v1_parts(unit, plan, source, translated, spec, parts, evidence, prefix, label_by_id,
+                                   speaker_label, kept_fact_ids, scrub)
         parts.append(_sentence(f"End: {exit_state}"))
         evidence[f"{prefix}.EXIT"] = exit_state
         last_exit = exit_state
@@ -1482,7 +1526,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         raise ValueError(";".join(failures))
     coverage = build_semantic_coverage_receipt(plan=plan, prompt_text=text, model_family="MINIMAX_H3",
                                                clause_evidence={k: v for k, v in evidence.items() if v},
-                                               prompt_style=DIRECTOR_PROMPT_V2)
+                                               prompt_style=DIRECTOR_PROMPT_V2,
+                                               **({"keep_fact_ids": kept_fact_ids} if kept_fact_ids else {}))
     if coverage["status"] != "PASS":
         raise ValueError(";".join(coverage["failures"]))
     self_check = director_v2_self_check(text, unit, plan, stamped=stamped)

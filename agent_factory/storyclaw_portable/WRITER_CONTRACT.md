@@ -305,6 +305,16 @@ blocking check; direct the episode the way people watch films:
   Under it, dialogue shots may add `prompt_spec.action.listener_reaction_en` (optional): one English sentence of what
   the listener(s) do while the line is spoken, or `{<character_id or English name>: sentence}` per listener; without
   it the listener "listens without speaking, holding the speaker's gaze".
+- `craft_profile: BILI_V1` series only (docs/knowledge/CRAFT_PROFILE.md, CHANGE_SPEC WP4): H3 units default to
+  DIRECTOR_PROMPT_V2, and every Chinese field the H3 prompt needs carries its English twin, written in the same
+  run — `action.primary_action` → `action.business_en`, `action.listener_reaction` → `action.listener_reaction_en`,
+  `action.lead_in_reaction` (what the next speaker visibly does in the first ~1.5 s, before the line) →
+  `action.lead_in_reaction_en`, `performance.delivery` → `performance.delivery_en`, a prop `description` →
+  `description_en`. Translate literally: keep the object, the hand, the verb; no paraphrase into mood words. A
+  missing twin is the S1 integrity finding `EN_TWIN_MISSING:<shot>:<field>`. A shot prop row
+  (`prompt_spec.props[]`) may name its holder (`holder_id`) and `hand` (left | right | both); H3 then reads
+  "<Owner>'s <hand> holds <description_en>". Authored `microexpression_design` / `contact_point` /
+  `performance.body_sync` are stated in the V2 prompt (a builder template is not).
 
 Under this policy the S1 static design gate reports its old forced-motion rules (R1–R4, R6, R7) as
 `advisories`; they never block.

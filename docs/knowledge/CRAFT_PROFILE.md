@@ -63,3 +63,16 @@ except ModuleNotFoundError:  # runtime tools dir only
 
 - A LEGACY series must stay byte-identical. Branch only when `is_bili_v1(...)` is true, and keep the historical text and code path untouched otherwise.
 - Read the profile only through this module. Do not add another key or lookup path.
+
+## WP4 / WP7 under BILI_V1
+
+- **WP4 carry-through** (`tools/bili_carry.py`):
+  - the grouped compiler stamps `craft_profile: BILI_V1` on the H3 units and defaults them to DIRECTOR_PROMPT_V2;
+  - S1 integrity `EN_TWIN_MISSING:<shot>:<field>` (script_structure_contract_gate `--craft-profile BILI_V1`);
+  - both H3 renderers state the authored `lead_in_reaction_en` first and `listener_reaction_en`, and the declared props in hand;
+  - V2 states the authored micro-expression / body-sync / contact instead of omitting it (receipt `authored_fact_ids_kept`);
+  - Codex gets `codex_compressed_zh_bili_v1`;
+  - `tools/check_l3_to_h3_carry.py` reports the noun carry (target ≥ 95 %).
+- **WP7 craft metrics** (`tools/craft_metrics.py`, report only):
+  - S7 writes `assembly/<EP>_CRAFT_METRICS.json` + `.md` (copied into CHECKPOINT.md), `craft_metrics` in the final QA report, and one `series/STATUS.md` line.
+  - It runs on every BILI_V1 episode. `NALU_CRAFT_METRICS=on` measures any series; `=off` measures none.

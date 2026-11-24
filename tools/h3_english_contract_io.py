@@ -221,6 +221,10 @@ BEAT_TEXT_RULE = (
     "who acts and who holds an object stays exactly as the source says. ")
 
 
+#: BILI_V1 series only (CHANGE_SPEC WP4): appended to the request instructions; LEGACY requests are unchanged
+BILI_V1_RULE = (" BILI_V1: translate literally; keep the object, the hand, the verb; no paraphrase into mood words.")
+
+
 def source_digest(source: dict[str, Any], template: dict[str, Any]) -> str:
     """Digest of the text to translate and the answer shape.  Two plans of one unit can differ only in
     metadata (e.g. a rolling wave's event-boundary decision); then the translation is reused."""
@@ -325,7 +329,8 @@ def bind_or_request(units: list[dict[str, Any]], answers_path: Path) -> list[dic
                 + BEAT_TEXT_RULE +
                 "Write the answers file as {\"schema\": answers_schema, \"units\": {<answer_key>: "
                 "{\"execution_semantics_sha256\": <copied>, \"source_digest\": <copied>, \"english\": {...}}}} — keep "
-                "every existing entry, add one per requested answer_key — then re-run the same stage."),
+                "every existing entry, add one per requested answer_key — then re-run the same stage."
+                + (BILI_V1_RULE if any(str(u.get("craft_profile") or "").upper() == "BILI_V1" for u in units) else "")),
             "units": pending,
         }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     elif request_path.is_file():

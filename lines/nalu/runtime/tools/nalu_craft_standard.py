@@ -108,25 +108,31 @@ def _anime_note() -> str:
 
 
 def codex_section(engine: Path | None = None, *, limit: int = MAX_CODEX_SECTION_CHARS,
-                  render_style: str | None = None) -> str:
+                  render_style: str | None = None, craft_profile: str | None = None) -> str:
     """The standard's own section of Codex's start prompt (<= ``limit`` chars) or '' when off / missing.
 
     The compressed zh standard plus where to look things up: the full text is grepped by item id, never read whole
     (PR #250: no large files re-read).  render_style=anime appends the short anime note (anime acting conventions,
-    one consistent character design) inside the same cap; live-action is unchanged."""
+    one consistent character design) inside the same cap; live-action is unchanged.
+
+    craft_profile=BILI_V1 (CHANGE_SPEC WP4 item 6) swaps in ``codex_compressed_zh_bili_v1``: the 11-23 coverage rules
+    (OTS listener default, >= 2 two-person shots per scene, CU+MCU cap), one small action while speaking, reaction
+    placement a/b/c, one push per scene, the ledger and the English twins; any other profile is unchanged."""
+    key = "codex_compressed_zh_bili_v1" if str(craft_profile or "").strip().upper() == "BILI_V1" else "codex_compressed_zh"
     if str(render_style or "").strip().lower() == "anime":
         note = _anime_note()
         if note:
-            standard = _codex_section(engine, limit=limit - len(note) - 2)
+            standard = _codex_section(engine, limit=limit - len(note) - 2, key=key)
             return f"{standard}\n\n{note}" if standard else note
-    return _codex_section(engine, limit=limit)
+    return _codex_section(engine, limit=limit, key=key)
 
 
-def _codex_section(engine: Path | None = None, *, limit: int = MAX_CODEX_SECTION_CHARS) -> str:
+def _codex_section(engine: Path | None = None, *, limit: int = MAX_CODEX_SECTION_CHARS,
+                   key: str = "codex_compressed_zh") -> str:
     if not enabled():
         return ""
     standard = load_items(engine)
-    body = str(standard.get("codex_compressed_zh") or "").strip()
+    body = str(standard.get(key) or standard.get("codex_compressed_zh") or "").strip()
     if not body:
         return ""
     head = f"{SECTION_TITLE}\n全文 `{STANDARD_MD}` 不整份读，按条目号取：`rg -n -A8 '^### S-03' <全文>`。"

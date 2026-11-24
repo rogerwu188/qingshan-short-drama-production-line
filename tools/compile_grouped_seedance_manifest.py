@@ -1386,6 +1386,32 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
     }
 
 
+def grouping_episode(args: Any) -> str | None:
+    try:
+        return str(json.loads(args.grouping_plan.read_text(encoding="utf-8")).get("episode") or "") or None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def stamp_bili_v1_units(units: list[dict[str, Any]], generation_payload: Any, *, episode: str | None) -> bool:
+    """BILI_V1 (craft_profile.py; contract -> brief -> runtime qingshan.json): stamp ``craft_profile`` on every H3
+    unit and ``h3_prompt_style: DIRECTOR_PROMPT_V2`` where none is declared.  LEGACY: nothing changes.  Never raises."""
+    try:
+        try:
+            from tools import craft_profile as _cp
+        except ModuleNotFoundError:
+            import craft_profile as _cp  # type: ignore
+        if not _cp.is_bili_v1(generation_payload if isinstance(generation_payload, dict) else None, episode=episode):
+            return False
+    except Exception:  # noqa: BLE001 - an unreadable profile is LEGACY
+        return False
+    for unit in units:
+        if str(unit.get("model") or "") == "MiniMax-H3":
+            unit["craft_profile"] = "BILI_V1"
+            unit.setdefault("h3_prompt_style", "DIRECTOR_PROMPT_V2")
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--grouping-plan", type=Path, required=True)
@@ -1493,6 +1519,9 @@ def main() -> int:
             for compiled_unit in result.get("units") or []:
                 if str(compiled_unit.get("model") or "") == "MiniMax-H3":
                     compiled_unit[H3_CAMERA_LOCK_FIELD] = declared_lock
+        # BILI_V1 craft profile (CHANGE_SPEC WP4 item 3): the H3 units carry the profile (the renderers read the
+        # unit) and default to DIRECTOR_PROMPT_V2.  LEGACY (the default) adds no field.
+        stamp_bili_v1_units(result.get("units") or [], generation_payload, episode=grouping_episode(args))
     # The grouped unit is the source of truth for the transaction manifest.
     # Bind the authored audio profile here as well, so a later transaction
     # rebuild cannot silently lose the writer/director audio decision.
