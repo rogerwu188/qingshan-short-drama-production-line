@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The shortest MiniMax-H3 unit the line requests: ONE knob (line owner 2026-11-23).
 
-HopsAPI says H3 accepts integer 2-15 s since 2026-11-24; the config flips to 2 once a live 2 s probe passes.
+HopsAPI accepts integer 2-15 s since 2026-11-24; the shipped config is 2 (live 2 s probe passed 2026-11-24).
 Resolution, first hit wins:
 
 1. env ``NALU_H3_MIN_UNIT_SECONDS``;

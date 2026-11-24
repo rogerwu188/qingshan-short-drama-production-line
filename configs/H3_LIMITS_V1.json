@@ -1,0 +1,7 @@
+{
+  "schema": "qingshan.h3_limits.v1",
+  "min_unit_seconds": 2,
+  "unit_floor_seconds": 4,
+  "evidence": "2026-11-24 live HopsAPI probe tsk_mwueumgr_865b0e2d5fe52f2638167130: 2 s MiniMax-H3 request created 200, finished, 2.17 credits, clip 2.33 s",
+  "note": "min_unit_seconds = shortest H3 request HopsAPI accepts (BILI_V1 director reaction/insert units); unit_floor_seconds = LEGACY grouping / speaking-unit floor, stays 4"
+}

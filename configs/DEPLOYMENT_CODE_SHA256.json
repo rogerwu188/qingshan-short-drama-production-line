@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2601,
+  "file_count": 2602,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -280,6 +280,10 @@
       "sha256": "30a5384e6bd906d6207343d694ecc83d30428f3a62e6fc5e23b3b32a399baf67"
     },
     {
+      "path": "configs/H3_LIMITS_V1.json",
+      "sha256": "49d330976725a13559024371a7cbaec3272b7fe837277ba5ecca299cd094fd9a"
+    },
+    {
       "path": "configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json",
       "sha256": "6eba8886385e33df74a446dcee0892299bf6295752af35644d59ea2e7fde8d26"
     },
@@ -445,7 +449,7 @@
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
-      "sha256": "5b2c71544efb44b9c1e7f5ccc929bb2244fc28b617a200bec9b3761a07ac913f"
+      "sha256": "0b3ee5ae91e844c7632a6a5a9aafeb2f411ba150229a43d870045d53cd33b4c7"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -5393,7 +5397,7 @@
     },
     {
       "path": "tools/h3_limits.py",
-      "sha256": "032752cb238bf8cae803436892543ea5614ab2b304d81c80ea9cf02a9f0527f4"
+      "sha256": "51b839a3ed5d2fa1e564b80b0091fc2d026a01e85fe2c2e9e4fd08c1c2eb9c7b"
     },
     {
       "path": "tools/h3_native_audio_whitelist_gate.py",
@@ -7925,7 +7929,7 @@
     },
     {
       "path": "tools/tests/test_director_pass.py",
-      "sha256": "d75acce5d518e73cc2a2bc6b6e2b308381b6eccd773cc79ce6bf2e524ce56708"
+      "sha256": "9cdf509123744e1bc5a8172717f0eabed2fce1bd11e5d094998835dd9371ae1f"
     },
     {
       "path": "tools/tests/test_dramatic_quality_gate.py",
@@ -8953,7 +8957,7 @@
     },
     {
       "path": "tools/tests/test_nalu_script_pacing.py",
-      "sha256": "5868c8e041a1c75ed9f511a33acfd66397da59245c0b6ddff085065f59a2a787"
+      "sha256": "159c261c4679c0fe48e1e40cfeed86ef322fd2a908a7a27eb0d396a2b8c3af3a"
     },
     {
       "path": "tools/tests/test_nalu_selective_bgm_s6.py",

@@ -467,7 +467,7 @@ class H3MinUnitKnobTest(unittest.TestCase):
         from tools import build_video_unit_grouping_spec as grouping
         missing = Path("/nonexistent/H3_LIMITS_V1.json")
         self.assertEqual(h3_limits.min_unit_seconds({}, config_path=missing), 4)
-        self.assertIn(h3_limits.min_unit_seconds({}), (2, 4))                 # shipped config
+        self.assertEqual(h3_limits.min_unit_seconds({}), 2)                  # shipped config (2 s live probe passed)
         self.assertEqual(h3_limits.unit_floor_seconds({}), 4)                 # LEGACY grouping / speaking floor
         self.assertEqual(h3_limits.unit_floor_seconds({"NALU_H3_MIN_UNIT_SECONDS": "2"}), 4)
         self.assertEqual(h3_limits.unit_floor_seconds({"NALU_H3_UNIT_FLOOR_SECONDS": "2",
