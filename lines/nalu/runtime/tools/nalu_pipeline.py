@@ -1020,6 +1020,20 @@ def ctx_render_style(ctx: Any) -> str:
     return getattr(ctx, "render_style", None) or "live_action"
 
 
+def resolve_craft_settings(contract: Any, config: Any, episode: str | None = None) -> dict[str, Any]:
+    """The series' craft profile settings (craft_profile.py: ``craft_profile`` LEGACY | BILI_V1,
+    ``bgm_mood_cues``, ``writer_format``): generation contract -> production brief -> runtime config
+    ``project.*`` -> LEGACY defaults (sub-switches only under BILI_V1)."""
+    import craft_profile as _cp
+    brief = read_json(_cp.brief_path(RUNTIME, episode), None) if episode else None
+    return _cp.settings(contract, brief, config)
+
+
+def ctx_craft_profile(ctx: Any) -> str:
+    """The run's resolved craft profile (Ctx.craft_profile); stage test doubles without it are LEGACY."""
+    return getattr(ctx, "craft_profile", None) or "LEGACY"
+
+
 def ctx_language_locale(ctx: Any) -> str:
     return DIALOGUE_LANGUAGE_LOCALES[ctx_language(ctx)]
 
@@ -1123,6 +1137,24 @@ class Ctx:
         self.planned_commands: list[dict[str, Any]] = []
         self._language: str | None = None
         self._render_style: str | None = None
+        self._craft_settings: dict[str, Any] | None = None
+
+    @property
+    def craft_settings(self) -> dict[str, Any]:
+        """The series' craft profile settings (resolve_craft_settings), resolved once per run.
+        Not cached until the generation contract exists (S1 writes it)."""
+        if self._craft_settings is None:
+            contract = read_json(self.p.contract, None) if self.p.contract.is_file() else None
+            current = resolve_craft_settings(contract, self.config, self.episode)
+            if contract is None:
+                return current
+            self._craft_settings = current
+        return self._craft_settings
+
+    @property
+    def craft_profile(self) -> str:
+        """"LEGACY" | "BILI_V1" (craft_profile.py)."""
+        return self.craft_settings["craft_profile"]
 
     @property
     def render_style(self) -> str:
