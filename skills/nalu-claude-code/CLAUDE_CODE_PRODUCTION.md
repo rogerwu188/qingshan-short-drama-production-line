@@ -144,7 +144,8 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 然后跑 `$P lines/nalu/runtime/tools/screenplay_compile.py <EP>`：生成四层（叙事正典、导演稿、合同、manifest）。**退出码 3 = 还缺英文，必须当场答完**：
 把 `<EP>_SCREENPLAY_EN_REQUEST.json` 的每行 zh 直译成一句英文（保留物件、哪只手、动词和谁对谁，不改写成情绪词），按 key 写进 `<EP>_SCREENPLAY_EN.json`
 （`{"schema": "nalu.screenplay_en.v1", "rows": {key: english}}`，保留已有行），再跑一次，直到退出码 0。每次改剧本后都要重跑并答完新出现的请求行
-（H3 只收英文；S1 见到未答的请求报 `SCREENPLAY_EN_TRANSLATION_REQUIRED`，这是翻译请求，不算改稿轮次）。S1 遇到剧本比合同新会自动重编译；改稿只改这四个文件，不手改四层。
+（H3 只收英文；S1 见到未答的请求报 `SCREENPLAY_EN_TRANSLATION_REQUIRED`，这是翻译请求，不算改稿轮次；恢复你 3 次仍不答，
+引擎改用编译器的通用英文兜底并记 `SCREENPLAY_EN_FALLBACK_USED`，H3 提示词会变差，所以一定要答）。S1 遇到剧本比合同新会自动重编译；改稿只改这四个文件，不手改四层。
 `lines/nalu/runtime/tools/build_<ep>_layers.py` 存在即报 `GENERATOR_SCRIPT_PRESENT`（完整性）。之后照常 `run --until S3`。
 <!-- BILI_V1_SCREENPLAY_V1:END -->
 写 `lines/nalu/runtime/tools/build_<ep小写>_layers.py`（作品文本，.gitignore 已拦，不入库），由叙事正典和简报生成

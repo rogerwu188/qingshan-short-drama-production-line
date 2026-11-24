@@ -537,13 +537,18 @@ def en_key(field: str, zh: str) -> str:
 
 
 class Translations:
-    def __init__(self, answers: dict[str, Any] | None) -> None:
+    """The writer's English answers.  ``fallback=True`` (the request went unanswered past the writer resumes; owner
+    rule "never stall the line") fills a missing row with the compiler's own English and logs it."""
+
+    def __init__(self, answers: dict[str, Any] | None, *, fallback: bool = False) -> None:
         rows = (answers or {}).get("rows") if isinstance(answers, dict) else None
         self.rows: dict[str, str] = {str(k): _clean(v) for k, v in (rows or {}).items() if _clean(v)}
         self.requests: dict[str, dict[str, Any]] = {}
         self.used: set[str] = set()
+        self.fallback = fallback
+        self.fallback_log: list[tuple[str, str, str]] = []  # (where, field, key)
 
-    def get(self, field: str, zh: str, where: str) -> str:
+    def get(self, field: str, zh: str, where: str, fallback: str = "") -> str:
         zh = _clean(zh)
         if not zh:
             return ""
@@ -552,7 +557,13 @@ class Translations:
         value = self.rows.get(key, "")
         if not value:
             self.requests.setdefault(key, {"key": key, "field": field, "zh": zh, "where": []})["where"].append(where)
+            if self.fallback and fallback:
+                self.fallback_log.append((where, field, key))
+                return fallback
         return value
+
+    def fallback_fields(self, where: str) -> list[str]:
+        return list(dict.fromkeys(f for w, f, _ in self.fallback_log if w == where))
 
 
 # =========================================================================== compile
@@ -746,8 +757,9 @@ def _delivery_cues(paren: str) -> str:
 
 def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], series_card: dict[str, Any] | None,
                        outline: dict[str, Any] | None, *, episode: str, translations: dict[str, Any] | None = None,
-                       brief: dict[str, Any] | None = None) -> dict[str, Any]:
-    """{contract, narrative_md, directing_md, manifest, en_request, report}.  Pure."""
+                       brief: dict[str, Any] | None = None, en_fallback: bool = False) -> dict[str, Any]:
+    """{contract, narrative_md, directing_md, manifest, en_request, report}.  Pure.  ``en_fallback``: fill English
+    twins the writer never answered with compiler English (marked fallback; ``report.en_fallback_used``)."""
     errors: list[str] = list(parsed.get("errors") or [])
     warnings: list[str] = []
     cast_props = cast_props if isinstance(cast_props, dict) else {}
@@ -759,7 +771,7 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
     cast = Cast(list(cast_props.get("cast") or []))
     if not cast.rows:
         errors.append("CAST_PROPS_NO_CAST")
-    tr = Translations(translations)
+    tr = Translations(translations, fallback=en_fallback)
     locations = [r for r in cast_props.get("locations") or [] if isinstance(r, dict)]
     prop_rows: dict[str, dict[str, Any]] = {}
     for row in cast_props.get("props") or []:
@@ -950,10 +962,13 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
             delivery = cues or f"按「{emotion}」说出这一句"
             sources["delivery"] = AUTHORED if cues else FALLBACK
             # English twins (Codex translates the request rows in the same run)
-            business_en = tr.get("action", "".join(_sentence(a["text"]) for a in own_actions), shot_id) \
+            own_text = "".join(_sentence(a["text"]) for a in own_actions)
+            business_en = tr.get("action", own_text, shot_id, _en_action_fallback(cast, own_text)) \
                 if own_actions else ""
-            action_en = tr.get("action", "".join(action_texts), shot_id) if action_texts else ""
-            delivery_en = tr.get("delivery", delivery, shot_id) if speaking and cues else ""
+            action_en = tr.get("action", "".join(action_texts), shot_id,
+                               _en_action_fallback(cast, "".join(action_texts))) if action_texts else ""
+            delivery_en = tr.get("delivery", delivery, shot_id,
+                                 EMOTION_EN.get(emotion, "steady") + ", clear and natural") if speaking and cues else ""
             # WP4 EN twins: an authored zh field is translated (request rows); a compiler fallback gets the
             # compiler's own English (marked fallback, never sent to the translator)
             if speaking and not action_texts:
@@ -963,8 +978,13 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
             if speaking and not cues:
                 delivery_en = EMOTION_EN.get(emotion, "steady") + ", clear and natural, the voice unchanged"
                 sources["delivery_en"] = FALLBACK
-            reaction_en = tr.get("reaction", reaction_zh, shot_id) if reaction_zh else ""
-            lead_en = tr.get("reaction", lead_zh, shot_id) if lead_zh else ""
+            reaction_en = tr.get("reaction", reaction_zh, shot_id, _en_reaction_fallback(cast, sh["reactions"])) \
+                if reaction_zh else ""
+            lead_en = tr.get("reaction", lead_zh, shot_id, _en_reaction_fallback(cast, sh["lead_in"])) \
+                if lead_zh else ""
+            for field in tr.fallback_fields(shot_id):
+                sources[{"action": "business_en", "delivery": "delivery_en", "reaction": "reaction_en"}
+                        .get(field, field + "_en")] = FALLBACK
             beat_role = "LINE" if speaking else "ACTION"
             for tag in tags:
                 head, _, sub = tag.partition(":")
@@ -1236,8 +1256,9 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
     reference_cards = []
     for pid, row in prop_rows.items():
         owner = cast.resolve(_clean(row.get("owner"))) or _clean(row.get("owner"))
-        desc_en = _clean(row.get("description_en")) or tr.get("prop", _clean(row.get("description") or row.get("name")),
-                                                             pid)
+        desc_en = _clean(row.get("description_en")) or tr.get(
+            "prop", _clean(row.get("description") or row.get("name")), pid,
+            f"the hand prop of {_en_name(cast, owner)}" if owner else "a hand prop")
         reference_cards.append({"entity_id": pid, "name": _clean(row.get("name")),
                                 **({"aliases": [_clean(a) for a in row.get("aliases") or [] if _clean(a)]}
                                    if row.get("aliases") else {}),
@@ -1356,10 +1377,13 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
     fallback_fields = sum(1 for s in shots_out for v in s["prompt_spec"]["action"]["field_sources"].values()
                           if v == FALLBACK)
     all_fields = sum(len(s["prompt_spec"]["action"]["field_sources"]) for s in shots_out) or 1
+    fallback_keys = {k for _, _, k in tr.fallback_log}
+    unanswered = set(tr.requests) - fallback_keys
     report = {"schema": SCHEMA, "episode": episode, "status": "FAIL" if errors else
-              ("NEEDS_EN" if tr.requests else "PASS"),
+              ("NEEDS_EN" if unanswered else "PASS"),
+              "en_fallback_used": len(fallback_keys),
               "errors": errors, "warnings": warnings, "shots": len(shots_out), "scenes": len(scene_plan),
-              "seconds": manifest["total_seconds"], "en_missing": len(tr.requests),
+              "seconds": manifest["total_seconds"], "en_missing": len(unanswered),
               "fallback_field_share": round(fallback_fields / all_fields, 3),
               "en_stale": len(set(tr.rows) - tr.used),
               "authored_action_shots": sum(1 for s in shots_out if s["prompt_spec"]["action"]["source"] == AUTHORED),
@@ -1470,6 +1494,18 @@ EMOTION_EN = {"急": "urgent", "怒": "angry", "惧": "afraid", "喜": "glad", "
               "贪": "greedy", "倦": "weary", "戏": "teasing", "愧": "ashamed", "盼": "hopeful", "坚": "firm"}
 
 
+def _en_action_fallback(cast: "Cast", text: str) -> str:
+    names = [_en_name(cast, c) for c in cast.mentions(text)]
+    who = ", ".join(names[:3]) if names else "The character"
+    return f"{who} perform the scripted action of this beat" if len(names) > 1 else \
+        f"{who} performs the scripted action of this beat"
+
+
+def _en_reaction_fallback(cast: "Cast", rows: list[dict[str, Any]]) -> str:
+    who = ", ".join(dict.fromkeys(_en_name(cast, r["who_id"]) for r in rows)) or "The listener"
+    return f"{who} reacts visibly without speaking"
+
+
 def _en_name(cast: "Cast", cid: str) -> str:
     row = cast.rows.get(cid) or {}
     return _clean(row.get("english_name")) or ("the other person" if not cid else cid)
@@ -1521,6 +1557,8 @@ def paths(scripts: Path, episode: str) -> dict[str, Path]:
         "cast_props": scripts / f"{episode}_CAST_PROPS.yaml",
         "en_answers": scripts / f"{episode}_SCREENPLAY_EN.json",
         "en_request": scripts / f"{episode}_SCREENPLAY_EN_REQUEST.json",
+        # written by the Codex tick when the request stayed unanswered past its resumes (never stall the line)
+        "en_fallback": scripts / f"{episode}_SCREENPLAY_EN_FALLBACK.json",
         "report": scripts / f"{episode}_SCREENPLAY_COMPILE.json",
         "narrative": scripts / f"{episode}_NARRATIVE_CANONICAL_v1.md",
         "directing": scripts / f"{episode}_DIRECTING_SCRIPT_v1.md",
@@ -1547,7 +1585,8 @@ def _read_yaml(path: Path) -> Any:
     return read_light_yaml(text) if text.strip() else None
 
 
-def compile_files(scripts: Path, episode: str, *, brief: dict[str, Any] | None = None) -> dict[str, Any]:
+def compile_files(scripts: Path, episode: str, *, brief: dict[str, Any] | None = None,
+                  en_fallback: bool = False) -> dict[str, Any]:
     p = paths(scripts, episode)
     if not p["screenplay"].is_file():
         return {"report": {"schema": SCHEMA, "episode": episode, "status": "FAIL",
@@ -1565,7 +1604,7 @@ def compile_files(scripts: Path, episode: str, *, brief: dict[str, Any] | None =
         except ValueError:
             answers = None
     out = compile_screenplay(parse(_read_text(p["screenplay"])), cast_props, series_card, outline,
-                             episode=episode, translations=answers, brief=brief)
+                             episode=episode, translations=answers, brief=brief, en_fallback=en_fallback)
     out["report"]["inputs"] = {k: hashlib.sha256(Path(v).read_bytes()).hexdigest()
                                for k, v in p.items() if k in ("series_card", "outline", "screenplay", "cast_props",
                                                               "en_answers") and Path(v).is_file()}
@@ -1623,10 +1662,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("episode")
     ap.add_argument("--scripts-dir", type=Path, default=None)
     ap.add_argument("--check", action="store_true", help="compile in memory and print the report only")
+    ap.add_argument("--en-fallback", action="store_true",
+                    help="fill unanswered English twins with compiler English (marked fallback)")
     args = ap.parse_args(argv)
     episode = args.episode.strip().upper()
     scripts = args.scripts_dir or default_scripts_dir()
-    out = compile_files(scripts, episode)
+    out = compile_files(scripts, episode, en_fallback=args.en_fallback)
     report = out["report"]
     if not args.check and out.get("contract") is not None:
         report["written"] = write_outputs(scripts, episode, out)

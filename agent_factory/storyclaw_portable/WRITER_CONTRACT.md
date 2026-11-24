@@ -239,7 +239,8 @@ Every other series keeps the sections above unchanged.
   literally (object, hand, verb, who acts on whom) into `<EP>_SCREENPLAY_EN.json` (keep the existing rows) and compile
   again until exit 0, after every screenplay edit. An unanswered request stops S1 with
   `SCREENPLAY_EN_TRANSLATION_REQUIRED:<key>:<n>` before any gate runs; it is a translation request, never an S1
-  integrity round, and the Codex tick resumes you once per request.
+  integrity round. The Codex tick resumes you up to 3 times (≥ 30 min apart); after that S1 proceeds on the
+  compiler's generic English (`SCREENPLAY_EN_FALLBACK_USED:<n>`, recorded) -- worse H3 prompts, so answer the request.
 - **Derived, not authored.** One dialogue line = one shot. Action lines become the shot's `primary_action` /
   `business_en`, reaction beats `listener_reaction(_en)` or `lead_in_reaction(_en)`, props `props.reference_cards` and
   the per-shot `props`. The emotion comes from the line's parenthetical and the scene type (`（情绪=怒）` overrides);

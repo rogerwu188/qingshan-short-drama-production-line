@@ -1405,13 +1405,53 @@ TRANSLATION_REQUEST_MESSAGE = ("S1 的 SCREENPLAY_EN_TRANSLATION_REQUIRED 是翻
                                "然后跑 lines/nalu/runtime/tools/screenplay_compile.py <EP> 直到退出码 0，再重跑 S1→S3。免费，不问线主，不报 BLOCKED。")
 
 
-def translation_request_pending(episode: str, session: dict[str, Any]) -> str:
-    """The SCREENPLAY_V1 English-twin request key S1 is waiting on that the session was not yet resumed for, or ''.
-    Each request (its row keys) is resumed once; an answered request changes the key or clears the blocker."""
+#: an unanswered English-twin request is resumed this many times, at least this far apart; then the tick writes
+#: <EP>_SCREENPLAY_EN_FALLBACK.json and S1 fills the missing twins with compiler English (never stall the line)
+TRANSLATION_MAX_RESUMES = 3
+TRANSLATION_RESUME_SPACING_S = 30 * 60
+TRANSLATION_FALLBACK_MESSAGE = ("英文孪生字段请求已经恢复你 3 次仍未回答。引擎改用编译器自带的英文兜底（标 fallback，S1 记录 "
+                                "SCREENPLAY_EN_FALLBACK_USED）：现在直接重跑 S1→S3 即可；之后改剧本时仍要答新的翻译请求。")
+
+
+def translation_request_key(episode: str) -> str:
     blockers = _s1_blockers(episode)
-    key = next((str(b).split(":", 2)[1] for b in blockers
-                if str(b).startswith("SCREENPLAY_EN_TRANSLATION_REQUIRED:")), "")
-    return key if key and key not in (session.get("translation_resumed") or []) else ""
+    return next((str(b).split(":", 2)[1] for b in blockers
+                 if str(b).startswith("SCREENPLAY_EN_TRANSLATION_REQUIRED:")), "")
+
+
+def translation_request_pending(episode: str, session: dict[str, Any], now: float | None = None) -> str:
+    """The SCREENPLAY_V1 English-twin request key to act on now, or ''.  A key is resumed up to
+    TRANSLATION_MAX_RESUMES times, each at least TRANSLATION_RESUME_SPACING_S after the last; one more step after that
+    is the fallback (``translation_step``).  An answered or edited request changes the key or clears the blocker."""
+    key = translation_request_key(episode)
+    if not key:
+        return ""
+    stamps = [float(t) for t in (session.get("translation_resumes") or {}).get(key) or []]
+    if key in (session.get("translation_fallback") or []):
+        return ""
+    now = time.time() if now is None else now
+    if stamps and now - stamps[-1] < TRANSLATION_RESUME_SPACING_S:
+        return ""
+    return key
+
+
+def translation_step(episode: str, session: dict[str, Any]) -> str:
+    """``RESUME`` (ask the writer again) or ``FALLBACK`` (resumes exhausted: write the fallback marker the pipeline
+    reads, then resume once to rerun S1) for the pending key."""
+    key = translation_request_pending(episode, session)
+    stamps = (session.get("translation_resumes") or {}).get(key) or []
+    return "" if not key else ("FALLBACK" if len(stamps) >= TRANSLATION_MAX_RESUMES else "RESUME")
+
+
+def write_translation_fallback(episode: str, key: str) -> Path:
+    """``<scripts>/<EP>_SCREENPLAY_EN_FALLBACK.json`` -- the pipeline's S1 pre-step uses compiler English for this
+    request key (nalu_pipeline.s1_screenplay_en_fallback)."""
+    path = roots()[0] / "workflow" / "claude_writer_agent" / "scripts" / f"{episode}_SCREENPLAY_EN_FALLBACK.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_json(path, {"schema": "nalu.screenplay_en_fallback.v1", "episode": episode, "key": key,
+                      "reason": f"TRANSLATION_REQUEST_UNANSWERED_AFTER_{TRANSLATION_MAX_RESUMES}_RESUMES",
+                      "written_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+    return path
 
 
 def tick(system: bool = False) -> dict[str, Any]:
@@ -1521,13 +1561,22 @@ def tick(system: bool = False) -> dict[str, Any]:
             return res
         reason = f"RESUME_FAILED:{out.get('reason') or out.get('status')}"
     elif state == "BLOCKED" and translation_request_pending(ep, session):
-        # SCREENPLAY_V1 English twins (WP2/WP4): the writer's own free work, resumed once per request
+        # SCREENPLAY_V1 English twins (WP2/WP4): the writer's own free work, resumed up to TRANSLATION_MAX_RESUMES
+        # times >= 30 min apart; then the fallback marker lets S1 proceed on compiler English (never stall the line)
         key = translation_request_pending(ep, session)
-        out = resume(ep, TRANSLATION_REQUEST_MESSAGE)
+        step = translation_step(ep, session)
+        if step == "FALLBACK":
+            write_translation_fallback(ep, key)
+        out = resume(ep, TRANSLATION_FALLBACK_MESSAGE if step == "FALLBACK" else TRANSLATION_REQUEST_MESSAGE)
         session = read_json(d / "session.json")
-        session["translation_resumed"] = sorted(set(session.get("translation_resumed") or []) | {key})
+        if step == "FALLBACK":
+            session["translation_fallback"] = sorted(set(session.get("translation_fallback") or []) | {key})
+        else:
+            resumes = dict(session.get("translation_resumes") or {})
+            resumes[key] = list(resumes.get(key) or []) + [time.time()]
+            session["translation_resumes"] = resumes
         write_json(d / "session.json", session)
-        did.append(f"resume_translation_request:{key}:{out.get('status')}")
+        did.append(f"resume_translation_{step.lower()}:{key}:{out.get('status')}")
         if out.get("status") == "STARTED":
             return res
         reason = f"RESUME_FAILED:{out.get('reason') or out.get('status')}"

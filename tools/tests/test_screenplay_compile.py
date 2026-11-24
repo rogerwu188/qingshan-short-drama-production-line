@@ -353,13 +353,79 @@ class TranslationCycleTest(unittest.TestCase):
         b = shot(compiled()["contract"], "E25-S01-13")["prompt_spec"]["action"]["performance"]  # no parenthetical
         self.assertTrue(b["delivery_en"].startswith("urgent"))
 
-    def test_codex_tick_resumes_the_writer_once_per_request(self):
+    def test_codex_tick_resumes_three_times_spaced_then_falls_back(self):
         import codex_production as cxp
         blocker = "SCREENPLAY_EN_TRANSLATION_REQUIRED:abc123def456:3 (translate ...)"
+        t0 = 1_000_000.0
         with unittest.mock.patch.object(cxp, "_s1_blockers", return_value=[blocker]):
-            self.assertEqual("abc123def456", cxp.translation_request_pending("E25", {}))
-            self.assertEqual("", cxp.translation_request_pending("E25", {"translation_resumed": ["abc123def456"]}))
+            session: dict = {}
+            self.assertEqual(("abc123def456", "RESUME"),
+                             (cxp.translation_request_pending("E25", session, now=t0), cxp.translation_step("E25", session)))
+            for i in range(3):
+                session.setdefault("translation_resumes", {}).setdefault("abc123def456", []).append(t0 + i * 1800)
+            # spaced: nothing within 30 min of the last resume
+            self.assertEqual("", cxp.translation_request_pending("E25", session, now=t0 + 2 * 1800 + 60))
+            with unittest.mock.patch.object(cxp.time, "time", return_value=t0 + 3 * 1800):
+                self.assertEqual("FALLBACK", cxp.translation_step("E25", session))
+            session["translation_fallback"] = ["abc123def456"]
+            self.assertEqual("", cxp.translation_request_pending("E25", session, now=t0 + 10 * 1800))
+        with tempfile.TemporaryDirectory() as tmp, \
+                unittest.mock.patch.dict(os.environ, {"NALU_ENGINE_ROOT": tmp}):
+            path = cxp.write_translation_fallback("E25", "abc123def456")
+            self.assertEqual("abc123def456", json.loads(path.read_text(encoding="utf-8"))["key"])
+            self.assertEqual("E25_SCREENPLAY_EN_FALLBACK.json", path.name)
         self.assertIn("SCREENPLAY_EN.json", cxp.TRANSLATION_REQUEST_MESSAGE)
+
+
+class TranslationFallbackTest(unittest.TestCase):
+    """3 unanswered resumes -> the tick's marker -> S1 proceeds on compiler English (never stall the line)."""
+
+    def _setup(self, d: Path):
+        import nalu_pipeline as npl
+        for f in FIXTURE.iterdir():
+            shutil.copy(f, d)
+        full = json.loads((d / "E25_SCREENPLAY_EN.json").read_text(encoding="utf-8"))
+        partial = {**full, "rows": {k: v for k, v in full["rows"].items() if k not in sorted(full["rows"])[:3]}}
+        (d / "E25_SCREENPLAY_EN.json").write_text(json.dumps(partial, ensure_ascii=False), encoding="utf-8")
+        p = SimpleNamespace(contract=d / "E25_GENERATION_CONTRACT_v1.json", episode="E25", logs=d / "logs",
+                            state=d / "state.json")
+        ctx = SimpleNamespace(episode="E25", p=p, craft_settings={"craft_profile": "BILI_V1", "bgm_mood_cues": False,
+                                                                 "writer_format": "SCREENPLAY_V1"})
+        return npl, ctx, p
+
+    def test_tick_marker_lets_s1_proceed_on_fallback_english(self):
+        from tools import bili_carry
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            npl, ctx, p = self._setup(d)
+            row = npl.s1_screenplay_compile(ctx, p)
+            self.assertTrue(row["blockers"][0].startswith(npl.SCREENPLAY_EN_TRANSLATION_REQUIRED))
+            key = row["translation_request"]["key"]
+            (d / "E25_SCREENPLAY_EN_FALLBACK.json").write_text(json.dumps({"key": key}), encoding="utf-8")
+            row = npl.s1_screenplay_compile(ctx, p)
+            self.assertEqual([], row["blockers"])
+            self.assertEqual(("COMPILED", 3, "TICK_RESUMES_EXHAUSTED", "SCREENPLAY_EN_FALLBACK_USED:3"),
+                             (row["status"], row["en_fallback_used"], row["en_fallback_basis"], row["marker"]))
+            contract = json.loads(p.contract.read_text(encoding="utf-8"))
+            self.assertEqual([], bili_carry.en_twin_failures(contract))
+            marked = [s["shot_id"] for s in contract["shots"]
+                      if any(k.endswith("_en") and v == "fallback"
+                             for k, v in s["prompt_spec"]["action"]["field_sources"].items())]
+            self.assertTrue(marked)
+            # the next S1 run stays on the fallback (the marker still names the unanswered request)
+            self.assertEqual([], npl.s1_screenplay_compile(ctx, p)["blockers"])
+
+    def test_without_a_tick_s1_falls_back_after_repeated_unanswered_requests(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            npl, ctx, p = self._setup(d)
+            t0 = 2_000_000.0
+            for i in range(npl.SCREENPLAY_EN_FALLBACK_EVALUATIONS - 1):
+                with unittest.mock.patch.object(npl.time, "time", return_value=t0 + i * 1800):
+                    self.assertTrue(npl.s1_screenplay_compile(ctx, p)["blockers"])
+            with unittest.mock.patch.object(npl.time, "time", return_value=t0 + 3 * 1800):
+                row = npl.s1_screenplay_compile(ctx, p)
+            self.assertEqual(([], "S1_REQUEST_UNANSWERED"), (row["blockers"], row["en_fallback_basis"]))
 
 
 class PipelinePreStepTest(unittest.TestCase):
