@@ -306,6 +306,17 @@ class EnglishTwinTest(unittest.TestCase):
             self.assertTrue((Path(d) / "E25_SCREENPLAY_EN_REQUEST.json").is_file())
             self.assertTrue((Path(d) / "E25_GENERATION_CONTRACT_v1.json").is_file())
 
+    def test_entry_state_never_quotes_its_own_completion_or_action(self):
+        # E27 (1101, 2026-11-24): the scene's opening action was both the "开场：" entry and the completion of
+        # S01-01, so build_keyframe_manifest rejected the entry (COMPLETION_STATE_LEAK) and S5 blocked.
+        for s in compiled()["contract"]["shots"]:
+            entry = s["entry_state"]
+            self.assertNotIn(s["completion_state"], entry, s["shot_id"])
+            self.assertNotIn(s["frame_content"], entry, s["shot_id"])
+        first = shot(compiled()["contract"], "E25-S01-01")
+        self.assertIn("白桃帝姬翘着二郎腿", first["completion_state"])
+        self.assertIn("已在场", first["entry_state"])
+
     def test_round_trip_write_and_reread(self):
         with tempfile.TemporaryDirectory() as d:
             for f in FIXTURE.iterdir():

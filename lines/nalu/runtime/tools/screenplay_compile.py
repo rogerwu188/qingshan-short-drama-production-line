@@ -604,6 +604,13 @@ def _dims(texts: list[str], speaking: bool) -> list[str]:
     return list(dict.fromkeys(dims))
 
 
+def _entry_leaks(entry: str, completion: str, primary: str) -> bool:
+    """True when the S5 entry-only check would reject ``entry`` (it quotes the completion or primary action)."""
+    entry = _clean(entry)
+    parts = (_clean(completion), _clean(primary))
+    return any(p in entry for part in parts for p in {part, part.rstrip("。")} if p)
+
+
 def _sentence(text: str) -> str:
     text = _clean(text)
     return text if re.search(r"[。！？…!?.]$", text) else text + "。"
@@ -952,6 +959,12 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                 said = line if len(line) <= 16 else line[:15] + "…"
                 completion = f"{cast.name(speaker)}说完「{said}」，{listener_name or '对方'}还没有接话"
                 sources["completion_state"] = FALLBACK
+            if sources["entry_state"] == AUTHORED and _entry_leaks(entry, completion, primary):
+                # The scene's opening action is this shot's own action: quoting it as the frozen entry would
+                # leak the completion / primary action into the S5 keyframe (COMPLETION_STATE_LEAK).  The
+                # entry is then the static "people already in place" frame; the action stays the completion.
+                entry = f"{loc_name}里，{'、'.join(cast.name(c) for c, _ in visible) or '众人'}已在场"
+                sources["entry_state"] = FALLBACK
             if _clean(entry) == _clean(completion):
                 completion = completion + "（本拍结束）"
             prev_completion = completion.rstrip("。")
