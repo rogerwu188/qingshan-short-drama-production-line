@@ -35,8 +35,9 @@ Sub-commands (all offline except `generate --paid`):
 Craft profile (lines/nalu/runtime/tools/craft_profile.py, ``~/nalu_lab/bili_work/CHANGE_SPEC.md`` WP5), resolved once
 in ``source-plan`` and carried by the source plan and the plan (LEGACY plans carry no new key):
 
-* BILI_V1 (WP5-B): the bed plays at 0.24 (bgm_cue_shaping.bed_volume) with the same -10 dB duck, full level only
-  0.4 s away from a line (``duck_guard_s``); final_cut_audio_bed raises its pad to match.
+* BILI_V1 (WP5-B): the bed plays at 0.24 (bgm_cue_shaping.bed_volume) and ducks -14 dB (duck_db): pauses +4.7 dB,
+  under a line about as before; full level only 0.4 s away from a line (``duck_guard_s``); final_cut_audio_bed
+  raises its pad to match.
 * ``bgm_mood_cues`` (WP5-C, nalu_bgm_default.mood_cues): the declaration carries ``series_cache: true`` and
   ``hard_stop_shots``.  A completed source of the same brief from an earlier episode of the series is reused from the
   series cache (``<RUNTIME>/sources/<scope>/bgm/<source_key>/``; ``NALU_BGM_SERIES_CACHE_DIR`` overrides): no POST, no
@@ -600,8 +601,8 @@ def cmd_plan(a: argparse.Namespace) -> int:
         func = cue["narrative_function"]
         shots = list(cue["shots"])
         t0, t1 = windows[cue_id]
-        # owner 2026-11-19: duck about 10-14 dB under speech, never mute; the authenticity gate accepts -6..-10
-        duck = _shape.DUCK_DB
+        # owner 2026-11-19: duck about 10-14 dB under speech, never mute; the authenticity gate accepts -6..-14
+        duck = _shape.duck_db(bili_v1=bili_v1)   # BILI_V1: -14 dB, so the 0.24 bed holds the old under-line level
         volume = float(cue["volume"])
         # dialogue windows inside the cue, from the per-unit ASR (assembly), on the release timeline
         dialogue = []
@@ -674,7 +675,8 @@ def cmd_plan(a: argparse.Namespace) -> int:
             "source_plan": str(p.source_plan), "source_plan_sha256": sha256_file(p.source_plan),
             "release_timeline": str(p.release_timeline), "content_runtime_seconds": content,
             "policy": {"mode": "SELECTIVE_NARRATIVE_CUES", "maximum_coverage_ratio": MAX_COVERAGE_RATIO,
-                       "minimum_ambience_only_seconds": MIN_AMBIENCE_ONLY_SECONDS, "dialogue_duck_db_range": DUCK_RANGE_DB,
+                       "minimum_ambience_only_seconds": MIN_AMBIENCE_ONLY_SECONDS,
+                       "dialogue_duck_db_range": (_shape.BILI_V1_DUCK_DB, DUCK_RANGE_DB[1]) if bili_v1 else DUCK_RANGE_DB,
                        "policy": "No wall-to-wall score. Native ambience, foley and dialogue stay; music only on the declared narrative cues, ducked under every spoken line."},
             "cues": cues_out, "generations": generations,
             "cue_shaping": {"rule": shaping["rule"], "dropped": shaping["dropped"], "merged": shaping["merged"],

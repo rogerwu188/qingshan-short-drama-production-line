@@ -26,9 +26,11 @@ Rules (owner 2026-11-19 spec; music MAY change or stop at a scene or mood change
    -6..-10 dB at -10), never muted.  Audibility under lines (device 1101 E24) comes from the louder bed pad
    (final_cut_audio_bed.PAD_LEVEL_DBFS), not a shallower duck.
 6. BILI_V1 (craft_profile.py; WP5-B, Bilibili benchmark 2026-11-23: both benchmarks hold the music in pauses at about
-   dialogue level, ours sat at -24..-35 LUFS): the bed plays at ``BILI_V1_BED_VOLUME`` (0.24, was 0.14) with the same
-   -10 dB duck, so pauses come up ~4.7 dB, and it reaches full level only ``BILI_V1_DUCK_GUARD_S`` + ``DUCK_RAMP_S``
-   (0.4 s) away from a line.  ``bed_volume`` is the one place that decides the cue volume.
+   dialogue level, ours sat at -24..-35 LUFS): the bed plays at ``BILI_V1_BED_VOLUME`` (0.24, was 0.14) and ducks by
+   ``BILI_V1_DUCK_DB`` (-14 dB, the deep edge of the owner's -10..-14; the authenticity gate accepts -6..-14), so the
+   pauses come up ~4.7 dB while the music under a line stays where it was (0.24 x -14 dB ~= 0.14 x -10 dB, +0.7 dB);
+   it reaches full level only ``BILI_V1_DUCK_GUARD_S`` + ``DUCK_RAMP_S`` (0.4 s) away from a line.  ``bed_volume`` /
+   ``duck_db`` are the one place that decides the cue volume and duck.
 7. Hard stop (WP5-C, ``bgm_mood_cues``; ep3 "elevator ding"): ``stops`` (release-timeline seconds of shots the
    writer marked ``music_stop``) end the cue exactly there with a ``HARD_STOP_FADE_SECONDS`` fade; a cue never
    runs, extends or merges across a stop.  No stops (every LEGACY contract) = the rules above unchanged.
@@ -59,6 +61,7 @@ SOURCE_TAIL_MARGIN_S = 0.5
 LEGACY_BED_VOLUME = 0.14
 BILI_V1_BED_VOLUME = 0.24
 BILI_V1_DUCK_GUARD_S = 0.15
+BILI_V1_DUCK_DB = -14.0
 #: WP5-C hard stop on a story beat (a shot marked music_stop): the cue ends on the shot start with this fade
 HARD_STOP_FADE_SECONDS = 0.1
 
@@ -96,6 +99,11 @@ def bed_volume(authored: Any, *, bili_v1: bool) -> float:
     if bili_v1 and abs(value - LEGACY_BED_VOLUME) < 1e-9:
         return BILI_V1_BED_VOLUME
     return value
+
+
+def duck_db(*, bili_v1: bool) -> float:
+    """The stamped dialogue duck: LEGACY -10 dB (unchanged), BILI_V1 -14 dB (WP5-B)."""
+    return BILI_V1_DUCK_DB if bili_v1 else DUCK_DB
 
 
 def is_sting(cue: dict[str, Any]) -> bool:

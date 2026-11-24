@@ -177,6 +177,53 @@ class BedLevelTests(unittest.TestCase):
         self.assertEqual(sh.bed_volume(0.20, bili_v1=False), 0.20)
         self.assertAlmostEqual(20 * __import__("math").log10(0.24 / 0.14), 4.68, places=2)
 
+    def test_bili_v1_duck_holds_the_old_under_line_level(self) -> None:
+        import math
+        self.assertEqual(sh.duck_db(bili_v1=False), sh.DUCK_DB)
+        self.assertEqual(sh.duck_db(bili_v1=True), -14.0)
+        self.assertTrue(-14.0 <= sh.BILI_V1_DUCK_DB <= -10.0)                 # owner 2026-11-19 range
+        legacy_under = 20 * math.log10(sh.LEGACY_BED_VOLUME) + sh.DUCK_DB
+        bili_under = 20 * math.log10(sh.BILI_V1_BED_VOLUME) + sh.BILI_V1_DUCK_DB
+        self.assertLess(abs(bili_under - legacy_under), 1.0)
+        from tools.bgm_authenticity_gate import DUCK_RANGE_DB as gate_range
+        self.assertTrue(gate_range[0] <= sh.BILI_V1_DUCK_DB <= gate_range[1])
+        self.assertTrue(gate_range[0] <= sh.DUCK_DB <= gate_range[1])
+
+    def test_rendered_levels_pauses_up_lines_held(self) -> None:
+        """ffmpeg renders the real duck expression on a tone: pauses +4.7 dB, under lines ~0 dB vs LEGACY."""
+        import subprocess
+        try:
+            import numpy as np
+        except ModuleNotFoundError:
+            self.skipTest("numpy unavailable")
+        try:
+            ffmpeg = sbgm._media.require_ffmpeg()
+        except Exception as exc:  # noqa: BLE001
+            self.skipTest(f"ffmpeg unavailable: {exc}")
+
+        def render(volume: float, duck: float, guard: float) -> list[float]:
+            cue = {"timeline_start": 0.0, "dialogue_duck_db": duck,
+                   "dialogue_windows": [{"start": 3.0, "end": 6.0}, {"start": 8.0, "end": 11.0}]}
+            if guard:
+                cue["duck_guard_s"] = guard
+            with tempfile.TemporaryDirectory() as td:
+                out = Path(td) / "o.f32"
+                subprocess.run([ffmpeg, "-v", "error", "-f", "lavfi", "-i", "sine=f=220:d=14:sample_rate=48000",
+                                "-af", f"volume='{sbgm.duck_expr(cue)}':eval=frame,volume={volume}",
+                                "-f", "f32le", "-ac", "1", str(out)], check=True)
+                x = np.fromfile(out, dtype=np.float32)
+
+            def level(a: float, b: float) -> float:
+                seg = x[int(a * 48000):int(b * 48000)]
+                return float(20 * np.log10(np.sqrt(np.mean(seg ** 2))))
+            return [level(0.5, 2.4), level(3.5, 5.5), level(11.5, 13.5)]   # pause, line, pause
+
+        legacy = render(sh.LEGACY_BED_VOLUME, sh.duck_db(bili_v1=False), 0.0)
+        bili = render(sh.bed_volume(None, bili_v1=True), sh.duck_db(bili_v1=True), sh.BILI_V1_DUCK_GUARD_S)
+        self.assertAlmostEqual(bili[0] - legacy[0], 4.7, delta=0.2)
+        self.assertAlmostEqual(bili[2] - legacy[2], 4.7, delta=0.2)
+        self.assertLess(abs(bili[1] - legacy[1]), 1.0)
+
     def test_duck_guard_widens_the_full_duck(self) -> None:
         cue = {"timeline_start": 0.0, "dialogue_duck_db": sh.DUCK_DB, "dialogue_windows": [{"start": 4.0, "end": 6.0}]}
         plain, guarded = sbgm.duck_expr(cue), sbgm.duck_expr({**cue, "duck_guard_s": sh.BILI_V1_DUCK_GUARD_S})
@@ -206,6 +253,9 @@ class SourcePlanAndCacheTests(unittest.TestCase):
 
     def paths(self, episode: str, contract_path: Path):
         return sbgm.Paths(episode, contract=contract_path, work=self.root / episode / "work",
+                          assembly=self.root / episode / "assembly",
+                          grouping=self.root / episode / "grouping.json",
+                          project=self.root / episode / "assembly" / "project.json",
                           transactions=(self.tx_base / episode).resolve())
 
     def complete(self, p, generation: dict, task: str) -> Path:
@@ -281,7 +331,7 @@ class SourcePlanAndCacheTests(unittest.TestCase):
         p.unit_asr.write_text(json.dumps({"U20": [{"start": 1.0, "end": 2.5}]}), encoding="utf-8")
         with mock.patch.object(sbgm, "longest_source_seconds", return_value=120.0):
             code = sbgm.cmd_plan(__import__("argparse").Namespace(
-                episode="E05", contract=derived, assembly=p.assembly, grouping=p.grouping, project=None,
+                episode="E05", contract=derived, assembly=p.assembly, grouping=p.grouping, project=p.project,
                 work=p.work, bgm_transactions_dir=p.tx))
         out = json.loads(p.plan.read_text(encoding="utf-8"))
         self.assertEqual(code, 0, out.get("failures"))
@@ -293,7 +343,7 @@ class SourcePlanAndCacheTests(unittest.TestCase):
         self.assertEqual(stopped[0]["fade_out_s"], sh.HARD_STOP_FADE_SECONDS)
         for cue in out["cues"]:
             self.assertEqual(cue["volume"], 0.24)
-            self.assertEqual(cue["dialogue_duck_db"], -10.0)
+            self.assertEqual(cue["dialogue_duck_db"], -14.0)
             self.assertEqual(cue["duck_guard_s"], sh.BILI_V1_DUCK_GUARD_S)
             self.assertFalse(cue["timeline_start"] < stop_t < cue["timeline_start"] + cue["duration"] - 1e-6)
 

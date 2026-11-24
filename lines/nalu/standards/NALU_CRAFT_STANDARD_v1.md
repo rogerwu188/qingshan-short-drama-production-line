@@ -274,7 +274,7 @@
 - **原则**：台词清楚可懂，一个人一种声线；L-cut 让台词盖到反应上；配乐铺在台词下面，不抢台词。*Intelligible dialogue, one voice per character; L-cuts carry lines; score stays under dialogue.*
 - **为什么**：竖屏观众很多时候半听半看，声音一断就出戏。
 - **Codex**：用 `sound_bridge_from_previous_seconds`；`audio_contract.bgm` 不写，或者写成整集一条 cue（沿用本线默认）。不写逐个爽点的音效 cue，原因见 §4 冲突 4。
-- **BILI_V1 例外**（`craft_profile: BILI_V1`，B 站对标 WP5；LEGACY 剧不变）：停顿里配乐抬高（铺底 0.24，台词下压 −10 dB）；系列开了 `bgm_mood_cues` 时，`pacing.scene_plan[]` 每场可写 `mood`（tender / comic_bounce / heartbreak / tension / triumph / mystery，见 `lines/nalu/runtime/configs/BGM_MOOD_PALETTE_V1.json`），同一情绪的连续场次并成一条 cue，每集最多 3 条，换情绪落在场次切点上交叉淡化；笑点要“音乐一停”就在该场写 `music_stop: true`（落在该场 PUNCHLINE 镜开头，0.1 s 收）。每种情绪每个系列只付一次（约 8 积分）。
+- **BILI_V1 例外**（`craft_profile: BILI_V1`，B 站对标 WP5；LEGACY 剧不变）：停顿里配乐抬高 ~4.7 dB（铺底 0.24，台词下压 −14 dB，台词下音量基本不变）；系列开了 `bgm_mood_cues` 时，`pacing.scene_plan[]` 每场可写 `mood`（tender / comic_bounce / heartbreak / tension / triumph / mystery，见 `lines/nalu/runtime/configs/BGM_MOOD_PALETTE_V1.json`），同一情绪的连续场次并成一条 cue，每集最多 3 条，换情绪落在场次切点上交叉淡化；笑点要“音乐一停”就在该场写 `music_stop: true`（落在该场 PUNCHLINE 镜开头，0.1 s 收）。每种情绪每个系列只付一次（约 8 积分）。
 - **终审**：声音那一遍：有没有听不清的句子、声线变化、配乐盖住台词（记时间）。
 - **中**：好：「你被开除了。」的尾音盖在经理僵住的脸上。坏：同一个人前后两句声音不像同一个人。
 - **EN**：好：她的低语延续到下一镜那扇空门上。坏：配乐突然响起，盖住了关键台词。

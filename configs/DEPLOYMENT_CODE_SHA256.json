@@ -429,7 +429,7 @@
     },
     {
       "path": "docs/knowledge/CRAFT_PROFILE.md",
-      "sha256": "62a3a31e9af8a8e9d5eed70a7291e5f520c220f993b32e4afe78544dd6136435"
+      "sha256": "f24ea04357eb42d406a1354424a1f0c341ed34a45f3d3d108c6d27446a74ab22"
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
@@ -665,7 +665,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/bgm_cue_shaping.py",
-      "sha256": "e19a2e44042b05f9457f8658ea505bea80e2ec4e6cac3f13658ad2b52e33ebdd"
+      "sha256": "d8025669c6cdf3ff5d462b9b81a404d804c32ba9d2fc24cd094d67353aed1572"
     },
     {
       "path": "lines/nalu/runtime/tools/bili_adaptation_check.py",
@@ -865,7 +865,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_selective_bgm.py",
-      "sha256": "8547a198e5dc50b43eca801c21a1c0c2d47e2676e784510cf1c46bceab7ef5e8"
+      "sha256": "78d35d2e101753dfcb121f26f39af7617629c1bf0788bcd2a49b98b4298e9bf4"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_series_scope.py",
@@ -1049,7 +1049,7 @@
     },
     {
       "path": "lines/nalu/standards/NALU_CRAFT_STANDARD_v1.md",
-      "sha256": "e3df195e5914d8e6d05cd79a945552d66528971c4d9578762d719ef66bc00b3a"
+      "sha256": "e3a0b78db29468dc933c0415a03d8bd3c53737ce2b8d1385b1bf445cdce03455"
     },
     {
       "path": "pyproject.toml",
@@ -1881,7 +1881,7 @@
     },
     {
       "path": "tools/bgm_authenticity_gate.py",
-      "sha256": "50463a3e088e55a07d95fe83b111926ae5f5f25602cafd91ebb3564e3be388ed"
+      "sha256": "4e10414cf8200986d92654a6113006c243b05a8bb499506f021949f78c5a6510"
     },
     {
       "path": "tools/bili_carry.py",
@@ -7385,7 +7385,7 @@
     },
     {
       "path": "tools/tests/test_bgm_authenticity_gate.py",
-      "sha256": "728bdbfb14a712faffaf182b8bedf1a4c42117479306e62eeeb0842e92abc0f4"
+      "sha256": "2e87f9dfa8028a5c6c92f0e443f4d1426e292cba98cfa4587e7ca8aa0db08999"
     },
     {
       "path": "tools/tests/test_bgm_cue_shaping.py",
@@ -7397,7 +7397,7 @@
     },
     {
       "path": "tools/tests/test_bgm_mood_palette.py",
-      "sha256": "6eaf19f365d9c38646b53d30c6dc77cfb1d7a221cf49e3af299c164196a427ed"
+      "sha256": "2fb75121ef42a48a5ccdb4e4aa574dda8c742d5c5b98a79c4b4654e7b6158a9b"
     },
     {
       "path": "tools/tests/test_bgm_unbound_write_off.py",

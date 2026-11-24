@@ -24,6 +24,7 @@ except ModuleNotFoundError:  # Direct execution from tools/.
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_TYPES = {"GENERATED_EPISODE_BGM", "LIBRARY_FALLBACK"}
+DUCK_RANGE_DB = (-14.0, -6.0)
 
 
 def sha256(path: Path) -> str:
@@ -58,8 +59,10 @@ def validate_bgm_contract(project: dict) -> list[str]:
         failures.append("BGM_SOURCE_PRIORITY_CONTRACT_MISSING")
         return failures
     duck = contract.get("dialogue_duck_db")
-    if not isinstance(duck, (int, float)) or isinstance(duck, bool) or not -10.0 <= float(duck) <= -6.0:
-        failures.append("BGM_DIALOGUE_DUCK_MUST_BE_MINUS_10_TO_MINUS_6_DB")
+    # owner 2026-11-19: duck 10-14 dB under speech; BILI_V1 (WP5-B) stamps -14 (bed 0.24 holds the old under-line
+    # level).  -6 stays the shallow limit.
+    if not isinstance(duck, (int, float)) or isinstance(duck, bool) or not DUCK_RANGE_DB[0] <= float(duck) <= DUCK_RANGE_DB[1]:
+        failures.append("BGM_DIALOGUE_DUCK_MUST_BE_MINUS_14_TO_MINUS_6_DB")
     if source_type == "GENERATED_EPISODE_BGM":
         if not str(contract.get("generation_task_id") or "").strip():
             failures.append("GENERATED_BGM_TASK_ID_MISSING")
@@ -192,7 +195,7 @@ def main() -> int:
             "hard_blocker": "Giggle AgentCut BGM endpoint returned HTTP 403 before a task ID was issued." if generation_status == "FAILED_HTTP_403_ZERO_CREDIT" else None,
         },
         "failures": failures,
-        "policy": "New episode BGM is primary. Generated BGM requires task, receipt, source SHA and exact credit provenance. A library fallback requires a recorded reason and cross-episode similarity PASS. Every path requires -6 to -10 dB dialogue ducking, real local sources, Audio.BGM, an audible solo stem, and a mixed output.",
+        "policy": "New episode BGM is primary. Generated BGM requires task, receipt, source SHA and exact credit provenance. A library fallback requires a recorded reason and cross-episode similarity PASS. Every path requires -6 to -14 dB dialogue ducking, real local sources, Audio.BGM, an audible solo stem, and a mixed output.",
     }
     output = Path(args.out).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
