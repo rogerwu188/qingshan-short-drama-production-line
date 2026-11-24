@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2591,
+  "file_count": 2597,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -197,7 +197,7 @@
     },
     {
       "path": "agent_factory/storyclaw_portable/WRITER_CONTRACT.md",
-      "sha256": "e7bb3dbf29fa132187860b37f2ad5662e268082cf392008a49e11a71f3c90724"
+      "sha256": "3060ff3e559385848ebd10ec73bd56747a8f068849d3a3cc237c0083e58962ef"
     },
     {
       "path": "configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json",
@@ -305,7 +305,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "2e1174164c1a0a0da4a3ad7711f85ceef43da469a2989ea0332ed653ef50bd4e"
+      "sha256": "4db29468abd56d7f1dcd88649db91d6d9103edd4c035cfb2163d039e312f0ff5"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -472,6 +472,10 @@
       "sha256": "92bcea76057ed92c1aa9d971620c7fa98c223ef52d9e1155b34915163063e54a"
     },
     {
+      "path": "docs/knowledge/SCREENPLAY_FORMAT_V1.md",
+      "sha256": "b551d8fbb83d687b024a5254cdaac2067f0f4ec37980435b95ee00e1514a16ea"
+    },
+    {
       "path": "docs/knowledge/VALIDATION_REPORT.md",
       "sha256": "10c765cd4af969d91c9562c7eda9ea79007fa9942213a99c1335fc279c94d920"
     },
@@ -534,6 +538,10 @@
     {
       "path": "lines/nalu/runtime/configs/PERFORMANCE_EMOTION_LEXICON_v1.json",
       "sha256": "fbc1279450fb43d4dc65602e0b11e53f06608d290e9a9909ace081533abb31e1"
+    },
+    {
+      "path": "lines/nalu/runtime/configs/SCREENPLAY_LEXICON_V1.json",
+      "sha256": "bf6c5f22bd90be7c762c30f9abe4f8e5a2550a1dda85458e1487e978adcb682e"
     },
     {
       "path": "lines/nalu/runtime/engine_patches/README.md",
@@ -853,7 +861,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "38139903f8f5f4344ea1738a362101eb691dc68802504abe2693713d87275191"
+      "sha256": "0edb5ac365565cab5776b7362bf5cd4c298e71855e82d8a5a9e54d28f11680a9"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -889,7 +897,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_writer_selfcheck_seq29.py",
-      "sha256": "b8a8dd0ba2cb1a88354af5596f7465e8163979adc27e4327321ebc25f1f0c735"
+      "sha256": "dc3d7b6f239bb0558b98edbe874842e7441f1060671bdcd8b1216973276371db"
     },
     {
       "path": "lines/nalu/runtime/tools/owner_decision_queue.py",
@@ -976,8 +984,16 @@
       "sha256": "3668d54aea057241bfc0dc1dcb7ba05804864ba91316ad055b893395992cb8dc"
     },
     {
+      "path": "lines/nalu/runtime/tools/screenplay_checks.py",
+      "sha256": "535132e0f19c6bb1252817f31955c137731f1de3e7a74418b347560027a3ade2"
+    },
+    {
+      "path": "lines/nalu/runtime/tools/screenplay_compile.py",
+      "sha256": "3a5e2b0b3b823a486ea29f65d71ce7adbca8b0f5ab96ab2d9a461a327a413a47"
+    },
+    {
       "path": "lines/nalu/runtime/tools/script_pacing_check.py",
-      "sha256": "282fdc37ca30300b82dc1a51aa372c601f2f6798ae439048cba8f320d355f5cf"
+      "sha256": "a346fa8b66c1bd32dfe951294c07fb9595d7db37182105ab1cd27cb287d2ed49"
     },
     {
       "path": "lines/nalu/runtime/tools/script_review.py",
@@ -1077,7 +1093,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "53350fb67a278c1c3cd1ef31e9b584910709e6abd0c66622f60ad6a1a35c9c41"
+      "sha256": "520dbdc9c8b041577dad737c366710615fd6eb8067c081bc70756085a517d4c6"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -1097,7 +1113,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "6b824816afa947e8de0330cf960ffb7bdba72db5d7f3d00b0f9d3c79218f7056"
+      "sha256": "d469ad6152c8fd29b59dd4c0c14600cfde953e20bf08441ee443410d68953c4e"
     },
     {
       "path": "skills/nalu-claude-code/scripts/collective_provision.py",
@@ -7296,6 +7312,10 @@
       "sha256": "22eecde6ac895c29c1c141c937eef4ca411fcc407384fa6e0a668ad6644630ef"
     },
     {
+      "path": "tools/tests/test_anti_template_v2.py",
+      "sha256": "a8765a8172af094661a0f51b790efe88b93fa1c0e020db2ff8d0a24d47aec255"
+    },
+    {
       "path": "tools/tests/test_apply_agentcut_speech_safe_trim_plan.py",
       "sha256": "def0b48d7ef798ed16a9a083f698ae49db9f0578a52a6052b8a4f9f17cbd603c"
     },
@@ -9418,6 +9438,10 @@
     {
       "path": "tools/tests/test_scene_brightness_timeline.py",
       "sha256": "9fb2c6ddfbdcb7880729ecb5e50074704386369c0ec98cc9d3dceb92c3098397"
+    },
+    {
+      "path": "tools/tests/test_screenplay_compile.py",
+      "sha256": "96ac4943ef8bab382cdc59cbac3c8bdfbeb2f07da3a39f663fe9884bd1f348d2"
     },
     {
       "path": "tools/tests/test_script_density_gate_preflight.py",

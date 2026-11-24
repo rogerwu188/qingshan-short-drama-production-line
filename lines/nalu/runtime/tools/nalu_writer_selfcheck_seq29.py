@@ -316,6 +316,17 @@ def monologue_warnings(contract: dict[str, Any]) -> list[str]:
     return out
 
 
+def _screenplay_v1(contract: dict[str, Any]) -> bool:
+    try:
+        try:
+            from tools import craft_profile as _cp  # noqa: PLC0415
+        except ModuleNotFoundError:  # runtime tools dir only
+            import craft_profile as _cp  # noqa: PLC0415
+        return _cp.writer_format(contract) == _cp.SCREENPLAY_V1
+    except Exception:  # noqa: BLE001 -- unreadable profile = LEGACY
+        return False
+
+
 def evaluate(contract: dict[str, Any], lexicon: dict[str, Any] | None = None) -> dict[str, Any]:
     floor_s = provider_floor_seconds(contract)
     contract = in_video_contract(contract)
@@ -326,6 +337,10 @@ def evaluate(contract: dict[str, Any], lexicon: dict[str, Any] | None = None) ->
     decl = contract.get("writer_selfcheck_seq29") if isinstance(contract.get("writer_selfcheck_seq29"), dict) else {}
     enforced = bool(decl.get("enforced"))
     rule8 = bool(decl.get("rule8_authorized"))
+    # BILI_V1 + SCREENPLAY_V1 (CHANGE_SPEC WP2): the compiler DERIVES each line's emotion (lexicon member by
+    # construction), so the per-shot emotion requirement and the 3-in-a-row rule are replaced by
+    # script_pacing_check / screenplay_checks EMOTION_PERIODIC.  LEGACY: unchanged.
+    screenplay = _screenplay_v1(contract)
     failures: list[str] = []
     warnings: list[str] = []
     m: dict[str, Any] = {"dialogue_shots": 0, "no_dialogue_shots": 0, "derived_seconds_by_shot": {}, "emotions_by_scene": {}}
@@ -370,7 +385,7 @@ def evaluate(contract: dict[str, Any], lexicon: dict[str, Any] | None = None) ->
             failures.append(f"R7B_PERFORMANCE_MISSING:{sid}")
             emotion = None
         else:
-            for field in ("emotion", "body_action", "delivery"):
+            for field in (("body_action", "delivery") if screenplay else ("emotion", "body_action", "delivery")):
                 if not str(perf.get(field) or "").strip():
                     failures.append(f"R7B_PERFORMANCE_INCOMPLETE:{sid}:{field}")
             emotion = str(perf.get("emotion") or "").strip() or None
@@ -385,7 +400,7 @@ def evaluate(contract: dict[str, Any], lexicon: dict[str, Any] | None = None) ->
         scene = shot.get("scene_id")
         if scene != prev_scene:
             prev_scene, run_word, run_len = scene, None, 0
-        if emotion and emotion == run_word:
+        if emotion and emotion == run_word and not screenplay:
             run_len += 1
             if run_len > CONSECUTIVE_EMOTION_MAX:
                 failures.append(f"R7C_EMOTION_REPEATED_3_IN_SCENE:{scene}:{emotion}:{sid}")

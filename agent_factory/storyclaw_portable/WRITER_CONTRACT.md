@@ -223,6 +223,33 @@ an episode already past a paid stage that relies on the default is grandfathered
     `writer_capability/<EP>_SCRIPT_REVIEW_REPORT.json` from `script_review.py` with an independent `reviewer` (not the
     writer) and the `request_sha256` of the request it read (recorded at S1 as `script_review_independence`).
 
+## BILI_V1: prose screenplay instead of the contract JSON (writer_format SCREENPLAY_V1, owner 2026-11-23)
+
+Only for a series with `craft_profile: BILI_V1` and `writer_format: SCREENPLAY_V1` (`docs/knowledge/CRAFT_PROFILE.md`).
+Every other series keeps the sections above unchanged.
+
+- **What you write.** Four small files, never a generator script and never the 40 per-shot fields by hand:
+  `SERIES_CARD.yaml` (once per series), `<EP>_OUTLINE.md` (L1, with one fenced `yaml` block),
+  `<EP>_SCREENPLAY.md` (L2 scene cards + L3 Chinese prose screenplay, the compile input) and
+  `<EP>_CAST_PROPS.yaml` (cast, props with owner and hand, locations, `ledger`). Format:
+  `docs/knowledge/SCREENPLAY_FORMAT_V1.md`; worked example (E25, ch.226): `tools/tests/fixtures/screenplay_e25/`.
+- **Compile.** `python3 lines/nalu/runtime/tools/screenplay_compile.py <EP>` writes the four legacy layers, so S2–S8 are
+  untouched. S1 recompiles by itself when the screenplay is newer than the contract. Exit 3 = English twins missing:
+  translate `<EP>_SCREENPLAY_EN_REQUEST.json` literally (object, hand, verb, who acts on whom) into
+  `<EP>_SCREENPLAY_EN.json` and compile again.
+- **Derived, not authored.** One dialogue line = one shot. Action lines become the shot's `primary_action` /
+  `business_en`, reaction beats `listener_reaction(_en)` or `lead_in_reaction(_en)`, props `props.reference_cards` and
+  the per-shot `props`. The emotion comes from the line's parenthetical and the scene type (`（情绪=怒）` overrides);
+  nothing rotates. Fields the screenplay does not give are marked `field_sources: fallback`.
+- **Checks that replace the blacklists** (`lines/nalu/runtime/tools/screenplay_checks.py`):
+  `SCENE_CARD_REPEATED` (goal / obstacle / turn pairwise distinct), `EMOTION_PERIODIC` (no 3–6 word cycle),
+  `ACTION_TEXT_TEMPLATE` (no two action texts ≥ 0.6 similar), `GENERATOR_SCRIPT_PRESENT` are integrity;
+  `ACTION_LINES_THIN` (≥ 1 action line per 3 dialogue lines) and `NO_TOUCH_IN_TWO_PERSON_SCENE` (≥ 1 touch / handover
+  naming both people) are taste; `PROP_UNDECLARED` / `PROP_UNUSED` are advisory.
+- **Coverage (11-23 rules).** Dialogue defaults to the listener in frame (over-the-shoulder back / shoulders, one
+  speaker per unit); one continuous small action is allowed while speaking; reactions sit on the in-frame listener or the
+  first 1–2 s of the next line.
+
 ## Camera grammar (CAMERA_GRAMMAR_V1)
 
 `finalize` stamps `"camera_grammar_policy": "CAMERA_GRAMMAR_V1"` on every newly sealed contract. It adds no

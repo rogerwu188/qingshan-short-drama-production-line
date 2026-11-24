@@ -126,6 +126,26 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 避开已知坑：首帧要看得见的道具别设计成「从怀里掏出」；古装灯写「无罩敞口油盏」；每个说话角色男女/音色要能区分；不写全黑画面。
 
 ## 2. 四层剧本（免费）
+<!-- BILI_V1_SCREENPLAY_V1:BEGIN -->
+**本系列 `craft_profile: BILI_V1` + `writer_format: SCREENPLAY_V1`（线主 2026-11-23，B 站对标；CHANGE_SPEC WP2）：本节下面「写 build_<ep>_layers.py」整段不适用。**
+你不再写生成器脚本、不手填 40 个字段（轮转情绪、「gesture variation N」、五场同一张场景卡都出自生成器）。改为手写四个小文件
+（`workflow/claude_writer_agent/scripts/`，格式 `docs/knowledge/SCREENPLAY_FORMAT_V1.md`，样例 `tools/tests/fixtures/screenplay_e25/`）：
+- `SERIES_CARD.yaml`（每部一次，首集写，之后只追加）：一句话前提、爽点/笑点引擎（「把 X 当 Y 来演」），每个主角 want / fear / voice / `signature_business` / `signature_prop`。
+- `<EP>_OUTLINE.md`（L1）：主事件 + ≤1 个次事件、必到站情节、开头视觉钩子（前 3 秒不靠台词）、结尾钩子；一个 ```yaml 块写 `title` / `source_chapters` / `plot_events[{event, chapter, role: MAIN|SECONDARY}]` / `cut` / `end_hook.open_question` / `knowledge`（谁知道、谁误以为什么）。
+- `<EP>_SCREENPLAY.md`（L2 场景卡 + L3 中文剧本正文，**这是编译输入**）：`## S01 地点 · 时间 · 光线`；`@card goal[人]=… | obstacle=… | turn=… | type=… | source=原著细节;… | mirror_of=- | mood=… | music_stop=…`；
+  动作行写「谁的哪只手对什么东西做了什么」；台词 `名字（对谁、怎么说）：台词`；反应拍 `[某人 反应：…]`；道具 `{道具 名 @人.右手 描述}`；无台词镜头行首 `（无声）`；
+  行尾标签 `#揭示:IDENTITY_REVEAL`、`#转折:REVERSAL`、`#爽点:<类型>`、`#结尾`、`#招牌`、`#双关`、`#先物:PROP:名:TILT_UP`。
+- `<EP>_CAST_PROPS.yaml`：cast（id、名字、简称、english_name、面部结构、服装）、props（id、owner、hand、描述）、locations（id、时间、天气、光线、3 件可用陈设、环境声、轴线）、`ledger`（伏笔/回收/回扣/钩子）。
+写法规则（S1 用相似度/周期性/重复度量，不再靠黑名单）：
+- 每场目标、阻力、转折全集不重复（`SCENE_CARD_REPEATED`，完整性）；任意两镜动作文本不雷同（`ACTION_TEXT_TEMPLATE`，完整性）。
+- 情绪由括号和场景类型推出来，不逐镜指定、不轮转（`EMOTION_PERIODIC`，完整性）；要指定就写 `（情绪=怒）`。
+- 每 3 句台词至少 1 行动作（`ACTION_LINES_THIN`）；每个两人以上的场至少一次点名双方的触碰或递物（`NO_TOUCH_IN_TWO_PERSON_SCENE`）；道具都要声明并在动作行里用到（`PROP_UNDECLARED` / `PROP_UNUSED`）。
+- 对白默认听者在画内（过肩后脑/肩，说话的仍只有一人）；说话时可以带一个持续的小动作；反应写进同框听者或下一句的开头。
+然后跑 `$P lines/nalu/runtime/tools/screenplay_compile.py <EP>`：生成四层（叙事正典、导演稿、合同、manifest）。退出码 3 = 还缺英文：
+把 `<EP>_SCREENPLAY_EN_REQUEST.json` 的每行 zh 直译成一句英文（保留物件、哪只手、动词和谁对谁，不改写成情绪词），写进 `<EP>_SCREENPLAY_EN.json`
+（`{"schema": "nalu.screenplay_en.v1", "rows": {key: english}}`），再跑一次。S1 遇到剧本比合同新会自动重编译；改稿只改这四个文件，不手改四层。
+`lines/nalu/runtime/tools/build_<ep>_layers.py` 存在即报 `GENERATOR_SCRIPT_PRESENT`（完整性）。之后照常 `run --until S3`。
+<!-- BILI_V1_SCREENPLAY_V1:END -->
 写 `lines/nalu/runtime/tools/build_<ep小写>_layers.py`（作品文本，.gitignore 已拦，不入库），由叙事正典和简报生成
 `<EP>_DIRECTING_SCRIPT_v1.md`、`<EP>_GENERATION_CONTRACT_v1.json`（qingshan.generation_contract.v3）、`<EP>_manifest_v1.json`，
 以及 `$NALU_RUNTIME_ROOT/preproduction/<EP>/{asset_requirements_overlay.json,new_location_place_spec.json,view_reference_policy.json}`。

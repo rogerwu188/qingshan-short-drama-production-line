@@ -1,0 +1,1147 @@
+{
+"schema": "qingshan.generation_contract.v3",
+"episode": "E25",
+"dialogue_language": "zh",
+"note": "trimmed from the archived fleet contract (deep review 2026-11-23) for WP2 anti-template tests",
+"character_entities": [
+{
+"character_id": "CHAR-LINGYAO",
+"canonical_name": "凌瑶",
+"aliases": [
+"凌瑶战神",
+"战神"
+]
+},
+{
+"character_id": "CHAR-LONGYECHE",
+"canonical_name": "龙夜澈",
+"aliases": []
+},
+{
+"character_id": "CHAR-SHANGYUJIN",
+"canonical_name": "商余烬",
+"aliases": [
+"商余烬"
+]
+},
+{
+"character_id": "CHAR-MINGDI",
+"canonical_name": "冥帝",
+"aliases": []
+},
+{
+"character_id": "CHAR-BAITAODIJI",
+"canonical_name": "白桃帝姬",
+"aliases": []
+},
+{
+"character_id": "CHAR-ZHANLEI",
+"canonical_name": "战雷",
+"aliases": []
+},
+{
+"character_id": "CHAR-QILINHUMAN",
+"canonical_name": "麒麟",
+"aliases": []
+},
+{
+"character_id": "CHAR-TIANJUN",
+"canonical_name": "天君",
+"aliases": []
+},
+{
+"character_id": "CHAR-SUYAO",
+"canonical_name": "苏瑶",
+"aliases": []
+}
+],
+"scene_states": [
+{
+"scene_id": "E25-S01",
+"location_id": "LOC-UNDERWORLD-GATE",
+"time_id": "血月夜"
+},
+{
+"scene_id": "E25-S02",
+"location_id": "LOC-DEMONE-MPALACE",
+"time_id": "白日"
+},
+{
+"scene_id": "E25-S03",
+"location_id": "LOC-TIANJUN",
+"time_id": "白日"
+},
+{
+"scene_id": "E25-S04",
+"location_id": "LOC-TIANJUN",
+"time_id": "白日"
+},
+{
+"scene_id": "E25-S05",
+"location_id": "LOC-COURTYARD",
+"time_id": "白日"
+}
+],
+"pacing": {
+"scene_plan": [
+{
+"scene_id": "E25-S01",
+"objective": "推进冲突",
+"conflict": "对手阻止真相",
+"physical_action": "夺取、阻挡或离开改变局面"
+},
+{
+"scene_id": "E25-S02",
+"objective": "推进冲突",
+"conflict": "对手阻止真相",
+"physical_action": "夺取、阻挡或离开改变局面"
+},
+{
+"scene_id": "E25-S03",
+"objective": "推进冲突",
+"conflict": "对手阻止真相",
+"physical_action": "夺取、阻挡或离开改变局面"
+},
+{
+"scene_id": "E25-S04",
+"objective": "推进冲突",
+"conflict": "对手阻止真相",
+"physical_action": "夺取、阻挡或离开改变局面"
+},
+{
+"scene_id": "E25-S05",
+"objective": "推进冲突",
+"conflict": "对手阻止真相",
+"physical_action": "夺取、阻挡或离开改变局面"
+}
+]
+},
+"shots": [
+{
+"shot_id": "E25-S01-01",
+"scene_id": "E25-S01",
+"location_id": "LOC-UNDERWORLD-GATE",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "龙夜澈：妖界出事了？",
+"cast": [
+{
+"character": "龙夜澈",
+"character_id": "CHAR-LONGYECHE",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "PAYOFF",
+"action": {
+"primary_action": "Long Yeche steps out of the chamber and grabs the warning token.",
+"performance": {
+"emotion": "冷"
+}
+}
+}
+},
+{
+"shot_id": "E25-S01-02",
+"scene_id": "E25-S01",
+"location_id": "LOC-UNDERWORLD-GATE",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "商余烬：十万天兵已经压境。",
+"cast": [
+{
+"character": "商余烬",
+"character_id": "CHAR-SHANGYUJIN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Shang Yujin catches the flying warning token and turns toward the blood moon.",
+"performance": {
+"emotion": "喜"
+}
+}
+}
+},
+{
+"shot_id": "E25-S01-03",
+"scene_id": "E25-S01",
+"location_id": "LOC-UNDERWORLD-GATE",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "冥帝：那就回去，让他们先看清谁才是妖皇。",
+"cast": [
+{
+"character": "冥帝",
+"character_id": "CHAR-MINGDI",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "The Nether Emperor closes his fist around a dark seal.",
+"performance": {
+"emotion": "怜"
+}
+}
+}
+},
+{
+"shot_id": "E25-S01-04",
+"scene_id": "E25-S01",
+"location_id": "LOC-UNDERWORLD-GATE",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "商余烬：走，今天不让任何人替我们低头。",
+"cast": [
+{
+"character": "商余烬",
+"character_id": "CHAR-SHANGYUJIN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "REACTION",
+"action": {
+"primary_action": "Shang Yujin strides through the gate with both allies behind him.",
+"performance": {
+"emotion": "急"
+}
+}
+}
+},
+{
+"shot_id": "E25-S02-01",
+"scene_id": "E25-S02",
+"location_id": "LOC-DEMONE-MPALACE",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "白桃帝姬：妖皇不现身，十万天兵就踏平这里。",
+"cast": [
+{
+"character": "白桃帝姬",
+"character_id": "CHAR-BAITAODIJI",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Bai Tao raises the war-god token above the gathered demons.",
+"performance": {
+"emotion": "狠"
+}
+}
+}
+},
+{
+"shot_id": "E25-S02-02",
+"scene_id": "E25-S02",
+"location_id": "LOC-DEMONE-MPALACE",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "战雷：妖界没有向天界低头的理由。",
+"cast": [
+{
+"character": "战雷",
+"character_id": "CHAR-ZHANLEI",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Zhan Lei plants his spear and blocks the palace stairs.",
+"performance": {
+"emotion": "冷"
+}
+}
+}
+},
+{
+"shot_id": "E25-S02-03",
+"scene_id": "E25-S02",
+"location_id": "LOC-DEMONE-MPALACE",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "麒麟：你敢动一步，我先断你的令旗。",
+"cast": [
+{
+"character": "麒麟",
+"character_id": "CHAR-QILINHUMAN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "PAYOFF",
+"action": {
+"primary_action": "Qilin grabs the edge of Bai Tao’s banner.",
+"performance": {
+"emotion": "喜"
+}
+}
+}
+},
+{
+"shot_id": "E25-S02-04",
+"scene_id": "E25-S02",
+"location_id": "LOC-DEMONE-MPALACE",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "白桃帝姬：让妖皇出来，我只要一句臣服。",
+"cast": [
+{
+"character": "白桃帝姬",
+"character_id": "CHAR-BAITAODIJI",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Bai Tao yanks the banner free and leans toward Qilin.",
+"performance": {
+"emotion": "怜"
+}
+}
+}
+},
+{
+"shot_id": "E25-S02-05",
+"scene_id": "E25-S02",
+"location_id": "LOC-DEMONE-MPALACE",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "商余烬：我随你去见天君。",
+"cast": [
+{
+"character": "商余烬",
+"character_id": "CHAR-SHANGYUJIN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "REACTION",
+"action": {
+"primary_action": "Shang Yujin steps between them and offers his wrists.",
+"performance": {
+"emotion": "急"
+}
+}
+}
+},
+{
+"shot_id": "E25-S03-01",
+"scene_id": "E25-S03",
+"location_id": "LOC-TIANJUN",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "白桃帝姬：你真肯俯首称臣？",
+"cast": [
+{
+"character": "白桃帝姬",
+"character_id": "CHAR-BAITAODIJI",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Bai Tao studies Shang Yujin while holding the war-god token.",
+"performance": {
+"emotion": "狠"
+}
+}
+}
+},
+{
+"shot_id": "E25-S03-02",
+"scene_id": "E25-S03",
+"location_id": "LOC-TIANJUN",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "商余烬：我会当面说给天君听。",
+"cast": [
+{
+"character": "商余烬",
+"character_id": "CHAR-SHANGYUJIN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Shang Yujin smiles without lowering his eyes.",
+"performance": {
+"emotion": "冷"
+}
+}
+}
+},
+{
+"shot_id": "E25-S03-03",
+"scene_id": "E25-S03",
+"location_id": "LOC-TIANJUN",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "麒麟：师兄，别把自己送进陷阱。",
+"cast": [
+{
+"character": "麒麟",
+"character_id": "CHAR-QILINHUMAN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Qilin reaches for Shang Yujin’s sleeve and is stopped by a raised palm.",
+"performance": {
+"emotion": "喜"
+}
+}
+}
+},
+{
+"shot_id": "E25-S03-04",
+"scene_id": "E25-S03",
+"location_id": "LOC-TIANJUN",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "商余烬：看好妖界，等我回来。",
+"cast": [
+{
+"character": "商余烬",
+"character_id": "CHAR-SHANGYUJIN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "PAYOFF",
+"action": {
+"primary_action": "Shang Yujin turns back and gives Qilin a calm nod.",
+"performance": {
+"emotion": "怜"
+}
+}
+}
+},
+{
+"shot_id": "E25-S03-05",
+"scene_id": "E25-S03",
+"location_id": "LOC-TIANJUN",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "白桃帝姬：带上谁都无妨，天宫会替你们收场。",
+"cast": [
+{
+"character": "白桃帝姬",
+"character_id": "CHAR-BAITAODIJI",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "REACTION",
+"action": {
+"primary_action": "Bai Tao opens the white teleport gate and steps through.",
+"performance": {
+"emotion": "急"
+}
+}
+}
+},
+{
+"shot_id": "E25-S04-01",
+"scene_id": "E25-S04",
+"location_id": "LOC-COURTYARD",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "天君：妖皇既然臣服，本君便既往不咎。",
+"cast": [
+{
+"character": "天君",
+"character_id": "CHAR-TIANJUN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "The Heavenly Lord descends one step from the throne.",
+"performance": {
+"emotion": "狠"
+}
+}
+}
+},
+{
+"shot_id": "E25-S04-02",
+"scene_id": "E25-S04",
+"location_id": "LOC-COURTYARD",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "商余烬：天君真不记得我？",
+"cast": [
+{
+"character": "商余烬",
+"character_id": "CHAR-SHANGYUJIN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Shang Yujin lifts his face and lets a crooked smile appear.",
+"performance": {
+"emotion": "冷"
+}
+}
+}
+},
+{
+"shot_id": "E25-S04-03",
+"scene_id": "E25-S04",
+"location_id": "LOC-COURTYARD",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "天君：你是……商余烬天神！",
+"cast": [
+{
+"character": "天君",
+"character_id": "CHAR-TIANJUN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "PAYOFF",
+"action": {
+"primary_action": "The Heavenly Lord recoils and grips the throne rail.",
+"performance": {
+"emotion": "喜"
+}
+}
+}
+},
+{
+"shot_id": "E25-S04-04",
+"scene_id": "E25-S04",
+"location_id": "LOC-COURTYARD",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "商余烬：你敢动我的女人，今日便踏破这座天宫。",
+"cast": [
+{
+"character": "商余烬",
+"character_id": "CHAR-SHANGYUJIN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "REACTION",
+"action": {
+"primary_action": "Rong Ling raises one hand as violet light coils around him.",
+"performance": {
+"emotion": "怜"
+}
+}
+}
+},
+{
+"shot_id": "E25-S05-01",
+"scene_id": "E25-S05",
+"location_id": "LOC-UNDERWORLD-GATE",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "商余烬：你怎么配和瑶儿一样的面庞？",
+"cast": [
+{
+"character": "商余烬",
+"character_id": "CHAR-SHANGYUJIN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Rong Ling sweeps his sleeve and sends Su Yao sprawling.",
+"performance": {
+"emotion": "急"
+}
+}
+}
+},
+{
+"shot_id": "E25-S05-02",
+"scene_id": "E25-S05",
+"location_id": "LOC-UNDERWORLD-GATE",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "凌瑶：你回来了？",
+"cast": [
+{
+"character": "凌瑶",
+"character_id": "CHAR-LINGYAO",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Lingyao rises from the broken eternal-life array and looks straight at him.",
+"performance": {
+"emotion": "狠"
+}
+}
+}
+},
+{
+"shot_id": "E25-S05-03",
+"scene_id": "E25-S05",
+"location_id": "LOC-UNDERWORLD-GATE",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "商余烬：嗯，我回来了。",
+"cast": [
+{
+"character": "商余烬",
+"character_id": "CHAR-SHANGYUJIN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Rong Ling crosses the shattered stone floor and reaches for her hand.",
+"performance": {
+"emotion": "冷"
+}
+}
+}
+},
+{
+"shot_id": "E25-S05-04",
+"scene_id": "E25-S05",
+"location_id": "LOC-UNDERWORLD-GATE",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "凌瑶：那天界欠我的，一笔一笔算。",
+"cast": [
+{
+"character": "凌瑶",
+"character_id": "CHAR-LINGYAO",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "PAYOFF",
+"action": {
+"primary_action": "Lingyao closes her fingers around his and turns toward the collapsing palace.",
+"performance": {
+"emotion": "喜"
+}
+}
+}
+},
+{
+"shot_id": "E25-S05-05",
+"scene_id": "E25-S05",
+"location_id": "LOC-UNDERWORLD-GATE",
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "商余烬：先随我回家，剩下的让他们跪着听。",
+"cast": [
+{
+"character": "商余烬",
+"character_id": "CHAR-SHANGYUJIN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "REACTION",
+"action": {
+"primary_action": "Rong Ling shields Lingyao as the palace roof breaks behind them.",
+"performance": {
+"emotion": "怜"
+}
+}
+}
+},
+{
+"shot_id": "E25-S01-V01",
+"scene_id": "E25-S01",
+"location_id": "LOC-UNDERWORLD-GATE",
+"target_seconds": 1.5,
+"prompt_spec": {
+"dialogue": "",
+"cast": [
+{
+"character": "龙夜澈",
+"character_id": "CHAR-LONGYECHE",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "PAYOFF",
+"action": {
+"primary_action": "A warning token spins across the frame and is caught.",
+"performance": {
+"emotion": "冷"
+}
+}
+}
+},
+{
+"shot_id": "E25-S01-V02",
+"scene_id": "E25-S01",
+"location_id": "LOC-UNDERWORLD-GATE",
+"target_seconds": 1.5,
+"prompt_spec": {
+"dialogue": "",
+"cast": [
+{
+"character": "商余烬",
+"character_id": "CHAR-SHANGYUJIN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "The blood moon reflects on a sealed gate.",
+"performance": {
+"emotion": "冷"
+}
+}
+}
+},
+{
+"shot_id": "E25-S01-V03",
+"scene_id": "E25-S01",
+"location_id": "LOC-UNDERWORLD-GATE",
+"target_seconds": 1.5,
+"prompt_spec": {
+"dialogue": "",
+"cast": [
+{
+"character": "冥帝",
+"character_id": "CHAR-MINGDI",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "The war banner slams into the palace floor.",
+"performance": {
+"emotion": "冷"
+}
+}
+}
+},
+{
+"shot_id": "E25-S02-V04",
+"scene_id": "E25-S02",
+"location_id": "LOC-DEMONE-MPALACE",
+"target_seconds": 1.5,
+"prompt_spec": {
+"dialogue": "",
+"cast": [
+{
+"character": "商余烬",
+"character_id": "CHAR-SHANGYUJIN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "REACTION",
+"action": {
+"primary_action": "A spear blocks the palace stairs.",
+"performance": {
+"emotion": "冷"
+}
+}
+}
+},
+{
+"shot_id": "E25-S02-V05",
+"scene_id": "E25-S02",
+"location_id": "LOC-DEMONE-MPALACE",
+"target_seconds": 1.5,
+"prompt_spec": {
+"dialogue": "",
+"cast": [
+{
+"character": "白桃帝姬",
+"character_id": "CHAR-BAITAODIJI",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "The teleport gate snaps open with robes whipping in wind.",
+"performance": {
+"emotion": "冷"
+}
+}
+}
+},
+{
+"shot_id": "E25-S02-V06",
+"scene_id": "E25-S02",
+"location_id": "LOC-DEMONE-MPALACE",
+"target_seconds": 1.5,
+"prompt_spec": {
+"dialogue": "",
+"cast": [
+{
+"character": "战雷",
+"character_id": "CHAR-ZHANLEI",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "A hand closes around the war-god token.",
+"performance": {
+"emotion": "冷"
+}
+}
+}
+},
+{
+"shot_id": "E25-S03-V07",
+"scene_id": "E25-S03",
+"location_id": "LOC-TIANJUN",
+"target_seconds": 1.5,
+"prompt_spec": {
+"dialogue": "",
+"cast": [
+{
+"character": "麒麟",
+"character_id": "CHAR-QILINHUMAN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "PAYOFF",
+"action": {
+"primary_action": "The three allies cross the threshold together.",
+"performance": {
+"emotion": "冷"
+}
+}
+}
+},
+{
+"shot_id": "E25-S03-V08",
+"scene_id": "E25-S03",
+"location_id": "LOC-TIANJUN",
+"target_seconds": 1.5,
+"prompt_spec": {
+"dialogue": "",
+"cast": [
+{
+"character": "白桃帝姬",
+"character_id": "CHAR-BAITAODIJI",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "The throne rail splinters under a tightening grip.",
+"performance": {
+"emotion": "冷"
+}
+}
+}
+},
+{
+"shot_id": "E25-S03-V09",
+"scene_id": "E25-S03",
+"location_id": "LOC-TIANJUN",
+"target_seconds": 1.5,
+"prompt_spec": {
+"dialogue": "",
+"cast": [
+{
+"character": "商余烬",
+"character_id": "CHAR-SHANGYUJIN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "REACTION",
+"action": {
+"primary_action": "Violet light coils around the three souls.",
+"performance": {
+"emotion": "冷"
+}
+}
+}
+},
+{
+"shot_id": "E25-S04-V10",
+"scene_id": "E25-S04",
+"location_id": "LOC-COURTYARD",
+"target_seconds": 1.5,
+"prompt_spec": {
+"dialogue": "",
+"cast": [
+{
+"character": "白桃帝姬",
+"character_id": "CHAR-BAITAODIJI",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "The palace roof cracks and dust falls.",
+"performance": {
+"emotion": "冷"
+}
+}
+}
+},
+{
+"shot_id": "E25-S04-V11",
+"scene_id": "E25-S04",
+"location_id": "LOC-COURTYARD",
+"target_seconds": 4.0,
+"prompt_spec": {
+"dialogue": "商余烬：走。",
+"cast": [
+{
+"character": "商余烬",
+"character_id": "CHAR-SHANGYUJIN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "The eternal-life array fractures under a raised palm.",
+"performance": {
+"emotion": "冷"
+}
+}
+}
+},
+{
+"shot_id": "E25-S04-V12",
+"scene_id": "E25-S04",
+"location_id": "LOC-COURTYARD",
+"target_seconds": 1.5,
+"prompt_spec": {
+"dialogue": "",
+"cast": [
+{
+"character": "麒麟",
+"character_id": "CHAR-QILINHUMAN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Su Yao crawls backward from the collapsing stones.",
+"performance": {
+"emotion": "冷"
+}
+}
+}
+},
+{
+"shot_id": "E25-S05-V13",
+"scene_id": "E25-S05",
+"location_id": "LOC-UNDERWORLD-GATE",
+"target_seconds": 1.5,
+"prompt_spec": {
+"dialogue": "",
+"cast": [
+{
+"character": "商余烬",
+"character_id": "CHAR-SHANGYUJIN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "PAYOFF",
+"action": {
+"primary_action": "Lingyao steps out of the broken array.",
+"performance": {
+"emotion": "冷"
+}
+}
+}
+},
+{
+"shot_id": "E25-S05-V14",
+"scene_id": "E25-S05",
+"location_id": "LOC-UNDERWORLD-GATE",
+"target_seconds": 1.5,
+"prompt_spec": {
+"dialogue": "",
+"cast": [
+{
+"character": "白桃帝姬",
+"character_id": "CHAR-BAITAODIJI",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "REACTION",
+"action": {
+"primary_action": "Two hands meet over the shattered altar.",
+"performance": {
+"emotion": "冷"
+}
+}
+}
+},
+{
+"shot_id": "E25-S05-V15",
+"scene_id": "E25-S05",
+"location_id": "LOC-UNDERWORLD-GATE",
+"target_seconds": 1.5,
+"prompt_spec": {
+"dialogue": "",
+"cast": [
+{
+"character": "商余烬",
+"character_id": "CHAR-SHANGYUJIN",
+"face_visibility": "FRONT_FACE_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "The ruined palace falls behind the departing pair.",
+"performance": {
+"emotion": "冷"
+}
+}
+}
+}
+]
+}

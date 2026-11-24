@@ -573,11 +573,39 @@ def _performance_variety():
         return None
 
 
+def _screenplay_checks():
+    try:
+        import screenplay_checks as _sc  # noqa: PLC0415 -- same directory
+        return _sc
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _screenplay_v1(contract: dict[str, Any]) -> bool:
+    """BILI_V1 + writer_format SCREENPLAY_V1 declared by the contract (CHANGE_SPEC WP2); LEGACY is always False."""
+    sc = _screenplay_checks()
+    return bool(sc and sc.active(contract) and sc.screenplay(contract))
+
+
+def screenplay_checks_row(contract: dict[str, Any]) -> dict[str, Any]:
+    """WP2 anti-template v2 (screenplay_checks.evaluate) for a BILI_V1 contract; {} otherwise.  Never raises."""
+    sc = _screenplay_checks()
+    try:
+        if sc is None or not sc.active(contract):
+            return {}
+        files = sc.generator_scripts(_clean((contract or {}).get("episode"))) if sc.screenplay(contract) else []
+        return sc.evaluate(contract, generator_files=files)
+    except Exception:  # noqa: BLE001 -- a measurement never breaks S1
+        return {}
+
+
 def placeholder_acting(contract: dict[str, Any]) -> list[str]:
     """Speaking-shot performance text that is a template (the same sentence, names masked, on 3+ lines) or a generic
     gesture placeholder.  JA-01 E08: every line was "<Name> delivers the line with a clear anime gesture and visible
     posture change", entry "standing facing the immediate conflict", exit "gesture settles while the conflict remains
     visible" -- H3 rendered one raised index finger for all of them."""
+    if _screenplay_v1(contract):
+        return []  # SCREENPLAY_V1 (WP2): superseded by screenplay_checks ACTION_TEXT_TEMPLATE (similarity, not phrases)
     pv = _performance_variety()
     if pv is None:
         return []
@@ -891,7 +919,8 @@ def boilerplate_failures(contract: dict[str, Any], *, advisory: bool = False) ->
         text, n = max(((t, texts.count(t)) for t in set(texts)), key=lambda x: x[1])
         if n >= BOILERPLATE_MIN_SCENES and n > BOILERPLATE_SHARE * len(values):
             failures.append(f"BOILERPLATE_TEXT:{label}:{n}/{len(values)}")
-    if advisory:
+    if advisory or _screenplay_v1(contract):
+        # SCREENPLAY_V1 (WP2): the phrase blacklist is superseded by screenplay_checks (distinctness / similarity)
         return failures[:12]
     hits: dict[str, int] = {}
     for shot in shots:
@@ -1185,6 +1214,14 @@ def evaluate(contract: dict[str, Any], language: str | None = None,
     for pair in m["conversation_splits"][:4]:
         failures.append(f"CONVERSATION_SPLIT_ACROSS_LOCATIONS:{pair}")
     integrity = integrity_failures(contract, language, m)
+    screenplay_row = screenplay_checks_row(contract)  # BILI_V1 (WP2 anti-template v2); {} under LEGACY
+    if screenplay_row:
+        integrity = integrity + screenplay_row["integrity"]
+        failures += screenplay_row["taste"]
+        warnings += screenplay_row["advisory"]
+        for code, text in screenplay_row["fixes"].items():
+            FIXES.setdefault(code, text)
+        m["screenplay_checks"] = screenplay_row["metrics"]
     contradicted_pairs = {f.split(":")[1] for f in integrity if f.startswith("SCENE_SPLIT_LOCATION_CONTRADICTS_ACTION:")}
     for pair in [p for p in m["same_place_splits"] if p not in contradicted_pairs][:4]:
         # a split whose action names another place is an integrity failure instead (never admitted)

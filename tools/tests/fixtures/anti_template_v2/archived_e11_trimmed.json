@@ -1,0 +1,930 @@
+{
+"schema": "qingshan.generation_contract.v3",
+"episode": "E11",
+"dialogue_language": null,
+"note": "trimmed from the archived fleet contract (deep review 2026-11-23) for WP2 anti-template tests",
+"character_entities": [
+{
+"character_id": "CHAR-REI-TAYLOR",
+"canonical_name": "Rei Taylor",
+"aliases": [
+"Rei"
+]
+},
+{
+"character_id": "CHAR-CLAIRE-FRANCOIS",
+"canonical_name": "Claire Francois",
+"aliases": [
+"Claire"
+]
+},
+{
+"character_id": "CHAR-ROD-BAUER",
+"canonical_name": "Rod Bauer",
+"aliases": [
+"Rod"
+]
+},
+{
+"character_id": "CHAR-MANARIA-SUSANNA",
+"canonical_name": "Manaria Susanna",
+"aliases": [
+"Manaria"
+]
+},
+{
+"character_id": "CHAR-MISHA-JUR",
+"canonical_name": "Misha Jur",
+"aliases": [
+"Misha"
+]
+},
+{
+"character_id": "CHAR-KING-ROSEYOU",
+"canonical_name": "King Roseyou",
+"aliases": [
+"King"
+]
+},
+{
+"character_id": "CHAR-SALLAS-LILIUM",
+"canonical_name": "Sallas Lilium",
+"aliases": [
+"Sallas"
+]
+}
+],
+"scene_states": [
+{
+"scene_id": "E11-S01",
+"location_id": "ACADEMY_EXAM_YARD",
+"time_id": "E11-S01-TIME"
+},
+{
+"scene_id": "E11-S02",
+"location_id": "ACADEMY_DORM",
+"time_id": "E11-S02-TIME"
+},
+{
+"scene_id": "E11-S03",
+"location_id": "ACADEMY_COURTYARD",
+"time_id": "E11-S03-TIME"
+},
+{
+"scene_id": "E11-S04",
+"location_id": "MAGIC_ARENA",
+"time_id": "E11-S04-TIME"
+},
+{
+"scene_id": "E11-S05",
+"location_id": "ACADEMY_HALL",
+"time_id": "E11-S05-TIME"
+}
+],
+"pacing": {
+"scene_plan": [
+{
+"scene_id": "E11-S01",
+"objective": "Rei confronts the consequence",
+"conflict": "Claire resists Rei's withdrawal",
+"physical_action": "Rei strikes a creature and Claire catches her sleeve"
+},
+{
+"scene_id": "E11-S02",
+"objective": "Force a choice in S02",
+"conflict": "An opponent demands an answer in S02",
+"physical_action": "Manaria pins Rei to the door"
+},
+{
+"scene_id": "E11-S03",
+"objective": "Force a choice in S03",
+"conflict": "An opponent demands an answer in S03",
+"physical_action": "Claire pushes the empty offering plate away"
+},
+{
+"scene_id": "E11-S04",
+"objective": "Force a choice in S04",
+"conflict": "An opponent demands an answer in S04",
+"physical_action": "The branch takes root on the scale"
+},
+{
+"scene_id": "E11-S05",
+"objective": "Force a choice in S05",
+"conflict": "An opponent demands an answer in S05",
+"physical_action": "Rod slams the sealed report onto the table"
+}
+]
+},
+"shots": [
+{
+"shot_id": "E11-S01-01",
+"scene_id": "E11-S01",
+"location_id": null,
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "Rei Taylor：次は私が先に倒します。",
+"cast": [
+{
+"character": "Rei Taylor",
+"character_id": "CHAR-REI-TAYLOR",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "PAYOFF",
+"action": {
+"primary_action": "Rei Taylor grabs the prop and changes posture in response to the exact line: 次は私が先に倒します。.",
+"performance": {
+"emotion": "sad"
+}
+}
+}
+},
+{
+"shot_id": "E11-S01-02",
+"scene_id": "E11-S01",
+"location_id": null,
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "Claire Francois：あなたはまだ傷が癒えきっていませんわ。",
+"cast": [
+{
+"character": "Claire Francois",
+"character_id": "CHAR-CLAIRE-FRANCOIS",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM_CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Claire Francois grabs the prop and changes posture in response to the exact line: あなたはまだ傷が癒えきっていませんわ。.",
+"performance": {
+"emotion": "confident"
+}
+}
+}
+},
+{
+"shot_id": "E11-S01-03",
+"scene_id": "E11-S01",
+"location_id": null,
+"target_seconds": 5,
+"prompt_spec": {
+"dialogue": "Manaria Susanna：強がりで距離を作っても、クレアは離れないよ。",
+"cast": [
+{
+"character": "Manaria Susanna",
+"character_id": "CHAR-MANARIA-SUSANNA",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM_CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Manaria Susanna grabs the prop and changes posture in response to the exact line: 強がりで距離を作っても、クレアは離れないよ。.",
+"performance": {
+"emotion": "fearful"
+}
+}
+}
+},
+{
+"shot_id": "E11-S01-04",
+"scene_id": "E11-S01",
+"location_id": null,
+"target_seconds": 5,
+"prompt_spec": {
+"dialogue": "Rei Taylor：私の負けを、彼女の心配で隠さないでください。",
+"cast": [
+{
+"character": "Rei Taylor",
+"character_id": "CHAR-REI-TAYLOR",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Rei Taylor grabs the prop and changes posture in response to the exact line: 私の負けを、彼女の心配で隠さないでください。.",
+"performance": {
+"emotion": "surprised"
+}
+}
+}
+},
+{
+"shot_id": "E11-S01-05",
+"scene_id": "E11-S01",
+"location_id": null,
+"target_seconds": 2,
+"prompt_spec": {
+"dialogue": "",
+"cast": [
+{
+"character": "Rei Taylor",
+"character_id": "CHAR-REI-TAYLOR",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM_CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "ACTION",
+"action": {
+"primary_action": "Rei Taylor grabs the desk, steps back, and breaks the immediate stalemate.",
+"performance": {
+"emotion": "happy"
+}
+}
+}
+},
+{
+"shot_id": "E11-S01-06",
+"scene_id": "E11-S01",
+"location_id": null,
+"target_seconds": 2,
+"prompt_spec": {
+"dialogue": "",
+"cast": [
+{
+"character": "Claire Francois",
+"character_id": "CHAR-CLAIRE-FRANCOIS",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM_CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "ACTION",
+"action": {
+"primary_action": "Claire Francois grabs the desk, steps back, and breaks the immediate stalemate.",
+"performance": {
+"emotion": "angry"
+}
+}
+}
+},
+{
+"shot_id": "E11-S02-01",
+"scene_id": "E11-S02",
+"location_id": null,
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "Manaria Susanna：クレアを任せて、君は逃げるのか？",
+"cast": [
+{
+"character": "Manaria Susanna",
+"character_id": "CHAR-MANARIA-SUSANNA",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM_CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Manaria Susanna grabs the prop and changes posture in response to the exact line: クレアを任せて、君は逃げるのか？.",
+"performance": {
+"emotion": "sad"
+}
+}
+}
+},
+{
+"shot_id": "E11-S02-02",
+"scene_id": "E11-S02",
+"location_id": null,
+"target_seconds": 5,
+"prompt_spec": {
+"dialogue": "Rei Taylor：私は負けました。そばにいる資格がありません。",
+"cast": [
+{
+"character": "Rei Taylor",
+"character_id": "CHAR-REI-TAYLOR",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Rei Taylor grabs the prop and changes posture in response to the exact line: 私は負けました。そばにいる資格がありません。.",
+"performance": {
+"emotion": "confident"
+}
+}
+}
+},
+{
+"shot_id": "E11-S02-03",
+"scene_id": "E11-S02",
+"location_id": null,
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "Manaria Susanna：勝負もしない綺麗事は、ただの逃げ道だ。",
+"cast": [
+{
+"character": "Manaria Susanna",
+"character_id": "CHAR-MANARIA-SUSANNA",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "PAYOFF",
+"action": {
+"primary_action": "Manaria Susanna grabs the prop and changes posture in response to the exact line: 勝負もしない綺麗事は、ただの逃げ道だ。.",
+"performance": {
+"emotion": "fearful"
+}
+}
+}
+},
+{
+"shot_id": "E11-S02-04",
+"scene_id": "E11-S02",
+"location_id": null,
+"target_seconds": 5,
+"prompt_spec": {
+"dialogue": "Rei Taylor：クレア様の幸せだけを願うのが、なぜ悪いのですか！",
+"cast": [
+{
+"character": "Rei Taylor",
+"character_id": "CHAR-REI-TAYLOR",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM_CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Rei Taylor grabs the prop and changes posture in response to the exact line: クレア様の幸せだけを願うのが、なぜ悪いのですか！.",
+"performance": {
+"emotion": "surprised"
+}
+}
+}
+},
+{
+"shot_id": "E11-S02-05",
+"scene_id": "E11-S02",
+"location_id": null,
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "Manaria Susanna：なら祭式で証明して。僕は君を待つ。",
+"cast": [
+{
+"character": "Manaria Susanna",
+"character_id": "CHAR-MANARIA-SUSANNA",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM_CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Manaria Susanna grabs the prop and changes posture in response to the exact line: なら祭式で証明して。僕は君を待つ。.",
+"performance": {
+"emotion": "happy"
+}
+}
+}
+},
+{
+"shot_id": "E11-S02-06",
+"scene_id": "E11-S02",
+"location_id": null,
+"target_seconds": 2,
+"prompt_spec": {
+"dialogue": "",
+"cast": [
+{
+"character": "Rei Taylor",
+"character_id": "CHAR-REI-TAYLOR",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM",
+"motion_family": "LOCKED"
+},
+"beat_role": "ACTION",
+"action": {
+"primary_action": "Rei Taylor grabs the desk, steps back, and breaks the immediate stalemate.",
+"performance": {
+"emotion": "angry"
+}
+}
+}
+},
+{
+"shot_id": "E11-S03-01",
+"scene_id": "E11-S03",
+"location_id": null,
+"target_seconds": 5,
+"prompt_spec": {
+"dialogue": "Claire Francois：レイは来ます。来なければ、私が迎えに行きますわ。",
+"cast": [
+{
+"character": "Claire Francois",
+"character_id": "CHAR-CLAIRE-FRANCOIS",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM_CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Claire Francois grabs the prop and changes posture in response to the exact line: レイは来ます。来なければ、私が迎えに行きますわ。.",
+"performance": {
+"emotion": "sad"
+}
+}
+}
+},
+{
+"shot_id": "E11-S03-02",
+"scene_id": "E11-S03",
+"location_id": null,
+"target_seconds": 5,
+"prompt_spec": {
+"dialogue": "Misha Jur：クレア様、そんなに入口を見つめていましたか？",
+"cast": [
+{
+"character": "Misha Jur",
+"character_id": "CHAR-MISHA-JUR",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM_CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Misha Jur grabs the prop and changes posture in response to the exact line: クレア様、そんなに入口を見つめていましたか？.",
+"performance": {
+"emotion": "confident"
+}
+}
+}
+},
+{
+"shot_id": "E11-S03-03",
+"scene_id": "E11-S03",
+"location_id": null,
+"target_seconds": 5,
+"prompt_spec": {
+"dialogue": "Claire Francois：勝手に私を賞品にする二人へ、文句を言うだけですわ。",
+"cast": [
+{
+"character": "Claire Francois",
+"character_id": "CHAR-CLAIRE-FRANCOIS",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "PAYOFF",
+"action": {
+"primary_action": "Claire Francois grabs the prop and changes posture in response to the exact line: 勝手に私を賞品にする二人へ、文句を言うだけですわ。.",
+"performance": {
+"emotion": "fearful"
+}
+}
+}
+},
+{
+"shot_id": "E11-S03-04",
+"scene_id": "E11-S03",
+"location_id": null,
+"target_seconds": 5,
+"prompt_spec": {
+"dialogue": "Manaria Susanna：遅かったね、レイ。僕の供物はもう天秤の上だ。",
+"cast": [
+{
+"character": "Manaria Susanna",
+"character_id": "CHAR-MANARIA-SUSANNA",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Manaria Susanna grabs the prop and changes posture in response to the exact line: 遅かったね、レイ。僕の供物はもう天秤の上だ。.",
+"performance": {
+"emotion": "surprised"
+}
+}
+}
+},
+{
+"shot_id": "E11-S03-05",
+"scene_id": "E11-S03",
+"location_id": null,
+"target_seconds": 2,
+"prompt_spec": {
+"dialogue": "",
+"cast": [
+{
+"character": "Claire Francois",
+"character_id": "CHAR-CLAIRE-FRANCOIS",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM_CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "ACTION",
+"action": {
+"primary_action": "Claire Francois grabs the desk, steps back, and breaks the immediate stalemate.",
+"performance": {
+"emotion": "happy"
+}
+}
+}
+},
+{
+"shot_id": "E11-S04-01",
+"scene_id": "E11-S04",
+"location_id": null,
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "Rei Taylor：逃げません。これが私の答えです。",
+"cast": [
+{
+"character": "Rei Taylor",
+"character_id": "CHAR-REI-TAYLOR",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM_CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Rei Taylor grabs the prop and changes posture in response to the exact line: 逃げません。これが私の答えです。.",
+"performance": {
+"emotion": "angry"
+}
+}
+}
+},
+{
+"shot_id": "E11-S04-02",
+"scene_id": "E11-S04",
+"location_id": null,
+"target_seconds": 5,
+"prompt_spec": {
+"dialogue": "Manaria Susanna：ただの枝で、僕のフロースに勝つつもりかい？",
+"cast": [
+{
+"character": "Manaria Susanna",
+"character_id": "CHAR-MANARIA-SUSANNA",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "PAYOFF",
+"action": {
+"primary_action": "Manaria Susanna grabs the prop and changes posture in response to the exact line: ただの枝で、僕のフロースに勝つつもりかい？.",
+"performance": {
+"emotion": "sad"
+}
+}
+}
+},
+{
+"shot_id": "E11-S04-03",
+"scene_id": "E11-S04",
+"location_id": null,
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "Claire Francois：その光……枝が、花より重い？",
+"cast": [
+{
+"character": "Claire Francois",
+"character_id": "CHAR-CLAIRE-FRANCOIS",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM",
+"motion_family": "LOCKED"
+},
+"beat_role": "REACTION",
+"action": {
+"primary_action": "Claire Francois grabs the prop and changes posture in response to the exact line: その光……枝が、花より重い？.",
+"performance": {
+"emotion": "confident"
+}
+}
+}
+},
+{
+"shot_id": "E11-S04-04",
+"scene_id": "E11-S04",
+"location_id": null,
+"target_seconds": 5,
+"prompt_spec": {
+"dialogue": "Rei Taylor：クレア様を物にしないで。選ぶのは彼女自身です。",
+"cast": [
+{
+"character": "Rei Taylor",
+"character_id": "CHAR-REI-TAYLOR",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM_CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Rei Taylor grabs the prop and changes posture in response to the exact line: クレア様を物にしないで。選ぶのは彼女自身です。.",
+"performance": {
+"emotion": "fearful"
+}
+}
+}
+},
+{
+"shot_id": "E11-S04-05",
+"scene_id": "E11-S04",
+"location_id": null,
+"target_seconds": 5,
+"prompt_spec": {
+"dialogue": "Manaria Susanna：参ったな。君はやっと、欲しいものを口にした。",
+"cast": [
+{
+"character": "Manaria Susanna",
+"character_id": "CHAR-MANARIA-SUSANNA",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM_CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Manaria Susanna grabs the prop and changes posture in response to the exact line: 参ったな。君はやっと、欲しいものを口にした。.",
+"performance": {
+"emotion": "surprised"
+}
+}
+}
+},
+{
+"shot_id": "E11-S04-06",
+"scene_id": "E11-S04",
+"location_id": null,
+"target_seconds": 2,
+"prompt_spec": {
+"dialogue": "",
+"cast": [
+{
+"character": "Rei Taylor",
+"character_id": "CHAR-REI-TAYLOR",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM_CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "ACTION",
+"action": {
+"primary_action": "Rei Taylor grabs the desk, steps back, and breaks the immediate stalemate.",
+"performance": {
+"emotion": "happy"
+}
+}
+}
+},
+{
+"shot_id": "E11-S05-01",
+"scene_id": "E11-S05",
+"location_id": null,
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "Manaria Susanna：スースへ戻る。第一王子が毒で殺された。",
+"cast": [
+{
+"character": "Manaria Susanna",
+"character_id": "CHAR-MANARIA-SUSANNA",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Manaria Susanna grabs the prop and changes posture in response to the exact line: スースへ戻る。第一王子が毒で殺された。.",
+"performance": {
+"emotion": "angry"
+}
+}
+}
+},
+{
+"shot_id": "E11-S05-02",
+"scene_id": "E11-S05",
+"location_id": null,
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "Rod Bauer：その毒は、セインを狙ったものと同じだ。",
+"cast": [
+{
+"character": "Rod Bauer",
+"character_id": "CHAR-ROD-BAUER",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM_CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "REACTION",
+"action": {
+"primary_action": "Rod Bauer grabs the prop and changes posture in response to the exact line: その毒は、セインを狙ったものと同じだ。.",
+"performance": {
+"emotion": "sad"
+}
+}
+}
+},
+{
+"shot_id": "E11-S05-03",
+"scene_id": "E11-S05",
+"location_id": null,
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "Claire Francois：お姉様、また会えますわね？",
+"cast": [
+{
+"character": "Claire Francois",
+"character_id": "CHAR-CLAIRE-FRANCOIS",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM_CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Claire Francois grabs the prop and changes posture in response to the exact line: お姉様、また会えますわね？.",
+"performance": {
+"emotion": "confident"
+}
+}
+}
+},
+{
+"shot_id": "E11-S05-04",
+"scene_id": "E11-S05",
+"location_id": null,
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "Manaria Susanna：王位を取って、必ず戻るよ。",
+"cast": [
+{
+"character": "Manaria Susanna",
+"character_id": "CHAR-MANARIA-SUSANNA",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM_CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Manaria Susanna grabs the prop and changes posture in response to the exact line: 王位を取って、必ず戻るよ。.",
+"performance": {
+"emotion": "fearful"
+}
+}
+}
+},
+{
+"shot_id": "E11-S05-05",
+"scene_id": "E11-S05",
+"location_id": null,
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "Rei Taylor：ナー帝国が、次の天秤を用意している。",
+"cast": [
+{
+"character": "Rei Taylor",
+"character_id": "CHAR-REI-TAYLOR",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM",
+"motion_family": "LOCKED"
+},
+"beat_role": "SETUP",
+"action": {
+"primary_action": "Rei Taylor grabs the prop and changes posture in response to the exact line: ナー帝国が、次の天秤を用意している。.",
+"performance": {
+"emotion": "surprised"
+}
+}
+}
+},
+{
+"shot_id": "E11-S05-06",
+"scene_id": "E11-S05",
+"location_id": null,
+"target_seconds": 4,
+"prompt_spec": {
+"dialogue": "Rod Bauer：なら王国も、黙って量られるな。",
+"cast": [
+{
+"character": "Rod Bauer",
+"character_id": "CHAR-ROD-BAUER",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "PAYOFF",
+"action": {
+"primary_action": "Rod Bauer grabs the prop and changes posture in response to the exact line: なら王国も、黙って量られるな。.",
+"performance": {
+"emotion": "happy"
+}
+}
+}
+},
+{
+"shot_id": "E11-S05-07",
+"scene_id": "E11-S05",
+"location_id": null,
+"target_seconds": 2,
+"prompt_spec": {
+"dialogue": "",
+"cast": [
+{
+"character": "Manaria Susanna",
+"character_id": "CHAR-MANARIA-SUSANNA",
+"face_visibility": "FRONTAL_VISIBLE"
+}
+],
+"camera_plan": {
+"shot_scale": "MEDIUM_CLOSE_UP",
+"motion_family": "LOCKED"
+},
+"beat_role": "ACTION",
+"action": {
+"primary_action": "Manaria Susanna grabs the desk, steps back, and breaks the immediate stalemate.",
+"performance": {
+"emotion": "angry"
+}
+}
+}
+}
+]
+}

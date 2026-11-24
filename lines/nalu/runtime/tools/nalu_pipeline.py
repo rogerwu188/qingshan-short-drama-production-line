@@ -1842,6 +1842,11 @@ def fp_s1(ctx: Ctx) -> str:
             if isinstance(row, dict)
         }
         payload["writer_handoff_dependencies"] = dependencies
+    # SCREENPLAY_V1 (WP2): an edit of the screenplay inputs invalidates an S1 PASS; absent files = no key (LEGACY)
+    screenplay = {name: digest(path) for name, path in screenplay_input_paths(ctx.p).items()
+                  if Path(path).is_file()}
+    if screenplay:
+        payload["screenplay_v1"] = screenplay
     return sha256_text(json.dumps(payload, sort_keys=True))
 
 
@@ -2167,6 +2172,62 @@ def s1_repair_scene_order(ctx: Any, p: Any) -> dict[str, Any]:
         return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}"}
 
 
+def screenplay_input_paths(p: Any) -> dict[str, Path]:
+    """SCREENPLAY_V1 inputs beside the episode's contract (screenplay_compile.paths): series card, outline,
+    screenplay, cast/props, English twins."""
+    try:
+        import screenplay_compile as _spc  # noqa: PLC0415 -- same directory
+        scripts = Path(p.contract).parent
+        episode = str(getattr(p, "episode", "") or "")
+        return {name: path for name, path in _spc.paths(scripts, episode).items()
+                if name in ("series_card", "outline", "screenplay", "cast_props", "en_answers")}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def s1_screenplay_compile(ctx: Any, p: Any) -> dict[str, Any]:
+    """BILI_V1 + writer_format SCREENPLAY_V1 (CHANGE_SPEC WP2): compile ``<EP>_SCREENPLAY.md`` + light YAML into the
+    four legacy layers before S1 hashes and checks them (modelled on s1_repair_scene_order).  Recompiles only when a
+    screenplay input is newer than the contract; the previous layers are kept once as ``*.pre_compile``.  Compile
+    errors, missing English twins and a ``build_<ep>_layers.py`` generator come back as S1 integrity blockers
+    (bounded writer loop, then admitted -- never stalls).  LEGACY / CONTRACT_JSON: NOT_APPLICABLE, nothing read."""
+    try:
+        settings = getattr(ctx, "craft_settings", None)
+        if not isinstance(settings, dict) or settings.get("writer_format") != "SCREENPLAY_V1":
+            return {"status": "NOT_APPLICABLE"}
+        import screenplay_compile as _spc  # noqa: PLC0415 -- same directory
+        import screenplay_checks as _spk  # noqa: PLC0415
+        scripts = Path(p.contract).parent
+        files = _spc.paths(scripts, ctx.episode)
+        row: dict[str, Any] = {"status": "NO_SCREENPLAY", "screenplay": str(files["screenplay"]), "blockers": []}
+        generators = _spk.generator_scripts(ctx.episode, RT_TOOLS)
+        if generators:
+            row["blockers"].append(f"SCRIPT_INTEGRITY_FAIL:GENERATOR_SCRIPT_PRESENT:{Path(generators[0]).name}")
+        if not files["screenplay"].is_file():
+            return row
+        if s1_pacing_in_flight(p):
+            return {**row, "status": "SKIPPED_PAID_STAGE_RAN"}
+        brief = read_json(RUNTIME / "briefs" / f"{ctx.episode}_PRODUCTION_BRIEF.json", None)
+        out = _spc.compile_files(scripts, ctx.episode, brief=brief if isinstance(brief, dict) else None)
+        report = out.get("report") or {}
+        if _spc.needs_compile(scripts, ctx.episode) and out.get("contract") is not None:
+            report["written"] = _spc.write_outputs(scripts, ctx.episode, out)
+            row["status"] = "COMPILED"
+        else:
+            row["status"] = "UP_TO_DATE" if out.get("contract") is not None else "FAILED"
+            files["report"].write_text(json.dumps(report, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        row.update({k: report.get(k) for k in ("errors", "en_missing", "fallback_field_share", "shots", "seconds",
+                                               "inputs")})
+        row["report"] = str(files["report"])
+        row["blockers"] += [f"SCRIPT_INTEGRITY_FAIL:SCREENPLAY_COMPILE:{e}" for e in (report.get("errors") or [])[:6]]
+        if report.get("en_missing"):
+            row["blockers"].append(f"SCRIPT_INTEGRITY_FAIL:SCREENPLAY_EN_TWIN_MISSING:{report['en_missing']}"
+                                   f" (translate {files['en_request'].name} into {files['en_answers'].name})")
+        return row
+    except Exception as exc:  # noqa: BLE001 -- a compile must never break S1
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}", "blockers": []}
+
+
 def s1_script_pacing(ctx: Ctx, p: Any, *, others_ok: bool) -> tuple[dict[str, Any], list[str]]:
     """SHORT_DRAMA_PACING_V1 at S1: (episode-record row, blockers).  The policy is the default of every contract
     (an explicit ``pacing_policy: OFF`` opts out; a default-policy episode already past a paid stage is
@@ -2224,10 +2285,14 @@ def s1_script_pacing(ctx: Ctx, p: Any, *, others_ok: bool) -> tuple[dict[str, An
 def stage_s1(ctx: Ctx) -> StageResult:
     p = ctx.p
     _record_line_upgrade(ctx, "line_upgrade_preflight", "preflight")  # advisory read side
+    screenplay_compile = s1_screenplay_compile(ctx, p)  # SCREENPLAY_V1 only (WP2); NOT_APPLICABLE under LEGACY
     missing = [str(path) for path in p.layers().values() if not path.is_file()]
     if missing:
         res = StageResult(BLOCKED, missing_layers=missing, layer_sha256={})
         res.blockers = [f"SCRIPT_LAYER_MISSING:{path}" for path in missing]
+        if screenplay_compile.get("status") != "NOT_APPLICABLE":
+            res.details["screenplay_compile"] = screenplay_compile
+            res.blockers += list(screenplay_compile.get("blockers") or [])
         return res
     scene_order_repair = s1_repair_scene_order(ctx, p)
     layer_shas = {name: sha256_file(path) for name, path in p.layers().items()}
@@ -2244,6 +2309,10 @@ def stage_s1(ctx: Ctx) -> StageResult:
         # rounds exhausted: the over-long script is admitted with the others below (never stall the line)
         admitted_length = [length["blocker"]]
     integrity_blockers: list[str] = [length["integrity_blocker"]] if length.get("integrity_blocker") else []
+    if screenplay_compile.get("status") != "NOT_APPLICABLE":
+        integrity_blockers += list(screenplay_compile.get("blockers") or [])
+        layer_shas = {**layer_shas, **{f"screenplay_{k}": v for k, v in (screenplay_compile.get("inputs") or {})
+                                       .items()}}
     in_flight = s1_pacing_in_flight(p)
     direction_policy, direction_blockers = s1_direction_policy(ctx, p, in_flight=in_flight)
     integrity_blockers += direction_blockers
@@ -2445,6 +2514,8 @@ def stage_s1(ctx: Ctx) -> StageResult:
         res.blockers = list(getattr(res, "blockers", []) or []) + [f"WRITER_CAPABILITY_STEP_OWED:{code}" for code in capability_blocks]
     res.details["script_pacing"] = script_pacing
     res.details["scene_order_repair"] = scene_order_repair
+    if screenplay_compile.get("status") != "NOT_APPLICABLE":
+        res.details["screenplay_compile"] = screenplay_compile
     res.details["script_length"] = length
     res.details["direction_policy_gate"] = direction_policy
     res.details["script_review_independence"] = script_review_independence_row(writer_capability, p.contract)
