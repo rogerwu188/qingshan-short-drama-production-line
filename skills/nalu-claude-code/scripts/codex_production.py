@@ -644,9 +644,27 @@ def craft_standard_section(episode: str | None = None) -> str:
         # BILI_V1 series (craft_profile.py, CHANGE_SPEC WP4): the BILI_V1 compressed standard; LEGACY call unchanged
         bili = {"craft_profile": "BILI_V1"} if episode and craft_profile_for(episode) == "BILI_V1" else {}
         if style == "anime":  # the short anime note (anime acting, one consistent character design)
-            return str(mod.codex_section(roots()[0], render_style=style, **bili) or "")
-        return str(mod.codex_section(roots()[0], **bili) or "")
+            base = str(mod.codex_section(roots()[0], render_style=style, **bili) or "")
+        else:
+            base = str(mod.codex_section(roots()[0], **bili) or "")
+        # BILI_V1 (CHANGE_SPEC WP6): the setup/payoff ledger note after the craft standard
+        note = craft_ledger_section(episode) if episode else ""
+        return f"{base}\n\n{note}" if base and note else (base or note)
     except Exception:  # noqa: BLE001 -- the start prompt must never fail on an advisory section
+        return ""
+
+
+def craft_ledger_section(episode: str) -> str:
+    """BILI_V1 only (CHANGE_SPEC WP6): the ledger / irony / signature-business note plus the series' open threads
+    (lines/nalu/runtime/tools/craft_ledger.codex_note_zh).  '' under LEGACY, so the prompt is byte-identical.
+    Never raises."""
+    try:
+        profile = _load_engine_tool("craft_profile")
+        if profile is None or not profile.is_bili_v1(None, episode=episode, runtime_root=roots()[1]):
+            return ""
+        ledger = _load_engine_tool("craft_ledger")
+        return str(ledger.codex_note_zh(roots()[1], episode) or "") if ledger is not None else ""
+    except Exception:  # noqa: BLE001
         return ""
 
 

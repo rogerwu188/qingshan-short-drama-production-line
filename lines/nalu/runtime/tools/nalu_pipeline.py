@@ -2184,6 +2184,12 @@ def s1_script_pacing(ctx: Ctx, p: Any, *, others_ok: bool) -> tuple[dict[str, An
         else:
             report = _pace.evaluate(contract, ctx_language(ctx), in_flight=s1_pacing_in_flight(p),
                                     source_texts=_pace.source_texts_for(contract, RUNTIME))
+        # BILI_V1 (CHANGE_SPEC WP6): setup/payoff ledger, irony, signature business, inserts; LEGACY untouched
+        ledger_on = ctx_craft_profile(ctx) == "BILI_V1"
+        if ledger_on:
+            import craft_ledger as _ledger  # noqa: PLC0415 -- same directory
+            report = _ledger.s1_report(report, contract, episode=ctx.episode, runtime_root=RUNTIME,
+                                       scripts_dir=p.contract.parent, language=ctx_language(ctx))
         report_path = p.logs / f"{ctx.run_id}_script_pacing.json"
         write_json(report_path, report)
         integrity = _pace.integrity_blocker_codes(report)
@@ -2202,6 +2208,11 @@ def s1_script_pacing(ctx: Ctx, p: Any, *, others_ok: bool) -> tuple[dict[str, An
             cov = _pace.record_coverage(RUNTIME, ctx.episode, contract)
             if cov:
                 row["source_coverage"] = {k: cov.get(k) for k in ("last_chapter", "next_chapter", "skipped_chapters")}
+            if ledger_on:
+                row["series_ledger"] = _ledger.record_episode(RUNTIME, ctx.episode, contract,
+                                                              language=ctx_language(ctx))
+        if ledger_on:
+            row["craft_ledger"] = report.get("craft_ledger")
         if integrity:
             row["integrity_instruction"] = ("SCRIPT_INTEGRITY_FAIL is not taste: never admitted after revisions -- "
                                             "write each scene's own ambience / scene plan / location; see fixes")

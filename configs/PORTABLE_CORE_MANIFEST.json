@@ -504,6 +504,7 @@
     "tools.tests.test_intake_source_formats",
     "tools.tests.test_craft_profile",
     "tools.tests.test_bili_wp1_adaptation",
-    "tools.tests.test_bgm_mood_palette"
+    "tools.tests.test_bgm_mood_palette",
+    "tools.tests.test_ledger_and_irony"
   ]
 }
