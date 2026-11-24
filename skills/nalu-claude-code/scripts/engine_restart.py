@@ -302,7 +302,10 @@ def stop_episode(runtime: Path, episode: str, *, grace_s: float = 20.0,
                 killed.append(pid)
             except OSError:
                 pass
-    return {"stopped": rows, "sigkill": killed}
+    deadline = time.time() + 10  # nothing may still write into the directories about to move
+    while killed and time.time() < deadline and any(_alive(p) for p in killed):
+        time.sleep(0.5)
+    return {"stopped": rows, "sigkill": killed, "still_alive": [p for p in targets if _alive(p)]}
 
 
 # ------------------------------------------------------------------------------------------------ archive
