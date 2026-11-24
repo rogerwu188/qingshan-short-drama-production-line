@@ -21,7 +21,7 @@
       "description": "可选（SHORT_DRAMA_PACING_V1）：本集改编预算按剧情事件算，不按章节算。source_chapters = 本集用到的原著章节号；plot_events = 本集覆盖的剧情事件（≥ 所需转折数）；cut = 删掉/合并/压缩的内容。S1 记入 series/SOURCE_COVERAGE.json。",
       "properties": {
         "source_chapters": {"type": "array", "items": {"type": "integer", "minimum": 0}},
-        "plot_events": {"type": "array"},
+        "plot_events": {"type": "array", "description": "BILI_V1（CHANGE_SPEC WP1）：每项 {event, chapter, role: MAIN|SECONDARY, shot_id}；一集 1 个主事件 + ≤1 个次事件，超出 = ADAPTATION_TOO_DENSE。LEGACY 不限 role。", "items": {"anyOf": [{"type": "string"}, {"type": "object", "properties": {"event": {"type": "string"}, "chapter": {}, "role": {"type": "string", "description": "MAIN | SECONDARY"}, "shot_id": {"type": "string"}}}]}},
         "cut": {"type": "array"}
       },
       "additionalProperties": true
@@ -157,7 +157,7 @@
         "scene_plan": {
           "type": "array",
           "description": "SHORT_DRAMA_PACING_V1（默认）：每场 {scene_id, objective, conflict, physical_action}；写在 pacing 里（顶层 pacing_scene_plan 也认）",
-          "items": {"type": "object", "required": ["scene_id"], "properties": {"scene_id": {"type": "string"}, "objective": {"type": "string"}, "conflict": {"type": "string"}, "physical_action": {"type": "string"}}}
+          "items": {"type": "object", "required": ["scene_id"], "properties": {"scene_id": {"type": "string"}, "objective": {"type": "string"}, "conflict": {"type": "string"}, "physical_action": {"type": "string"}, "source_detail_ids": {"type": "array", "items": {"type": "string"}, "description": "BILI_V1（WP1）：≥2 条原著可见细节的短引文（≤30 字：姿态、道具、手势、被打断的话），须能在本集原著章节里找到"}, "source_lines": {"type": "array", "items": {"type": "string"}, "description": "BILI_V1（WP1）：本场允许照用的原著短台词（每场 ≤2 句，zh ≤12 字 / ja ≤16 / ko ≤14）"}}}
         },
         "cliffhanger": {
           "type": "object",

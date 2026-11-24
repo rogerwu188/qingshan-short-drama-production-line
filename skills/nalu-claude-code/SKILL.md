@@ -119,6 +119,7 @@ $NALU_ENGINE_ROOT/.qingshan-venv/bin/python $NALU_ENGINE_ROOT/tools/intake_sourc
   `$NALU_ENGINE_ROOT/.qingshan-venv/bin/python $NALU_ENGINE_ROOT/lines/nalu/runtime/tools/script_pacing_check.py coverage` 的 `next_chapter`，没有记录时接上一集结束处）。
 - **改编预算（线主 2026-11-22：剧情推进太慢）**：按剧情事件，不按章节——本集覆盖 ≥ max(4, ⌊时长/25⌋) 个剧情事件（115 秒约 4–6 个），
   从起始章往后需要几章就取几章（通常 2–5 章）；授权 Codex 删减过场和次要人物、合并场次、压缩时间、为钩子调序、补写衔接动作，只保留关键剧情事实和人物真相。
+  craft_profile BILI_V1 的系列（`qingshan.json` `project.craft_profile`）改为：1 个主事件 + ≤1 个次事件；需要几章取几章（常常 1 章）；事件密集的章可拆成 2 集（见 CLAUDE_CODE_PRODUCTION.md §2.0 第 5 条）。
   派单写一行 `pacing_policy: SHORT_DRAMA_PACING_V1`（Codex 合同 §2.0 第 5 条：冷开场冲突 ≤3 秒、每 20–30 秒一次升级/反转/揭示、结尾悬念、
   每场有目标/冲突/身体动作、说话头像 ≤60%、视觉动作 ≥30%、约每 20–25 秒一次视觉变化（同一地点内的走动/进场/特写/反应也算）、
   换场必须有故事理由且一段对话只在一个地点一个 scene_id、每个说话镜的表演按这一句写（不抄模板、不默认指人）；S1 按分镜免费测量，不合格 Codex 自己改稿，最多两轮）。

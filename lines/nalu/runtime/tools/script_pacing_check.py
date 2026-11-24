@@ -1136,15 +1136,31 @@ FIXES = {
 }
 
 
+def _bili_v1(contract: dict[str, Any], craft_profile: str | None) -> bool:
+    """BILI_V1 craft profile (CHANGE_SPEC WP1): the caller's resolved profile, else the contract's own declaration."""
+    try:
+        try:
+            from tools import craft_profile as _cp  # noqa: PLC0415
+        except ModuleNotFoundError:  # runtime tools dir only
+            import craft_profile as _cp  # noqa: PLC0415
+        return _cp.is_bili_v1(craft_profile if craft_profile else contract)
+    except Exception:  # noqa: BLE001 -- an unreadable profile is LEGACY
+        return False
+
+
 def evaluate(contract: dict[str, Any], language: str | None = None,
              environ: dict[str, str] | None = None, *, in_flight: bool = False,
-             source_texts: list[str] | None = None) -> dict[str, Any]:
+             source_texts: list[str] | None = None, craft_profile: str | None = None,
+             revision_round: int = 0) -> dict[str, Any]:
     """{status PASS|FAIL, active, failures [codes], warnings, fixes, metrics}.  ``active`` = the policy applies
     (declared, or by default -- :func:`policy_active`) and the switch is on; an inactive report is ADVISORY whatever
     its numbers.  ``in_flight``: the episode is past a paid stage (a default-policy contract is then grandfathered).
     ``source_texts``: the adapted source chapters -- their action sentences are suggested as beats to dramatise when
-    the script is short of visual action."""
+    the script is short of visual action.  ``craft_profile`` (BILI_V1, CHANGE_SPEC WP1): events are capped instead of
+    floored and the adaptation checks of ``bili_adaptation_check`` run; ``revision_round`` = failing scripts the
+    writer already revised (BILI_V1 slogans are advisory on round 0).  LEGACY ignores both."""
     m = measure(contract, language)
+    bili = _bili_v1(contract, craft_profile)
     t = TARGETS
     failures: list[str] = []
     warnings: list[str] = [f"TURN_TYPE_UNKNOWN:{k}" for k in m["unknown_turn_types"][:4]]
@@ -1192,10 +1208,20 @@ def evaluate(contract: dict[str, Any], language: str | None = None,
     ad = m["adaptation"]
     if not ad["declared"]:
         failures.append("ADAPTATION_PLAN_MISSING")
-    elif ad["plot_event_count"] < m["required_turns"]:
+    elif not bili and ad["plot_event_count"] < m["required_turns"]:
         failures.append(f"ADAPTATION_TOO_THIN:{ad['plot_event_count']}<{m['required_turns']}")
-    if ad["declared"] and ad["source_chapter_count"] <= 1 and ad["plot_event_count"] < m["required_turns"] + 2:
+    if not bili and ad["declared"] and ad["source_chapter_count"] <= 1 and \
+            ad["plot_event_count"] < m["required_turns"] + 2:
         warnings.append("SINGLE_CHAPTER_EPISODE")
+    bili_row: dict[str, Any] = {}
+    if bili:
+        # BILI_V1 (WP1): 1 main + <= 1 secondary plot event, source details, report lines, slogans, reveal fidelity
+        import bili_adaptation_check as _bili  # noqa: PLC0415 -- same directory
+        bili_row = _bili.check(contract, m["language"], list(dict.fromkeys(r["scene_id"] for r in timeline(
+            contract, m["language"]))), source_texts, revision_round=revision_round)
+        failures += bili_row["failures"]
+        warnings += bili_row["warnings"]
+        m["bili_v1"] = bili_row["metrics"]
     basis = policy_basis(contract)
     # no shots = no script to revise (an unreadable / missing contract is other gates' business)
     active = policy_active(contract, in_flight=in_flight) and enabled(environ) and bool(m["shot_count"])
@@ -1205,11 +1231,18 @@ def evaluate(contract: dict[str, Any], language: str | None = None,
                          "VISUAL_VARIETY_LOW"} & set(codes):
         suggestions = source_action_beats(source_texts, m["language"])
     integrity_on = integrity_enabled(environ) and not in_flight and bool(m["shot_count"])
-    fixes = {c: FIXES[c] for c in codes + sorted({f.split(":", 1)[0] for f in integrity}) if c in FIXES}
+    if bili_row:
+        integrity = integrity + bili_row["integrity"]
+        source_fix = ({"SOURCE_DETAIL_MISSING", "SOURCE_DETAIL_NOT_IN_SOURCE"} & set(codes)) and source_texts
+        if source_fix and not suggestions:
+            suggestions = source_action_beats(source_texts, m["language"])
+    fix_table = {**FIXES, **_bili.FIXES} if bili_row else FIXES
+    fixes = {c: fix_table[c] for c in codes + sorted({f.split(":", 1)[0] for f in integrity}) if c in fix_table}
     if suggestions:
         fixes["SOURCE_ACTION_BEATS"] = ("dramatise these physical moments of the source chapters as action / insert "
                                         "shots instead of telling them in dialogue: " + " | ".join(suggestions))
     return {"schema": SCHEMA, "policy": POLICY, "active": active, "policy_basis": basis,
+            **({"craft_profile": "BILI_V1"} if bili else {}),
             **({"grandfathered": "IN_FLIGHT_PAST_PAID_STAGE"} if in_flight and basis == "DEFAULT" else {}),
             "authority": "WRITER_REVISION_LOOP" if active else "ADVISORY_NOT_A_GATE",
             "status": "PASS" if not failures else "FAIL", "failures": failures, "warnings": warnings,
@@ -1249,9 +1282,14 @@ def source_action_beats(texts: list[str], language: str | None = None, limit: in
     return out
 
 
-def source_texts_for(contract: dict[str, Any], runtime_root: Path | None) -> list[str]:
+def source_texts_for(contract: dict[str, Any], runtime_root: Path | None,
+                     craft_profile: str | None = None) -> list[str]:
     """The adapted source chapters' text: the contract's ``source_text`` file, plus ``adaptation_plan.source_chapters``
-    under ``<runtime>/sources/<work>/<canonical_reading_script>/chNNNN.md`` (SOURCE_INDEX.json).  [] when none."""
+    under ``<runtime>/sources/<work>/<canonical_reading_script>/chNNNN.md`` (SOURCE_INDEX.json).  [] when none.
+    BILI_V1 (WP1): also the ``source_binding`` files, the bound work first (``bili_adaptation_check.source_texts``)."""
+    if craft_profile and _bili_v1(contract, craft_profile):
+        import bili_adaptation_check as _bili  # noqa: PLC0415 -- same directory
+        return _bili.source_texts(contract, runtime_root)
     out: list[str] = []
     try:
         declared = _clean((contract or {}).get("source_text"))
@@ -1336,6 +1374,13 @@ def decide(report: dict[str, Any], sha: str, rounds_path: Path, *, max_revisions
             **({"reason": reason} if reason else {})}
 
 
+def prior_failing_rounds(rounds_path: Path | None, sha: str) -> int:
+    """Distinct failing scripts in the round ledger other than ``sha`` (0 = this is the first evaluation)."""
+    rows = [r for r in (_read(rounds_path) if rounds_path else {}).get("rounds") or [] if isinstance(r, dict)]
+    return len({r.get("contract_sha256") for r in rows
+                if r.get("status") == "FAIL" and r.get("contract_sha256") and r.get("contract_sha256") != sha})
+
+
 def integrity_blocker_codes(report: dict[str, Any]) -> list[str]:
     """S1 blockers for the integrity part (boilerplate, contradicted location).  Never admitted after revisions."""
     if not report.get("integrity_active"):
@@ -1371,7 +1416,10 @@ def summary(report: dict[str, Any], decision: dict[str, Any] | None = None) -> d
             "source_action_beats": list(report.get("source_action_beats") or [])[:6],
             "ending_unresolved": (m.get("ending") or {}).get("unresolved"),
             "turns": [{"at": t.get("at"), "type": t.get("type")} for t in m.get("turns") or []][:12],
-            "adaptation": m.get("adaptation")}
+            "adaptation": m.get("adaptation"),
+            **({"craft_profile": report["craft_profile"], "bili_v1": {
+                k: (m.get("bili_v1") or {}).get(k) for k in ("events", "report_lines", "revision_round")}}
+               if report.get("craft_profile") else {})}
 
 
 # --------------------------------------------------------------------------- source coverage

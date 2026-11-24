@@ -31,6 +31,11 @@
 
 ## 3. 源绑定
 
+> **craft_profile BILI_V1（CHANGE_SPEC WP1，线主 2026-11-23）**：本节 3.1「一集一章、每拍落地」与 3.2「key_quote 逐字」
+> 对 BILI_V1 系列**废止**。BILI_V1 按剧情事件分配（1 个主事件 + ≤1 个次事件，需要几章取几章），原著细节记在
+> `pacing.scene_plan[].source_detail_ids`（每场 ≥2 条）；原著台词改为「每场 ≤2 句短台词（zh ≤12 字）可照用，列进 `source_lines`」。
+> LEGACY 系列照旧。
+
 ### 3.1 一集一章
 
 每集绑定原著章节，映射取 `configs/episode_source_map_*.json`。**章节内的每一拍都必须落地**，落在哪一场必须写到 `beat_disposition`，且**写到场次粒度**（`"landed_at": "E51-S03（两镜）"`），不能只列 event_id。
@@ -120,6 +125,9 @@ E57 起，每镜还必须提供 `referent_resolution_contract`：逐字扫描原
 ---
 
 ## 6. 插入项（v2 收紧，本条是 E51 事故的直接立门缘由）
+
+> **craft_profile BILI_V1**：`source_detail_ids` 非空的场即算「有源」；自创衔接场仍申报在 `★authorized_insertions`，但门 10 只记 WARN、
+> 从不卡；下面申报格式里的 `self_deduction`「-1.5 分」从未被计算，BILI_V1 不写。
 
 ### 6.1 判据
 

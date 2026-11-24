@@ -80,6 +80,27 @@ class T(unittest.TestCase):
         code, out = run_gate(m)
         self.assertIn("BEAT_DISPOSITION_HAS_NO_SCENE_LEVEL_LANDING", out)
 
+    def test_bili_v1_source_detail_ids_count_as_sourced(self):
+        """BILI_V1（CHANGE_SPEC WP1）：scene_plan 写了 source_detail_ids 的场算有源；未申报的场只 WARN，不卡。"""
+        m = json.loads(json.dumps(BASE))
+        m["beat_disposition"] = []
+        contract = {"pacing": {"scene_plan": [{"scene_id": "E99-S01", "source_detail_ids": ["翘着二郎腿", "拱手"]}]}}
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+            json.dump(m, f, ensure_ascii=False)
+            mp = f.name
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+            json.dump(contract, f, ensure_ascii=False)
+            cp = f.name
+        try:
+            legacy = subprocess.run([sys.executable, GATE, mp, "--warn-is-fail"], capture_output=True, text=True)
+            bili = subprocess.run([sys.executable, GATE, mp, "--warn-is-fail", "--craft-profile", "BILI_V1",
+                                   "--contract", cp], capture_output=True, text=True)
+        finally:
+            os.unlink(mp)
+            os.unlink(cp)
+        self.assertEqual(legacy.returncode, 1)
+        self.assertEqual(bili.returncode, 0, bili.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

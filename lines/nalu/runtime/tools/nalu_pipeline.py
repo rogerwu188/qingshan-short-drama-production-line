@@ -1959,6 +1959,14 @@ def script_length_check(ctx: Ctx) -> dict[str, Any]:
     out = {"authored_seconds": authored, "target_seconds": target, "limit_seconds": limit,
            "floor_seconds": floor, "target_declared": declared is not None,
            "shots": len(contract.get("shots") or [])}
+    if authored < floor and declared is not None and not s1_pacing_in_flight(ctx.p) \
+            and ctx_craft_profile(ctx) == "BILI_V1":
+        # CHANGE_SPEC WP1: an episode is 1 main + <= 1 secondary plot event -- a short script deepens its scenes
+        return {**out, "status": BLOCKED,
+                "integrity_blocker": f"SCRIPT_TOO_SHORT:{authored}s<{floor}s (target {target}s): the episode is "
+                                     "short of its brief -- deepen the scenes you have: add the source's own "
+                                     "business, reactions and one more turn per scene; do not add plot events, "
+                                     "until the shots' target_seconds reach the floor (free)"}
     if authored < floor and declared is not None and not s1_pacing_in_flight(ctx.p):
         return {**out, "status": BLOCKED,
                 "integrity_blocker": f"SCRIPT_TOO_SHORT:{authored}s<{floor}s (target {target}s): the episode is "
@@ -2168,8 +2176,14 @@ def s1_script_pacing(ctx: Ctx, p: Any, *, others_ok: bool) -> tuple[dict[str, An
     try:
         import script_pacing_check as _pace  # noqa: PLC0415 -- same directory
         contract = read_json(p.contract, {}) or {}
-        report = _pace.evaluate(contract, ctx_language(ctx), in_flight=s1_pacing_in_flight(p),
-                                source_texts=_pace.source_texts_for(contract, RUNTIME))
+        if ctx_craft_profile(ctx) == "BILI_V1":  # CHANGE_SPEC WP1: event cap, source details, reveal fidelity
+            report = _pace.evaluate(contract, ctx_language(ctx), in_flight=s1_pacing_in_flight(p),
+                                    source_texts=_pace.source_texts_for(contract, RUNTIME, craft_profile="BILI_V1"),
+                                    craft_profile="BILI_V1", revision_round=_pace.prior_failing_rounds(
+                                        p.logs / "SCRIPT_PACING_ROUNDS.json", _pace.contract_sha(contract)))
+        else:
+            report = _pace.evaluate(contract, ctx_language(ctx), in_flight=s1_pacing_in_flight(p),
+                                    source_texts=_pace.source_texts_for(contract, RUNTIME))
         report_path = p.logs / f"{ctx.run_id}_script_pacing.json"
         write_json(report_path, report)
         integrity = _pace.integrity_blocker_codes(report)
@@ -2271,7 +2285,9 @@ def stage_s1(ctx: Ctx) -> StageResult:
 
     gate10 = ctx.run(
         [VENV, p.gate10, p.writer_manifest, "--warn-is-fail",
-         "--out", p.logs / f"{ctx.run_id}_gate10.json"],
+         "--out", p.logs / f"{ctx.run_id}_gate10.json"]
+        # BILI_V1 (CHANGE_SPEC WP1): a scene with source_detail_ids is sourced; insertions never block
+        + (["--craft-profile", "BILI_V1", "--contract", p.contract] if ctx_craft_profile(ctx) == "BILI_V1" else []),
         name="s1_gate10_writer_scene_source_declaration")
     contract_gate = ctx.run(
         [VENV, "-c",
@@ -2305,7 +2321,8 @@ def stage_s1(ctx: Ctx) -> StageResult:
     structure_gate = ctx.run(
         [VENV, ENGINE / "tools/script_structure_contract_gate.py", "--contract", p.contract,
          "--manifest", p.writer_manifest, "--lexicon", lexicon,
-         # BILI_V1 only (CHANGE_SPEC WP4): EN_TWIN_MISSING integrity; a LEGACY command line is unchanged
+         # BILI_V1 only: EN_TWIN_MISSING integrity (CHANGE_SPEC WP4) and adaptation_plan.source_chapters as the
+         # authoritative chapter list (WP1 item 10); a LEGACY command line is unchanged
          *(["--craft-profile", "BILI_V1"] if ctx_craft_profile(ctx) == "BILI_V1" else []),
          "--out", p.logs / f"{ctx.run_id}_script_structure_contract_gate.json"],
         name="s1_script_structure_contract_gate")
@@ -2344,10 +2361,16 @@ def stage_s1(ctx: Ctx) -> StageResult:
     source_candidates = [Path(declared_source) if declared_source else None,
                          RUNTIME / "sources" / "夜无疆" / "zh-CN" / f"ch{int(episode_index):04d}.md"]
     source_path = next((c for c in source_candidates if c and c.is_file()), None)
+    register_argv: list[Any] = []
+    if ctx_craft_profile(ctx) == "BILI_V1":
+        # CHANGE_SPEC WP1 item 6: every declared chapter of any work (the lookup above only knew 夜无疆 and
+        # "episode N = chapter N"), active from E01, <= 2 short listed source lines per scene allowed
+        source_path = s1_dialogue_register_source(ctx, p)
+        register_argv = ["--craft-profile", "BILI_V1"]
     if source_path is not None:
         register_step = ctx.run(
             [VENV, ENGINE / "tools/dialogue_register_gate.py", "--contract", str(p.contract),
-             "--source", str(source_path), "--out", str(dialogue_register_path)],
+             "--source", str(source_path), "--out", str(dialogue_register_path)] + register_argv,
             name="s1_dialogue_register_gate")
         dialogue_register = read_json(dialogue_register_path, {}) or {"status": "NOT_ACTIVE"}
         dialogue_register["exit_code"] = register_step["exit_code"]
@@ -2512,6 +2535,22 @@ def stage_s1(ctx: Ctx) -> StageResult:
     }
     res.receipts.append(str(s1_receipt))
     return res
+
+
+def s1_dialogue_register_source(ctx: Ctx, p: Any) -> Path | None:
+    """BILI_V1: the episode's declared source chapters (script_pacing_check.source_texts_for), concatenated into one
+    file beside the S1 logs for the dialogue register gate.  None when the runtime holds none.  Never raises."""
+    try:
+        import script_pacing_check as _pace  # noqa: PLC0415 -- same directory
+        texts = _pace.source_texts_for(read_json(p.contract, {}) or {}, RUNTIME, craft_profile="BILI_V1")
+        if not texts:
+            return None
+        path = p.logs / f"{ctx.run_id}_dialogue_register_source.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n\n".join(texts), encoding="utf-8")
+        return path
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def dialogue_register_blockers(report: dict[str, Any]) -> list[str]:
