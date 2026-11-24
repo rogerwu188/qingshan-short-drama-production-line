@@ -16,7 +16,8 @@ the tick for long (short timeouts); a machine without network or without the ser
 * commands: review_upload (fixed review files of one episode -> HopsAPI storage, URLs in the result) /
   diagnose (model-free health check) / agent_task (instruction for the StoryClaw agent) /
   resume (hand the message to Codex) / update (scripted: self_update, set up the pin from the updated
-  AGENTS.md, resume a stopped episode when the engine moved) / pause / unpause / query.  Nothing else is executed.
+  AGENTS.md, resume a stopped episode when the engine moved; ``restart_in_flight: true`` first abandons the
+  in-flight episode and redoes it from S1 on the new engine, engine_restart.py) / pause / unpause / query.  Nothing else is executed.
 
   NALU_FLEET_URL overrides the service URL; NALU_FLEET_URL=off disables the channel.
 """
@@ -438,11 +439,16 @@ def _setup_diagnostics(out: str) -> dict:
     return diag
 
 
-def scripted_update(cp: Any, pin: str) -> tuple[bool, dict, dict]:
+def scripted_update(cp: Any, pin: str, restart_in_flight: bool = False, major: str = "") -> tuple[bool, dict, dict]:
     """self_update (no restart) -> setup_host --pin -> resume a stopped episode when the engine moved.
 
     Deterministic, no model (line owner + boss 2026-11-10): the agent-run FLEET_UPDATE once set up the stale pin
-    because it read AGENTS.md before self_update had replaced it (field device …1324 E04)."""
+    because it read AGENTS.md before self_update had replaced it (field device …1324 E04).
+
+    ``restart_in_flight`` (fleet ``update`` payload, line owner 2026-11-23 「重大引擎改动后……放弃当前这集的进度，用新引擎
+    重新做这一集」): before the setup, the current episode -- when its engine lacks ``major`` (default: the pin) and it
+    was not restarted for this pin before -- is stopped and archived (engine_restart.prepare), so the setup is not
+    deferred; after it the episode starts again from S1 on the new engine (engine_restart.finish)."""
     import shutil  # noqa: PLC0415
     import tempfile  # noqa: PLC0415
     engine, _ = cp.roots()
@@ -457,6 +463,9 @@ def scripted_update(cp: Any, pin: str) -> tuple[bool, dict, dict]:
     if not re.fullmatch(r"[0-9a-f]{40}", pin or ""):
         return False, {"error": "NO_PIN", "self_update": su_out[-300:]}, {}
     before = _engine_sha(engine)
+    restart: dict = {}
+    if restart_in_flight:
+        restart = _restart_prepare(cp, pin, major)
     tmp = Path(tempfile.mkdtemp(prefix="nalu_setup_"))
     # the checkout below may replace the running file, so setup runs from a copy -- of the whole scripts
     # directory: setup_host.sh finds configure_codex.py & co. next to itself, and a lone copy failed every
@@ -469,6 +478,13 @@ def scripted_update(cp: Any, pin: str) -> tuple[bool, dict, dict]:
     result = {"pin": pin, "before": before[:12], "after": after[:12], "self_update_rc": su_rc, "setup_rc": st_rc}
     result.update(_setup_diagnostics(st_out))
     ep = cp.current_episode()
+    if restart:
+        if restart.get("phase") == "ARCHIVED":
+            restart = {**restart, **_restart_finish(cp, ep, pin)}
+        result["restart"] = {k: restart.get(k) for k in ("phase", "reason", "episode", "engine", "archive", "moved",
+                                                          "move_failed", "new_engine", "start") if k in restart}
+        if restart.get("phase") in ("STARTED", "START_FAILED"):
+            return st_rc == 0 and restart.get("phase") == "STARTED", result, {}
     if ep and after and after != before:
         st = cp.status(ep)
         state = str((st["codex"].get("nalu_status") or {}).get("state") or "")
@@ -477,6 +493,30 @@ def scripted_update(cp: Any, pin: str) -> tuple[bool, dict, dict]:
             out = cp.resume(ep, f"引擎已更新到 {after[:7]}（维护者经 fleet 修复），按新版合同从当前阶段继续。")
             result["resumed"] = out.get("status")
     return st_rc == 0, result, {}
+
+
+def _restart_prepare(cp: Any, pin: str, major: str) -> dict:
+    """engine_restart.prepare for the current episode (never raises: a failed restart leaves a normal update)."""
+    try:
+        import engine_restart  # noqa: PLC0415
+        import device_sn  # noqa: PLC0415
+        engine, runtime = cp.roots()
+        ep = cp.current_episode() or ""
+        again = engine_restart.find_restart(runtime, ep, pin) if ep else None
+        if again and again.get("phase") == "ARCHIVED":  # interrupted after the archive: only the start is left
+            return {"phase": "ARCHIVED", "episode": ep, "archive": again.get("archive"), "resumed_restart": True}
+        return engine_restart.prepare(engine, runtime, ep, pin, major=major, device_sn=device_sn.resolve()[0] or "")
+    except Exception as exc:  # noqa: BLE001
+        return {"phase": "ERROR", "reason": f"{type(exc).__name__}: {str(exc)[:200]}"}
+
+
+def _restart_finish(cp: Any, ep: str | None, pin: str) -> dict:
+    try:
+        import engine_restart  # noqa: PLC0415
+        engine, runtime = cp.roots()
+        return engine_restart.finish(engine, runtime, ep or "", pin)
+    except Exception as exc:  # noqa: BLE001
+        return {"phase": "START_FAILED", "reason": f"{type(exc).__name__}: {str(exc)[:200]}"}
 
 
 AGENT_TASK_FILE = "FLEET_AGENT_TASK.json"
@@ -704,7 +744,9 @@ def run_command(cp: Any, cmd: dict) -> tuple[bool, dict, dict]:
         out = cp.resume(ep, "（维护者经 fleet 下发）" + str(payload.get("message") or "继续"))
         return out.get("status") == "STARTED", out, {}
     if ctype == "update":
-        return scripted_update(cp, str(payload.get("pin") or ""))
+        major = str(payload.get("major") or "")
+        return scripted_update(cp, str(payload.get("pin") or ""), restart_in_flight=payload.get("restart_in_flight") is True,
+                               major=major if re.fullmatch(r"[0-9a-f]{40}", major) else "")
     if ctype == "pause":
         paused.parent.mkdir(parents=True, exist_ok=True)
         paused.write_text("paused by fleet superadmin\n", encoding="utf-8")
