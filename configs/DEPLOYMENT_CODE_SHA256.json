@@ -8569,7 +8569,7 @@
     },
     {
       "path": "tools/tests/test_ledger_and_irony.py",
-      "sha256": "ab342ae5383b91372892a6a1427d5ce1d6d7cfeb4475f1a449b3ce9ede4d62f3"
+      "sha256": "d47a11c0f158211cadf2bbcdf0f285055fe9c02ea8ff42dc4eed0827b54d536f"
     },
     {
       "path": "tools/tests/test_legacy_voice_migration.py",

@@ -450,7 +450,8 @@ class CodexPromptTest(unittest.TestCase):
                                                     encoding="utf-8")
         with mock.patch.object(self.cp, "roots", return_value=(ROOT, self.runtime)):
             section = self.cp.craft_standard_section("E03")
-        self.assertTrue(section.startswith(self.craft.codex_section(ROOT)))
+        # WP4 (#330): a BILI_V1 series gets the BILI_V1 compressed craft standard; WP6 appends the ledger note
+        self.assertTrue(section.startswith(self.craft.codex_section(ROOT, craft_profile="BILI_V1")))
         self.assertIn(cl.CODEX_NOTE_TITLE, section)
 
 
