@@ -612,6 +612,9 @@ def provider_prompt_unit(task: dict[str, Any]) -> dict[str, Any]:
     # compiler input stays byte-identical
     if task.get("h3_prompt_style") or machine.get("h3_prompt_style"):
         prompt_unit["h3_prompt_style"] = task.get("h3_prompt_style") or machine.get("h3_prompt_style")
+    # BILI_V1 craft profile (CHANGE_SPEC WP4, grouped compiler stamp): absent on every LEGACY task
+    if task.get("craft_profile") or machine.get("craft_profile"):
+        prompt_unit["craft_profile"] = task.get("craft_profile") or machine.get("craft_profile")
     # opt-in Chinese constraint sentences (generation contract h3_constraint_language "zh"; A/B variant tasks)
     if task.get("h3_constraint_language") or machine.get("h3_constraint_language"):
         prompt_unit["h3_constraint_language"] = task.get("h3_constraint_language") or machine.get("h3_constraint_language")

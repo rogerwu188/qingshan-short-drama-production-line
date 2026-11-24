@@ -619,6 +619,18 @@ def render_style_for(episode: str | None) -> str:
         return "live_action"
 
 
+def craft_profile_for(episode: str | None) -> str:
+    """The series' craft profile for the start prompt (craft_profile.py: brief, then runtime qingshan.json
+    project.craft_profile; LEGACY by default).  Never raises."""
+    mod = _load_engine_tool("craft_profile")
+    if mod is None:
+        return "LEGACY"
+    try:
+        return str(mod.profile_of(None, episode=episode, runtime_root=roots()[1]))
+    except Exception:  # noqa: BLE001
+        return "LEGACY"
+
+
 def craft_standard_section(episode: str | None = None) -> str:
     """NALU_CRAFT_STANDARD_v1 (line owner 2026-11-17, option A): the compressed zh standard as its OWN section of the
     start prompt (<= 1500 chars, lines/nalu/runtime/tools/nalu_craft_standard.codex_section), separate from the
@@ -629,9 +641,11 @@ def craft_standard_section(episode: str | None = None) -> str:
         return ""
     try:
         style = render_style_for(episode) if episode else "live_action"
+        # BILI_V1 series (craft_profile.py, CHANGE_SPEC WP4): the BILI_V1 compressed standard; LEGACY call unchanged
+        bili = {"craft_profile": "BILI_V1"} if episode and craft_profile_for(episode) == "BILI_V1" else {}
         if style == "anime":  # the short anime note (anime acting, one consistent character design)
-            return str(mod.codex_section(roots()[0], render_style=style) or "")
-        return str(mod.codex_section(roots()[0]) or "")
+            return str(mod.codex_section(roots()[0], render_style=style, **bili) or "")
+        return str(mod.codex_section(roots()[0], **bili) or "")
     except Exception:  # noqa: BLE001 -- the start prompt must never fail on an advisory section
         return ""
 

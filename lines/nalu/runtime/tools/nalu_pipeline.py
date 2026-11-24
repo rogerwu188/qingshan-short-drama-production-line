@@ -2305,6 +2305,8 @@ def stage_s1(ctx: Ctx) -> StageResult:
     structure_gate = ctx.run(
         [VENV, ENGINE / "tools/script_structure_contract_gate.py", "--contract", p.contract,
          "--manifest", p.writer_manifest, "--lexicon", lexicon,
+         # BILI_V1 only (CHANGE_SPEC WP4): EN_TWIN_MISSING integrity; a LEGACY command line is unchanged
+         *(["--craft-profile", "BILI_V1"] if ctx_craft_profile(ctx) == "BILI_V1" else []),
          "--out", p.logs / f"{ctx.run_id}_script_structure_contract_gate.json"],
         name="s1_script_structure_contract_gate")
     continuity_gate = ctx.run(
@@ -11346,6 +11348,57 @@ def s7_text_removal_drop_bands(avoid_bands: Path | None, removal_report: Path | 
     return avoid_bands
 
 
+CRAFT_METRICS_ENV = "NALU_CRAFT_METRICS"
+
+
+def s7_craft_metrics_due(ctx: Any) -> bool:
+    """WP7 metrics run on every BILI_V1 episode; NALU_CRAFT_METRICS=on measures any series, =off none."""
+    switch = str(os.environ.get(CRAFT_METRICS_ENV) or "").strip().lower()
+    if switch in ("off", "0", "false", "no"):
+        return False
+    return switch in ("on", "1", "true", "yes") or ctx_craft_profile(ctx) == "BILI_V1"
+
+
+def s7_craft_metrics(ctx: Any, res: Any, release_timeline: Any, windows: Any) -> dict[str, Any] | None:
+    """CHANGE_SPEC WP7: benchmark craft metrics of the final candidate vs the Bilibili ep2/ep3 band
+    (tools/craft_metrics.py) -> assembly/<EP>_CRAFT_METRICS.json + .md (copied into CHECKPOINT.md at S8), the
+    summary in res.details / the final QA report and one fleet note line.  Report only: never blocks, never raises."""
+    if not s7_craft_metrics_due(ctx):
+        return None
+    p = ctx.p
+    out = p.assembly / f"{ctx.episode}_CRAFT_METRICS.json"
+    md = p.assembly / f"{ctx.episode}_CRAFT_METRICS.md"
+    try:
+        argv: list[Any] = [VENV, ENGINE / "tools/craft_metrics.py", "--video", p.final_candidate,
+                           "--contract", p.contract, "--episode", ctx.episode, "--out", out, "--md", md]
+        if release_timeline and Path(str(release_timeline)).is_file():
+            argv += ["--release-timeline", release_timeline]
+        if windows and Path(str(windows)).is_file():
+            argv += ["--asr-windows", windows]
+        step = ctx.run(argv, name="s7_craft_metrics", timeout=1200)
+    except Exception as exc:  # noqa: BLE001 - report only
+        step = {"name": "s7_craft_metrics", "exit_code": 1, "error": f"{type(exc).__name__}: {exc}"}
+    step["diagnostic_only"] = True  # WP7: no gate_id, never blocks
+    step["exit_code"] = 0
+    report = read_json(out, {}) or {}
+    summary = str(report.get("summary") or "CRAFT_METRICS not measured")
+    res.details["craft_metrics"] = {"report": str(out), "checkpoint_block": str(md), "summary": summary,
+                                    "band": report.get("band") or [], "authority": "CHANGE_SPEC_WP7_REPORT_ONLY"}
+    if out.is_file():
+        res.receipts.append(str(out))
+    try:  # fleet note: one line per episode in <runtime>/series/STATUS.md (the tail fleet_sync reports)
+        path = RUNTIME / "series" / "STATUS.md"
+        line = f"{ctx.episode} S7 {summary}"
+        if not (path.is_file() and line in path.read_text(encoding="utf-8")):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(f"- {time.strftime('%Y-%m-%d %H:%MZ', time.gmtime())} {line}\n")
+    except OSError:
+        pass
+    ctx.say(f"   .. {summary}")
+    return step
+
+
 def s7_camera_motion_gate(ctx: Ctx, res: StageResult) -> dict[str, Any] | None:
     """FINAL-CUT-CAMERA-MOTION: measure the clips that actually made the candidate and apply Roger's targets.
 
@@ -14310,6 +14363,10 @@ def _stage_s7_pass(ctx: Ctx) -> StageResult:
 
     chain_windows = (res.details.get("final_candidate_chain") or {}).get("line_windows_for_detectors")
     chain_windows_ok = bool(chain_windows and Path(str(chain_windows)).is_file())
+    # 6c'. WP7 benchmark craft metrics (BILI_V1 or NALU_CRAFT_METRICS=on): report only, never blocks
+    craft_step = s7_craft_metrics(ctx, res, release_timeline, Path(str(chain_windows)) if chain_windows_ok else asr_windows)
+    if craft_step is not None:
+        steps.append(craft_step)
     detector_argv: list[Any] = [VENV, ENGINE / "tools/final_cut_audience_detectors.py",
                                 "--media", p.final_candidate, "--out", detector_report,
                                 "--lexicon", ctx.p.scope["lexicon"],
@@ -14478,6 +14535,9 @@ def _stage_s7_pass(ctx: Ctx) -> StageResult:
         "final_gate_summary": final_qa.get("stage_gate_summary"),
         "final_gate_status": final_qa.get("stage_gate_status"),
         "evidence_bundle": final_qa.get("bundle"),
+        # WP7 benchmark craft metrics (BILI_V1 / NALU_CRAFT_METRICS=on only; report only)
+        **({"craft_metrics": {k: res.details["craft_metrics"].get(k) for k in ("report", "summary", "band")}}
+           if res.details.get("craft_metrics") else {}),
         # reused stages ({"reused": ...}) and order-carried gate rows have no log: the report must not crash on them
         # (field device …1324 E01 + E02, 2026-11-07: KeyError 'log' after promotion left S7 CRASHED)
         "steps": [{"name": step.get("name"), "exit_code": step.get("exit_code"), "log": step.get("log"),
@@ -14953,6 +15013,10 @@ def write_checkpoint(ctx: Ctx) -> Path:
     if parity_md.is_file():  # seq=27 §六: diagnostic block for the line owner's screening
         add("")
         add(parity_md.read_text(encoding="utf-8").rstrip())
+    craft_md = p.assembly / f"{ctx.episode}_CRAFT_METRICS.md"
+    if craft_md.is_file():  # WP7 benchmark craft metrics (report only; BILI_V1 / NALU_CRAFT_METRICS=on)
+        add("")
+        add(craft_md.read_text(encoding="utf-8").rstrip())
     add("")
     add("## Approval")
     add("")

@@ -871,6 +871,7 @@ def evaluate(
     *,
     dialogue_cps: float = DEFAULT_DIALOGUE_CPS,
     schema: Optional[dict[str, Any]] = None,
+    craft_profile: Optional[str] = None,
 ) -> dict[str, Any]:
     """``schema``: the generation-contract JSON schema to validate against (the CLI always passes the repo schema;
     a library caller that passes none gets ``schema: NOT_REQUESTED`` in ``unverified``)."""
@@ -888,6 +889,9 @@ def evaluate(
         "episode_shot_ids": check_episode_shot_ids(contract),
         "source_binding": check_source_binding(contract),
     }
+    if _bili_v1(contract, craft_profile):
+        # BILI_V1 (CHANGE_SPEC WP4 item 1): every Chinese field the H3 prompt needs has its literal English twin
+        checks["en_twins"] = _en_twin_check(contract)
     failures: list[str] = []
     warnings: list[str] = []
     unverified: list[str] = []
@@ -914,6 +918,26 @@ def evaluate(
     }
 
 
+def _bili_v1(contract: dict[str, Any], craft_profile: Optional[str]) -> bool:
+    """BILI_V1 when the caller passes it (the pipeline resolves the series profile) or the contract declares it."""
+    try:
+        try:
+            from tools import craft_profile as _cp
+        except ModuleNotFoundError:
+            import craft_profile as _cp  # type: ignore
+        return _cp.is_bili_v1(craft_profile) if craft_profile else _cp.is_bili_v1(contract)
+    except Exception:  # noqa: BLE001 - an unreadable profile is LEGACY
+        return False
+
+
+def _en_twin_check(contract: dict[str, Any]) -> dict[str, Any]:
+    try:
+        from tools import bili_carry as _bili
+    except ModuleNotFoundError:
+        import bili_carry as _bili  # type: ignore
+    return _bili.en_twin_check(contract)
+
+
 def _load(path: Optional[str]) -> Optional[dict[str, Any]]:
     if not path:
         return None
@@ -929,11 +953,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--schema", default=str(SCHEMA_PATH),
                         help="generation-contract JSON schema (default: the repo schema)")
     parser.add_argument("--no-schema", action="store_true", help="skip the schema validation")
+    parser.add_argument("--craft-profile", help="the series craft profile (LEGACY | BILI_V1; default: the contract's)")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
     schema = None if args.no_schema else (load_contract_schema(Path(args.schema)) or {})
     report = evaluate(_load(args.contract) or {}, _load(args.manifest), _load(args.lexicon),
-                      dialogue_cps=args.dialogue_cps, schema=schema)
+                      dialogue_cps=args.dialogue_cps, schema=schema, craft_profile=args.craft_profile)
     text = json.dumps(report, ensure_ascii=False, indent=2)
     if args.out:
         Path(args.out).write_text(text + "\n", encoding="utf-8")

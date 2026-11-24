@@ -114,11 +114,15 @@ def build_semantic_coverage_receipt(
     model_family: str,
     clause_evidence: dict[str, str],
     prompt_style: str | None = None,
+    keep_fact_ids: list[str] | None = None,
 ) -> dict[str, Any]:
+    """``keep_fact_ids`` (BILI_V1, CHANGE_SPEC WP4 item 3): V2-omittable facts whose source is an authored screenplay
+    action, not a preproduction fallback -- the prompt states them, so they stay required and are receipted."""
     required = required_fact_ids(plan)
     omitted: list[str] = []
+    kept = [fact_id for fact_id in (keep_fact_ids or []) if fact_id in required]
     if prompt_style == DIRECTOR_PROMPT_V2:
-        candidates = set(director_v2_omitted_fact_ids(plan))
+        candidates = set(director_v2_omitted_fact_ids(plan)) - set(kept)
         omitted = [fact_id for fact_id in required if fact_id in candidates]
         required = [fact_id for fact_id in required if fact_id not in candidates]
     rows = []
@@ -137,6 +141,8 @@ def build_semantic_coverage_receipt(
         })
     fact_set = sorted(required)
     style = {"prompt_style": prompt_style, "style_omitted_fact_ids": omitted} if prompt_style else {}
+    if kept and prompt_style:
+        style["authored_fact_ids_kept"] = kept
     return {
         "schema": SCHEMA,
         "status": "PASS" if not failures else "FAIL",

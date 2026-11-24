@@ -1061,6 +1061,34 @@ def performance_variety_grandfathered(editorial_path: Path) -> bool:
     return "performance_variety" not in previous
 
 
+def _bili_v1(contract: dict[str, Any], episode: str) -> bool:
+    """The series runs the BILI_V1 craft profile (craft_profile.py: contract -> brief -> runtime qingshan.json)."""
+    try:
+        import craft_profile as _cp  # noqa: PLC0415
+        return _cp.is_bili_v1(contract, episode=episode)
+    except Exception:  # noqa: BLE001 - an unreadable profile is LEGACY
+        return False
+
+
+def _bili_field_sources(source_action: dict[str, Any]) -> dict[str, str]:
+    """BILI_V1: "authored" | "fallback" per template-backed action field (tools/bili_carry.FALLBACK_FIELDS)."""
+    return {field: ("authored" if str(source_action.get(field) or "").strip() else "fallback")
+            for field in ("motion_direction", "physical_causality", "microexpression_design",
+                          "physical_action_design", "contact_point")}
+
+
+def _bili_prop_fields(entity: dict[str, Any], spec: dict[str, Any], prop_id: str) -> dict[str, Any]:
+    """BILI_V1: the prop's English name / description and its holder + hand (shot prop row wins over the entity)."""
+    shot_row = next((r for r in spec.get("props") or [] if isinstance(r, dict)
+                     and str(r.get("prop_id") or "") == prop_id), {})
+    out: dict[str, Any] = {}
+    for key in ("english_name", "description_en", "holder_id", "owner_id", "held_by", "hand"):
+        value = shot_row.get(key) or entity.get(key)
+        if value:
+            out[key] = value
+    return out
+
+
 def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                     index: SpaceIndex, engine: Engine, episode: str,
                     contract_path: Path, gsm_path: Path,
@@ -1086,6 +1114,7 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
     # adds film-grammar wording; episodes outside the policy keep their plans byte-identical.
     import camera_grammar_policy as _camera_grammar
     camera_grammar = _camera_grammar.active(contract, episode=episode)
+    bili = _bili_v1(contract, episode)  # BILI_V1 craft profile (CHANGE_SPEC WP4); LEGACY keeps every field below
     import character_reference_sheet as _reference_sheet
     _REFERENCE_SHEET_POLICY["active"] = bool(camera_grammar and MODEL_CONTRACT["model"] == "MiniMax-H3"
                                              and _reference_sheet.active(contract, episode=episode))
@@ -1244,6 +1273,8 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
             # A contract shot that itself marks the prop row kind CREATURE/ANIMAL gets the same treatment
             # (nalu E13: the spiked leopard was counted as a prop and the unit said "exactly 1 living entity").
             **(_being_fields(props_by_id[prop_id]) if camera_grammar or prop_id in declared_beings else {}),
+            # BILI_V1 (WP4 item 5): the English description and who holds it reach the H3 roster
+            **(_bili_prop_fields(props_by_id[prop_id], spec, prop_id) if bili else {}),
         } for prop_id in row["prop_ids"] if prop_id in props_by_id]
 
         subject = str(role.get("primary_actor") or "")
@@ -1422,10 +1453,15 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                 # CAMERA_GRAMMAR_V1: carry the writer's performance (emotion / delivery_en) through so the
                 # H3 renderer can direct the line; other contracts keep their action mapping byte-identical.
                 **({"performance": source_action["performance"]}
-                   if camera_grammar and isinstance(source_action.get("performance"), dict) else {}),
+                   if (camera_grammar or bili) and isinstance(source_action.get("performance"), dict) else {}),
                 # optional authored listener behaviour (English) for DIRECTOR_PROMPT_V2; absent == unchanged
                 **({"listener_reaction_en": source_action["listener_reaction_en"]}
                    if source_action.get("listener_reaction_en") else {}),
+                # BILI_V1 (WP4 item 4): the writer's lead-in reaction / business twins, and which template-backed
+                # fields the writer authored (the V2 prompt states authored facts; WP7 reports the fallback share)
+                **({key: source_action[key] for key in ("lead_in_reaction_en", "business_en")
+                    if source_action.get(key)} if bili else {}),
+                **({"field_sources": _bili_field_sources(source_action)} if bili else {}),
                 "microexpression_design": source_action.get('microexpression_design') or (
                     "眼神盯住对手的兵器，接触瞬间咬牙发力，受力后呼吸加重；表情随动作连续变化，不停顿摆姿势"
                     if cast_rows and combat_beat else
@@ -1592,6 +1628,8 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
             act = spec.get("action") if isinstance(spec.get("action"), dict) else {}
             merged = {**(spec.get("performance") if isinstance(spec.get("performance"), dict) else {}),
                       **(act.get("performance") if isinstance(act.get("performance"), dict) else {})}
+            if bili and act.get("business_en") and not merged.get("business_en"):
+                merged["business_en"] = act["business_en"]  # BILI_V1: the primary action's English twin
             if merged:
                 performance_by_shot[str(s.get("shot_id"))] = merged
         variety = _pv.assign_episode(shots, entities, performance_by_shot=performance_by_shot)
@@ -3852,6 +3890,8 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             task["dialogue_language"] = cu["dialogue_language"]
         if cu.get("h3_prompt_style"):  # opt-in DIRECTOR_PROMPT_V2; absent == V1 prompt
             task["h3_prompt_style"] = cu["h3_prompt_style"]
+        if cu.get("craft_profile"):  # BILI_V1 (grouped compiler stamp); absent on every LEGACY unit
+            task["craft_profile"] = cu["craft_profile"]
         if cu.get("h3_constraint_language"):  # opt-in "zh" provider-expert constraint sentences; absent == en
             task["h3_constraint_language"] = cu["h3_constraint_language"]
         if cu.get("h3_camera_lock"):  # declared camera lock (strict|standard); absent == renderer default

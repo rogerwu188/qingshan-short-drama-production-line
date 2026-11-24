@@ -13,6 +13,10 @@ import re
 from typing import Any
 
 try:
+    from tools import bili_carry as _bili  # BILI_V1 L5 carry-through (CHANGE_SPEC WP4); LEGACY never reaches it
+except ModuleNotFoundError:  # pragma: no cover
+    import bili_carry as _bili
+try:
     from tools import performance_variety as _pv
 except ModuleNotFoundError:  # pragma: no cover
     import performance_variety as _pv  # type: ignore
@@ -1041,6 +1045,50 @@ def speaker_gaze_clause(unit: dict[str, Any], binding: dict[str, Any] | None) ->
 SCENE_LOCATION_REFERENCE_ROLE = "SCENE_LOCATION_REFERENCE"
 
 
+def _bili_v1_beat_lines(unit: dict[str, Any], plan: dict[str, Any], source: dict[str, Any],
+                        spec_action: dict[str, Any], dialogue_binding: dict[str, Any] | None, line: str,
+                        evidence: dict[str, str], beat_number: int) -> str:
+    """BILI_V1 only (CHANGE_SPEC WP4 item 2): the V1 beat line with the authored ``lead_in_reaction_en`` first and the
+    authored ``listener_reaction_en`` of the visible listeners after it (V2 states both the same way)."""
+    try:
+        position = int(source.get("source_index")) - 1
+    except (TypeError, ValueError):
+        position = -1
+    specs = unit.get("ordered_prompt_specs") or []
+    spec = specs[position] if 0 <= position < len(specs) and isinstance(specs[position], dict) else {}
+    labels = _entity_labels(unit, plan)
+    visible = []
+    for member in spec.get("cast") or []:
+        if not isinstance(member, dict) or str(member.get("face_visibility") or "") == "OFFSCREEN_VOICE_ONLY":
+            continue
+        cid = str(member.get("character_id") or "")
+        label = labels.get(cid) or _plain_en(member.get("character"), 80)
+        if label and (cid, label) not in visible:
+            visible.append((cid, label))
+    role = spec.get("role_semantic_disambiguation") or {}
+    if dialogue_binding is not None:
+        owner_id = str(dialogue_binding.get("character_id") or role.get("dialogue_speaker_id") or "")
+        owner_label = str(dialogue_binding.get("provider_entity_label") or labels.get(owner_id, ""))
+    else:
+        owner_id = str(role.get("primary_actor_id") or spec_action.get("subject_id") or "")
+        owner_label = labels.get(owner_id, "")
+    owner = [(owner_id, owner_label)] if owner_label else []
+    owners = owner + [row for row in visible if row[1] != owner_label]
+    lead = _bili.lead_in_sentences(spec_action, owners)
+    if lead:
+        evidence[f"BEAT.{beat_number}.LEAD_IN_REACTION"] = " ".join(lead)
+        stamp = re.match(r"^\[[^\]]*\]\s*", line)  # after the beat's "[0s-3s] " time stamp
+        cut = stamp.end() if stamp else 0
+        line = line[:cut] + " ".join(lead) + " " + line[cut:]
+    if dialogue_binding is not None:
+        listeners = [row for row in visible if row[1] != owner_label and row[0] != owner_id]
+        reaction = _bili.listener_reaction_sentences(spec_action, listeners)
+        if reaction:
+            evidence[f"BEAT.{beat_number}.LISTENER_REACTION"] = " ".join(reaction)
+            line += " " + " ".join(reaction)
+    return line
+
+
 def _spec_action(specs: list[Any], source_index: Any) -> dict[str, Any]:
     """``ordered_prompt_specs[source_index - 1].action`` on every path (V1 / V2, any camera grammar), {} if absent."""
     try:
@@ -1766,6 +1814,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     director_specs = (unit.get("ordered_prompt_specs") or []) if director_active(unit, plan) else []
     shared_clauses: set[str] = set()
     business_rendered = False
+    bili = _bili.active(unit)
     # Which beats render as an action ladder, and which of those is the first: the unit-wide microexpression /
     # body-sync / continuity clauses are stated on that one and referred to from the rest (E15 VU-020 budget).
     ladder_flags = [_ladder_beat(beat) for beat in action_beats]
@@ -1801,6 +1850,8 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             ladder_first=(beat_number - 1 == first_ladder),
         )
         business_line = _pv.business_sentence(business_label, business) if business else ""
+        if bili:  # BILI_V1 (WP4): the speaker's authored lead-in reaction first, the listeners' reaction after
+            line = _bili_v1_beat_lines(unit, plan, source, spec_action, dialogue_binding, line, evidence, beat_number)
         if business_line:
             if not placeholder_replaced:
                 line += f" {business_line}"
@@ -2041,6 +2092,9 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             crowd = bool(background_total or unbound_total or scope.get("anonymous_role_descriptors"))
             roster_variants = [_director_roster(people, beings, crowd=crowd, compact=compact)
                                for compact in (False, True)] + [""]
+            held = _bili.held_prop_sentences(unit, _entity_labels(unit, plan)) if bili else []
+            if held:  # BILI_V1 (WP4 item 5): the declared props in hand reach the roster, not only an action mention
+                roster_variants = [v[:-1] + ". " + ". ".join(held) + "." if v else v for v in roster_variants]
 
     if director_active(unit, plan) and skin_finish_applies(unit, plan, anime=anime,
                                                            has_people=not insert_without_people):
