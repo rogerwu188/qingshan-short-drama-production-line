@@ -5443,12 +5443,21 @@ def stage_s5(ctx: Ctx) -> StageResult:
     # and the submitter refuses them (per task, before any intent record).
     _batch_manifest = p.preprod / f"{ctx.episode}_PROMPT_BATCH_V1.json"
     _batch_report = p.preprod / "reports" / f"{ctx.episode}_PROMPT_BATCH_REGISTER.json"
+    _kf_receipt_dir = p.preprod / "keyframe_prompt_batch_finalization"
+    stamp_out: dict[str, Any] = {}
     if _batch_manifest.is_file() and _batch_report.is_file():
+        # also re-attaches reviewed keyframe finalization receipts (<preprod>/keyframe_prompt_batch_finalization):
+        # the manifest was just rebuilt, so a receipt attached to an earlier copy is gone (device 1101 E27 S6)
         stamp_step = ctx.run([VENV, RT_TOOLS / "stamp_reviewed_keyframe_requests.py",
                               "--episode", ctx.episode, "--manifest", p.keyframe_manifest,
-                              "--batch-manifest", _batch_manifest, "--register-report", _batch_report],
+                              "--batch-manifest", _batch_manifest, "--register-report", _batch_report,
+                              "--receipt-dir", _kf_receipt_dir],
                              name="s5_stamp_reviewed_keyframe_requests")
         res.steps.append(stamp_step)
+        try:
+            stamp_out = json.loads(stamp_step.get("stdout") or "{}") or {}
+        except ValueError:
+            stamp_out = {}
 
     # 2) D-11 paid authorisation, then the paid submit of the MATERIALISED manifest.
     # D-46 for S5: authorise a POST only for shots with no admitted keyframe of the CURRENT image.
@@ -5461,6 +5470,34 @@ def stage_s5(ctx: Ctx) -> StageResult:
                 f"{len(needs_post)} still need a POST: {needs_post}")
     res.details["d46_needs_post"] = needs_post
     res.details["d46_already_admitted"] = keyframes_done
+    # A keyframe prompt to POST that is not the batch-reviewed text and has no reviewed finalization receipt
+    # (an S6 own keyframe written after registration — device 1101 E27 2026-11-24): the submitter would refuse
+    # it (FINAL_PROMPT_NOT_BOUND_TO_BATCH, then REVIEWED_REQUEST_NOT_BOUND).  Ask for the incremental review
+    # here, free, with the exact commands, instead of failing the paid submit.
+    unreviewed = sorted({str(row.get("task_key")) for row in stamp_out.get("left_unstamped") or []
+                         if row.get("reason") == "PROMPT_NOT_THE_REVIEWED_ONE" and row.get("task_key") in needs_post})
+    if unreviewed and not ctx.dry:
+        execution = str((read_json(_batch_manifest, {}) or {}).get("execution_id") or f"{ctx.episode}-PROMPT-BATCH-V1")
+        kf_digest = p.preprod_reports / f"{ctx.episode}_KEYFRAME_PROMPT_FINALIZATION_DIGEST.json"
+        attach = [VENV, ENGINE / "tools/attach_keyframe_prompt_batch_finalization.py", "--engine-root", ENGINE,
+                  "--manifest", p.keyframe_manifest, "--execution-id", execution]
+        for key in unreviewed:
+            attach += ["--task-key", key]
+        diff_step = ctx.run(attach + ["--diff-out", kf_digest], name="s5_keyframe_prompt_finalization_diff")
+        res.steps.append(diff_step)
+        res.status = REVIEW_REQUIRED
+        res.blockers.append(f"KEYFRAME_PROMPT_FINALIZATION:REVIEW_REQUIRED:{len(unreviewed)}_tasks")
+        res.details["keyframe_prompt_finalization"] = {"digest": str(kf_digest), "tasks": unreviewed,
+                                                      "receipt_dir": str(_kf_receipt_dir)}
+        res.details["how_to_answer"] = [
+            f"read {kf_digest} (planned vs final keyframe prompt, changed lines per task)",
+            "if every change is right: " + q(attach + [
+                "--reviewer", "<reviewer>", "--review-note", "<what you checked>",
+                "--receipt-dir", _kf_receipt_dir,
+                "--report", p.preprod_reports / f"{ctx.episode}_KEYFRAME_PROMPT_FINALIZATION_REPORT.json"]),
+            "then re-enter the same stage through the normal entry (S5 re-attaches the receipts on rebuild)",
+        ]
+        return res
     unlocked_assets = s5_unlocked_identity_assets(tasks, needs_post)
     if unlocked_assets:
         # Free, before any authorisation or POST: the submitter would refuse these tasks on the awaited

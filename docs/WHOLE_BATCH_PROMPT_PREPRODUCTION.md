@@ -12,6 +12,8 @@ Both paid image and video submitters enforce the batch after transaction recover
 
 Real predecessor media can delay final reference binding but never prompt authoring. If materialization changes a reviewed prompt, attach `prompt_batch_finalization: {path, sha256}` to the task. That receipt must bind `status: PASS`, `execution_id`, `unit_id`, `artifact_kind` (`keyframe_prompt` or `video_prompt`), `planned_prompt_sha256`, `final_prompt_sha256`, and `scope: INCREMENTAL_EXACT_MATERIALIZATION_QA`. Original exact-reference admission still applies.
 
+Keyframe prompts (e.g. an S6 own keyframe written after registration): S5 returns `KEYFRAME_PROMPT_FINALIZATION:REVIEW_REQUIRED` with a digest from `tools/attach_keyframe_prompt_batch_finalization.py --diff-out`; after review the same tool writes `<preproduction>/keyframe_prompt_batch_finalization/<task_key>.json`, and `stamp_reviewed_keyframe_requests.py` re-attaches it on every manifest rebuild. Every policy reader resolves the runtime policy first (`NALU_RUNTIME_ROOT`, else the engine's `.nalu_deployment.json` pin).
+
 Generic reusable assets without episode identity are outside episode-unit batching. Existing projects without this policy retain legacy compatibility; new deployments receive the policy by default. No generated media or paid validation is included in the software tests.
 
 Tests: `python -m unittest tools.tests.test_episode_prompt_batch_gate tools.tests.test_episode_prompt_batch_paid_boundary`.
