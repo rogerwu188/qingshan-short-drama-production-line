@@ -76,8 +76,8 @@ MAX_OUTPUT_TOKENS = 8192
 MAX_UPLOAD_BYTES = 14_500_000       # raw bytes: base64 inflates by 4/3 and the request limit is 20 MB
 HTTP_TIMEOUT_S = 600
 CLASSES = ("QA-BURNED-TEXT", "QA-DIALOGUE-TAIL-CUT", "QA-OVERSIZED-MASK", "QA-LOOKALIKE-CAST", "QA-SUBTITLE-WRAP",
-           "QA-BGM-DISCONTINUOUS", "QA-SKIN-SHEEN-DRIFT", "QA-EDIT-FRAGMENT", "QA-CAMERA-WOBBLE", "LETTERBOX",
-           "LOOK-DRIFT", "OTHER")
+           "QA-BGM-DISCONTINUOUS", "QA-SKIN-SHEEN-DRIFT", "QA-EDIT-FRAGMENT", "QA-CAMERA-WOBBLE",
+           "QA-SILENT-MOUTH", "LETTERBOX", "LOOK-DRIFT", "OTHER")
 SEVERITIES = ("P0", "P1", "P2", "P3")
 
 
@@ -179,7 +179,8 @@ ITEM_TEXT = {
     "QA-LOOKALIKE-CAST": "两个不同角色长着几乎同一张脸（脸型、五官一样，只靠衣服区分）。",
     "QA-SUBTITLE-WRAP": "我方字幕排版：标点（！？。）或一两个字单独占一行、超过两行、我方字幕和画面里其它文字重叠压字。",
     "QA-BGM-DISCONTINUOUS": "背景音乐突兀：音乐只响一两个镜头就停，或在切镜处生硬起停、没有淡入淡出。",
-    "QA-SKIN-SHEEN-DRIFT": "皮肤/头发质感突变：相邻镜头间人物脸突然油光、出汗、高光反光，头发变湿，或皮肤纹理突然过锐（场景没有雨水、汗水、眼泪的理由）。",
+    "QA-SKIN-SHEEN-DRIFT": "皮肤/头发油光：任何镜头里人物脸油亮、出汗、湿亮高光反光（额头、鼻梁、脸颊发亮），头发湿亮，或皮肤纹理过锐——即使前后镜头一样油也要报；相邻镜头间突然变油也算（场景没有雨水、汗水、眼泪的理由）。",
+    "QA-SILENT-MOUTH": "嘴动没声音：画面里有人嘴在一张一合、明显在说话，却听不到他的台词（惊讶张嘴、喘气不算）。P1。",
     "QA-EDIT-FRAGMENT": "剪辑碎片：不到约 1.2 秒的碎镜头；画面里是正在说话的角色却一句没说就切走；一句话没说完就切走；整体切得太快。",
     "QA-CAMERA-WOBBLE": "镜头随人晃动：固定机位里人物做小动作时整个画面（墙、门框、家具、身后布景）跟着一起晃/移/颠，或画面果冻式扭曲；盯住背景里的直线看它相对画框动没动。平滑有动机的运镜不算。",
     "LETTERBOX": "画幅：竖屏 9:16 成片里混入横版镜头（上下黑边）或左右黑边。",
@@ -524,6 +525,9 @@ def _run_multipass(record: dict[str, Any], finish: Callable[..., dict[str, Any]]
                                      sum(len(v) for v in suspects.values()))
     if stray:
         suspects = {**suspects, "stray_voice": stray}
+    mouths = _mp.silent_mouth_suspects(measurements.get("silent_mouth"), sum(len(v) for v in suspects.values()))
+    if mouths:  # S7-muted voices in units with no line: lips moving in silence (2026-11-24, KO E01 0:39)
+        suspects = {**suspects, "silent_mouth": mouths}
     if not context.get("cuts"):
         context = {**context, "cuts": [{"start": round(float(r["start_seconds"]), 1),
                                         "end": round(float(r["end_seconds"]), 1)}

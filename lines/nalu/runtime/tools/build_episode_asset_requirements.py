@@ -353,6 +353,8 @@ def character_prompt(row: dict[str, Any], wardrobe_desc: str, style: str,
         "均匀柔和的正面照明，仅为记录五官与形体，不做戏剧化打光。"
         "全身直立，双手自然垂放，面部无遮挡，发际线与耳廓可见。",
         "身份锁定要素必须清晰可辨：脸型骨骼、发型、眼型、肤色、体型。",
+        # live-action only (the anime style block carries its own finish): line owner 2026-11-24, KO E01 oily face
+        *([] if _render_style.IMAGE_STYLE_BLOCK_ZH in style else [_render_style.LIVE_SKIN_FINISH_ZH]),
         *([contrast] if contrast else []),
         "",
         style,

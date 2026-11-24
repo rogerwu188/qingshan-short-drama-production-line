@@ -1192,6 +1192,8 @@ def visual_culture_block(contract: dict[str, Any], *, exterior: bool = False) ->
         # the period ban belongs to the East-Asian period lock; an AUTHORED_WORLD contract (Victorian London,
         # sci-fi, modern) must not be told 禁欧洲 (holmes lab E01 2026-10-23)
         + ("" if str(contract.get("era_lock") or "").upper() == "AUTHORED_WORLD" else "禁欧洲、板甲、黑金。"),
+        # live-action skin finish (line owner 2026-11-24, KO E01 oily face); anime keeps its own texture line
+        *([] if _render_style.is_anime(contract) else [_render_style.LIVE_SKIN_FINISH_ZH]),
     ])
 
 

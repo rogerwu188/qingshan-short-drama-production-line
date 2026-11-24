@@ -126,7 +126,7 @@ RECORD = "RECORD_ONLY"
 
 FREE_KINDS = ("STATIC_SHOT_SPLIT", "AUDIO_SMOOTHING", "BGM_FADES", "SUBTITLE_WRAP", "DIALOGUE_TAIL_GUARD",
               "EDIT_FRAGMENT")
-PAID_KINDS = ("BURNED_TEXT", "REFERENCE_SHEET_LEAK", "PLAN_MISMATCH", "CAMERA_WOBBLE", "COSTUME_IDENTITY", "FACE_DRIFT", "SKIN_SHEEN", "HAND_ARTIFACT", "VOICE_GENDER_MISMATCH")
+PAID_KINDS = ("BURNED_TEXT", "REFERENCE_SHEET_LEAK", "PLAN_MISMATCH", "CAMERA_WOBBLE", "SILENT_MOUTH", "COSTUME_IDENTITY", "FACE_DRIFT", "SKIN_SHEEN", "HAND_ARTIFACT", "VOICE_GENDER_MISMATCH")
 #: owner order when the round's budget does not cover every paid redo
 PAID_PRIORITY = {kind: rank for rank, kind in enumerate(PAID_KINDS)}
 
@@ -144,6 +144,8 @@ ITEM_KIND = {
     "QA-SUBTITLE-WRAP": "SUBTITLE_WRAP",
     "QA-BGM-DISCONTINUOUS": "BGM_FADES",
     "QA-SKIN-SHEEN-DRIFT": "SKIN_SHEEN",
+    # 2026-11-24 (KO E01 0:39, device ...1437): lips moving with no sound (S7 muted the voice of a unit with no line)
+    "QA-SILENT-MOUTH": "SILENT_MOUTH",
     "QA-OVERSIZED-MASK": "MASK",
     "QA-LOOKALIKE-CAST": "LOOKALIKE",
     "LETTERBOX": "LETTERBOX",
@@ -275,6 +277,9 @@ SENTENCES = {
                       "of a person ever moves the frame."),
     "SKIN_SHEEN": ("Every face keeps natural matte skin and dry hair from the first frame to the last: no oily, glossy "
                    "or sweaty sheen, no wet-looking strands and no harsh over-sharpened skin texture."),
+    "SILENT_MOUTH": ("Only a person whose line is heard moves the lips, and only while that line is heard; everyone "
+                     "else keeps the lips closed and still from the first frame to the last, with no talking, "
+                     "murmuring or mouthing of words."),
 }
 #: burned-text redo retry n (escalation, 2026-11-20 E18: three of four redone units burned the same line again):
 #: each retry words the clean-picture sentence differently, so the prompt (and the request) differs from every take
@@ -360,6 +365,14 @@ _SHEEN_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
     r"(?:oily|greasy|glossy|shiny|waxy|plastic|sweaty|wet)[- ](?:looking )?(?:skin|face|forehead|complexion|sheen)",
     r"skin (?:sheen|shine|looks (?:oily|greasy|wet|plastic|waxy))", r"(?:wet|damp)[- ](?:looking )?hair",
     r"油(?:光|亮|腻)", r"(?:皮肤|脸上|额头)(?:发亮|反光|油)", r"满脸(?:油|汗)", r"汗津津", r"(?:头发|发丝)(?:湿|潮)",
+))
+#: lips moving with no sound (KO E01 0:39, 2026-11-24) -- whatever the item says (QA-LIPSYNC is record-only)
+_SILENT_MOUTH_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
+    r"(?:mouth|lips?)\W+(?:\w+\W+){0,3}(?:mov\w*|open\w*|talk\w*|speak\w*)\W+(?:\w+\W+){0,4}(?:no|without|but no|with no)\W+"
+    r"(?:\w+\W+){0,2}(?:sound|audio|voice|dialogue)",
+    r"(?:talk|speak)\w*\W+(?:\w+\W+){0,3}(?:silently|in silence|with no sound|without sound)",
+    r"嘴.{0,6}(?:动|张合|一张一合|开合).{0,10}(?:没|无|听不到)(?:有)?(?:声|音|台词)",
+    r"(?:无声|没有声音|没声音).{0,6}(?:说话|张嘴|动嘴|嘴动|对口型)",
 ))
 #: the set / whole frame moving with the actor (KO E05 2026-11-21) beyond KEYWORDS -- whatever the item says
 _WOBBLE_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
@@ -451,6 +464,8 @@ def strong_kind(text: str) -> str | None:
         return "BURNED_TEXT"
     if _matches(_VOICE_GENDER_PATTERNS, text):
         return "VOICE_GENDER_MISMATCH"
+    if _matches(_SILENT_MOUTH_PATTERNS, text):
+        return "SILENT_MOUTH"
     if _matches(_FACE_PATTERNS, text):
         return "FACE_DRIFT"
     if _matches(_SHEEN_PATTERNS, text):
@@ -1452,7 +1467,7 @@ RELEASE_CLASSES_ENV = "NALU_RELEASE_BLOCK_CLASSES"
 #: RELEASE_HELD:<classes> and queued as a redo candidate; production moves on to the next episode.
 RELEASE_BLOCK_OBJECTIVE_DEFECTS = True
 RELEASE_BLOCK_CLASSES = frozenset({"RUNTIME_SHORT", "BURN_UNRESOLVED"})
-OBJECTIVE_CLASSES = ("RUNTIME_SHORT", "BURN_UNRESOLVED", "STRAY_VOICES", "PLAN_NO_UNITS")
+OBJECTIVE_CLASSES = ("RUNTIME_SHORT", "BURN_UNRESOLVED", "STRAY_VOICES", "PLAN_NO_UNITS", "SILENT_MOUTH")
 RELEASE_HELD = "RELEASE_HELD"
 #: a cut shorter than this share of the brief's target runtime is an objective defect (E24: 56 s of 110 s)
 RUNTIME_MIN_RATIO = 0.85
@@ -1530,9 +1545,10 @@ def objective_defects(record: dict[str, Any] | None, *, runtime_s: float | None 
                       neither Gemini nor the reviewer dismissed (not within 1 s of one already listed); ``blocking``:
                       not ACCEPT_CORRECT (:func:`burn_accepted`) and, for an OCR run, CONFIRMED by a reviewer
     stray_voices      ASR speech in planned-silent units nobody dismissed
+    silent_mouths     S7-muted model voices in units with no line whose moving lips a reviewer CONFIRMED (2026-11-24)
     plan_no_units     units pass D judged NOT delivered (plan_not_in_cut: planned units missing from the cut,
                       listed, not counted)
-    ``count`` sums the four; ``classes`` names those present; ``blocking_classes`` those that may hold the release
+    ``count`` sums them; ``classes`` names those present; ``blocking_classes`` those that may hold the release
     (RUNTIME_SHORT when short, BURN_UNRESOLVED when a blocking burn is left -- the policy decides).
     ``text_removed``: units whose picture in this cut is the S7 local burned-text removal's cleaned copy
     (tools/burned_text_removal.py, 2026-11-23) -- their round-unresolved burn is listed, never blocking."""
@@ -1552,7 +1568,8 @@ def objective_defects(record: dict[str, Any] | None, *, runtime_s: float | None 
                       "source": "FINAL_FIX_UNRESOLVED", "blocking": not accepted and not removed,
                       **({"accepted": BURN_ACCEPTED} if accepted else {}),
                       **({"resolved_by": "LOCAL_TEXT_REMOVAL"} if removed else {})})
-    stray = []
+    stray: list[dict[str, Any]] = []
+    mouths: list[dict[str, Any]] = []
     for row in suspect_checks or []:
         sus = row.get("suspect") or {}
         decision = _suspect_decision(row)
@@ -1570,19 +1587,22 @@ def objective_defects(record: dict[str, Any] | None, *, runtime_s: float | None 
         elif sus.get("kind") == "stray_voice":
             stray.append({"unit": sus.get("unit"), "window": sus.get("window"), "heard": sus.get("heard"),
                           "decision": decision, "source": "LOCAL_ASR"})
+        elif sus.get("kind") == "silent_mouth" and decision == "CONFIRMED":
+            mouths.append({"unit": sus.get("unit"), "window": sus.get("window"), "decision": decision,
+                           "source": "S7_SILENT_UNIT_MUTE"})
     units = (plan_parity or {}).get("units") or []
     no_units = [{k: r.get(k) for k in ("unit_id", "window", "reasons", "severity") if r.get(k) is not None}
                 | ({"window": [r.get("start"), r.get("end")]} if r.get("start") is not None else {})
                 for r in units if r.get("delivered") == "NO"]
     missing = [r.get("unit_id") for r in units if r.get("delivered") == "NOT_IN_CUT"]
     present = {"RUNTIME_SHORT": bool(runtime.get("short")), "BURN_UNRESOLVED": bool(burns),
-               "STRAY_VOICES": bool(stray), "PLAN_NO_UNITS": bool(no_units)}
+               "STRAY_VOICES": bool(stray), "PLAN_NO_UNITS": bool(no_units), "SILENT_MOUTH": bool(mouths)}
     blocking = {"RUNTIME_SHORT": bool(runtime.get("short")),
                 "BURN_UNRESOLVED": any(b.get("blocking") for b in burns),
-                "STRAY_VOICES": bool(stray), "PLAN_NO_UNITS": bool(no_units)}
+                "STRAY_VOICES": bool(stray), "PLAN_NO_UNITS": bool(no_units), "SILENT_MOUTH": bool(mouths)}
     return {"runtime": runtime, "unresolved_burns": burns, "stray_voices": stray, "plan_no_units": no_units,
-            "plan_not_in_cut": missing,
-            "count": int(bool(runtime.get("short"))) + len(burns) + len(stray) + len(no_units),
+            "silent_mouths": mouths, "plan_not_in_cut": missing,
+            "count": int(bool(runtime.get("short"))) + len(burns) + len(stray) + len(no_units) + len(mouths),
             "classes": [c for c in OBJECTIVE_CLASSES if present[c]],
             "blocking_classes": [c for c in OBJECTIVE_CLASSES if blocking[c]]}
 

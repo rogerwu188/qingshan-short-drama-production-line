@@ -89,11 +89,13 @@ ITEMS: dict[str, dict[str, Any]] = {
         "s7_fixable": True, "fix_owner": "S7", "craft_item": "C-16"},
     "QA-SKIN-SHEEN-DRIFT": {
         "title_zh": "人物皮肤突然油光/出汗/头发湿、质感过锐（相邻镜头间脸像抹了油）",
-        "question": "Does a character's skin suddenly look oily, glossy or sweaty, hair look wet, or skin texture turn "
-                    "harsh and over-sharpened (visible pores, specular highlights, higher contrast) from one shot to "
-                    "the next when the scene gives no reason (no rain, water, exertion or tears)?  Give each "
-                    "timestamp.  measurements.skin_sheen lists units whose specular share / sharpness / contrast "
-                    "drifted from the frame they opened on (S6, free).",
+        "question": "Does a character's skin look oily, glossy, wet or sweaty (bright specular patches on the forehead, "
+                    "nose or cheeks), hair look wet, or skin texture look harsh and over-sharpened -- in ANY shot, "
+                    "also when the neighbouring shots look the same (an oily face from the identity card on is still "
+                    "this defect; line owner 2026-11-24, KO E01) -- or turn so from one shot to the next, when the "
+                    "scene gives no reason (no rain, water, exertion or tears)?  Give each timestamp.  "
+                    "measurements.skin_sheen lists units whose specular share / sharpness / contrast drifted from "
+                    "the frame they opened on (S6, free).",
         "s7_fixable": False, "fix_owner": "S6", "craft_item": "C-12"},
     "QA-EDIT-FRAGMENT": {
         "title_zh": "剪辑碎片：1-2 秒的碎镜头、说话的角色一句没说就切走、台词没说完就切、切得太快",
@@ -114,6 +116,15 @@ ITEMS: dict[str, dict[str, Any]] = {
                     "not this defect.  Give each timestamp.  measurements.camera_wobble lists units whose landed "
                     "take moved the set with the actor (S6, free; people masked out).",
         "s7_fixable": False, "fix_owner": "S6", "craft_item": "C-12"},
+    # 2026-11-24 (KO E01 0:39, device ...1437): a man in an office talks and points at the camera with no sound -- S7
+    # had muted the voice H3 generated in a unit with no line, the lips kept moving
+    "QA-SILENT-MOUTH": {
+        "title_zh": "嘴在动却没有声音（像在说话，听不到台词）",
+        "question": "Does anyone on screen move their lips as if talking (or murmuring) while no line of theirs is "
+                    "heard?  Open-mouthed surprise, breathing or a clenched jaw is not this defect.  Give each "
+                    "timestamp and who.  measurements.silent_mouth lists the windows where S7 muted a voice the video "
+                    "model generated in a unit with no scripted line (free): look at the mouths there first.",
+        "s7_fixable": False, "fix_owner": "S6", "craft_item": "C-08"},
 }
 ITEM_IDS = tuple(ITEMS)
 
@@ -402,6 +413,28 @@ def measure_skin_sheen(tails_dir: Any) -> dict[str, Any]:
                 "thresholds") if rows else None} if rows else {}
 
 
+def measure_silent_mouth(report: Any) -> dict[str, Any]:
+    """Units where S7 muted a voice the video model generated although the unit has no scripted line
+    (``<EP>_SILENT_UNIT_STRAY_SPEECH.json``, tools/silent_unit_stray_speech.plan): the picture may show lips moving in
+    silence.  One row per flagged unit with its timeline window (first to last muted second).  {} when none."""
+    if not isinstance(report, dict):
+        return {}
+    flagged = {str(r.get("unit_id")): r for r in report.get("units") or []
+               if isinstance(r, dict) and r.get("muted") and r.get("flagged")}
+    spans: dict[str, list[float]] = {}
+    for w in report.get("mute_windows") or []:
+        uid = str((w or {}).get("unit_id"))
+        a, b = _num((w or {}).get("start_seconds")), _num((w or {}).get("end_seconds"))
+        if uid not in flagged or a is None or b is None:
+            continue
+        cur = spans.setdefault(uid, [a, b])
+        cur[0], cur[1] = min(cur[0], a), max(cur[1], b)
+    rows = [{"unit_id": uid, "window": [round(a, 2), round(b, 2)],
+             "speech_seconds": flagged[uid].get("speech_seconds")} for uid, (a, b) in spans.items()]
+    rows.sort(key=lambda r: r["window"][0])
+    return {"source": "S7 stray-speech mute report (read only)", "units": rows[:40]} if rows else {}
+
+
 def measure_identity_swap_risk(keyframes_dir: Any) -> dict[str, Any]:
     """Tail-started units whose start frame (the predecessor's real tail) does not show the storyboard's on-screen
     speaker / cast (``identity_swap_risk`` on ``keyframes/<shot>-keyframe-v1.derived.json``, written by S6
@@ -459,7 +492,7 @@ def measure(*, shots: list[dict[str, Any]], asr: Any = None, scan_path: Any = No
             audio_bed_path: Any = None, s6_wave_state_path: Any = None,
             skin_sheen_dir: Any = None, keyframes_dir: Any = None, release_timeline_path: Any = None,
             performance_cut_path: Any = None, unit_recut_path: Any = None,
-            stabilize_summary_path: Any = None) -> dict[str, Any]:
+            stabilize_summary_path: Any = None, silent_speech_path: Any = None) -> dict[str, Any]:
     """All free measurements, each best-effort ({} when its input is missing).  Never raises."""
     out: dict[str, Any] = {}
     steps = (
@@ -476,6 +509,7 @@ def measure(*, shots: list[dict[str, Any]], asr: Any = None, scan_path: Any = No
         ("s7_edit", lambda: measure_s7_edit(asr, shots, _read(release_timeline_path), _read(performance_cut_path),
                                             _read(unit_recut_path))),
         ("camera_wobble", lambda: measure_camera_wobble(_read(s6_wave_state_path), _read(stabilize_summary_path))),
+        ("silent_mouth", lambda: measure_silent_mouth(_read(silent_speech_path))),
     )
     for key, fn in steps:
         try:
@@ -493,7 +527,7 @@ MEASUREMENT_ITEM = {"burned_text": "QA-BURNED-TEXT", "masks": "QA-OVERSIZED-MASK
                     "lookalike_cast": "QA-LOOKALIKE-CAST", "bgm": "QA-BGM-DISCONTINUOUS",
                     "s6_burn_unresolved": "QA-BURNED-TEXT", "skin_sheen": "QA-SKIN-SHEEN-DRIFT",
                     "identity_swap_risk": "QA-LOOKALIKE-CAST", "s7_edit": "QA-EDIT-FRAGMENT",
-                    "camera_wobble": "QA-CAMERA-WOBBLE"}
+                    "camera_wobble": "QA-CAMERA-WOBBLE", "silent_mouth": "QA-SILENT-MOUTH"}
 
 
 def reviewer_request(measurements: dict[str, Any]) -> dict[str, Any]:
@@ -620,6 +654,10 @@ def _measured_findings(measurements: dict[str, Any]) -> list[dict[str, Any]]:
     for row in edit.get("mid_line_cuts") or []:
         out.append({"item_id": "QA-EDIT-FRAGMENT", "at_seconds": row.get("at"), "source": "MEASURED",
                     "detail": "cut inside a line" + (" (S7 cut)" if row.get("s7_cut") else "")})
+    for row in (measurements.get("silent_mouth") or {}).get("units") or []:
+        out.append({"item_id": "QA-SILENT-MOUTH", "window": row.get("window"), "source": "S7_SILENT_UNIT_MUTE",
+                    "unit_id": row.get("unit_id"),
+                    "detail": f"{row.get('unit_id')}: {row.get('speech_seconds')} s of model voice muted (no line)"})
     for row in (measurements.get("camera_wobble") or {}).get("measured") or []:
         out.append({"item_id": "QA-CAMERA-WOBBLE", "source": "S6_CAMERA_WOBBLE", "unit_id": row.get("unit_id"),
                     "detail": f"{row.get('unit_id')}: set moved {row.get('excursion_pct')} % of the width with the "
@@ -704,7 +742,7 @@ def routing(item_id: str, *, maskable: bool = True) -> str:
     del maskable  # kept for callers: burned text is now fixed by an S6 redo, not by a cover
     if item_id == "QA-LOOKALIKE-CAST":
         return "KNOWLEDGE_BASE_AND_NEXT_EPISODE_IDENTITY_DESIGN"
-    if item_id in ("QA-BURNED-TEXT", "QA-SKIN-SHEEN-DRIFT", "QA-CAMERA-WOBBLE"):
+    if item_id in ("QA-BURNED-TEXT", "QA-SKIN-SHEEN-DRIFT", "QA-CAMERA-WOBBLE", "QA-SILENT-MOUTH"):
         return "S6_UNIT_REDO_FINAL_FIX_ROUND"
     if item_id == "QA-OVERSIZED-MASK":
         return "RECORDED"

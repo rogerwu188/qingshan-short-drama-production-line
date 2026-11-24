@@ -362,8 +362,15 @@ ANTI_AI_QUESTION_ANIME = (
     "between drawing styles), repetition and synthetic rhythm?"
 )
 
+#: live-action image prompts with people (identity cards, turnaround sheets, keyframes).  Line owner 2026-11-24 (KO
+#: E01 0:32, device ...1437): a man's face read oily / wet with specular highlights; the H3 video prompt already
+#: forbade sheen (h3_provider_prompt_renderer.SKIN_FINISH_NEGATIVE) but the images it starts from did not, and the
+#: S6 sheen check only measures DRIFT from those images -- an oily card or keyframe passed as its own reference.
+LIVE_SKIN_FINISH_ZH = ("皮肤质感：自然哑光肌肤，脸上无油光、无汗珠、无湿亮反光（额头、鼻梁、脸颊不发亮），头发干爽；"
+                       "不做塑料感磨皮、不过度锐化（剧情明确写雨水、汗水、泪水时除外）。")
+
 __all__ = [
-    "LIVE_ACTION", "ANIME", "STYLES", "DEFAULT_STYLE", "FIELD", "normalise", "from_contract", "from_brief",
+    "LIVE_SKIN_FINISH_ZH", "LIVE_ACTION", "ANIME", "STYLES", "DEFAULT_STYLE", "FIELD", "normalise", "from_contract", "from_brief",
     "from_config", "resolve", "default_runtime_root", "brief_path", "resolve_runtime", "is_anime", "stamp",
     "STYLE_PHRASE_EN", "IMAGE_STYLE_BLOCK_EN", "IMAGE_STYLE_BLOCK_ZH", "IMAGE_TEXTURE_ZH", "IMAGE_TEXTURE_EN",
     "FORBIDDEN_INFLUENCES_EN", "H3_GENRE", "H3_ART_STYLE_LINE", "H3_NEGATIVES", "h3_insert_genre",

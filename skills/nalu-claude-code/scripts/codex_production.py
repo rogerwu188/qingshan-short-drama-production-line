@@ -168,9 +168,12 @@ def reviewer_prompt(episode: str, request: Path, answers: Path, process_id: str,
    （格式见其 `answer_block`，每条 PASS/DEFECT/NA，DEFECT 必须带时间戳）：QA-BURNED-TEXT 画面里模型烧进的字（如字幕下多出的大字）、
    QA-DIALOGUE-TAIL-CUT 台词尾音被切或句末无停顿、QA-OVERSIZED-MASK 遮挡/模糊框过大、QA-LOOKALIKE-CAST 两个角色长得一样、
    QA-SUBTITLE-WRAP 字幕换行不当（如「！」单独一行）、QA-BGM-DISCONTINUOUS 配乐只响一两个镜头就停或在切点生硬起停、
-   QA-SKIN-SHEEN-DRIFT 相邻镜头间人物皮肤突然油光/出汗、头发变湿或质感过锐（场景里没有雨水、汗水、眼泪的理由）、
+   QA-SKIN-SHEEN-DRIFT 任何镜头里人物脸油亮/出汗/额头鼻梁脸颊有白亮反光、头发湿亮或质感过锐（前后镜头一样油也算；场景里没有雨水、
+   汗水、眼泪的理由），相邻镜头间突然变油也算、
    QA-EDIT-FRAGMENT 剪辑碎片（不到约 1.2 秒的碎镜头、说话的角色一句没说就切走、台词没说完就切、切得太快）、
-   QA-CAMERA-WOBBLE 固定机位镜头里背景/整个画面跟着人物小动作一起晃（盯住门框墙角等直线看它相对画框动没动）。
+   QA-CAMERA-WOBBLE 固定机位镜头里背景/整个画面跟着人物小动作一起晃（盯住门框墙角等直线看它相对画框动没动）、
+   QA-SILENT-MOUTH 有人嘴在一张一合像在说话却听不到他的台词（`measurements.silent_mouth` 是引擎静音掉模型人声的时间窗，先看那里；
+   抽帧 0.25 s 一帧看嘴，同时量那一段音频）。画框外伸进来、看不到主人的手/手臂（和角色握手、拉手、递东西）是多出来的人，写进 problems（P1）。
    `measurements` 里是免费量出来的线索（OCR、尾音距切点、遮挡面积、身份牌相似度、字幕分行、配乐段、S6 皮肤油光/锐化漂移的单元、
    `s7_edit` 碎镜头/不说话的说话人镜头/尾音距切点不足 0.15 s/切在台词中间），逐个用眼睛/听感核实；
    确认的缺陷同时按严重度写进 problems。这一块只记录不拦片。
@@ -195,7 +198,7 @@ def gemini_step(gemini: Path | None) -> str:
    0.25 s 一帧，皮肤/手/脸放大到原分辨率）看画面、量音频，自己判断。确认的：写进 problems（带严重度）和 `qa_defect_checklist`
    对应 QA-* 条目的 DEFECT findings（不属于必查清单的类别只写 problems）。不成立的：说明理由。
    `mode` 是 `multipass` 时，发现来自四个专审（每条的 `pass`）：A 画面/AI 瑕疵（QA-FACE-ARTIFACT 脸眼牙、QA-HAND-ARTIFACT 手指、
-   QA-SKIN-SHEEN-DRIFT 皮肤油光/头发变湿、QA-CAMERA-WOBBLE 背景随人晃、QA-BODY-MORPH、QA-OBJECT-POP、QA-FLICKER、QA-PHYSICS、
+   QA-SKIN-SHEEN-DRIFT 皮肤油光/头发变湿、QA-SILENT-MOUTH 嘴动没声音、QA-CAMERA-WOBBLE 背景随人晃、QA-BODY-MORPH、QA-OBJECT-POP、QA-FLICKER、QA-PHYSICS、
    烧字、遮罩、黑边）、
    B 身份与场内连贯（QA-IDENTITY-MISMATCH 对照身份卡、LOOK-DRIFT 服装发型配饰、QA-PROP/LIGHTING/POSITION-CONTINUITY、
    QA-LOOKALIKE-CAST 两个角色看起来是同一个人，见 `cast_compare`）、
