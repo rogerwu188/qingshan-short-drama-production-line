@@ -10,8 +10,9 @@ major engine change that is the wrong trade, so the maintainer opts a device in 
   predates the flag; it detaches and does the whole sequence itself).
 
 Sequence (stdlib only, no model, no network except ``git fetch`` and the engine's own setup):
-  1. eligibility: the episode is the current one, not finished / published, its engine does not yet contain the
-     major commit (default: the pin), and (episode, pin) was not restarted before (series/ENGINE_RESTARTS.json);
+  1. eligibility: the episode is the current one, not finished / published, the engine its work was produced on
+     (episode_engine -- not the HEAD, which an update may already have moved) does not yet contain the major
+     commit (default: the pin), and (episode, pin) was not restarted before (series/ENGINE_RESTARTS.json);
   2. stop: SIGTERM then SIGKILL the episode's Codex runner, reviewer and every process whose command line names the
      episode (paid_stage.sh / nalu_pipeline.py / codex_production.py / final_audience_review.py / codex), with
      their descendants; unrelated processes are never touched;
@@ -191,9 +192,62 @@ def published(engine: Path, episode: str) -> bool:
         return False
 
 
+RUN_TS_RE = re.compile(r"run_(\d{8}T\d{6}Z)\.jsonl$")
+
+
+def _resolve(engine: Path, ref: str) -> str:
+    rc, out = git(engine, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}")
+    return out if rc == 0 and SHA_RE.fullmatch(out) else ""
+
+
+def _reflog_head_at(engine: Path, when: float) -> str:
+    """The engine HEAD at ``when`` (unix seconds) from the checkout's reflog, or ''."""
+    rc, out = git(engine, "reflog", "show", "--date=unix", "--format=%H %gd", "HEAD")
+    if rc != 0:
+        return ""
+    for line in out.splitlines():  # newest first
+        m = re.fullmatch(r"([0-9a-f]{40}) \S*@\{(\d+)\}", line.strip())
+        if m and int(m.group(2)) <= when:
+            return m.group(1)
+    return ""
+
+
+def episode_engine(engine: Path, runtime: Path, episode: str) -> tuple[str, str]:
+    """(sha, source): the engine the episode's existing work was produced on, or ('', 'NONE').
+
+    The HEAD is not that engine: a stopped (BLOCKED) episode does not defer the setup, so an update moves the engine
+    under the work an older engine already produced (…1101 E27: S1 written by the LEGACY writer on 225e805, then
+    the BILI_V1 pin c41d582 installed while it was BLOCKED -- the restart for c41d582 then saw HEAD = c41d582 and
+    skipped).  Sources, most exact first: session.json ``engine_sha`` (codex_production.launch records it on the
+    episode's first start), the STATUS.md line ``<prev>→<EP> 集间升级：OK 引擎 X→Y`` (Y = the engine the episode
+    started on), the checkout's reflog at the episode's first run."""
+    d = runtime / "claude_code" / episode
+    session = read_json(d / "session.json")
+    sha = str(session.get("engine_sha") or "") if isinstance(session, dict) else ""
+    if SHA_RE.fullmatch(sha):
+        return sha, "SESSION"
+    try:
+        text = (runtime / "series" / "STATUS.md").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        text = ""
+    found = re.findall(rf"→{re.escape(episode)} 集间升级：OK 引擎 [0-9a-f]*→([0-9a-f]{{7,40}})", text)
+    if found:
+        full = _resolve(engine, found[-1])
+        if full:
+            return full, "STATUS_UPGRADE_LINE"
+    stamps = sorted(m.group(1) for p in (d.glob("run_*.jsonl") if d.is_dir() else [])
+                    if (m := RUN_TS_RE.search(p.name)))
+    if stamps:
+        first = datetime.strptime(stamps[0], "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).timestamp()
+        at = _reflog_head_at(engine, first)
+        if at:
+            return at, "REFLOG_AT_FIRST_RUN"
+    return "", "NONE"
+
+
 def eligibility(engine: Path, runtime: Path, episode: str, pin: str, major: str = "") -> dict[str, Any]:
-    """{"eligible": bool, "reason": ...}: restart only the current, unfinished episode of an engine without the
-    major change, at most once per (episode, pin)."""
+    """{"eligible": bool, "reason": ...}: restart only the current, unfinished episode whose work was produced on an
+    engine without the major change (episode_engine; the HEAD may already have it), at most once per (episode, pin)."""
     head = engine_sha(engine)
     major = major or pin
     out = {"episode": episode, "pin": pin, "major": major, "engine": head}
@@ -219,7 +273,10 @@ def eligibility(engine: Path, runtime: Path, episode: str, pin: str, major: str 
     git(engine, "fetch", "-q", "origin", timeout=300)
     if git(engine, "cat-file", "-e", f"{major}^{{commit}}")[0] != 0:
         return {**out, "eligible": False, "reason": "MAJOR_COMMIT_UNKNOWN"}
-    if contains(engine, head, major):
+    produced, source = episode_engine(engine, runtime, episode)
+    # judged by the engine the episode's work was produced on; HEAD only when nothing recorded it
+    out.update(episode_engine=produced or head, episode_engine_source=source if produced else "HEAD")
+    if contains(engine, out["episode_engine"], major):
         return {**out, "eligible": False, "reason": "ENGINE_ALREADY_HAS_THE_CHANGE"}
     return {**out, "eligible": True, "reason": "OK"}
 
@@ -602,7 +659,7 @@ def prepare(engine: Path, runtime: Path, episode: str, pin: str, *, major: str =
     check = eligibility(engine, runtime, episode, pin, major)
     if not check["eligible"]:
         return {"phase": "SKIPPED", **check}
-    old_sha = check["engine"]
+    old_sha = check.get("episode_engine") or check["engine"]
     row = {"episode": episode, "pin": pin, "major": check["major"], "old_engine": old_sha, "phase": "STOPPING",
            "at": utc_stamp(), "device_sn": device_sn}
     save_restart(runtime, row)

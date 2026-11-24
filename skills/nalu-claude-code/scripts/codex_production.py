@@ -545,9 +545,21 @@ def launch(episode: str, prompt: str, resume_id: str | None, *, keep_counters: b
                              "--log", str(log), "--last", str(last), "--argv", json.dumps(argv)],
                             cwd=roots()[0], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                             stdin=subprocess.DEVNULL, env=env, start_new_session=True)
+    first_run = not session.get("log")
     session.update({"episode": episode, "engine": "codex", "pid": proc.pid, "log": str(log),
                     "started_at": datetime.now(timezone.utc).isoformat(), "resumed_from": resume_id})
     if not resume_id:
+        # the engine the episode's work starts on (engine_restart.episode_engine), recorded on its FIRST run only
+        # (no earlier log) and kept across hand-off threads and resumes, so a later setup that moves the HEAD under
+        # the episode does not hide it
+        if first_run and not re.fullmatch(r"[0-9a-f]{40}", str(session.get("engine_sha") or "")):
+            try:
+                head = subprocess.run(["git", "-C", str(roots()[0]), "rev-parse", "HEAD"], capture_output=True,
+                                      text=True, timeout=10).stdout.strip()
+            except (OSError, subprocess.SubprocessError):
+                head = ""
+            if re.fullmatch(r"[0-9a-f]{40}", head):
+                session["engine_sha"] = head
         session.pop("codex_thread_id", None)
         session["session_id"] = None
         if not keep_counters:  # a fresh hand-off thread continues the same episode: its resume caps still count

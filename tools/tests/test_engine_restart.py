@@ -189,6 +189,53 @@ class EngineRestartTest(unittest.TestCase):
                 self.assertEqual(er.eligibility(f.engine, f.runtime, "E16", f.pin)["reason"],
                                  "EPISODE_DONE:FINAL_CUT_READY")
 
+    def test_eligibility_judges_the_engine_the_episode_was_produced_on_not_the_head(self):
+        # …1101 E27: S1 written on the old engine, the pin installed while BLOCKED (HEAD = pin), then the restart
+        # for that pin must still redo the episode
+        with tempfile.TemporaryDirectory() as d:
+            f = Fixture(Path(d))
+            _git(f.engine, "checkout", "-q", "--detach", f.pin)
+            with f.env():
+                # nothing recorded: HEAD is the fallback, and it already has the change
+                check = er.eligibility(f.engine, f.runtime, "E16", f.pin)
+                self.assertEqual((check["reason"], check["episode_engine_source"]),
+                                 ("ENGINE_ALREADY_HAS_THE_CHANGE", "HEAD"))
+                # the inter-episode upgrade line names the engine E16 started on
+                with (f.runtime / "series/STATUS.md").open("a", encoding="utf-8") as fh:
+                    fh.write(f"- 2026-11-24 04:09Z E15→E16 集间升级：OK 引擎 000000000000→{f.old[:12]}（pin x）\n"
+                             f"- 2026-11-24 04:10Z E15→E160 集间升级：OK 引擎 000000000000→{f.pin[:12]}\n")
+                check = er.eligibility(f.engine, f.runtime, "E16", f.pin)
+                self.assertTrue(check["eligible"], check)
+                self.assertEqual((check["episode_engine"], check["episode_engine_source"], check["engine"]),
+                                 (f.old, "STATUS_UPGRADE_LINE", f.pin))
+                # session.json's recorded engine wins over the status line
+                sess = f.runtime / "claude_code/E16/session.json"
+                data = json.loads(sess.read_text())
+                sess.write_text(json.dumps({**data, "engine_sha": f.pin}))
+                self.assertEqual(er.eligibility(f.engine, f.runtime, "E16", f.pin)["reason"],
+                                 "ENGINE_ALREADY_HAS_THE_CHANGE")
+                sess.write_text(json.dumps({**data, "engine_sha": f.old}))
+                with mock.patch.object(er, "stop_episode", return_value={"stopped": [], "sigkill": []}):
+                    prep = er.prepare(f.engine, f.runtime, "E16", f.pin)
+                self.assertEqual(prep["phase"], "ARCHIVED")
+                self.assertTrue(prep["archive"].endswith(f.old[:7]))
+                self.assertEqual(er.find_restart(f.runtime, "E16", f.pin)["old_engine"], f.old)
+                # at most once per (episode, pin)
+                _write(f.runtime / "claude_code/E16/session.json", json.dumps({**data, "engine_sha": f.old}))
+                self.assertEqual(er.eligibility(f.engine, f.runtime, "E16", f.pin)["reason"],
+                                 "ALREADY_RESTARTED:ARCHIVED")
+
+    def test_episode_engine_falls_back_to_the_reflog_at_the_first_run(self):
+        with tempfile.TemporaryDirectory() as d:
+            f = Fixture(Path(d))
+            _git(f.engine, "checkout", "-q", "--detach", f.pin)   # reflog: old ... then pin (now)
+            _write(f.runtime / "claude_code/E16/run_20000101T000000Z.jsonl", "")
+            with f.env():
+                self.assertEqual(er.episode_engine(f.engine, f.runtime, "E16"), ("", "NONE"))  # before any entry
+                (f.runtime / "claude_code/E16/run_20000101T000000Z.jsonl").unlink()
+                _write(f.runtime / "claude_code/E16/run_29990101T000000Z.jsonl", "")
+                self.assertEqual(er.episode_engine(f.engine, f.runtime, "E16"), (f.pin, "REFLOG_AT_FIRST_RUN"))
+
     def test_process_selection_is_the_episode_and_its_children_only(self):
         me = os.getpid()
         table = {
@@ -239,6 +286,67 @@ class FleetUpdateRestartTest(unittest.TestCase):
             cp.status = lambda ep: {"status": "RUNNING", "codex": {"nalu_status": {}}}
             fleet_sync.run_command(cp, {"type": "update", "payload": {"pin": pin, "restart_in_flight": "yes"}})
             self.assertEqual(calls, ["self_update.sh", "setup_host.sh"])
+
+
+    def test_restart_flag_with_a_no_op_setup_still_restarts_an_episode_from_an_older_engine(self):
+        # the pin is already on disk (an earlier update moved it while the episode was BLOCKED): the setup is a
+        # no-op, the restart still archives and starts the episode on the engine on disk
+        with tempfile.TemporaryDirectory() as d:
+            f = Fixture(Path(d))
+            _git(f.engine, "checkout", "-q", "--detach", f.pin)
+            sess = f.runtime / "claude_code/E16/session.json"
+            sess.write_text(json.dumps({**json.loads(sess.read_text()), "engine_sha": f.old}))
+            cp = SimpleNamespace(roots=lambda: (f.engine, f.runtime), current_episode=lambda: "E16")
+            with f.env(), mock.patch.object(fleet_sync, "_run", lambda argv, timeout: (0, "NALU_SETUP: {}")), \
+                    mock.patch.object(fleet_sync, "_restart_module", lambda e, p: er), \
+                    mock.patch.object(er, "stop_episode", return_value={"stopped": [], "sigkill": []}), \
+                    mock.patch.object(er, "start_fresh", return_value={"status": "STARTED", "pid": 9}) as start:
+                ok, res, _ = fleet_sync.run_command(cp, {"type": "update", "payload": {
+                    "pin": f.pin, "restart_in_flight": True, "major": f.pin}})
+            self.assertTrue(ok, res)
+            self.assertEqual((res["before"], res["after"]), (f.pin[:12], f.pin[:12]))
+            self.assertEqual(res["restart"]["phase"], "STARTED")
+            self.assertEqual(start.call_args[0][4], f.old)
+
+    def test_restart_module_is_the_pins_copy(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "engine"
+            repo.mkdir()
+            _git(repo, "init", "-q")
+            _write(repo / "skills/nalu-claude-code/scripts/engine_restart.py",
+                   "MARK = 'pin'\ndef prepare(*a, **k):\n    return {}\n")
+            _git(repo, "add", "-A")
+            _git(repo, "commit", "-qm", "pin")
+            pin = _git(repo, "rev-parse", "HEAD")
+            self.assertEqual(fleet_sync._restart_module(repo, pin).MARK, "pin")
+            self.assertIs(fleet_sync._restart_module(repo, "f" * 40), er)   # unknown pin: the running copy
+
+
+class LaunchRecordsEngineTest(unittest.TestCase):
+    def test_first_launch_records_the_engine_and_later_launches_keep_it(self):
+        import codex_production as cxp  # noqa: PLC0415
+        with tempfile.TemporaryDirectory() as d:
+            f = Fixture(Path(d))
+            (f.runtime / "claude_code/E17").mkdir(parents=True)
+            proc, real = SimpleNamespace(pid=4242), subprocess.Popen
+
+            def popen(argv, *a, **k):  # the runner launch is faked; git rev-parse runs for real
+                return proc if "_run" in argv else real(argv, *a, **k)
+            with f.env(), mock.patch.object(cxp, "codex_env", return_value={}), \
+                    mock.patch.object(cxp, "codex_exe", return_value="/bin/true"), \
+                    mock.patch.object(cxp.subprocess, "Popen", side_effect=popen), \
+                    mock.patch.object(cxp, "alive", return_value=False):
+                cxp.launch("E17", "go", None)
+                sess = json.loads((f.runtime / "claude_code/E17/session.json").read_text())
+                self.assertEqual(sess["engine_sha"], f.old)
+                _git(f.engine, "checkout", "-q", "--detach", f.pin)   # an update moves the HEAD mid-episode
+                cxp.launch("E17", "go", None, keep_counters=True)     # fresh hand-off thread
+                cxp.launch("E17", "go", "thread-1")                   # resume
+                sess = json.loads((f.runtime / "claude_code/E17/session.json").read_text())
+                self.assertEqual(sess["engine_sha"], f.old)
+                # an episode started before the field existed never gets the moved HEAD stamped on it
+                cxp.launch("E16", "go", None, keep_counters=True)
+                self.assertNotIn("engine_sha", json.loads((f.runtime / "claude_code/E16/session.json").read_text()))
 
 
 if __name__ == "__main__":
