@@ -58,6 +58,9 @@
 # validators read are deployment code, not runtime state — an operator has to be able to
 # see the defaults, and "blocking: false" has to be reviewable in the diff that ships it.
 !/configs/WRITER_CAPABILITY_V1.json
+# BILI_V1 WP1 (#327): the report-line / slogan lexicons script_pacing_check reads are deployment code
+!/configs/REPORT_LINE_PATTERNS_V1.json
+!/configs/SLOGAN_PATTERNS_V1.json
 !/configs/ADAPTATION_POLICY_V1.json
 # Knowledge-loop cases (line owner 2026-11-01, item 5): a case record pins its evidence by
 # sha256 and never carries an absolute path, so it is reviewable deployment code, not runtime

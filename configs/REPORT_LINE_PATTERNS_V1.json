@@ -1,0 +1,175 @@
+{
+ "schema": "qingshan.report_line_patterns.v1",
+ "policy": "BILI_V1 (CHANGE_SPEC WP1 item 7)",
+ "note": "A spoken line is REPORT when it has none of second_person / a question / a leading imperative / a named prop of the scene AND contains a report pattern. The writer's (交代) tag or line_kind: report wins. Over 20 % report lines = REPORT_LINES_OVER (taste). first_person (zh): a line of >= 6 characters with no first- or second-person word, no question and no imperative is an impersonal statement (news told to the audience) and counts as REPORT.",
+ "languages": {
+  "zh": {
+   "report": [
+    "已经",
+    "正在",
+    "据说",
+    "传来",
+    "压境",
+    "来报",
+    "听说",
+    "消息",
+    "已被",
+    "已于",
+    "已然",
+    "如今",
+    "眼下",
+    "此时",
+    "目前",
+    "大军",
+    "天兵",
+    "兵临",
+    "失踪",
+    "出事",
+    "身亡",
+    "驾崩",
+    "下落"
+   ],
+   "second_person": [
+    "你",
+    "您",
+    "汝",
+    "尔等"
+   ],
+   "first_person": [
+    "我",
+    "咱",
+    "俺",
+    "本君",
+    "本宫",
+    "本座",
+    "本王",
+    "朕",
+    "孤",
+    "吾",
+    "在下",
+    "老子",
+    "老夫"
+   ],
+   "imperative": [
+    "别",
+    "不许",
+    "不准",
+    "快",
+    "给我",
+    "住手",
+    "站住",
+    "让开",
+    "滚",
+    "放下",
+    "跟我",
+    "随我",
+    "带上",
+    "带我",
+    "看好",
+    "记住",
+    "听着"
+   ]
+  },
+  "en": {
+   "report": [
+    "already",
+    "has been",
+    "have been",
+    "is coming",
+    "are coming",
+    "reported",
+    "news",
+    "they say",
+    "word is",
+    "the army",
+    "is dead",
+    "was killed",
+    "disappeared"
+   ],
+   "second_person": [
+    "you",
+    "your",
+    "yours"
+   ],
+   "imperative": [
+    "stop",
+    "don't",
+    "get out",
+    "listen",
+    "look",
+    "come",
+    "go",
+    "give me",
+    "take",
+    "stay"
+   ]
+  },
+  "ja": {
+   "report": [
+    "すでに",
+    "もう",
+    "らしい",
+    "そうだ",
+    "という",
+    "知らせ",
+    "報告",
+    "迫って",
+    "殺された",
+    "亡くなった",
+    "行方不明",
+    "大軍"
+   ],
+   "second_person": [
+    "あなた",
+    "お前",
+    "君",
+    "貴様",
+    "てめえ",
+    "あんた"
+   ],
+   "imperative": [
+    "やめろ",
+    "待て",
+    "来い",
+    "行け",
+    "黙れ",
+    "しろ",
+    "なさい",
+    "ください",
+    "くれ"
+   ]
+  },
+  "ko": {
+   "report": [
+    "이미",
+    "벌써",
+    "한다더라",
+    "라고 한다",
+    "소식",
+    "보고",
+    "쳐들어",
+    "죽었",
+    "사라졌",
+    "대군"
+   ],
+   "second_person": [
+    "너",
+    "당신",
+    "네가",
+    "니가",
+    "그대",
+    "자네"
+   ],
+   "imperative": [
+    "멈춰",
+    "가라",
+    "와라",
+    "해라",
+    "하세요",
+    "주세요",
+    "그만",
+    "닥쳐"
+   ]
+  }
+ }
+}
