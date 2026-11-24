@@ -1586,7 +1586,7 @@ def hopsapi_request_window_failures(task: dict[str, Any]) -> list[str]:
     failures: list[str] = []
     duration = task.get("duration_seconds")
     if not isinstance(duration, (int, float)) or int(duration) != float(duration) \
-            or not hopsapi.MIN_DURATION_SECONDS <= int(duration) <= hopsapi.MAX_DURATION_SECONDS:
+            or not hopsapi.min_duration_seconds() <= int(duration) <= hopsapi.MAX_DURATION_SECONDS:
         failures.append(f"HOPSAPI_H3_DURATION_OUT_OF_RANGE:{duration}")
     if str(task.get("resolution") or "").lower() not in hopsapi.RESOLUTIONS:
         failures.append(f"HOPSAPI_H3_RESOLUTION_UNSUPPORTED:{task.get('resolution')}")
@@ -1763,11 +1763,11 @@ def _submit_one_hopsapi(task: dict[str, Any], receipt_dir: Path, transaction_dir
     prompt = prompt_text if prompt_text is not None else resolve(task["prompt_file"]).read_text(encoding="utf-8")
     duration = task.get("duration_seconds")
     if not isinstance(duration, (int, float)) or int(duration) != float(duration) \
-            or not hopsapi.MIN_DURATION_SECONDS <= int(duration) <= hopsapi.MAX_DURATION_SECONDS:
+            or not hopsapi.min_duration_seconds() <= int(duration) <= hopsapi.MAX_DURATION_SECONDS:
         # Pre-intent: never silently stretch a unit written for a shorter clip (probe 2026-10-29:
         # a 3 s line in a 4 s H3 clip got ~2 s of invented speech).  Recompile the unit at >= 4 s.
         raise ValueError(f"{task['task_key']} HOPSAPI_H3_DURATION_OUT_OF_RANGE:{duration} (integer "
-                         f"{hopsapi.MIN_DURATION_SECONDS}-{hopsapi.MAX_DURATION_SECONDS} s; not charged, "
+                         f"{hopsapi.min_duration_seconds()}-{hopsapi.MAX_DURATION_SECONDS} s; not charged, "
                          "no intent recorded)")
     if task.get("exact_dialogue_audio_asset_ids") or task.get("reference_audio_asset_ids"):
         raise ValueError("MiniMax-H3 requires URL audio references; asset IDs are not valid transport")

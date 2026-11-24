@@ -72,6 +72,16 @@ class OtsDirectorRenderTest(unittest.TestCase):
         self.assertNotIn("visible from the first frame to the last", text)
         self.assertNotIn("presence as noted for each", text)
 
+    def test_soft_profile_listener_renders_a_profile_not_a_hidden_face(self):
+        # WP3 (BILI_V1 fallback when an OTS listener ghosts): in frame, soft profile, mouth closed
+        text, receipt, unit, plan = ots_render("SOFT_PROFILE")
+        self.assertIn("0–3 s: Beta is in the foreground at the frame edge, seen in profile and slightly out of focus, "
+                      "listening; Beta's mouth stays closed; Beta does not speak.", text)
+        self.assertNotIn("over-the-shoulder", text)
+        self.assertNotIn("Beta's face is not shown", text)
+        self.assertEqual(receipt["shot_scope"]["status"], "PASS")
+        self.assertEqual(director_v2_self_check(text, unit, plan), [])
+
     def test_hands_only_listener_keeps_the_old_wording(self):
         text, *_ = ots_render("HANDS_ONLY")
         self.assertIn("only Beta's hands in frame; Beta's face is not shown.", text)

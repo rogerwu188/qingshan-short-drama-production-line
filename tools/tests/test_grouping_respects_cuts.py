@@ -102,6 +102,17 @@ class CutRespectingGroupingTest(unittest.TestCase):
         units, _ = _units(_manifest(shots))
         self.assertEqual(units, [["S01-01", "S01-02"], ["S01-03"]])
 
+    def test_soft_profile_listener_is_a_visible_subject_of_one_speaking_unit(self):
+        # WP3 (BILI_V1): the listener as a soft-focus profile stays in frame; speaker + listener = 2 subjects
+        shots = [_shot("01", 3, ["A", "B"], dialogue="A：你骗了我。"),
+                 _shot("02", 3, ["A", "B"], "CONTINUOUS_ACTION", dialogue="A：从头到尾。")]
+        for sh in shots:
+            sh["prompt_spec"]["cast"][1]["face_visibility"] = "SOFT_PROFILE"
+            sh["prompt_spec"]["role_semantic_disambiguation"] = {"dialogue_speaker_id": "CHAR-A"}
+        units, _ = _units(_manifest(shots))
+        self.assertEqual(units, [["S01-01", "S01-02"]])
+        self.assertEqual(grouping.visible_subjects(shots[0]), grouping.visible_subjects(shots[1]))
+
     def test_overlong_speaking_unit_is_flagged_not_blocked(self):
         shots = [_shot("01", 6, ["H"], dialogue="Holmes：a line far too long to fit five seconds of speech")]
         _units_, spec = _units(_manifest(shots))

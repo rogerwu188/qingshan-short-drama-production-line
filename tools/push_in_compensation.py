@@ -48,6 +48,22 @@ MONOTONE_RESIDUAL_MAX = 0.12
 MIN_DET_SCORE = 0.6
 MIN_FACE_HEIGHT_RATIO = 0.04
 LOCKED_FAMILIES = {"STATIC", "LOCKED"}
+#: craft_profile BILI_V1 (CHANGE_SPEC WP3): director_pass marks the scene's one authored slow push-in; such a unit is
+#: never a "locked unit that drifted", whatever its family says
+AUTHORED_PUSH_IN_MARK = "bili_slow_push_in"
+#: BILI_V1 (WP3 lab 2026-11-24, unit iv: H3 ignored "slow push-in, about 10 %" -- the framing never changed): the
+#: scene's authored push is realised here as a DIGITAL push -- a face-centred crop-zoom 1.00 -> DIGITAL_PUSH_ZOOM with
+#: ease-in-out (smoothstep) over the unit's kept span, rendered like the compensation (Lanczos, same frames, audio
+#: copied) and swapped in by the AgentCut build before the subtitle burn, so subtitles stay put.  The prompt keeps
+#: the push sentence as a hint; nothing depends on H3 obeying it.
+DIGITAL_PUSH_ZOOM = 1.10
+#: H3 sometimes drifts in a little on its own: the digital push tops the measured face growth up to the target, but
+#: never below this (a visible push) nor above DIGITAL_PUSH_ZOOM (lab unit iv: H3 +8.6 % face width -> 1.05)
+DIGITAL_PUSH_MIN_ZOOM = 1.05
+DIGITAL_PUSH_KIND = "DIGITAL_PUSH_IN"
+DIGITAL_PUSH_POINTS = 21
+#: no face measured (anime, back to camera): push toward the upper-middle of the frame, where the speaker's face sits
+DEFAULT_FACE_CENTRE = (0.5, 0.38)
 
 
 # --------------------------------------------------------------------------------------------------------------
@@ -151,11 +167,52 @@ def crop_window(t: float, plan: dict[str, Any], width: int, height: int) -> tupl
     return c, x0, y0
 
 
+def _median(values: list[float]) -> float:
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    return ordered[mid] if len(ordered) % 2 else (ordered[mid - 1] + ordered[mid]) / 2.0
+
+
+def authored_push_unit(unit: dict[str, Any]) -> bool:
+    """A grouping unit carrying director_pass's BILI_V1 slow push-in mark (camera_plan.bili_slow_push_in)."""
+    plans = [unit.get("camera_plan")] + [row.get("camera_plan", row) for row in unit.get("per_shot_camera_plans") or []
+                                         if isinstance(row, dict)]
+    return any(isinstance(p, dict) and p.get(AUTHORED_PUSH_IN_MARK) for p in plans)
+
+
+def digital_push_plan(samples: list[dict[str, Any]], window: tuple[float, float], *,
+                      zoom: float = DIGITAL_PUSH_ZOOM, points: int = DIGITAL_PUSH_POINTS) -> dict[str, Any]:
+    """The digital push of one unit: crop 1.00 at the start of the kept span -> ``zoom`` at its end, smoothstep
+    ease-in-out, centred on the median face centre (``DEFAULT_FACE_CENTRE`` without a face).  The crop window keeps
+    that centre where it sits in the frame, so the face grows in place (crop_window / render reuse this plan)."""
+    start, end = float(window[0]), float(window[1])
+    faces = [s for s in samples if s.get("width")]
+    native = 1.0
+    if len(faces) >= MIN_FACE_SAMPLES:
+        fit = monotone_fit([float(s["width"]) for s in faces])
+        native = max(1.0, fit[-1] / fit[0]) if fit[0] > 0 else 1.0
+        zoom = min(zoom, max(DIGITAL_PUSH_MIN_ZOOM, zoom / native))
+    cx = _median([float(s["cx"]) for s in faces]) if faces else DEFAULT_FACE_CENTRE[0]
+    cy = _median([float(s["cy"]) for s in faces]) if faces else DEFAULT_FACE_CENTRE[1]
+    curve = []
+    for i in range(points):
+        p = i / (points - 1)
+        ease = p * p * (3.0 - 2.0 * p)
+        curve.append({"t": round(start + (end - start) * p, 4), "crop": round(1.0 + (zoom - 1.0) * ease, 5),
+                      "cx": round(cx, 4), "cy": round(cy, 4)})
+    return {"status": "DIGITAL_PUSH", "kind": DIGITAL_PUSH_KIND, "cut_window": [round(start, 4), round(end, 4)],
+            "zoom": round(zoom, 4), "native_face_growth": round(native - 1.0, 4), "face_samples": len(faces),
+            "centre_source": "FACE" if faces else "DEFAULT",
+            "curve": curve, "anchor": {"cx": round(cx, 4), "cy": round(cy, 4)}}
+
+
 def locked_camera_unit(unit: dict[str, Any]) -> bool:
     """Every camera plan of a grouping unit is a locked camera (STATIC / LOCKED)."""
     plans = [unit.get("camera_plan")] + [row.get("camera_plan", row) for row in unit.get("per_shot_camera_plans") or []
                                          if isinstance(row, dict)]
     plans = [p for p in plans if isinstance(p, dict)]
+    if any(p.get(AUTHORED_PUSH_IN_MARK) for p in plans):
+        return False  # BILI_V1: the scene's authored slow push-in is the shot, never compensated away
     return bool(plans) and all(str(p.get("motion_family") or "STATIC").upper() in LOCKED_FAMILIES for p in plans)
 
 
@@ -333,9 +390,12 @@ def build_report(episode: str, grouping: dict[str, Any], clips: dict[str, Path],
     """Plan (and, with ``render_fn``, render) every locked-camera unit with a clip.  Never raises per unit: a unit
     that fails is recorded as SKIPPED_ERROR and keeps its original clip."""
     locked = {str(u.get("unit_id")) for u in grouping.get("units") or [] if locked_camera_unit(u)}
+    pushes = {str(u.get("unit_id")) for u in grouping.get("units") or [] if authored_push_unit(u)}
     rows: dict[str, dict[str, Any]] = {}
     for uid in sorted(clips):
-        if uid not in locked:
+        if uid in pushes:
+            rows[uid] = _digital_push_row(uid, clips[uid], windows, out_dir, measure_fn, render_fn)
+        elif uid not in locked:
             rows[uid] = {"status": "SKIPPED_MOVING_CAMERA"}
     candidates = {uid: path for uid, path in clips.items() if uid in locked}
     for uid, clip in sorted(candidates.items()):
@@ -354,9 +414,36 @@ def build_report(episode: str, grouping: dict[str, Any], clips: dict[str, Path],
                 row["status"] = f"SKIPPED_RENDER_ERROR:{type(exc).__name__}:{exc}"
         rows[uid] = row
     applied = sorted(uid for uid, row in rows.items() if row.get("status") == "APPLIED")
-    return {"schema": SCHEMA, "episode": episode, "samples": SAMPLES, "growth_min": GROWTH_MIN,
-            "cut_jump": CUT_JUMP, "min_face_samples": MIN_FACE_SAMPLES, "max_crop": MAX_CROP,
-            "compensated_units": applied, "units": rows}
+    report = {"schema": SCHEMA, "episode": episode, "samples": SAMPLES, "growth_min": GROWTH_MIN,
+              "cut_jump": CUT_JUMP, "min_face_samples": MIN_FACE_SAMPLES, "max_crop": MAX_CROP,
+              "compensated_units": applied, "units": rows}
+    if pushes & set(clips):  # BILI_V1 only: a LEGACY report never carries the key
+        report["digital_push_units"] = sorted(uid for uid in applied if rows[uid].get("kind") == DIGITAL_PUSH_KIND)
+        report["digital_push_zoom"] = DIGITAL_PUSH_ZOOM
+    return report
+
+
+def _digital_push_row(uid: str, clip: Path, windows: dict[str, tuple[float, float]], out_dir: Path,
+                      measure_fn: Callable[[Path, list[float]], list[dict[str, Any]]],
+                      render_fn: Callable[[Path, Path, dict[str, Any]], dict[str, Any]] | None) -> dict[str, Any]:
+    """Plan (and render) the digital push of one authored push-in unit.  Never raises."""
+    start, end = windows.get(uid) or (0.0, 0.0)
+    if end - start < 0.5:
+        return {"status": "SKIPPED_NO_CUT_WINDOW", "kind": DIGITAL_PUSH_KIND, "cut_window": [start, end]}
+    try:
+        try:
+            samples = measure_fn(clip, sample_times(start, end))
+        except Exception:  # noqa: BLE001 -- no face measurement: push toward the default centre
+            samples = []
+        row = digital_push_plan(samples, (start, end))
+        if render_fn is not None:
+            target = out_dir / f"{uid}.mp4"
+            rendered = render_fn(clip, target, row)
+            row.update(status="APPLIED", source=str(clip), source_sha256=sha256_file(clip), output=str(target),
+                       output_sha256=sha256_file(target), render=rendered)
+        return row
+    except Exception as exc:  # noqa: BLE001 - one unit never blocks the others
+        return {"status": f"SKIPPED_ERROR:{type(exc).__name__}:{exc}", "kind": DIGITAL_PUSH_KIND}
 
 
 def applied_sources(report: dict[str, Any]) -> dict[str, dict[str, Any]]:

@@ -35,6 +35,15 @@
       "dialogue_time_ratio_min": 0.75,
       "dialogue_time_ratio_basis": "measured from the shot table's own planned dialogue-shot seconds / total planned episode seconds — never from the rendered final cut",
       "previous_thresholds_superseded": {"continuous_no_dialogue_seconds_max": 5.0, "dialogue_time_ratio_min": 0.35},
+      "bili_v1_overrides": {
+        "authority": "Line owner 2026-11-23 (Bilibili benchmark ep2 + ep3, CHANGE_SPEC WP3 rule 4): craft_profile BILI_V1 only; LEGACY keeps the rule above unchanged",
+        "dialogue_time_ratio_band": [0.50, 0.75],
+        "dialogue_time_ratio_note": "report-only under BILI_V1: dialogue_time_ratio_min no longer fails (both benchmarks sit at 58-62 %)",
+        "continuous_no_dialogue_seconds_max": 4.0,
+        "music_passage_seconds_max": 8.0,
+        "music_passages_max_per_episode": 1,
+        "music_passage_note": "one beat_role MUSIC_PASSAGE run (3-4 silent shots, <= 8 s together) per episode ends the silence run and is capped on its own"
+      },
       "combat_exemption": {
         "authority": "Roger 2026-11-04: 「如果是打斗镜头设计，不受此限制，修改规则」",
         "status": "ACTIVE",

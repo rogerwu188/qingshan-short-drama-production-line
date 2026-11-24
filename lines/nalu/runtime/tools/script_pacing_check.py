@@ -148,6 +148,25 @@ _STRONG_EN = re.compile(
     r"her) (?:sword|knife|gun|blade)|hand(?:s|ed)? (?:over|him|her|them)|yank(?:s|ed)?|drag(?:s|ged)?|slam(?:s|med)?|"
     r"collapse(?:s|d)?|stab(?:s|bed)?|lunge(?:s|d)?|burst(?:s)? (?:in|into|through)|tackle(?:s|d)?|"
     r"pin(?:s|ned)? (?:him|her|them)|fall(?:s)?|fell|jump(?:s|ed)?|climb(?:s|ed)?)\b", re.IGNORECASE)
+#: craft_profile BILI_V1 only (WP3, line owner 2026-11-23): the small, specific business of a screenplay's action
+#: lines is visual action too (E25 妖皇宫: 磕令牌, 亮出令牌, 按下他的手, 拍手背).  LEGACY keeps the list above.
+BILI_ACTION_WORDS = (
+    # zh
+    "磕", "亮出", "亮到", "按下", "按住", "拍", "敲", "戳", "弹", "捏", "掰", "攥", "握紧", "搓", "揉", "擦", "抹",
+    "翻开", "合上", "撕开", "点燃", "倒酒", "倒茶", "端起", "举到", "拿起", "放下", "搁下", "丢给", "抛", "接住",
+    "起身", "站起", "坐下", "转身", "走下", "走向", "走到", "凑近", "俯身", "后退", "退后", "转着", "抽出", "收起",
+    # ja
+    "叩", "押さえ", "置く", "置い", "持ち上げ", "差し出", "立ち上が", "座り", "振り向", "掲げ", "握りしめ", "撫で",
+    # ko
+    "두드리", "내려놓", "집어", "들어올리", "내밀", "일어서", "일어나", "앉", "돌아서", "쥐", "쓰다듬", "누르",
+)
+_BILI_ACTION_EN = re.compile(
+    r"\b(tap(?:s|ped)?|knock(?:s|ed)?|rap(?:s|ped)?|press(?:es|ed)? (?:down|it|his|her)|pat(?:s|ted)?|flick(?:s|ed)?|"
+    r"rub(?:s|bed)?|wipe(?:s|d)?|set(?:s)? (?:it |the \w+ )?down|put(?:s)? (?:it |the \w+ )?down|pick(?:s|ed)? up|"
+    r"raise(?:s|d)?|lift(?:s|ed)?|hold(?:s)? (?:up|out)|turn(?:s|ed)? (?:the|a|his|her)|stand(?:s)? up|stood up|"
+    r"sit(?:s)? down|sat down|lean(?:s|ed)? (?:in|over|forward)|step(?:s|ped)? (?:back|forward|down)|pour(?:s|ed)?|"
+    r"light(?:s)? (?:a|the)|flip(?:s|ped)?|fold(?:s|ed)?|unfold(?:s|ed)?)\b", re.IGNORECASE)
+_TOUCH_MODES = frozenset({"CONTACT", "HANDOVER", "HAND_OVER", "TOUCH", "GRAB", "PUSH", "PULL", "STRIKE"})
 #: camera words inside an action text are not an action ("镜头推近" is not a shove)
 _CAMERA_WORDS = re.compile(r"镜头[^，。；,;]*|推近|推镜|拉远|拉镜|推进|拉开距离|push[- ]in|pull[- ]out|dolly", re.IGNORECASE)
 #: a moving camera family gives a SILENT shot visual motion (PUSH_IN / LOCKED do not -- static_design_gate R7)
@@ -205,7 +224,27 @@ def _camera(shot: dict[str, Any]) -> tuple[str, str]:
     return family, scale
 
 
-def shot_kind(shot: dict[str, Any], speaking: bool) -> str:
+def bili_visual_speaking(shot: dict[str, Any], text: str) -> bool:
+    """BILI_V1: a spoken line is not a talking head when the shot carries an authored action line (screenplay source,
+    or a verb of the wider BILI lexicon), a prop in use, a touch between two people, or an in-frame listener's
+    reaction (owner 2026-11-23: reactions inside two-person frames)."""
+    spec = shot.get("prompt_spec") if isinstance(shot.get("prompt_spec"), dict) else {}
+    act = spec.get("action") if isinstance(spec.get("action"), dict) else {}
+    sources = act.get("field_sources") if isinstance(act.get("field_sources"), dict) else {}
+    authored = _clean(sources.get("primary_action") or act.get("source")).lower() == "screenplay"
+    if text and (authored or any(w in text for w in BILI_ACTION_WORDS) or _BILI_ACTION_EN.search(text)):
+        return True
+    if [x for x in spec.get("props") or [] if x]:
+        return True
+    target, subject = _clean(act.get("target_entity_id")), _clean(act.get("subject_id") or act.get("initiator_entity_id"))
+    if _clean(act.get("interaction_mode")).upper() in _TOUCH_MODES and target and target != subject:
+        return True
+    visible = [c for c in spec.get("cast") or [] if isinstance(c, dict)
+               and not _clean(c.get("face_visibility")).upper().startswith("OFFSCREEN")]
+    return bool(act.get("listener_reaction_en") or act.get("listener_reaction")) and len(visible) >= 2
+
+
+def shot_kind(shot: dict[str, Any], speaking: bool, bili: bool = False) -> str:
     """What the viewer SEES in one storyboard shot -- from its structure, never from its state labels:
 
     TALKING_HEAD       a line is spoken and nothing but the speaking (gesturing / stepping) characters is shown
@@ -220,6 +259,8 @@ def shot_kind(shot: dict[str, Any], speaking: bool) -> str:
     text = action_text(shot)
     family, scale = _camera(shot)
     if speaking:
+        if bili and not strong_action(text):
+            return "TALK_WITH_ACTION" if bili_visual_speaking(shot, text) else "TALKING_HEAD"
         return "TALK_WITH_ACTION" if strong_action(text) else "TALKING_HEAD"
     role = _clean(spec.get("beat_role") or shot.get("shot_function") or spec.get("shot_function")).upper()
     if role == "TRANSITION":
@@ -354,6 +395,7 @@ def line_unit_cap(language: str) -> int:
 # --------------------------------------------------------------------------- timeline
 def timeline(contract: dict[str, Any], language: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
+    bili = _bili_v1(contract or {})  # BILI_V1: authored business counts as visual action (WP3)
     cursor = 0.0
     scene_rows = {_clean(r.get("scene_id")): r for r in (contract or {}).get("scene_states") or []
                   if isinstance(r, dict) and _clean(r.get("scene_id"))}
@@ -375,7 +417,7 @@ def timeline(contract: dict[str, Any], language: str) -> list[dict[str, Any]]:
                               "open_end": bool(_OPEN_END.search(words))})
         dims = {_clean(d).upper() for d in shot.get("state_delta_dimensions") or []}
         speaker = _clean(role.get("dialogue_speaker_id")) or (lines[0]["speaker"] if lines else "")
-        kind = shot_kind(shot, bool(lines))
+        kind = shot_kind(shot, bool(lines), bili) if bili else shot_kind(shot, bool(lines))
         scene_row = dict(scene_rows.get(_clean(shot.get("scene_id"))) or {})
         override = overrides.get(_clean(shot.get("shot_id"))) if isinstance(
             overrides.get(_clean(shot.get("shot_id"))), dict) else {}
@@ -1113,9 +1155,27 @@ def integrity_failures(contract: dict[str, Any], language: str | None = None,
     return failures
 
 
+#: craft_profile BILI_V1 (line owner 2026-11-23, cheap reaction rule; CHANGE_SPEC WP3, supersedes PR #325's 1-in-5
+#: silent reaction share): every ATTACK / REVEAL / PUNCHLINE / TURN / PAYOFF line is followed by the listener's reaction
+#: -- in frame (a), as the next shot's lead-in (b), or a dedicated silent CU (c, <= 3 per episode).  Taste codes;
+#: LEGACY never sees them (REACTION_BEAT_UNCOVERED / DEDICATED_REACTION_OVER, measured by
+#: director_pass.reaction_coverage in evaluate()).
+def _director():
+    import director_pass as _dp  # noqa: PLC0415 -- same directory (BILI_V1 only)
+    return _dp
+
+
 # --------------------------------------------------------------------------- evaluate
 #: failure code -> one-line fix the writer can act on (no story text; language-agnostic)
 FIXES = {
+    "REACTION_BEAT_UNCOVERED": "after every attack / reveal / punchline / turn line, show the person it lands on react: "
+                               "(a) in the same shot, as the over-the-shoulder / two-shot listener "
+                               "(action.listener_reaction + listener_reaction_en, hands and props allowed), or (b) as "
+                               "the first 1-2 s of their own next line (action.lead_in_reaction + lead_in_reaction_en); "
+                               "a dedicated silent reaction close-up only after a key reveal, turn or the ending",
+    "DEDICATED_REACTION_OVER": "at most 3 dedicated silent reaction close-ups per episode, only after a REVEAL / TURN / "
+                               "ENDING beat; move the others into the shot (listener in frame) or the next line's "
+                               "lead-in",
     "FIRST_CONFLICT_LATE": "open mid-conflict: the first shot is already the insult / reveal / danger (<= 3 s)",
     "TOO_FEW_TURNS": "pull more plot events into the episode (cut filler, merge scenes, take the next chapters)",
     "TURN_GAP_TOO_LONG": "add an escalation / reversal / reveal inside the longest gap (one turn per 20-30 s)",
@@ -1165,7 +1225,7 @@ FIXES = {
 }
 
 
-def _bili_v1(contract: dict[str, Any], craft_profile: str | None) -> bool:
+def _bili_v1(contract: dict[str, Any], craft_profile: str | None = None) -> bool:
     """BILI_V1 craft profile (CHANGE_SPEC WP1): the caller's resolved profile, else the contract's own declaration."""
     try:
         try:
@@ -1238,6 +1298,14 @@ def evaluate(contract: dict[str, Any], language: str | None = None,
         failures.append(f"BACK_TO_BACK_MONOLOGUE:{len(m['monologue_runs'])}")
     for sid in m["scenes_without_action"][:6]:
         failures.append(f"SCENE_TALK_ONLY:{sid}")
+    if bili:
+        # BILI_V1 only: the owner's cheap reaction rule (taste: REVISE, admitted after MAX_REVISIONS)
+        cov = _director().reaction_coverage(contract)
+        m["reaction_coverage"] = cov
+        failures.extend(f"REACTION_BEAT_UNCOVERED:{sid}" for sid in cov["uncovered"][:6])
+        if cov["dedicated_count"] > cov["dedicated_max"]:
+            failures.append(f"DEDICATED_REACTION_OVER:{cov['dedicated_count']}>{cov['dedicated_max']}")
+        warnings.extend(f"DEDICATED_REACTION_MISPLACED:{sid}" for sid in cov["misplaced_dedicated"][:4])
     if m["scene_plan_missing"]:
         failures.append(f"SCENE_PLAN_MISSING:{len(m['scene_plan_missing'])}")
     if not m["ending"]["unresolved"]:

@@ -329,7 +329,27 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def summary_counts(rows: list[dict[str, Any]]) -> dict[str, Any]:
+#: LOCKED_DIALOGUE_CAMERA_V1 acceptance; craft_profile BILI_V1 lowers it (one slow push-in per scene, CHANGE_SPEC WP3)
+LOCKED_OFF_SHARE_MIN = 0.70
+
+
+def locked_off_share_min(contract: dict[str, Any] | None) -> float:
+    """0.70, or the configs/LOCKED_DIALOGUE_CAMERA_V1.json ``profile_overrides.BILI_V1`` value for a BILI_V1 contract."""
+    try:
+        try:
+            from tools import craft_profile as _cp
+        except ModuleNotFoundError:  # runtime tools dir only
+            import craft_profile as _cp  # type: ignore
+        if not _cp.is_bili_v1(contract or {}):
+            return LOCKED_OFF_SHARE_MIN
+        policy = json.loads((Path(__file__).resolve().parents[4] / "configs" / "LOCKED_DIALOGUE_CAMERA_V1.json")
+                            .read_text(encoding="utf-8"))
+        return float(((policy.get("profile_overrides") or {}).get("BILI_V1") or {}).get("locked_off_share_min"))
+    except Exception:  # noqa: BLE001 -- a missing / unreadable override keeps the historical floor
+        return LOCKED_OFF_SHARE_MIN
+
+
+def summary_counts(rows: list[dict[str, Any]], locked_min: float = LOCKED_OFF_SHARE_MIN) -> dict[str, Any]:
     ok = [r for r in rows if "error" not in r]
     classes: dict[str, int] = {}
     for r in ok:
@@ -339,8 +359,8 @@ def summary_counts(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {"clips": len(rows), "measured": len(ok), "locked_off": locked,
             "locked_off_share": round(locked / len(ok), 4) if ok else None,
             "unstable_reversal_ge_1_per_s": unstable, "classes": classes,
-            "targets": {"locked_off_share_min": 0.70, "unstable_max": 0},
-            "status": "PASS" if ok and locked / len(ok) >= 0.70 and unstable == 0 else "FAIL"}
+            "targets": {"locked_off_share_min": locked_min, "unstable_max": 0},
+            "status": "PASS" if ok and locked / len(ok) >= locked_min and unstable == 0 else "FAIL"}
 
 
 def markdown_table(rows: list[dict[str, Any]], summary: dict[str, Any]) -> str:
@@ -401,8 +421,10 @@ def main(argv: list[str] | None = None) -> int:
     shots_of: dict[str, list[str]] = {}
     dialogue_of: dict[str, bool] = {}
     dialogue_shots: set[str] = set()
+    locked_min = LOCKED_OFF_SHARE_MIN
     if args.contract:
         contract = json.loads(args.contract.read_text(encoding="utf-8"))
+        locked_min = locked_off_share_min(contract)
         for shot in contract.get("shots") or []:
             if shot_has_dialogue(shot):
                 dialogue_shots.add(str(shot.get("shot_id")))
@@ -451,7 +473,7 @@ def main(argv: list[str] | None = None) -> int:
         rows.append(row)
         print(f"{uid}: {row.get('camera_class')} trans={row.get('translation_px_per_s_median')} zoom%/s={row.get('zoom_pct_per_s')} rev/s={row.get('reversals_per_s')}", flush=True)
 
-    summary = summary_counts(rows)
+    summary = summary_counts(rows, locked_min)
     summary["editorial_shots"] = sum(len(v) for v in shots_of.values()) if shots_of else None
     summary["dialogue_units"] = sum(1 for r in rows if r.get("dialogue_unit"))
     summary["dialogue_units_locked_off"] = sum(1 for r in rows if r.get("dialogue_unit") and r.get("locked_off"))

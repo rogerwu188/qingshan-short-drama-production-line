@@ -52,6 +52,11 @@ def bili_ok(lang: str = "zh") -> dict:
         row.update({"objective": goal, "conflict": obstacle, "physical_action": turn})
     for row in c["pacing"]["scene_plan"]:
         row["source_detail_ids"] = list(DETAILS[row["scene_id"]])
+    # WP3 cheap reaction rule: at most 3 dedicated silent reaction close-ups per episode, after a key beat
+    shots = c["shots"]
+    for i in [i for i, s in enumerate(shots) if s["prompt_spec"].get("beat_role") == "REACTION"][3:]:
+        shots[i]["prompt_spec"]["beat_role"] = ""   # the reaction moves into the payoff shot (listener in frame)
+        shots[i - 1]["prompt_spec"].setdefault("action", {})["listener_reaction_en"] = "his grip on the ledger tightens"
     return c
 
 

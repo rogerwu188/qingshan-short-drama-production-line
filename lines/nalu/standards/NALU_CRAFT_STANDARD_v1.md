@@ -67,6 +67,7 @@
 - **中**：好：「你敢？」（1.8 s），她抬手（1.2 s），耳光落下（0.9 s），他捂脸愣住（1.5 s）。坏：她缓缓起身、走到窗边、回头，一个 7 s 的无声镜头。
 - **EN**：好：门把转动（1.5 s），他屏息（1.8 s），门缝下有影子停住（2 s）。坏：一个 8 s 的慢推，推向一扇关着的门。
 - **依据**：Murch（节奏、剪在念头结束处）；短剧剪辑惯例。**细分** pacing_information / editing_action_continuity
+- **BILI_V1**（只用于 `craft_profile: BILI_V1` 的系列，线主 2026-11-23，CHANGE_SPEC WP3；其它系列照上文）：成片平均镜长约 2–3 秒；没有台词的镜头一般不超过约 4 秒；每集可以有一段 ≤8 秒的音乐段落（3–4 个无台词镜，`beat_role: MUSIC_PASSAGE`）。 终审：用逐镜时间窗算平均镜长和最长无台词段：平均超过 3.2 s、或者音乐段落以外有无台词段超过 4.0 s、或音乐段落超过 8 s / 多于 1 段，记 gap。
 
 ### S-04 进场晚、离场早 · core
 - **原则**：每场从铺垫之后开始，在转折处结束；不拍进门、寒暄、告别、赶路。*Enter late, leave early: start after the setup, end on the turn; no walk-ins, greetings, goodbyes or travel.*
@@ -85,6 +86,7 @@
 - **中**：好：她亮出工牌，切经理的 CU，笑容一点点僵掉。坏：她亮出工牌，直接切到下一场。
 - **EN**：好：他念出死者的名字，切她的 CU，瞳孔一缩，手里的杯子停在半空。坏：揭示之后切一个两人的远景。
 - **依据**：Murch（情感优先）；Mascelli（Cutting：reaction shot）；爽剧惯例。**细分** performance_interaction / emotion_continuation
+- **BILI_V1**（只用于 `craft_profile: BILI_V1` 的系列，线主 2026-11-23，CHANGE_SPEC WP3；其它系列照上文）：每个攻击、揭示、笑点、转折之后，被说的人要有反应：优先在同一镜里（过肩/双人镜的听者），其次是他下一句的前 1–2 秒；专门的无声反应特写每集最多 3 个，只给关键揭示、转折和结尾。 终审：每个爽点/揭示/笑点后 3 s 内能不能看到被说的人的反应（同镜听者、下一句开头、或反应特写都算，记时间）；无声反应特写是否超过 3 个。
 
 ### S-06 结尾悬念：最后 2–3 秒，切在揭示上 · core
 - **原则**：最后 2–3 秒是揭示或威胁本身，必要时在台词中途切黑；不解决，不抒情，不淡出。*The last 2–3 s are the reveal or threat itself; cut on it, mid-line if needed. No resolution, no mood fade.*
@@ -143,6 +145,7 @@
 - **中**：好：MEDIUM 过肩镜里她把文件拍在桌上，切经理的 CU。坏：先给一个 3 s 的会议室全景，人物很小。
 - **EN**：好：MEDIUM 过肩镜，他举着手电，前景是她的后脑。坏：3 s 的房子外景远景，什么都没发生。
 - **依据**：Mascelli（Camera Angles、Close-ups）；Bowen（景别语法），按竖屏和爽剧改写。**细分** composition_camera_motivation
+- **BILI_V1**（只用于 `craft_profile: BILI_V1` 的系列，线主 2026-11-23，CHANGE_SPEC WP3；其它系列照上文）：CU/MCU 占 55–80%；每个多人场至少 2 个双人/群像镜（过肩背影算）；不写建立镜；爽点和揭示给本场最紧的景别。 终审：统计各景别镜数：CU+MCU 是否在 55–80%；每个多人场是否有 ≥2 个双人/群像镜（过肩背影算，记场号）；有没有无戏的远景（记镜号）。
 
 ### C-02 竖屏构图与视线落点 · core
 - **原则**：脸在上三分之一，留出视线空间；双人只用前后叠放的过肩镜，不左右贴边；切点前后观众的注视位置尽量不跳。*Face in the upper third with look-room; two-shots stack front/back; keep the viewer's eye in place across a cut.*
@@ -161,6 +164,7 @@
 - **中**：好：她扬手（1.2 s），耳光落下（0.9 s），他偏过头（1.5 s）。坏：一个镜头里扬手、扭打、夺包，手部畸形。
 - **EN**：好：刀尖从门缝伸进来（1.5 s），她后退（1.2 s）。坏：一个镜头里破门、扑倒、搏斗。
 - **依据**：Mascelli（Cutting）；H3 实测。**细分** editing_action_continuity
+- **BILI_V1**（只用于 `craft_profile: BILI_V1` 的系列，线主 2026-11-23，CHANGE_SPEC WP3；其它系列照上文）：一个单元只做一件看得清的事；说话时可以带一个持续的小动作（拿着、吃、搓手、推眼镜、转令牌、揉脖子、擦泪、掰手指），大动作（进门、走、抓、推）单独一个单元。 终审：逐镜看有没有两拍以上、或者说话时夹了大动作（进门、走位、抓、推）（记镜号）；说话时的持续小动作不算问题。
 
 ### C-04 只拍 AI 拍得好的东西 · core
 - **原则**：每镜最多 2 个可见人物；不拍人群、无主的手、画面文字、复杂特效；拍结果和反应。*≤ 2 visible people; no crowds, ownerless hands, on-screen text or complex VFX; shoot outcome and reaction.*
@@ -197,6 +201,7 @@
 - **中**：好：MCU 婆婆骂，切她的 CU 冷笑（话尾盖过去），再切她回击。坏：两人站在同一个中景里吵了 30 s。
 - **EN**：好：他在 CU 里说 "She never left this room."，L-cut 到她在 CU 里僵住。坏：两人坐沙发，同一个双人镜里你一句我一句。
 - **依据**：通行的覆盖做法；Bowen（shot/reverse shot）；CAMERA_GRAMMAR_V1。**细分** performance_interaction / editing_action_continuity
+- **BILI_V1**（只用于 `craft_profile: BILI_V1` 的系列，线主 2026-11-23，CHANGE_SPEC WP3；其它系列照上文）：一个单元一个说话人；对白默认过肩：说话人正脸，听者在前景露后脑和一侧肩膀（或虚焦侧脸），听者不开口；不要两张清晰的正脸同时在说话镜里；正反打一来一回。 终审：有没有两张清晰正脸、一人说话的镜头（记镜号）；过肩背影或虚焦侧脸的听者不算问题；听者有没有张嘴说话（记镜号）。
 
 ### C-08 每一刀都有理由，剪在峰值 · core
 - **原则**：每个切点都在回应一个看、一个反应、一个新信息或动作的延续；动作镜剪在峰值，跨镜动作从中途接上。*Every cut is motivated (Rule of Six: emotion first); action shots cut at the peak, matched mid-motion.*
@@ -260,6 +265,7 @@
 - **中**：好：只在她亮出身份的那一刻缓推。坏：每个镜头都在慢慢环绕。
 - **EN**：好：那东西从床底露出眼睛时缓推。坏：整集都在漂移的手持晃动。
 - **依据**：Bowen（camera movement motivation）。**细分** composition_camera_motivation
+- **BILI_V1**（只用于 `craft_profile: BILI_V1` 的系列，线主 2026-11-23，CHANGE_SPEC WP3；其它系列照上文）：默认锁定机位；每场最多一个缓慢推近（约 10%），放在写手标的本场最难的那句台词上；物件先入画再到脸也算这场的一个运镜。 终审：每场数运镜次数：超过 1 次、或推近不在本场最难的一句上（记镜号）；无动机的漂移记镜号。
 
 ### C-15 插入镜只用作证据 · nice
 - **原则**：插入镜只拍推动剧情的物件（证据、信物、威胁），并且之前有人看过去；不拍氛围空镜。*Inserts show evidence, tokens or threats a character has just looked at; never atmosphere.*

@@ -44,6 +44,15 @@ from typing import Any
 
 SCHEMA = "nalu.direction_policy_gate.v1"
 
+
+def _bili_v1(value: Any) -> bool:
+    """craft_profile BILI_V1 (CHANGE_SPEC WP3; LEGACY = the historical rules, byte-identical)."""
+    try:
+        from tools import craft_profile as _cp
+    except ModuleNotFoundError:  # engine tools/ dir on sys.path only
+        import craft_profile as _cp  # type: ignore
+    return _cp.is_bili_v1(value)
+
 # ECU/CU/MCU/MS/FS/WS (Roger's doc) <-> the engine's actual shot_scale enum
 # (tools/grouped_camera_contract.py SHOT_SCALES).
 SCALE_ABBREV = {
@@ -166,7 +175,17 @@ def _dp2_reaction_shot_floor(shots: list[dict[str, Any]], rule: dict[str, Any]) 
     return failures, {"under_1s_shot_ratio": ratio, "under_1s_shot_count": under_1s}
 
 
-def _dp3_dialogue_continuity(shots: list[dict[str, Any]], rule: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+def _beat_role(shot: dict[str, Any]) -> str:
+    return str((shot.get("prompt_spec") or {}).get("beat_role") or shot.get("beat_role") or "").strip().upper()
+
+
+def _dp3_dialogue_continuity(shots: list[dict[str, Any]], rule: dict[str, Any],
+                             bili: bool = False) -> tuple[list[str], dict[str, Any]]:
+    """``bili`` (craft_profile BILI_V1, line owner 2026-11-23): the rule's ``bili_v1_overrides`` apply -- a 4 s
+    silence cap, one ``beat_role: MUSIC_PASSAGE`` run per episode of <= 8 s outside it, and the dialogue-time ratio
+    reported against a band instead of failing under a floor (both benchmarks sit at 58-62 %)."""
+    if bili:
+        rule = {**rule, **(rule.get("bili_v1_overrides") or {})}
     failures: list[str] = []
     max_run = float(rule.get("continuous_no_dialogue_seconds_max", 1e9))
     max_exceptions = int(rule.get("silence_reason_exceptions_max_per_episode", 0))
@@ -198,9 +217,21 @@ def _dp3_dialogue_continuity(shots: list[dict[str, Any]], rule: dict[str, Any]) 
     combat_seconds = 0.0
     combat_shots: list[str] = []
     exempt = rule.get("combat_exemption") if isinstance(rule.get("combat_exemption"), dict) else None
+    music_runs: list[dict[str, Any]] = []
+    previous_music = False
     for sh in shots:
         secs = float(sh.get("target_seconds") or 0)
         total_seconds += secs
+        if bili and _beat_role(sh) == "MUSIC_PASSAGE" and not _has_dialogue(sh):
+            # an authored music passage is not a silent gap: it ends the run and is capped on its own
+            _close_run()
+            if not previous_music:
+                music_runs.append({"shots": [], "seconds": 0.0})
+            music_runs[-1]["shots"].append(sh.get("shot_id"))
+            music_runs[-1]["seconds"] = round(music_runs[-1]["seconds"] + secs, 3)
+            previous_music = True
+            continue
+        previous_music = False
         if _is_combat_shot(sh, exempt):
             # Authored action, not a silent gap: it ends the current run without spending an
             # exception, and it leaves the dialogue-density denominator.
@@ -220,9 +251,23 @@ def _dp3_dialogue_continuity(shots: list[dict[str, Any]], rule: dict[str, Any]) 
     # A fight is measured by its action, not by dialogue density: it leaves the denominator.
     spoken_denominator = max(0.0, total_seconds - combat_seconds)
     dialogue_ratio = round(dialogue_seconds / spoken_denominator, 4) if spoken_denominator else 1.0
-    if spoken_denominator and dialogue_ratio < dialogue_ratio_min:
+    extra: dict[str, Any] = {}
+    if bili:
+        band = [float(v) for v in rule.get("dialogue_time_ratio_band") or [0.0, 1.0]]
+        music_max = float(rule.get("music_passage_seconds_max", 8.0))
+        music_count = int(rule.get("music_passages_max_per_episode", 1))
+        if len(music_runs) > music_count:
+            failures.append(f"DP3_MUSIC_PASSAGES_{len(music_runs)}_OVER_{music_count}")
+        for run in music_runs:
+            if run["seconds"] > music_max + 1e-9:
+                failures.append(f"DP3_MUSIC_PASSAGE_OVER_{music_max:g}S:{run['shots'][-1]}:{run['seconds']:g}")
+        extra = {"profile": "BILI_V1", "dialogue_time_ratio_band": band,
+                 "dialogue_time_ratio_in_band": band[0] - 1e-9 <= dialogue_ratio <= band[1] + 1e-9,
+                 "dialogue_time_ratio_report_only": True, "music_passages": music_runs,
+                 "continuous_no_dialogue_seconds_max": max_run}
+    elif spoken_denominator and dialogue_ratio < dialogue_ratio_min:
         failures.append(f"DP3_DIALOGUE_TIME_RATIO_{dialogue_ratio}_BELOW_{dialogue_ratio_min}")
-    return failures, {"dialogue_time_ratio": dialogue_ratio, "silence_runs": silence_runs,
+    return failures, {**extra, "dialogue_time_ratio": dialogue_ratio, "silence_runs": silence_runs,
                       "silence_reason_exceptions_used": exceptions_used,
                       "combat_seconds_exempt": round(combat_seconds, 3), "combat_shots_exempt": combat_shots,
                       "dialogue_ratio_denominator_seconds": round(spoken_denominator, 3)}
@@ -303,8 +348,11 @@ def _still_wired(contract: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def evaluate(contract: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+def evaluate(contract: dict[str, Any], policy: dict[str, Any], profile: Any = None) -> dict[str, Any]:
+    """``profile``: the series' craft profile when the caller resolved it (nalu_pipeline passes the run's); None
+    reads the contract's own declaration.  Only BILI_V1 changes anything (DP3 overrides)."""
     rules = policy.get("rules") or {}
+    bili = _bili_v1(profile if profile else contract)
     shots = list(contract.get("shots") or [])
     failures: list[str] = []
     measurements: dict[str, Any] = {"shot_count": len(shots)}
@@ -321,7 +369,7 @@ def evaluate(contract: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]
 
     dp3 = rules.get("DP3_dialogue_continuity") or {}
     if dp3.get("enabled") and shots:
-        f, m = _dp3_dialogue_continuity(shots, dp3)
+        f, m = _dp3_dialogue_continuity(shots, dp3, bili) if bili else _dp3_dialogue_continuity(shots, dp3)
         failures.extend(f); measurements["DP3"] = m
 
     dp9 = rules.get("DP9_coverage_floor") or {}
