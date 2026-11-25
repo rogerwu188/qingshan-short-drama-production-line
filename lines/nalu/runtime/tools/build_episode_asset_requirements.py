@@ -355,7 +355,7 @@ def style_block(vcc: dict[str, Any], render_style: str | None = None) -> str:
         f"美术：{vcc['production_design']}",
         f"色彩：底色{palette['base']}；点色{palette['accent']}；肤色{palette['skin']}",
         f"光线：{vcc['lighting_language']}",
-        f"质感：{_render_style.IMAGE_TEXTURE_ZH if anime else vcc['image_texture']}",
+        f"质感：{_render_style.IMAGE_TEXTURE_ZH if anime else _render_style.strip_quality_boosters(vcc['image_texture'])}",
         "画幅：9:16 竖构图。画面内不得出现任何文字、字幕、水印、logo。",
         "【严格禁止】" + "；".join(vcc["forbidden_influences"]),
         *([_render_style.IMAGE_STYLE_BLOCK_ZH] if anime else []),
@@ -386,7 +386,10 @@ def character_prompt(row: dict[str, Any], wardrobe_desc: str, style: str,
         "全身直立，双手自然垂放，面部无遮挡，发际线与耳廓可见。",
         "身份锁定要素必须清晰可辨：脸型骨骼、发型、眼型、肤色、体型。",
         # live-action only (the anime style block carries its own finish): line owner 2026-11-24, KO E01 oily face
-        *([] if _render_style.IMAGE_STYLE_BLOCK_ZH in style else [_render_style.LIVE_SKIN_FINISH_ZH]),
+        # + the positive skin description (line owner 2026-11-25, "AI face"): the full-body base card gets the overall
+        # tone only; bootstrap_identity_cards.view_prompt_text swaps in the full detail for the headshot / bust views
+        *([] if _render_style.IMAGE_STYLE_BLOCK_ZH in style else [_render_style.LIVE_SKIN_FINISH_ZH,
+                                                                   _render_style.live_skin_positive("FULL_BODY", "zh")]),
         *([contrast] if contrast else []),
         "",
         style,

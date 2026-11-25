@@ -212,6 +212,37 @@ ANIME_FINISH_NEGATIVE = ("No glossy, oily or wet-looking shine on skin or hair a
                          "matte cel shading with clean two-tone shadows")
 
 
+#: line owner 2026-11-25 ("AI face"): texture negatives for stamped live-action units (zero credits, no gate)
+TEXTURE_NEGATIVE_PEOPLE = ("No plastic skin texture, over-processed HDR, oversaturated colour, exaggerated mouth "
+                           "shapes or teeth-baring speech")
+TEXTURE_NEGATIVE_NO_PEOPLE = "No over-processed HDR or oversaturated colour"
+#: a unit that really shows two or more people: one count line instead of extra-person / crowd negatives
+CHARACTER_COUNT_NEGATIVE = "No unscripted change in the character count"
+
+
+def shot_prop_names_en(unit: dict[str, Any]) -> list[str]:
+    """English names of the objects (not beings) the unit's specs declare: never forbidden by its own negatives."""
+    names: list[str] = []
+    for spec in unit.get("ordered_prompt_specs") or []:
+        for row in spec.get("props") or []:
+            if not isinstance(row, dict) or is_being_prop(row):
+                continue
+            names += [v for v in (_plain_en(row.get("english_name"), 80), _plain_en(row.get("prop"), 80)) if v]
+    return list(dict.fromkeys(names))
+
+
+def authored_negatives(unit: dict[str, Any], plan: dict[str, Any], values: Any, *, count: bool) -> list[str]:
+    """The contract's / profile's authored negatives for a stamped unit: a term naming a prop the unit needs is
+    dropped, and (``count``: the live-action contract list) a unit with two or more people trades extra-person /
+    crowd terms for one character count line (render_style.filter_negatives).  Unstamped units: unchanged."""
+    rows = [str(v) for v in values or [] if str(v or "").strip()]
+    if not director_active(unit, plan):
+        return rows
+    people = _director_subjects(unit, plan)[0] if count else []
+    return _render_style.filter_negatives(rows, prop_names=shot_prop_names_en(unit), multi_person=len(people) >= 2,
+                                          lang="en", count_term=CHARACTER_COUNT_NEGATIVE)
+
+
 def anime_finish_applies(unit: dict[str, Any], plan: dict[str, Any], *, anime: bool, has_people: bool) -> bool:
     """True when the anime skin / hair finish clause belongs in this unit's negative constraints."""
     return bool(anime and has_people and not _wet_beat(unit, plan))
@@ -232,8 +263,20 @@ def _wet_beat(unit: dict[str, Any], plan: dict[str, Any]) -> bool:
              json.dumps(contract.get("beats") or [], ensure_ascii=False),
              json.dumps(plan.get("beats") or [], ensure_ascii=False),
              json.dumps((plan.get("action_ir") or {}).get("causal_chains") or [], ensure_ascii=False),
-             json.dumps(unit.get("ordered_prompt_specs") or [], ensure_ascii=False)]
+             json.dumps(_specs_without_timeline(unit.get("ordered_prompt_specs") or []), ensure_ascii=False)]
     return bool(_WET_CUES.search(" ".join(str(t or "") for t in texts)))
+
+
+def _specs_without_timeline(specs: Any) -> Any:
+    """The specs minus the compiled micro-performance (its grief beat says "without tears" -- not a wet beat)."""
+    out = []
+    for spec in specs if isinstance(specs, list) else []:
+        perf = ((spec.get("action") or {}).get("performance") if isinstance(spec, dict) else None)
+        if isinstance(perf, dict) and "timeline" in perf:
+            spec = {**spec, "action": {**spec["action"], "performance": {k: v for k, v in perf.items()
+                                                                          if k != "timeline"}}}
+        out.append(spec)
+    return out
 
 
 _WARDROBE_FIELDS = ("silhouette", "outer_layer", "inner_layer", "primary_color", "material", "footwear", "accessory")
@@ -254,17 +297,36 @@ FACE_ONLY_LOCK_TEXT_ONLY = ("face crop: lock face, age and hair only; wardrobe a
 def appearance_anchor_line(unit: dict[str, Any], plan: dict[str, Any], *, compact: bool = False) -> str:
     """E12 2026-10-31 (Roger「1」): H3 drifted older characters' faces and costumes mid-clip even with identity
     references bound.  A contract character carrying ``appearance_anchor_en`` gets its fixed look stated once,
-    right after the TEXT-FREE rule, for every character bound in this unit; absent anchors render nothing."""
+    right after the TEXT-FREE rule, for every character bound in this unit; absent anchors render nothing.
+
+    Line owner 2026-11-25 ("AI face"): a stamped (CAMERA_GRAMMAR_V1) prompt never re-describes a face, skin or look
+    -- the reference image locks identity and a written look competes with it -- so there ``appearance_anchor_en``
+    is not rendered, only the weapon lock (a prop) is.  Unstamped units keep the earlier line byte-identically."""
     labels = _entity_labels(unit, plan)
+    if not director_active(unit, plan):
+        return _legacy_appearance_anchor_line(unit, labels, compact=compact)
+    rows = []
+    for entity in unit.get("character_entities") or []:
+        cid = str(entity.get("character_id") or "")
+        # Weapon lock (K172 recovery, Roger 2026-11-07): the same weapon description for a character in
+        # every unit, kept even in compact mode (E15 VU-019: the curved-back sabre became a straight sword
+        # mid-clip).
+        weapon = str(entity.get("weapon_lock_en") or "").strip().rstrip(".")
+        if cid in labels and weapon:
+            rows.append(f"{labels[cid]}'s weapon = {weapon}")
+    if not rows:
+        return ""
+    return "Same weapon in every frame: " + "; ".join(rows) + "."
+
+
+def _legacy_appearance_anchor_line(unit: dict[str, Any], labels: dict[str, str], *, compact: bool) -> str:
+    """The pre-2026-11-25 look line (appearance anchor + weapon), kept for unstamped units only."""
     rows = []
     for entity in unit.get("character_entities") or []:
         cid = str(entity.get("character_id") or "")
         anchor = str(entity.get("appearance_anchor_en") or "").strip().rstrip(".")
         if compact:
             anchor = ", ".join(part.strip() for part in anchor.split(",")[1:3]) or anchor
-        # Weapon lock (K172 recovery, Roger 2026-11-07): the same weapon description for a character in
-        # every unit, appended after the appearance anchor and kept even in compact mode (E15 VU-019: the
-        # curved-back sabre became a straight sword mid-clip).
         weapon = str(entity.get("weapon_lock_en") or "").strip().rstrip(".")
         if cid in labels and anchor:
             rows.append(f"{labels[cid]} = {anchor}" + (f", weapon: {weapon}" if weapon else ""))
@@ -347,7 +409,7 @@ def _director_subjects(
     for row in (unit.get("wardrobe_contract") or {}).get("characters") or []:
         desc = _plain_en(row.get("authored_description")) or _plain_en(
             ", ".join(v for v in (_plain_en(row.get(k), 80) for k in _WARDROBE_FIELDS) if v)
-        ) or _plain_en(row.get("appearance_ch1"))
+        )  # never appearance_ch1: the reference image owns the face and look (line owner 2026-11-25)
         for key in (row.get("character_id"), row.get("character")):
             if key:
                 wardrobe.setdefault(str(key), desc)
@@ -1127,6 +1189,16 @@ def _bili_v1_beat_lines(unit: dict[str, Any], plan: dict[str, Any], source: dict
         if reaction:
             evidence[f"BEAT.{beat_number}.LISTENER_REACTION"] = " ".join(reaction)
             line += " " + " ".join(reaction)
+        # E27 2026-11-25: the compiled micro-performance (entry -> change on the stressed word -> end frame)
+        try:
+            window = (float(source["start_seconds"]), float(source["end_seconds"]))
+        except (KeyError, TypeError, ValueError):
+            window = None
+        listener = labels.get(str(role.get("dialogue_listener_id") or ""), "")
+        timeline = _bili.performance_timeline_line(spec_action, owner_label, listener, window)
+        if timeline:
+            evidence[f"BEAT.{beat_number}.PERFORMANCE_TIMELINE"] = timeline
+            line += " " + timeline
     return line
 
 
@@ -2085,7 +2157,8 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             "Natural real-time movement without freeze, loop, pose interpolation, unmotivated orbit, or discontinuous spatial jump",
         ]
         if positive_single_subject
-        else list(contract.get("negative_constraints") or [])
+        else authored_negatives(unit, plan, contract.get("negative_constraints"),
+                                count=not _render_style.is_anime(unit))
     )
     negatives.extend([
         "No identity, wardrobe, prop ownership, map, weather, lighting-direction, or voice drift",
@@ -2096,7 +2169,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         # shot at 60.8 s / 70.7 s / 88.96 s; the scene's time= is already in the setting line).  Stamped units only.
         negatives.append("No time-of-day change: the light level stays the same from the first frame to the last")
     if wuxia_profile.get("status") == "SELECTED":
-        negatives.extend(wuxia_profile.get("negative_constraints_en") or [])
+        negatives.extend(authored_negatives(unit, plan, wuxia_profile.get("negative_constraints_en"), count=False))
     profile_constraints = {
         "H3_CONCISE_QUOTED_DIALOGUE_REPAIR_V1": "Only the bound named speaker may speak; never add, translate, repeat, or visualize dialogue",
         "H3_MINIMAL_AUDIO_RESCUE_V1": "Repair only the declared native sound; do not rewrite identity, map, action, framing, or timing",
@@ -2140,6 +2213,8 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     if director_active(unit, plan) and skin_finish_applies(unit, plan, anime=anime,
                                                            has_people=not insert_without_people):
         negatives.append(SKIN_FINISH_NEGATIVE)
+    if director_active(unit, plan) and not anime:  # line owner 2026-11-25 ("AI face")
+        negatives.append(TEXTURE_NEGATIVE_NO_PEOPLE if insert_without_people else TEXTURE_NEGATIVE_PEOPLE)
     if director_active(unit, plan) and anime_finish_applies(unit, plan, anime=anime,
                                                             has_people=not insert_without_people):
         negatives.append(ANIME_FINISH_NEGATIVE)

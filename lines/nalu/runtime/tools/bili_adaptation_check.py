@@ -22,6 +22,16 @@ Integrity code (S1 integrity loop: back to the writer for bounded rounds, then a
   REVEAL_NAME_NOT_IN_SOURCE:<shot>:<name>   a reveal line names someone / something the source does not
                                             (E25: 「你是……商余烬天神」 where the source says 容凌天神)
 
+Script-doctor advisories (E27 2026-11-25, Foyege 《奥斯卡AI短剧节拍法》; warnings only, never a failure / gate):
+the four questions a script doctor asks, measured where the contract can answer them --
+
+  DOCTOR_FIRST_HIT_LATE:<s>s            the first emotional hit (an ATTACK / REVEAL / TURN / PAYOFF / PUNCHLINE line)
+                                        lands after DOCTOR_FIRST_HIT_MAX_S
+  DOCTOR_SCENE_EXPLAINS_ONLY:<scene>    half or more of a scene's lines only explain (report-style): nothing in the
+                                        relationship changes
+  DOCTOR_GOAL_UNCLEAR:<scene>           the opening scene names no immediate goal for the protagonist
+  DOCTOR_TURN_ON_EMPTY_LINE:<shot>      the turn / reveal lands on a bare line (no authored action or evidence)
+
 Pure functions; never raises (any error = no finding).  Stdlib only.
 """
 from __future__ import annotations
@@ -81,6 +91,10 @@ REVEAL_TITLE = re.compile(r"(?:天神|战神|神君|帝君|天君|魔尊|仙尊|
 REVEAL_SPOKEN = re.compile(r"(?:(?:你|您|他|她)(?:就|竟|竟然|原来|果然|居然|才)?|原来|竟然|居然|果然)是[\s…．.。、，,]*"
                            r"([^\s，。！？!?…、,.]{2,12}?)[\s！!。…]*$")
 _QUESTION_WORDS = ("谁", "什么", "哪", "怎么", "为何", "吗")
+#: script doctor (advisory): the first emotional hit should land inside the opening beat
+DOCTOR_FIRST_HIT_MAX_S = 8.0
+DOCTOR_EXPLAIN_SHARE = 0.5
+_HIT_ROLES = frozenset({"ATTACK", "REVEAL", "TURN", "PAYOFF", "PUNCHLINE"})
 
 
 def _config(name: str) -> dict[str, Any]:
@@ -440,13 +454,80 @@ def check(contract: dict[str, Any], language: str, scene_ids: list[str], source_
         codes = [f"SLOGAN_LINE:{s['shot_id']}" for s in slogans[:8]]
         (failures if revision_round >= 1 else warnings).extend(codes)
         integrity, reveals = reveal_failures(contract, lines, source, language)
+        doctor = script_doctor(contract, lines, language)
+        warnings += doctor["warnings"]
         return {"schema": SCHEMA, "failures": failures, "warnings": warnings, "integrity": integrity[:8],
-                "metrics": {"events": ev, "source_details": details, "report_lines": rep,
+                "metrics": {"events": ev, "source_details": details, "report_lines": rep, "script_doctor": doctor,
                             "slogans": slogans[:8], "reveals": reveals[:8], "revision_round": revision_round,
                             "source_chars": len(source)}}
     except Exception as exc:  # noqa: BLE001 -- a check must never break S1
         return {"schema": SCHEMA, "failures": [], "warnings": [f"BILI_CHECK_ERROR:{type(exc).__name__}"],
                 "integrity": [], "metrics": {}}
+
+
+def script_doctor(contract: dict[str, Any], lines: list[dict[str, Any]] | None = None,
+                  language: str = "zh") -> dict[str, Any]:
+    """The four script-doctor questions as advisories ({warnings, answers}); never a failure.  Never raises."""
+    try:
+        contract = contract if isinstance(contract, dict) else {}
+        shots = [s for s in contract.get("shots") or [] if isinstance(s, dict)]
+        lines = spoken_lines(contract, language) if lines is None else lines
+        warnings: list[str] = []
+        answers: dict[str, Any] = {}
+        # 1. is the first emotional hit too late?
+        clock, first_hit = 0.0, None
+        for shot in shots:
+            spec = shot.get("prompt_spec") if isinstance(shot.get("prompt_spec"), dict) else {}
+            if _clean(spec.get("beat_role")).upper() in _HIT_ROLES:
+                first_hit = clock
+                break
+            try:
+                clock += float(shot.get("target_seconds") or 0)
+            except (TypeError, ValueError):
+                pass
+        answers["first_hit_seconds"] = first_hit
+        if shots and (first_hit is None or first_hit > DOCTOR_FIRST_HIT_MAX_S):
+            warnings.append(f"DOCTOR_FIRST_HIT_LATE:{'none' if first_hit is None else round(first_hit, 1)}s")
+        # 2. which scene only explains setting without changing a relationship?
+        lexicon = report_lexicon(language)
+        props = _prop_names(contract)
+        by_scene: dict[str, list[str]] = {}
+        for line in lines:
+            by_scene.setdefault(line["scene_id"], []).append(classify_line(line, language, lexicon, props))
+        explains = [sid for sid, kinds in by_scene.items()
+                    if len(kinds) >= 2 and kinds.count("REPORT") / len(kinds) >= DOCTOR_EXPLAIN_SHARE]
+        answers["explaining_scenes"] = explains
+        warnings += [f"DOCTOR_SCENE_EXPLAINS_ONLY:{sid}" for sid in explains[:4]]
+        # 3. is the protagonist's immediate goal clear?
+        rows = list(_scene_rows(contract).values())
+        protagonists = {_clean(p) for p in contract.get("protagonist_ids") or []}
+        if rows:
+            first = rows[0]
+            owners = {_clean(first.get("objective_owner"))} | {_clean(g.get("who")) for g in first.get("goals") or []
+                                                                if isinstance(g, dict)}
+            clear = bool(_clean(first.get("objective"))) and (not protagonists or bool(protagonists & owners))
+            answers["opening_goal"] = _clean(first.get("objective"))
+            if not clear:
+                warnings.append(f"DOCTOR_GOAL_UNCLEAR:{_clean(first.get('scene_id'))}")
+        # 4. does the twist land on an action or on an empty line?
+        turn_ids = {_clean(r.get("turn_shot_id")) for r in rows if _clean(r.get("turn_shot_id"))}
+        empty = []
+        for shot in shots:
+            spec = shot.get("prompt_spec") if isinstance(shot.get("prompt_spec"), dict) else {}
+            role = _clean(spec.get("beat_role")).upper()
+            if _clean(shot.get("shot_id")) not in turn_ids and role not in {"TURN", "REVEAL"}:
+                continue
+            action = spec.get("action") if isinstance(spec.get("action"), dict) else {}
+            sources = action.get("field_sources") if isinstance(action.get("field_sources"), dict) else {}
+            authored = _clean(sources.get("primary_action") or action.get("source")).lower() in {"screenplay",
+                                                                                                "authored"}
+            if not authored and not spec.get("props"):
+                empty.append(_clean(shot.get("shot_id")))
+        answers["turns_on_empty_lines"] = empty
+        warnings += [f"DOCTOR_TURN_ON_EMPTY_LINE:{sid}" for sid in empty[:4]]
+        return {"warnings": warnings, "answers": answers}
+    except Exception as exc:  # noqa: BLE001 -- advisory only
+        return {"warnings": [f"DOCTOR_CHECK_ERROR:{type(exc).__name__}"], "answers": {}}
 
 
 #: failure code -> the fix the writer can act on (no story text)
@@ -468,9 +549,19 @@ FIXES = {
                    "has (anchor it in the scene's source_detail_ids / source_lines) or cut the line",
     "REVEAL_NAME_NOT_IN_SOURCE": "a reveal must say what the source says: use the name / title the source chapter "
                                  "speaks at that reveal (integrity)",
+    # script-doctor advisories (warnings, never blocking)
+    "DOCTOR_FIRST_HIT_LATE": "open on the abnormal event: the first attack / reveal / turn inside the first ~8 s; "
+                             "the opening beat runs abnormal event -> immediate goal -> deadly rule -> time-limited "
+                             "obstacle -> identity / information reversal -> an unanswered question within ~35 s",
+    "DOCTOR_SCENE_EXPLAINS_ONLY": "a world fact must change someone's situation right now: turn the explanation into "
+                                  "a demand, a refusal or a choice between the people in the scene, or cut it",
+    "DOCTOR_GOAL_UNCLEAR": "name the protagonist's immediate goal in the opening scene card (goal[protagonist]=...) "
+                           "and make the first lines push toward it",
+    "DOCTOR_TURN_ON_EMPTY_LINE": "land the twist on visible evidence or an action (a prop handed over, a mark shown, "
+                                 "a door opened), not on a line alone",
 }
 
 
-__all__ = ["SCHEMA", "TARGETS", "FIXES", "check", "source_texts", "declared_chapters", "event_allocation",
+__all__ = ["SCHEMA", "TARGETS", "FIXES", "check", "script_doctor", "source_texts", "declared_chapters", "event_allocation",
            "source_details", "report_lines", "classify_line", "slogan_lines", "reveal_failures", "spoken_lines",
            "norm", "joined_source"]

@@ -508,6 +508,8 @@
     "tools.tests.test_bili_wp1_adaptation",
     "tools.tests.test_bgm_mood_palette",
     "tools.tests.test_ledger_and_irony",
-    "tools.tests.test_director_pass"
+    "tools.tests.test_director_pass",
+    "tools.tests.test_e27_prompt_round",
+    "tools.tests.test_live_skin_prompt_hygiene"
   ]
 }

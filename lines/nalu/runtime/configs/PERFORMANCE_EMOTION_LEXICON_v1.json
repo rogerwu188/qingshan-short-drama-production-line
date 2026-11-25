@@ -57,5 +57,319 @@
     "定住",
     "保持"
   ],
-  "note": "同一场连续 3 个对白镜同一情绪词 = 写手层 FAIL；performance 必填 emotion（词表内）+ body_action（非上列琐碎动作）+ delivery。"
+  "note": "同一场连续 3 个对白镜同一情绪词 = 写手层 FAIL；performance 必填 emotion（词表内）+ body_action（非上列琐碎动作）+ delivery。",
+  "micro_performance": {
+    "authority": "E27 review 2026-11-25 (device 1101) + acting tutorials (小红书 / B站 Foyege): an emotion word becomes 2-3 timed visible beats; the protective layer fails gradually (counter-attack -> self-justify -> crack -> voice break -> admission); disfluency chosen by psychology, on the hardest word only; FACS AU only as an auxiliary tag after the plain visible action",
+    "stage_names": [
+      "protective",
+      "justify",
+      "crack",
+      "break"
+    ],
+    "emotions": {
+      "怒": {
+        "stage": 0,
+        "entry_zh": "下颌咬紧，鼻息变重，目光平压住{listener}",
+        "entry_en": "jaw set, breathing hard through the nose, eyes level on {listener}",
+        "change_zh": "眉头往下压拢（AU4），声音一下变硬，下巴往前顶",
+        "change_en": "the brows pull down and together (AU4), the voice hardens, the chin pushes forward",
+        "exit_zh": "盯住{listener}不放，双唇抿紧（AU24），鼻翼还在张",
+        "exit_en": "holds the stare on {listener}, lips pressed shut (AU24), nostrils still flared"
+      },
+      "狠": {
+        "stage": 0,
+        "entry_zh": "压低头，眼睛从眉下盯住{listener}",
+        "entry_en": "head lowered, eyes fixed on {listener} from under the brows",
+        "change_zh": "眼睑收紧（AU7），声音压到最低，身体向前压近半寸",
+        "change_en": "the eyelids tighten (AU7), the voice drops to its lowest, the body leans in half an inch",
+        "exit_zh": "停在逼近的姿势，嘴角绷住不动",
+        "exit_en": "stops in the leaning-in position, the mouth corners held rigid"
+      },
+      "冷": {
+        "stage": 0,
+        "entry_zh": "脸上没有表情，肩膀不动，只有眼睛在看{listener}",
+        "entry_en": "face blank, shoulders still, only the eyes on {listener}",
+        "change_zh": "眼皮只抬起一点，嘴唇几乎不动地吐出这个词",
+        "change_en": "the eyelids lift only slightly, the word comes out with the lips barely moving",
+        "exit_zh": "目光移开前停半拍，嘴唇合上",
+        "exit_en": "holds half a beat before the eyes leave {listener}, lips closed"
+      },
+      "傲": {
+        "stage": 0,
+        "entry_zh": "下巴微抬，视线从上往下落在{listener}身上",
+        "entry_en": "chin slightly raised, the gaze dropping onto {listener} from above",
+        "change_zh": "一边嘴角往上提（单侧 AU12），语速放慢",
+        "change_en": "one mouth corner lifts (one-sided AU12), the speech slows",
+        "exit_zh": "下巴仍抬着，视线懒得再给{listener}",
+        "exit_en": "chin still raised, no longer bothering to look at {listener}"
+      },
+      "讥": {
+        "stage": 0,
+        "entry_zh": "眼角带着笑意，打量{listener}",
+        "entry_en": "a smile at the corners of the eyes, sizing up {listener}",
+        "change_zh": "鼻子里轻轻一哼，一边嘴角歪上去（AU14）",
+        "change_en": "a short breath out through the nose, one mouth corner twists up (AU14)",
+        "exit_zh": "笑意停在嘴角，眼睛却是冷的",
+        "exit_en": "the smirk stays at the mouth, the eyes cold"
+      },
+      "厌": {
+        "stage": 0,
+        "entry_zh": "身体微微后撤，视线避开{listener}",
+        "entry_en": "the body draws back slightly, the eyes avoiding {listener}",
+        "change_zh": "鼻梁皱起（AU9），把这个词往外推",
+        "change_en": "the nose wrinkles (AU9), pushing the word away",
+        "exit_zh": "侧开半张脸，不再看{listener}",
+        "exit_en": "turns half the face away, no longer looking at {listener}"
+      },
+      "嫉": {
+        "stage": 0,
+        "entry_zh": "嘴唇抿着，眼睛盯着{listener}身边的东西",
+        "entry_en": "lips pressed, eyes on what {listener} has",
+        "change_zh": "下巴一紧，声音里压着酸",
+        "change_en": "the jaw tightens, the voice carries a sour edge",
+        "exit_zh": "目光还黏在那样东西上",
+        "exit_en": "the gaze still stuck on that thing"
+      },
+      "贪": {
+        "stage": 0,
+        "entry_zh": "眼睛发亮，身体不自觉前倾",
+        "entry_en": "eyes bright, the body leaning forward without meaning to",
+        "change_zh": "舌尖碰了一下嘴唇，语速加快",
+        "change_en": "the tongue touches the lip once, the speech quickens",
+        "exit_zh": "手指还在不自觉地捻动",
+        "exit_en": "the fingers still rubbing together"
+      },
+      "急": {
+        "stage": 1,
+        "entry_zh": "呼吸短促，身体已经向{listener}倾过去",
+        "entry_en": "short quick breaths, the body already leaning toward {listener}",
+        "change_zh": "眉心往上挑拢（AU1+AU4），语速一下加快",
+        "change_en": "the inner brows lift and knit (AU1+AU4), the speech suddenly speeds up",
+        "exit_zh": "嘴还半张着，等{listener}回答",
+        "exit_en": "the mouth still half open, waiting for {listener} to answer"
+      },
+      "疑": {
+        "stage": 1,
+        "entry_zh": "头微微偏，眼睛眯着打量{listener}",
+        "entry_en": "head tilted slightly, eyes narrowed on {listener}",
+        "change_zh": "一边眉毛抬起（单侧 AU2），句尾往上扬",
+        "change_en": "one brow lifts (one-sided AU2), the end of the line rises",
+        "exit_zh": "眼睛还眯着，等{listener}露出破绽",
+        "exit_en": "eyes still narrowed, waiting for {listener} to slip"
+      },
+      "慌": {
+        "stage": 1,
+        "entry_zh": "眼神乱飘，手不知道往哪放",
+        "entry_en": "eyes darting, the hands not knowing where to go",
+        "change_zh": "目光飘开又强行拉回{listener}，声音发紧",
+        "change_en": "the gaze slides away and is forced back to {listener}, the voice tight",
+        "exit_zh": "吞咽一下，手停在半空",
+        "exit_en": "one swallow, the hand stopped mid-air"
+      },
+      "坚": {
+        "stage": 1,
+        "entry_zh": "站定，肩膀放平，眼睛直视{listener}",
+        "entry_en": "planted, shoulders level, eyes straight on {listener}",
+        "change_zh": "每个字咬清，下巴一收",
+        "change_en": "every syllable bitten clean, the chin tucks once",
+        "exit_zh": "目光不退，嘴唇合上",
+        "exit_en": "the gaze does not give way, lips closed"
+      },
+      "戏": {
+        "stage": 1,
+        "entry_zh": "眼里带笑，身体放松地斜着",
+        "entry_en": "amused eyes, the body loosely tilted",
+        "change_zh": "嘴角慢慢扬起来（AU12），尾音一挑",
+        "change_en": "the mouth corners rise slowly (AU12), the last syllable flicks up",
+        "exit_zh": "笑意留在脸上，等{listener}反应",
+        "exit_en": "the amusement stays on the face, waiting for {listener}'s reaction"
+      },
+      "惊": {
+        "stage": 2,
+        "entry_zh": "整个人顿住，眼睛定在{listener}身上",
+        "entry_en": "frozen in place, eyes locked on {listener}",
+        "change_zh": "上眼睑一下撑开（AU5），呼吸断了半拍",
+        "change_en": "the upper eyelids snap wide (AU5), the breath stops for half a beat",
+        "exit_zh": "嘴唇微张着没合上，人还没回过神",
+        "exit_en": "the lips still parted, not yet recovered"
+      },
+      "惧": {
+        "stage": 2,
+        "entry_zh": "肩膀缩着，呼吸浅，视线不敢在{listener}身上停久",
+        "entry_en": "shoulders drawn in, shallow breathing, unable to keep the eyes on {listener}",
+        "change_zh": "眉头往上拧（AU1+AU4），声音发颤",
+        "change_en": "the brows twist upward (AU1+AU4), the voice trembles",
+        "exit_zh": "身体往后缩了一点，手攥紧",
+        "exit_en": "the body shrinks back slightly, the hand clenched"
+      },
+      "怯": {
+        "stage": 2,
+        "entry_zh": "低着头，只敢从下往上看{listener}一眼",
+        "entry_en": "head down, daring only one upward glance at {listener}",
+        "change_zh": "声音越说越小，视线落回地上",
+        "change_en": "the voice shrinks as it goes, the eyes drop back to the floor",
+        "exit_zh": "头还低着，手指绞在一起",
+        "exit_en": "head still down, fingers twisting together"
+      },
+      "哀": {
+        "stage": 3,
+        "entry_zh": "眼眶微红但没有泪，呼吸压得很慢",
+        "entry_en": "red-rimmed eyes without tears, the breathing held slow",
+        "change_zh": "看{listener}不到半秒就移开，用力咽一下",
+        "change_en": "looks at {listener} for less than half a second, then away; one hard swallow",
+        "exit_zh": "下巴绷住（AU17），把情绪压回去，声音没有破",
+        "exit_en": "the chin tightens (AU17), pressing it back down, the voice not breaking"
+      },
+      "悔": {
+        "stage": 3,
+        "entry_zh": "视线落在地上，肩膀垮下去",
+        "entry_en": "eyes on the floor, the shoulders sagging",
+        "change_zh": "嘴角往下拉（AU15），话到一半停了一下",
+        "change_en": "the mouth corners pull down (AU15), the line pauses halfway",
+        "exit_zh": "闭了一下眼，没有再抬头",
+        "exit_en": "closes the eyes for a moment, does not look up again"
+      },
+      "愧": {
+        "stage": 3,
+        "entry_zh": "抬不起头，手在身侧攥着衣角",
+        "entry_en": "unable to lift the head, the hand gripping the hem at the side",
+        "change_zh": "抬眼看了{listener}一下，马上又躲开",
+        "change_en": "glances up at {listener} once and immediately looks away",
+        "exit_zh": "头更低了，耳根发红",
+        "exit_en": "the head lower still, the ears reddening"
+      },
+      "羞": {
+        "stage": 3,
+        "entry_zh": "视线躲开{listener}，脸侧过去一点",
+        "entry_en": "eyes avoiding {listener}, the face turned slightly aside",
+        "change_zh": "嘴唇抿了一下才开口，声音发虚",
+        "change_en": "the lips press together once before the word, the voice thin",
+        "exit_zh": "侧着脸不敢看回来",
+        "exit_en": "the face still turned aside, not daring to look back"
+      },
+      "怜": {
+        "stage": 3,
+        "entry_zh": "目光软下来，身体朝{listener}靠近一点",
+        "entry_en": "the gaze softens, the body moving a little closer to {listener}",
+        "change_zh": "声音放轻，眉心松开",
+        "change_en": "the voice lowers gently, the brow unknots",
+        "exit_zh": "手停在{listener}身边，没有收回",
+        "exit_en": "the hand stays near {listener}, not withdrawn"
+      },
+      "喜": {
+        "stage": null,
+        "entry_zh": "眼睛先亮起来，嘴角还压着",
+        "entry_en": "the eyes brighten first, the mouth still held in",
+        "change_zh": "先呆住半拍，嘴角再慢慢扬起来（AU6+AU12）",
+        "change_en": "a half-beat of stillness, then the mouth corners rise slowly (AU6+AU12)",
+        "exit_zh": "笑意停在脸上",
+        "exit_en": "the smile stays on the face"
+      },
+      "盼": {
+        "stage": null,
+        "entry_zh": "身体前倾，眼睛一直在{listener}脸上",
+        "entry_en": "leaning in, the eyes never leaving {listener}'s face",
+        "change_zh": "眉毛微抬（AU1+AU2），声音带着试探",
+        "change_en": "the brows lift slightly (AU1+AU2), the voice tentative",
+        "exit_zh": "屏着气等{listener}的答复",
+        "exit_en": "holding the breath, waiting for {listener}'s answer"
+      },
+      "倦": {
+        "stage": null,
+        "entry_zh": "肩膀放松地垂着，眼皮半耷",
+        "entry_en": "shoulders slack, eyelids half lowered",
+        "change_zh": "长出一口气，句子拖着说完",
+        "change_en": "a long breath out, the sentence dragged to its end",
+        "exit_zh": "目光散开，不再用力",
+        "exit_en": "the gaze unfocused, no effort left"
+      }
+    },
+    "psychology": {
+      "shame": {
+        "emotions": [
+          "羞",
+          "愧",
+          "悔"
+        ],
+        "cues": [
+          "结巴",
+          "口吃",
+          "卡住",
+          "说不出",
+          "支吾"
+        ],
+        "zh": "嘴唇已经做出「{word}」的口型，声音卡在喉咙里，一次浅而失败的吸气，再重新把这个词推出来",
+        "en": "the lips already shaped for {trigger}, the voice sticks in the throat, one shallow failed inhale, then restarts and pushes the word out"
+      },
+      "misunderstood": {
+        "emotions": [
+          "急",
+          "疑"
+        ],
+        "cues": [
+          "辩解",
+          "急着解释",
+          "自证",
+          "委屈"
+        ],
+        "needs_negation": true,
+        "zh": "重音狠狠落在「{word}」上，头随着这个词往前一顶，不加任何字",
+        "en": "hard stress lands on {trigger}, the head jerks forward with it, no added words"
+      },
+      "realisation": {
+        "emotions": [
+          "惊",
+          "惧"
+        ],
+        "cues": [
+          "愣住",
+          "反应过来",
+          "听懂",
+          "明白过来",
+          "僵住"
+        ],
+        "zh": "「{word}」之前停住一拍，一次吸气卡住没吸上来，这个词才低低地出来",
+        "en": "a beat of silence before {trigger}, one inhale that catches and fails, then the word comes out low"
+      },
+      "hiding": {
+        "emotions": [],
+        "cues": [
+          "掩饰",
+          "隐瞒",
+          "遮掩",
+          "搪塞",
+          "岔开",
+          "改口",
+          "敷衍"
+        ],
+        "zh": "说到「{word}」前半拍犹豫，眼睛飘开又拉回，换成平稳的语气说下去",
+        "en": "half a beat of hesitation just before {trigger}, the eyes flick away and back, then it continues in a level voice"
+      }
+    },
+    "negations_zh": [
+      "不是",
+      "没有",
+      "没",
+      "不",
+      "别"
+    ],
+    "hard_words_zh": [
+      "对不起",
+      "为什么",
+      "凭什么",
+      "真名",
+      "不是",
+      "没有",
+      "但是",
+      "求你",
+      "死",
+      "杀",
+      "骗",
+      "偷",
+      "你",
+      "我"
+    ],
+    "disfluency_max_per_scene": 2,
+    "note": "Compiled by screenplay_compile (performance_timeline.py) into prompt_spec.action.performance.timeline (fractions of the line's window); tools/bili_carry.performance_timeline_sentences renders the time-coded 'Performance:' sentences.  A disfluency is written as body (lips shaped, voice stuck, failed inhale) -- never as added or repeated words, so the spoken line stays verbatim for subtitles / ASR."
+  }
 }

@@ -116,6 +116,54 @@ def listener_reaction_sentences(action: Any, listeners: list[tuple[str, str]]) -
     return out
 
 
+# --------------------------------------------------------------------------- micro-performance timeline (E27)
+def _seconds(value: float) -> str:
+    return f"{round(value, 1):g}"
+
+
+def performance_timeline_sentences(action: Any, who: str, listener: str = "",
+                                   window: tuple[float, float] | None = None) -> list[str]:
+    """The compiled micro-performance (``action.performance.timeline``, lines/nalu/runtime/tools/
+    performance_timeline.py) as time-coded sentences: entry state -> the change on the trigger word -> the end frame.
+
+    ``who``: the speaker's English label; ``listener``: the listener's label ("" -> "the other person");
+    ``window``: the beat's (start, end) seconds in the clip, default (0, 4).  [] when there is no timeline or the
+    text is not English."""
+    performance = action.get("performance") if isinstance(action, dict) else None
+    timeline = performance.get("timeline") if isinstance(performance, dict) else None
+    beats = timeline.get("beats") if isinstance(timeline, dict) else None
+    if not who or not isinstance(beats, list) or not beats:
+        return []
+    start, end = window if window and window[1] > window[0] else (0.0, 4.0)
+    span = end - start
+    other = listener or "the other person"
+    out: list[str] = []
+    for beat in beats:
+        if not isinstance(beat, dict):
+            continue
+        try:
+            t0 = start + span * float(beat.get("from", 0.0))
+            t1 = start + span * float(beat.get("to", 1.0))
+            at = start + span * float(beat.get("trigger_at", beat.get("from", 0.0)))
+        except (TypeError, ValueError):
+            continue
+        # the H3 boundary admits no Chinese outside <d> tags: the trigger word is named by its time in the clip
+        trigger = f"the stressed word at about {_seconds(at)} s"
+        text = str(beat.get("en") or "").replace("{listener}", other).replace("{who}", who).replace("{trigger}", trigger)
+        text = " ".join(text.split()).strip().rstrip(".;,")
+        if not text or CJK.search(text):
+            continue
+        out.append(f"{_seconds(t0)}–{_seconds(t1)} s, {who}: {text}.")
+    return out
+
+
+def performance_timeline_line(action: Any, who: str, listener: str = "",
+                              window: tuple[float, float] | None = None) -> str:
+    """"Performance: <beat> <beat> <beat>" ('' when there is none)."""
+    rows = performance_timeline_sentences(action, who, listener, window)
+    return ("Performance, played as visible changes, never a held pose: " + " ".join(rows)) if rows else ""
+
+
 def _join(names: list[str]) -> str:
     return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
 
@@ -230,5 +278,5 @@ def en_twin_check(contract: dict[str, Any]) -> dict[str, Any]:
 __all__ = [
     "active", "english", "lead_in_sentences", "listener_reaction_sentences", "held_prop_sentences",
     "field_source", "authored", "field_sources", "en_twin_failures", "en_twin_check", "LEAD_IN_SECONDS",
-    "TRANSLATE_RULE", "FALLBACK_FIELDS",
+    "TRANSLATE_RULE", "FALLBACK_FIELDS", "performance_timeline_sentences", "performance_timeline_line",
 ]

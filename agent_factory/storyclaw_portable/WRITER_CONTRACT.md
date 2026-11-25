@@ -250,9 +250,25 @@ Every other series keeps the sections above unchanged.
   `ACTION_TEXT_TEMPLATE` (no two action texts ≥ 0.6 similar), `GENERATOR_SCRIPT_PRESENT` are integrity;
   `ACTION_LINES_THIN` (≥ 1 action line per 3 dialogue lines) and `NO_TOUCH_IN_TWO_PERSON_SCENE` (≥ 1 touch / handover
   naming both people) are taste; `PROP_UNDECLARED` / `PROP_UNUSED` are advisory.
-- **Coverage (11-23 rules).** Dialogue defaults to the listener in frame (over-the-shoulder back / shoulders, one
-  speaker per unit); one continuous small action is allowed while speaking; reactions sit on the in-frame listener or the
-  first 1–2 s of the next line.
+- **Coverage (11-23 rules, vertical grammar 11-25).** One speaker per unit.  The compiler + director pass now set the
+  sizes for 9:16 (E27: 29/35 units MEDIUM and 33/35 two people in frame read as recitation): a line defaults to an MCU
+  single of the speaker; every multi-character scene still gets >= 2 two-person shots (OTS listener, a reaction
+  two-shot, a silent two-person action -- DP9) but they are not the default; the scene's hardest line (`#转折`) gets the
+  tightest shot and the scene's one slow push; no more than 2 consecutive units share size + framing.  Write reaction
+  beats only after trigger lines (attack / reveal / turn / payoff, <= 2 per scene) and name the other person in an
+  action line only when they really interact -- a named person is pulled into the frame.  One continuous small action
+  is allowed while speaking; reactions sit on the in-frame listener or the first 1–2 s of the next line.
+- **Performance (11-25).** The compiler expands each line into a time-coded micro-performance (entry state -> a
+  visible change on the line's hardest word -> end frame), carrying each character's exit state into their next line
+  of the scene; write the psychology in the parenthetical (结巴/说不出, 辩解, 愣住, 改口/掩饰) rather than the result,
+  never write stutters into the line text, and let emotions move a step at a time (counter-attack -> self-justify ->
+  crack -> first voice break -> admission).
+- **Beats (11-25, script doctor; warnings `DOCTOR_*`, never blocking).** Opening in ~35 s: abnormal event ->
+  immediate goal -> deadly rule -> time-limited obstacle -> identity / information reversal -> unanswered question.
+  Every world fact changes someone's situation now; the obstacle character has their own interest; the reversal lands
+  on visible evidence or an action; the ending enlarges the question; no monologue / narration / dialogue without a
+  result; "he is in pain" becomes a choice he must make on the spot.  Fewer beats per episode -- let the central
+  conflict build across a scene instead of covering six plot points in one or two lines each.
 
 ## Camera grammar (CAMERA_GRAMMAR_V1)
 

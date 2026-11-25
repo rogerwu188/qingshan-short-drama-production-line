@@ -58,8 +58,10 @@ V1_SHA = {
     # 2026-11-09: stamped units add the time-of-day hold line (field device …1324 E02 day/night flips)
     # 2026-11-20: stamped live-action units add the skin / hair finish negative (KO E01 "oily face" on …0080); the
     # negative_constraints line is the only text change, confirmed by diffing the rendered text old vs new
-    True: "e62ed428d5d0ae4475203bd3d70782a6cc5fdd3a74b1a00565c73d7eade02d18",
-    "standard": "8207d8db933747dd2ca6e8ee9ad43704fa2c039c00b228e3c2c07f797451ffac",
+    # 2026-11-25 ("AI face"): stamped live-action units add the texture negative and, with two people, the character
+    # count line; the roster no longer falls back to appearance_ch1 as wardrobe (no look text in H3)
+    True: "89c204a6cc204e7e620e7aa283f505ecc38771c57eac76c893e9b1b5ecdb931c",
+    "standard": "01354fa36993784942e7a4feb36dc91ddd558f8a19b7b64f13e50fd71e42853e",
     False: "838e3f8960139ef5810a783a67462bfac6cf944b0b6546c9966f6524a07d8323",
 }
 
@@ -129,8 +131,10 @@ class DirectorPromptV2Shape(unittest.TestCase):
         self.assertEqual(positions, sorted(positions))
         self.assertIn("\nWho is in frame (exactly these two people, each exactly once, both visible from the "
                       "first frame to the last):\n", text)
-        self.assertIn("- Alpha, frame left: Man, 30, short black hair. Plain navy suit.\n", text)
-        self.assertIn("- Beta, frame right: Woman, 28, long black hair. A plain off-white shirt and grey trousers.\n", text)
+        # stamped: wardrobe only -- the reference image owns face, skin and look (line owner 2026-11-25)
+        self.assertIn("- Alpha, frame left: Plain navy suit.\n", text)
+        self.assertIn("- Beta, frame right: A plain off-white shirt and grey trousers.\n", text)
+        self.assertNotIn("short black hair", text)
         self.assertIn("Each keeps only their own clothes. Nobody else appears", text)
         self.assertIn("@Image1 is the exact first frame: the clip starts on this image with the same shot size", text)
         self.assertIn("@Image2 is Alpha's face and body. This is the same Alpha already in @Image1 — one "
@@ -140,7 +144,8 @@ class DirectorPromptV2Shape(unittest.TestCase):
                       text)
         self.assertEqual(receipt["status"], "PASS")
         self.assertEqual(receipt["h3_prompt_style"], "DIRECTOR_PROMPT_V2")
-        self.assertTrue(1000 < len(text) < 3750, len(text))  # +identity lock (2026-11-20), +set stillness (2026-11-21)
+        # +identity lock (2026-11-20), +set stillness (2026-11-21), +texture negatives (2026-11-25)
+        self.assertTrue(1000 < len(text) < 3900, len(text))
 
     def test_dialogue_listener_sound_and_never(self):
         text, _ = render()
@@ -154,8 +159,10 @@ class DirectorPromptV2Shape(unittest.TestCase):
                       "No background music.", text)
         self.assertIn("Never: captions, subtitles, speech bubbles or any written words, letters or numbers on screen; "
                       "logos or watermarks; a second copy of anyone; "
-                      "anyone else in frame; oily, glossy or sweaty skin sheen, wet-looking hair or over-sharpened "
-                      "skin texture; the frame moving with a person; music; zooming in, pushing in, dollying in, "
+                      "an unscripted change in the character count; oily, glossy or sweaty skin sheen, wet-looking "
+                      "hair or over-sharpened skin texture; plastic skin texture, over-processed HDR, oversaturated "
+                      "colour, exaggerated mouth shapes or teeth-baring speech; "
+                      "the frame moving with a person; music; zooming in, pushing in, dollying in, "
                       "moving closer to the face, tightening the frame.", text)  # default strict camera lock
         # locked plan: the set stays still, only the people move (KO E05 2026-11-21, camera wobble)
         self.assertIn("\nThe set behind the people stays perfectly still; only the people move, never the frame.\n", text)

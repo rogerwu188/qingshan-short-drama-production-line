@@ -27,8 +27,15 @@ PROMPT = (
     "人脸识别应判定为同一人；年龄与参考图一致，不年轻化、不老化、不换脸、不改五官比例、不美化成另一个人。忽略参考图中的服装、发型、背景、光线与画幅。\n"
     "呈现为中国唐宋时期的古装人物写真：{look}。"
     "半身正面肖像，竖幅 9:16，人物居中，头顶留少量空间，视线看向镜头，自然柔和的暖光，背景为虚化的唐宋木构庭院（格窗、廊柱、瓦檐）。"
-    "真实摄影质感、细腻皮肤纹理、高清晰度。禁止：现代服饰与饰品、和风元素、欧式与哥特元素、夸张妆容、文字水印。"
+    "真实摄影质感。{skin}禁止：现代服饰与饰品、和风元素、欧式与哥特元素、夸张妆容、文字水印、塑料质感、HDR过度、饱和过高。"
 )
+
+
+def _skin_positive():
+    """Half-body portrait: the full live-action skin description (render_style, line owner 2026-11-25); replaces
+    the earlier "细腻皮肤纹理、高清晰度" (a quality booster)."""
+    import render_style as _render_style
+    return _render_style.live_skin_positive("PORTRAIT", "zh")
 
 
 def sha(p): return hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()
@@ -55,7 +62,7 @@ def run(cids, dry, note=""):
         name, look = LOOKS[cid]
         crop = HOLD / f"{cid}__FACE_CROP.png"
         d = OUT / cid; d.mkdir(parents=True, exist_ok=True)
-        prompt = PROMPT.format(look=look) + (("\n" + note) if note else "")
+        prompt = PROMPT.format(look=look, skin=_skin_positive()) + (("\n" + note) if note else "")
         intent = {"schema": "nalu.period_look_generation.v1", "character_id": cid, "canonical_name": name, "model": ACTIVE_IMAGE_MODEL,
                   "aspect_ratio": "9:16", "resolution": ACTIVE_IMAGE_RESOLUTION, "reference": str(crop), "reference_sha256": sha(crop), "prompt": prompt,
                   "authority": "SUPERVISOR_ORDERS seq=8", "requested_at_utc": now}

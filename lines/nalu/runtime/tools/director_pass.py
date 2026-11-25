@@ -550,6 +550,239 @@ def _apply_cuts(shots: list[dict[str, Any]], applied: list[str], advisories: lis
         applied.append(f"AUTHORED_CUT:{_clean(shot.get('shot_id'))}:{mode}")
 
 
+# --------------------------------------------------------------------------- vertical shot grammar (E27 2026-11-25)
+#: E27 (device 1101, 2026-11-25): 29/35 units MEDIUM, 32/35 LOCKED, 33/35 two people in frame -- every scene ran 3-4
+#: units of the same framing and read as recitation.  The screenplay compiler stamps the scales it derives
+#: (``camera_plan.scale_source``); on those shots the director now mixes sizes for 9:16: the scene's hardest line
+#: is the tightest (CU single), dialogue defaults to an MCU (a MEDIUM face is small on a phone), two-person shots
+#: (OTS listener / reaction two-shot / silent two-shot) fill the DP9 floor of >= 2 per multi-character scene but
+#: are not the default, and no more than GRAMMAR_MAX_RUN consecutive units share size + framing.  The DP9 ceiling
+#: (CU+MCU <= 80 %) is kept by turning OTS MCUs into OTS MEDIUMs.  Writer-authored scales are never touched.
+SCALE_SOURCE_COMPILER = "screenplay_compile"
+GRAMMAR_MAX_RUN = 2
+GRAMMAR_GROUP_FLOOR = 2
+GRAMMAR_CU_MCU_CEILING = 0.80
+CU, MCU, MS = "CLOSE_UP", "MEDIUM_CLOSE_UP", "MEDIUM"
+_CU_MCU = frozenset({CU, MCU})
+_REMOVABLE_LISTENER = frozenset({"BACK_AND_SHOULDERS_ONLY", OTS_LISTENER})
+_PARTIAL_FACE = re.compile(r"BACK|OTS|SOFT_PROFILE|_ONLY$|FACE_OUT")
+_OTS_CLAUSE = re.compile(r"，[^，；]*?的后脑与肩在前景虚化")
+_SCALE_HEAD = re.compile(r"^(?:CLOSE_UP|MEDIUM_CLOSE_UP|MEDIUM_WIDE|MEDIUM|WIDE|EXTREME_CLOSE_UP)")
+
+
+def _grammar_shot(shot: dict[str, Any]) -> bool:
+    return _clean(_camera_plan(shot).get("scale_source")) == SCALE_SOURCE_COMPILER
+
+
+def _scale(shot: dict[str, Any]) -> str:
+    return _clean(_camera_plan(shot).get("shot_scale") or shot.get("shot_size")).upper()
+
+
+def _frame_kind(shot: dict[str, Any]) -> str:
+    """SINGLE | OTS (one face + a back-of-head listener) | TWO (two faces) | GROUP (3+ in frame)."""
+    vis = visible_cast(shot)
+    if len(vis) <= 1:
+        return "SINGLE"
+    if len(vis) >= 3:
+        return "GROUP"
+    faces = [c for c in vis if not _PARTIAL_FACE.search(_clean((_cast_row(shot, c) or {}).get("face_visibility")).upper())]
+    return "TWO" if len(faces) >= 2 else "OTS"
+
+
+def _named_in_text(shot: dict[str, Any], cid: str) -> bool:
+    action = _action(shot)
+    row = _cast_row(shot, cid) or {}
+    name = _clean(row.get("character"))
+    texts = " ".join(_text_of(action.get(k)) for k in ("primary_action", "listener_reaction", "lead_in_reaction"))
+    by = list(action.get("listener_reaction_by") or []) + list(action.get("lead_in_reaction_by") or [])
+    return cid in by or cid in texts or bool(name and name in texts)
+
+
+def _reactors(shot: dict[str, Any]) -> list[str]:
+    """Non-speakers whose authored reaction plays inside this speaking shot (they keep their face: a two-shot)."""
+    action = _action(shot)
+    who = speaker_id(shot)
+    by = [c for c in action.get("listener_reaction_by") or [] if c != who and c in visible_cast(shot)]
+    if not by and listener_reaction(shot) and listener_id(shot) in visible_cast(shot):
+        by = [listener_id(shot)]
+    return by
+
+
+def _grammar_options(shot: dict[str, Any]) -> list[tuple[str, str]]:
+    """[(scale, frame kind)] the director may give a compiler-scaled shot, the default first; [] when the frame is
+    fixed by its content (an entrance / WIDE, a group of three, an off-screen line)."""
+    vis = visible_cast(shot)
+    if _scale(shot) not in (CU, MCU, MS) or len(vis) >= 3 or not vis:
+        return []
+    if not speaking(shot):
+        kind = _frame_kind(shot)
+        return [(MS, kind), (MCU, kind)]          # silent action: MEDIUM keeps the hands, MCU breaks a run
+    who = speaker_id(shot)
+    if not who or who not in vis:
+        return []
+    others = [c for c in vis if c != who]
+    if _reactors(shot):
+        # the listener's authored reaction plays in frame: a front/back two-shot (stacked for 9:16), MEDIUM or MCU
+        return [(MS, "TWO"), (MCU, "TWO")] if len(others) == 1 else []
+    opts: list[tuple[str, str]] = []
+    removable = all(_clean((_cast_row(shot, c) or {}).get("face_visibility")).upper() in _REMOVABLE_LISTENER
+                    and not _named_in_text(shot, c) for c in others)
+    if not others or removable:
+        opts += [(MCU, "SINGLE"), (CU, "SINGLE")]
+    if others or listener_id(shot):
+        opts += [(MCU, "OTS"), (MS, "OTS")]
+    return opts
+
+
+def _set_grammar(contract: dict[str, Any], shot: dict[str, Any], scale: str, kind: str, reason: str,
+                 applied: list[str]) -> None:
+    """Write one decision: the scale (camera_plan, shot_size, camera text) and the listener framing."""
+    sid = _clean(shot.get("shot_id"))
+    spec = shot.setdefault("prompt_spec", {})
+    plan = _camera_plan(shot)
+    who = speaker_id(shot)
+    before = (_scale(shot), _frame_kind(shot))
+    others = [c for c in visible_cast(shot) if c != who]
+    role = _role(shot)
+    if kind == "SINGLE" and others:
+        spec["cast"] = [r for r in spec.get("cast") or []
+                        if not (isinstance(r, dict) and _clean(r.get("character_id") or r.get("character")) in others)]
+        for key in ("entity_presence", "entity_states"):
+            if isinstance(role.get(key), dict):
+                for cid in others:
+                    role[key].pop(cid, None)
+        for key in ("start_framing", "end_framing"):
+            if isinstance(plan.get(key), str):
+                plan[key] = _OTS_CLAUSE.sub("", plan[key])
+        shot["camera"] = re.sub(r"，过肩[^，；]*", "", _clean(shot.get("camera")))
+    elif kind == "OTS":
+        lid = others[0] if others else listener_id(shot)
+        row = _cast_row(shot, lid) if lid else None
+        if row is not None:
+            row["face_visibility"] = OTS_LISTENER
+        elif lid:
+            spec.setdefault("cast", []).append({"character": _name_of(contract, lid, shot), "character_id": lid,
+                                                "face_visibility": OTS_LISTENER, "director_added": True})
+            if isinstance(role.get("entity_presence"), dict):
+                role["entity_presence"].setdefault(lid, "VISIBLE_AND_IDENTITY_LOCKED")
+    if plan:
+        plan["shot_scale"] = scale
+    shot["shot_size"] = scale
+    camera = _clean(shot.get("camera"))
+    if _SCALE_HEAD.match(camera):
+        shot["camera"] = _SCALE_HEAD.sub(scale, camera, count=1)
+    framing = {"SINGLE": "SINGLE", "OTS": OTS_LISTENER}.get(kind, kind)
+    spec.setdefault("director", {})["shot_grammar"] = {"scale": scale, "framing": framing, "reason": reason,
+                                                       "original": {"scale": before[0], "framing": before[1]}}
+    if before != (scale, kind):
+        applied.append(f"SHOT_GRAMMAR:{sid}:{before[0]}/{before[1]}->{scale}/{kind}")
+
+
+def _hardest_index(shots: list[dict[str, Any]], idx: list[int]) -> int | None:
+    speaking_idx = [i for i in idx if speaking(shots[i])]
+    for test, last in ((lambda s: _hardest(s), False),
+                       (lambda s: _camera_plan(s).get("motion_direction") == "PUSH_IN", False),
+                       (lambda s: beat_role(s) == "TURN", False),
+                       (lambda s: beat_role(s) in {"REVEAL", "PAYOFF", "ATTACK"}, True)):
+        hit = [i for i in speaking_idx if test(shots[i])]
+        if hit:
+            return hit[-1] if last else hit[0]
+    return None
+
+
+def _apply_scene_grammar(contract: dict[str, Any], shots: list[dict[str, Any]], idx: list[int], people: set[str],
+                         applied: list[str], advisories: list[str]) -> set[int]:
+    """Plan one scene; returns the indices whose listener framing the grammar decided."""
+    flexible = {i: _grammar_options(shots[i]) for i in idx if _grammar_shot(shots[i])
+                and not (_spec(shots[i]).get("director") or {}).get("mirror_of")}
+    flexible = {i: o for i, o in flexible.items() if o}
+    if not flexible:
+        return set()
+    hardest = _hardest_index(shots, idx)
+    first_line = next((i for i in idx if i in flexible), None)
+    plan: dict[int, tuple[str, str, str]] = {}
+    for i, opts in flexible.items():
+        if i == hardest:
+            pick = next((o for o in ((CU, "SINGLE"), (MCU, "OTS"), (MCU, "TWO")) if o in opts), opts[0])
+            plan[i] = (*pick, "hardest line of the scene: the tightest shot")
+        elif opts[0] == (MCU, "SINGLE"):
+            plan[i] = (MCU, "SINGLE", "dialogue default on 9:16: MCU single (a MEDIUM face is small on a phone)")
+        elif opts[0] == (MCU, "OTS"):
+            plan[i] = (MCU, "OTS", "dialogue MCU, the named listener kept over the shoulder")
+        elif opts[0][1] == "TWO" and speaking(shots[i]):
+            plan[i] = (MS, "TWO", "the listener reacts in frame: front/back two-shot")
+        else:
+            plan[i] = (*opts[0], "silent action: MEDIUM keeps hands and props in frame")
+    multi = len(people) >= 2
+
+    def kind_of(i: int) -> tuple[str, str]:
+        return (plan[i][0], plan[i][1]) if i in plan else (_scale(shots[i]), _frame_kind(shots[i]))
+
+    def groups() -> int:
+        return sum(1 for i in idx if kind_of(i)[1] != "SINGLE")
+
+    need = min(GRAMMAR_GROUP_FLOOR, len(idx)) if multi else 0
+    # DP9 floor: the scene's first line gives the geography (OTS MEDIUM), then OTS MCUs spread over the scene
+    order = ([first_line] if first_line is not None and first_line != hardest else []) + \
+        [i for i in flexible if i not in (first_line, hardest)][::2] + \
+        [i for i in flexible if i not in (first_line, hardest)][1::2]
+    for i in order:
+        if groups() >= need:
+            break
+        if kind_of(i)[1] == "SINGLE" and (MCU, "OTS") in flexible[i]:
+            scale = MS if i == first_line else MCU
+            plan[i] = (scale, "OTS", "two-person floor (DP9): listener over the shoulder" +
+                       (", the scene's geography" if i == first_line else ""))
+    if groups() < need and multi:
+        advisories.append(f"SHOT_GRAMMAR_GROUP_FLOOR_UNMET:{_clean(shots[idx[0]].get('scene_id'))}")
+    # no more than GRAMMAR_MAX_RUN consecutive units with the same size + framing
+    for pos in range(GRAMMAR_MAX_RUN, len(idx)):
+        window = [kind_of(idx[pos - k]) for k in range(GRAMMAR_MAX_RUN + 1)]
+        if len(set(window)) > 1:
+            continue
+        for j in (idx[pos], idx[pos - 1]):
+            if j not in flexible or j == hardest:
+                continue
+            current = kind_of(j)
+            neighbours = {kind_of(k) for k in (j - 1, j + 1) if k in idx}
+            choices = [o for o in flexible[j] if o != current and o not in neighbours and o[0] != CU]
+            if current[1] != "SINGLE" and groups() <= need:
+                choices = [o for o in choices if o[1] != "SINGLE"]
+            if choices:
+                plan[j] = (*choices[0], f"break a run of {GRAMMAR_MAX_RUN + 1} identical {current[0]}/{current[1]} units")
+                break
+        else:
+            advisories.append(f"SHOT_GRAMMAR_RUN_KEPT:{_clean(shots[idx[pos]].get('shot_id'))}")
+    for i, (scale, kind, reason) in plan.items():
+        _set_grammar(contract, shots[i], scale, kind, reason, applied)
+    return set(plan)
+
+
+def _apply_cu_mcu_ceiling(contract: dict[str, Any], shots: list[dict[str, Any]], decided: set[int],
+                          applied: list[str], advisories: list[str]) -> None:
+    """Keep DP9's CU+MCU <= 80 %: widen director-decided OTS MCUs (then singles, as OTS) to MEDIUM."""
+    total = len(shots)
+    if not total:
+        return
+
+    def ratio() -> float:
+        return sum(1 for s in shots if _scale(s) in _CU_MCU) / total
+
+    rank = {"OTS": 0, "TWO": 1, "SINGLE": 2}
+    pool = sorted((i for i in decided if _scale(shots[i]) == MCU),
+                  key=lambda i: (rank.get(_frame_kind(shots[i]), 3), i))
+    for i in pool:
+        if ratio() <= GRAMMAR_CU_MCU_CEILING + 1e-9:
+            return
+        opts = _grammar_options(shots[i])
+        kind = _frame_kind(shots[i])
+        pick = (MS, kind) if (MS, kind) in opts else ((MS, "OTS") if (MS, "OTS") in opts else None)
+        if pick:
+            _set_grammar(contract, shots[i], pick[0], pick[1], "DP9 ceiling: CU+MCU <= 80 %", applied)
+    if ratio() > GRAMMAR_CU_MCU_CEILING + 1e-9:
+        advisories.append(f"SHOT_GRAMMAR_CU_MCU_OVER:{ratio():.2f}")
+
+
 def _apply_short_units(shots: list[dict[str, Any]], applied: list[str]) -> None:
     """2 s H3 floor: a dedicated silent reaction / insert plays 1.5-2.5 s (ep3 rhythm) and is requested at 2 s."""
     for shot in shots:
@@ -588,6 +821,7 @@ def direct(contract: dict[str, Any], *, force: bool = False) -> tuple[dict[str, 
             if row.get("counts_as_scene_move"):
                 hinted_move.add(_clean(target.get("scene_id")) or "SCENE")
     mirrors = (hints or {}).get("mirror_setups") or {}
+    grammar_decided: set[int] = set()
     for scene_id, idx in _scenes(shots):
         people: set[str] = set()  # who is physically in this scene: seen in frame in at least one of its shots
         for i in idx:
@@ -611,11 +845,14 @@ def direct(contract: dict[str, Any], *, force: bool = False) -> tuple[dict[str, 
                 _camera_plan(shots[authored_push[0]])[PUSH_MARK] = True
                 applied.append(f"PUSH_IN_ADOPTED:{_clean(shots[authored_push[0]].get('shot_id'))}")
                 already = True
+        decided_here = _apply_scene_grammar(out, shots, idx, people, applied, advisories)
+        grammar_decided |= decided_here
         for i in idx:
             shot = shots[i]
             spec = shot.setdefault("prompt_spec", {})
             decided: dict[str, Any] = {}
-            framing = _apply_listener(out, shot, people, applied)
+            framing = (spec["director"]["shot_grammar"]["framing"] if i in decided_here
+                       else _apply_listener(out, shot, people, applied))
             if framing:
                 decided["listener_framing"] = framing
             if speaking(shot):
@@ -642,6 +879,8 @@ def direct(contract: dict[str, Any], *, force: bool = False) -> tuple[dict[str, 
             _apply_push(shots[target[0]], applied)
         elif len(idx) >= 3 and not marked and not moved and not already:
             advisories.append(f"PUSH_IN_UNMARKED:{scene_id}")
+    if grammar_decided:
+        _apply_cu_mcu_ceiling(out, shots, grammar_decided, applied, advisories)
     _apply_cuts(shots, applied, advisories)
     if unit_min_seconds() <= 2:
         _apply_short_units(shots, applied)
