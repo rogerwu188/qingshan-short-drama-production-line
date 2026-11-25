@@ -1475,6 +1475,10 @@ def publish_next() -> dict[str, Any] | None:
         variant = "含尾贴广告版" if out.get("published_variant") == "AD" else "正片版（无广告版）"
         note(f"X2C 发行 {ep}：第 {out.get('episode_number')} 集（{out.get('x2c_status')}），{variant} "
              f"{Path(str(out.get('published_video') or '')).name}")
+        cc = out.get("creative_context") if isinstance(out.get("creative_context"), dict) else {}
+        if cc.get("status") in ("FAILED", "PARTIAL", "ERROR"):  # X2C 广告创意上下文: never blocks; retried next episode
+            note(f"X2C 广告创意上下文 {ep} 未全部提交（{cc.get('status')}，下集发行后重试）："
+                 f"{json.dumps(cc.get('failed') or cc.get('error'), ensure_ascii=False)[:200]}")
     elif st == "DEFERRED_PENDING_REVIEW":
         nums = [str(v.get("episode_number")) for v in out.get("pending_videos") or [] if isinstance(v, dict)]
         note(f"X2C 发行暂缓 {ep}：等待第 {','.join(nums) or '?'} 集过审，避免追加时重复发号顶掉它")
