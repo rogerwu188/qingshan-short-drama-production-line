@@ -52,6 +52,8 @@ _HERE = Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
+import performance_timeline as _ptl  # noqa: E402 -- same directory (E27 2026-11-25 micro-performance)
+
 SCHEMA = "nalu.screenplay_compile.v1"
 BLOCK_SCHEMA = "nalu.screenplay_v1.block.v1"
 EN_SCHEMA = "nalu.screenplay_en.v1"
@@ -845,6 +847,7 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
         block_lines: list[dict[str, Any]] = []
         prev_completion = ""
         prev_speaker = ""
+        curve = _ptl.EmotionCurve()  # per character per scene: each line's exit state is that character's next entry
         scene_shot_ids: list[str] = []
         narrative.append(f"## {sid}｜{loc_id}｜{time_of_day or '—'}｜线A")
         narrative.append("")
@@ -1085,11 +1088,20 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                 "source": AUTHORED if sources.get("primary_action") == AUTHORED else FALLBACK,
                 "field_sources": sources,
             }
+            timeline = None
+            if speaking and not offscreen_speaker:
+                others = [c for c in present if c != speaker]
+                timeline = _ptl.build(
+                    who=speaker, emotion=emotion, emotion_en=EMOTION_EN.get(emotion, ""), line=line, paren=paren,
+                    listener_name=listener_name,
+                    names=[n for c in others for n in (cast.name(c), cast.short(c))],
+                    hardest=bool(is_turn), curve=curve, lead_in=bool(sh["lead_in"]))
             if speaking:
                 action["performance"] = {"emotion": emotion, "emotion_basis": emotion_basis,
                                          "body_action": body_action, "delivery": delivery,
                                          **({"delivery_en": delivery_en} if delivery_en else {}),
-                                         **({"business_en": business_en} if business_en else {})}
+                                         **({"business_en": business_en} if business_en else {}),
+                                         **({"timeline": timeline} if timeline else {})}
             if reaction_zh:
                 action["listener_reaction"] = reaction_zh
                 if reaction_en:
@@ -1128,7 +1140,7 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                 "dialogue": dialogue,
                 "dialogue_delivery": {"chinese_characters_per_second": cps},
                 "action": action,
-                "camera_plan": {"shot_scale": scale, "camera_height": "EYE_LEVEL",
+                "camera_plan": {"shot_scale": scale, "scale_source": "screenplay_compile", "camera_height": "EYE_LEVEL",
                                 "camera_side": "AXIS_A", **motion,
                                 "lens_intent": f"{'过肩' if ots else '单人'}{'推近' if push else '固定'}：{(card.get('turn') if push else card.get('goal')) or line[:10] or primary[:10]}",
                                 "axis_relation": "SAME_SIDE",
@@ -1208,6 +1220,8 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                 directing.append(f"先反应：{lead_zh}")
             if dialogue:
                 directing.append(f"对白：{dialogue}（{emotion}；{delivery}）")
+                if timeline:
+                    directing.append(f"表演分拍：{_ptl.zh_summary(timeline)}")
             if reaction_zh:
                 directing.append(f"反应：{reaction_zh}")
             if shot_props:
@@ -1215,6 +1229,7 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                                                    for p in shot_props))
             directing.append("")
         narrative.append("")
+        warnings.extend(f"EMOTION_CURVE_JUMP:{sid}:{j}" for j in curve.jumps)
         scene_seconds = round(sum(s["target_seconds"] for s in shots_out if s["scene_id"] == sid), 3)
         ambient_life = loc.get("ambient_life") if isinstance(loc.get("ambient_life"), dict) else {}
         scene_states.append({

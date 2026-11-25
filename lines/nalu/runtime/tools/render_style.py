@@ -27,6 +27,7 @@ files and never raise.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -369,7 +370,170 @@ ANTI_AI_QUESTION_ANIME = (
 LIVE_SKIN_FINISH_ZH = ("皮肤质感：自然哑光肌肤，脸上无油光、无汗珠、无湿亮反光（额头、鼻梁、脸颊不发亮），头发干爽；"
                        "不做塑料感磨皮、不过度锐化（剧情明确写雨水、汗水、泪水时除外）。")
 
+# --------------------------------------------------------------------------- live-action skin (positive)
+#: Line owner 2026-11-25 (faces read airbrushed / porcelain / oily -- an "AI face"): the anti-oil NEGATIVES above
+#: alone left the model nothing to aim at, so live-action image prompts (identity cards, turnaround sheets,
+#: keyframes) also DESCRIBE real skin, in six parts: (1) physical state, (2) regional texture, (3) restrained
+#: flaws, never "flawless", (4) where highlights may sit, (5) skin driven by the scene light and the expression,
+#: (6) continuity.  Pores / lip lines / under-eye texture only where the face is big enough to show them (MCU and
+#: closer, identity-card face views); medium / wide / full-body framings get the overall tone and finish only.
+#: Prompt text only (no extra image, no extra credit, no gate).  Never for anime, never in H3 video prompts (the
+#: reference image locks the face there).
+LIVE_SKIN_POSITIVE_FULL_ZH = (
+    "皮肤真实感：自然半哑光肌肤；额头有细小毛孔，鼻翼毛孔略可见，两侧脸颊质感不完全均匀，眼下有薄而细的纹理，"
+    "嘴唇有竖向唇纹、唇中略润而唇边偏干；保留克制的小瑕疵——肤色轻微不均、鼻翼淡淡泛红、眼下浅浅细纹，不追求完美无瑕；"
+    "高光只在鼻梁上段、颧骨与下唇中央呈细碎小块，脸颊与下颌低反光；皮肤随场景光线变化（侧光、斜射光下纹理清楚，"
+    "平光下更柔和），随表情自然起褶；同一人物各镜头肤质与肤色一致。")
+LIVE_SKIN_POSITIVE_BASE_ZH = ("皮肤真实感：自然半哑光肌肤，肤色自然、略有不均，不追求完美无瑕；皮肤随场景光线自然变化；"
+                              "同一人物各镜头肤色一致。")
+LIVE_SKIN_POSITIVE_FULL_EN = (
+    "Real skin: natural semi-matte skin; fine pores on the forehead, slightly visible pores at the nose wings, the two "
+    "cheeks not perfectly uniform, thin fine texture under the eyes, vertical lip lines with the centre of the lips "
+    "slightly moist and the lip edges drier; restrained small flaws -- slightly uneven skin tone, faint redness at the "
+    "nose wings, faint fine lines under the eyes -- never flawless; only small broken highlights on the upper nose "
+    "bridge, the cheekbones and the centre of the lower lip, cheeks and jaw low-reflectance; the skin reacts to the "
+    "scene light (texture reads in side or raking light, softer in flat light) and creases with the expression; the "
+    "same skin texture and tone in every shot.")
+LIVE_SKIN_POSITIVE_BASE_EN = ("Real skin: natural semi-matte skin with a natural, slightly uneven tone, never flawless; "
+                              "the skin follows the scene light; the same skin tone in every shot.")
+
+#: framings close enough for pore / lip-line / under-eye detail (9:16 vertical: MCU is the dominant dialogue size)
+CLOSE_SKIN_SCALES = frozenset({
+    "MEDIUM_CLOSE_UP", "MEDIUM_CLOSEUP", "MCU", "CLOSE_UP", "CLOSEUP", "CU", "EXTREME_CLOSE_UP", "EXTREME_CLOSEUP",
+    "ECU", "XCU", "BIG_CLOSE_UP", "BCU", "TIGHT_CLOSE_UP", "INSERT_FACE",
+    # identity-card / reference-sheet face views
+    "FACE", "FACE_CLOSE_UP", "PORTRAIT", "HEADSHOT", "FRONT_NEUTRAL_HEADSHOT", "THREE_QUARTER_BUST", "BUST",
+    "近景", "中近景", "特写", "近特写", "大特写", "面部特写", "头像", "半身像", "肖像",
+})
+
+
+def is_close_skin_scale(shot_scale: Any) -> bool:
+    """True when ``shot_scale`` (MEDIUM_CLOSE_UP / "close up" / 特写 / a face view ...) shows skin detail."""
+    text = str(shot_scale or "").strip()
+    if not text:
+        return False
+    key = re.sub(r"[\s\-]+", "_", text.upper())
+    if key in CLOSE_SKIN_SCALES or text in CLOSE_SKIN_SCALES:
+        return True
+    # free text such as "MEDIUM_CLOSE_UP (chest up)" or "特写：手与脸"
+    return bool(re.match(r"^(?:MEDIUM_CLOSE|EXTREME_CLOSE|CLOSE_?UP|MCU|ECU|BCU)\b", key)
+                or re.match(r"^(?:中近景|近景|近特写|大特写|特写|面部特写)", text))
+
+
+def live_skin_positive(shot_scale: Any = None, lang: str = "zh") -> str:
+    """The live-action skin POSITIVE description for a framing: full six-part detail for MCU and closer (and the
+    identity-card face views), the overall tone + semi-matte finish only for medium / wide / full-body."""
+    full = is_close_skin_scale(shot_scale)
+    if str(lang or "zh").lower().startswith("en"):
+        return LIVE_SKIN_POSITIVE_FULL_EN if full else LIVE_SKIN_POSITIVE_BASE_EN
+    return LIVE_SKIN_POSITIVE_FULL_ZH if full else LIVE_SKIN_POSITIVE_BASE_ZH
+
+
+# --------------------------------------------------------------------------- negatives hygiene (image + H3)
+#: texture negatives (line owner 2026-11-25): plastic skin, over-processed HDR, oversaturation, exaggerated or
+#: teeth-baring mouths.  Live-action only.
+TEXTURE_NEGATIVES_ZH = ("塑料质感", "HDR过度", "饱和过高", "夸张口型", "露牙说话")
+TEXTURE_NEGATIVES_EN = ("plastic skin texture", "over-processed HDR", "oversaturated colour", "exaggerated mouth shapes",
+                        "teeth-baring speech")
+#: replaces "extra person / second person / crowd" negatives in a shot that really shows two or more people
+CHARACTER_COUNT_NEGATIVE_ZH = "人物数量变化"
+CHARACTER_COUNT_NEGATIVE_EN = "character count changes"
+_EXTRA_PERSON = re.compile(
+    r"多人|第二个?人|第二名|第三个?人|额外(?:的)?人|多余(?:的)?人|多出(?:的|一个|一名)?人|其他人物|其余人物|人群|路人|围观|群众|"
+    r"\b(?:extra|additional|second|third|other|more|unwanted|stray)\s+(?:people|persons?|figures?|characters?|man|woman|men|women)\b|"
+    r"\bcrowds?\b|\bbystanders?\b|\bpassers?-?by\b|\bmultiple (?:people|persons|figures)\b",
+    re.IGNORECASE)
+#: a negative about on-screen text is never dropped for a prop (a letter / sign prop must not unlock captions)
+_PROTECTED_NEGATIVE = re.compile(r"字幕|文字|水印|logo|标志|caption|subtitle|watermark|letters|words|text|logo",
+                                 re.IGNORECASE)
+_TERM_SPLIT = re.compile(r"\s*[、，,/／]\s*")
+
+
+def _prop_hit(term: str, prop_names: list[str], action_text: str) -> bool:
+    low = term.lower()
+    for name in prop_names:
+        if not name:
+            continue
+        if _CJK_CHAR.search(name):
+            if name in term or (len(term) >= 1 and term in name):
+                return True
+        elif re.search(r"\b" + re.escape(name.lower()) + r"(?:e?s)?\b", low):
+            return True
+    core = re.sub(r"^(?:no|never|any|禁止|不要|无)\s*", "", term.strip(), flags=re.IGNORECASE).strip()
+    if not core or not action_text:
+        return False
+    if _CJK_CHAR.search(core):
+        return len(core) >= 1 and core in action_text
+    return bool(re.search(r"\b" + re.escape(core.lower()) + r"(?:e?s)?\b", action_text.lower()))
+
+
+_CJK_CHAR = re.compile(r"[㐀-鿿]")
+
+
+def filter_negatives(terms: Any, *, prop_names: Any = (), action_text: str = "", multi_person: bool = False,
+                     lang: str = "zh", count_term: str | None = None) -> list[str]:
+    """Negative terms made safe for one shot (never a new gate, only text):
+
+    * a term that names a prop / object the shot itself needs (declared props, or a short term the shot's action
+      text names) is dropped -- a compound term ("手机、电脑") loses only that part; on-screen-text negatives are
+      never dropped this way;
+    * in a shot with two or more people, "extra person / second person / crowd" terms are replaced by one
+      "character count changes" term (single-person shots keep them); ``count_term`` overrides its wording.
+    """
+    names = [str(n).strip() for n in (prop_names or []) if str(n or "").strip()]
+    action = str(action_text or "")
+    out: list[str] = []
+    replaced = False
+    for raw in terms or []:
+        term = str(raw or "").strip()
+        if not term:
+            continue
+        if multi_person and _EXTRA_PERSON.search(term):
+            replaced = True
+            continue
+        if _PROTECTED_NEGATIVE.search(term) or not (names or action):
+            out.append(term)
+            continue
+        parts = _TERM_SPLIT.split(term) if _CJK_CHAR.search(term) else [term]
+        kept = [p for p in parts if p and not _prop_hit(p, names, action)]
+        if len(kept) == len(parts):
+            out.append(term)
+        elif kept:
+            out.append("、".join(kept))
+    if replaced or multi_person:
+        count = count_term or (CHARACTER_COUNT_NEGATIVE_EN if str(lang).lower().startswith("en")
+                               else CHARACTER_COUNT_NEGATIVE_ZH)
+        if count not in out:
+            out.append(count)
+    return out
+
+
+# --------------------------------------------------------------------------- quality boosters
+#: "8K / 超高清 / masterpiece ..." push image and video models toward the over-sharpened, airbrushed AI look; they
+#: never belong in a positive prompt (as a NEGATIVE, e.g. "HDR过度", they stay).
+QUALITY_BOOSTER = re.compile(
+    r"\b(?:8|4|16)\s?K\b(?:\s*(?:resolution|UHD|quality))?|超高清|高清晰度|高清|电影级(?:画质|质感)?|电影质感|"
+    r"\bultra[- ]?(?:detailed|HD|realistic|high definition)\b|\bUHD\b|\bHDR\b|\bhyper[- ]?realistic\b|"
+    r"\bmasterpiece\b|\bbest quality\b|\bhighly detailed\b|\bcinematic quality\b|\bhigh[- ]?resolution\b",
+    re.IGNORECASE)
+
+
+def strip_quality_boosters(text: Any) -> str:
+    """``text`` without quality-booster words, separators tidied ("" stays "")."""
+    value = str(text or "")
+    if not QUALITY_BOOSTER.search(value):
+        return value
+    value = QUALITY_BOOSTER.sub("", value)
+    value = re.sub(r"(?:\s*[、，,；;]\s*){2,}", lambda m: m.group(0).strip()[0], value)
+    value = re.sub(r"^\s*[、，,；;]\s*|\s*[、，,；;]\s*(?=[。.]|$)", "", value)
+    return re.sub(r"[ \t]{2,}", " ", value).strip()
+
+
 __all__ = [
+    "LIVE_SKIN_POSITIVE_FULL_ZH", "LIVE_SKIN_POSITIVE_BASE_ZH", "LIVE_SKIN_POSITIVE_FULL_EN",
+    "LIVE_SKIN_POSITIVE_BASE_EN", "CLOSE_SKIN_SCALES", "is_close_skin_scale", "live_skin_positive",
+    "TEXTURE_NEGATIVES_ZH", "TEXTURE_NEGATIVES_EN", "CHARACTER_COUNT_NEGATIVE_ZH", "CHARACTER_COUNT_NEGATIVE_EN",
+    "filter_negatives", "QUALITY_BOOSTER", "strip_quality_boosters",
     "LIVE_SKIN_FINISH_ZH", "LIVE_ACTION", "ANIME", "STYLES", "DEFAULT_STYLE", "FIELD", "normalise", "from_contract", "from_brief",
     "from_config", "resolve", "default_runtime_root", "brief_path", "resolve_runtime", "is_anime", "stamp",
     "STYLE_PHRASE_EN", "IMAGE_STYLE_BLOCK_EN", "IMAGE_STYLE_BLOCK_ZH", "IMAGE_TEXTURE_ZH", "IMAGE_TEXTURE_EN",

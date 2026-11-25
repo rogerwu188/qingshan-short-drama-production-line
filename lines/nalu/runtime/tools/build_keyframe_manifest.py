@@ -1171,7 +1171,8 @@ def _exterior_lighting(text: str) -> str:
 from tools import visual_culture_contract as _vcc  # noqa: E402
 
 
-def visual_culture_block(contract: dict[str, Any], *, exterior: bool = False) -> str:
+def visual_culture_block(contract: dict[str, Any], *, exterior: bool = False, shot_scale: Any = None,
+                         people: bool = True) -> str:
     """World/美术/色彩/光线/质感 for one shot.
 
     ``exterior`` scopes the two lines that describe built interiors: on a forest,
@@ -1179,6 +1180,11 @@ def visual_culture_block(contract: dict[str, Any], *, exterior: bool = False) ->
     夯土院墙 and 屋内铜盆光 verbatim, and the image model drew a hut in a place the
     space map declares has no buildings at all (E14 S11-03, twice).  Only the
     built-interior clauses are dropped; the world, palette and texture stay.
+
+    ``shot_scale`` (line owner 2026-11-25, "AI face"): a live-action shot also gets the positive skin description,
+    full pore / lip-line detail at MEDIUM_CLOSE_UP and closer, overall tone only at wider scales, none when
+    ``people`` is False (an empty plate or a prop insert); quality-booster words ("8K", "电影质感" ...) in the
+    authored texture line are dropped.
     """
     palette = contract.get("palette_system") or {}
     return "\n".join([
@@ -1187,13 +1193,15 @@ def visual_culture_block(contract: dict[str, Any], *, exterior: bool = False) ->
         f"美术：{_exterior_design(str(contract.get('production_design') or '')) if exterior else contract.get('production_design')}",
         f"色彩：底色{palette.get('base')}；点色{palette.get('accent')}；肤色{palette.get('skin')}",
         f"光线：{_exterior_lighting(str(contract.get('lighting_language') or '')) if exterior else contract.get('lighting_language')}",
-        f"质感：{_vcc.image_texture(contract) if _render_style.is_anime(contract) else contract.get('image_texture')}",
+        f"质感：{_vcc.image_texture(contract) if _render_style.is_anime(contract) else _render_style.strip_quality_boosters(contract.get('image_texture'))}",
         "画幅：9:16 竖构图。画面内不得出现任何文字、字幕、水印、logo。"
         # the period ban belongs to the East-Asian period lock; an AUTHORED_WORLD contract (Victorian London,
         # sci-fi, modern) must not be told 禁欧洲 (holmes lab E01 2026-10-23)
         + ("" if str(contract.get("era_lock") or "").upper() == "AUTHORED_WORLD" else "禁欧洲、板甲、黑金。"),
         # live-action skin finish (line owner 2026-11-24, KO E01 oily face); anime keeps its own texture line
         *([] if _render_style.is_anime(contract) else [_render_style.LIVE_SKIN_FINISH_ZH]),
+        *([_render_style.live_skin_positive(shot_scale, "zh")] if people and not _render_style.is_anime(contract)
+          else []),
     ])
 
 
@@ -1426,6 +1434,20 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
     # The shot's negative list already re-states the culture contract's
     # forbidden_influences; emit each constraint exactly once.
     negatives = [row for row in (spec.get("negative_prompts") or []) if row not in forbidden]
+    if not _render_style.is_anime(getattr(inputs, "render_style", None)):
+        # line owner 2026-11-25 (text only, no gate): never forbid a prop this shot needs; a shot with two or more
+        # people says "人物数量变化" instead of extra-person negatives; live-action texture negatives appended
+        shot_props = [str(row.get(key) or "").strip() for row in [*(blocking.get("props") or []),
+                                                                  *(spec.get("props") or [])]
+                      if isinstance(row, dict) for key in ("prop", "english_name", "entity_name")]
+        shot_props += [str(row.get("entity_name") or "") for row in bindings if row["role"] == "prop"]
+        action_text = " ".join([entry_state, str((spec.get("action") or {}).get("primary_action") or "")])
+        cast_count = len(cast_names) + sum(1 for line in ots_listener_lines(spec)
+                                           if not any(name in line for name in cast_names))
+        forbidden = _render_style.filter_negatives(forbidden, prop_names=shot_props, action_text=action_text)
+        negatives = _render_style.filter_negatives(negatives, prop_names=shot_props, action_text=action_text,
+                                                   multi_person=cast_count >= 2)
+        negatives += [term for term in _render_style.TEXTURE_NEGATIVES_ZH if term not in forbidden + negatives]
 
     # Lighting participants are scoped to this shot's own cast (see
     # tools/lighting_participant_scope.py).  The scene-level line may name the
@@ -1579,7 +1601,10 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
          "承担空间与 scene 位的都是本地渲染的俯视拓扑图，只作空间几何依据；"
          "不得把图中的线条、标注、网格、图例或任何文字画进正片。", True),
         ("blank8", "", True),
-        ("visual_culture", visual_culture_block(inputs.visual_culture, exterior=_is_exterior(inputs, shot)), True),
+        ("visual_culture", visual_culture_block(
+            inputs.visual_culture, exterior=_is_exterior(inputs, shot),
+            shot_scale=shot.get("shot_size") or (spec.get("camera_plan") or {}).get("shot_scale"),
+            people=bool(cast_names)), True),
         ("blank9", "", True),
         ("hard_head", "【本帧硬约束】", True),
         ("hard_entry", f"画面只表现上面的 entry_state：{entry_state}", True),

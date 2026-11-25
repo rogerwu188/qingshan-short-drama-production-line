@@ -745,9 +745,15 @@ def view_prompt_text(base_prompt: str, view: str, *, reference_clause: str) -> s
     text = base_prompt
     if view in VIEW_COMPOSITION:
         composition = VIEW_COMPOSITION[view]
-        text, count = COMPOSITION_RE.subn(lambda _m: composition, text, count=1)
+        # a face / bust view of a live-action card shows skin up close: the anti-oil finish and the FULL positive
+        # skin description follow the view's composition (line owner 2026-11-25, "AI face"); the 构图 paragraph
+        # swap swallows the base card's own skin lines, which sit in the same paragraph.
+        base_skin = _render_style.live_skin_positive("FULL_BODY", "zh")
+        full_skin = _render_style.live_skin_positive(view, "zh")
+        skin = ("\n" + _render_style.LIVE_SKIN_FINISH_ZH + "\n" + full_skin) if base_skin in base_prompt else ""
+        text, count = COMPOSITION_RE.subn(lambda _m: composition + skin, text, count=1)
         if count == 0:
-            text = text.rstrip() + "\n\n" + composition
+            text = text.replace(base_skin, full_skin).rstrip() + "\n\n" + composition
         text = text.replace("正面中性表情、无动作、直立、目视镜头",
                             {"FRONT_NEUTRAL_HEADSHOT": "正面中性表情头像、目视镜头",
                              "THREE_QUARTER_BUST": "四分之三侧身半身像、中性表情"}[view])

@@ -215,7 +215,9 @@ class ActionNamesOnlyTheFrame(unittest.TestCase):
         text, _ = render_h3_prompt(unit, plan)
         never = text.split("\n\nNever: ")[1]
         self.assertNotIn("background figures", never)
-        self.assertIn("anyone else in frame", never)
+        # two people on screen: the character-count line replaces "anyone else in frame" (line owner 2026-11-25)
+        self.assertIn("an unscripted change in the character count", never)
+        self.assertNotIn("anyone else in frame", never)
 
 
 class PeriodTraitsAndNever(unittest.TestCase):

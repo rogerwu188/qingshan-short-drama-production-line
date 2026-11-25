@@ -181,6 +181,12 @@ NEVER_V2_STAMPED = ("captions, subtitles, speech bubbles or any written words, l
                     "watermarks; a second copy of anyone")  # keeps the scope-gate marker "captions, subtitles"
 #: live-action skin / hair finish on stamped units (v1.SKIN_FINISH_NEGATIVE in "Never:" wording)
 SKIN_FINISH_NEVER = "oily, glossy or sweaty skin sheen, wet-looking hair or over-sharpened skin texture"
+#: texture negatives on stamped live-action units (line owner 2026-11-25, "AI face")
+TEXTURE_NEVER_PEOPLE = ("plastic skin texture, over-processed HDR, oversaturated colour, exaggerated mouth shapes or "
+                        "teeth-baring speech")
+TEXTURE_NEVER_NO_PEOPLE = "over-processed HDR or oversaturated colour"
+#: a stamped live-action unit with two or more people: in place of "anyone else in frame"
+CHARACTER_COUNT_NEVER = "an unscripted change in the character count"
 #: anime skin / hair finish on stamped anime units (v1.ANIME_FINISH_NEGATIVE in "Never:" wording; JA-01 E01 2026-11-20)
 ANIME_FINISH_NEVER = ("glossy, oily or wet-looking shine on skin or hair, or 3D-rendered skin shading (keep flat matte "
                       "cel shading)")
@@ -917,6 +923,17 @@ def _bili_v1_parts(unit: dict[str, Any], plan: dict[str, Any], source: dict[str,
     if lead:
         evidence[f"{prefix}.LEAD_IN_REACTION"] = " ".join(lead)
         parts = [*lead, *parts]
+    if speaker_label:
+        # E27 2026-11-25: the compiled micro-performance (entry -> change on the stressed word -> end frame)
+        try:
+            window = (float(source["start_seconds"]), float(source["end_seconds"]))
+        except (KeyError, TypeError, ValueError):
+            window = None
+        listener = label_by_id.get(str(role.get("dialogue_listener_id") or ""), "")
+        timeline = v1._bili.performance_timeline_line(action, speaker_label, listener, window)
+        if timeline:
+            parts.append(timeline)
+            evidence[f"{prefix}.PERFORMANCE_TIMELINE"] = timeline
     authored_rows = (
         ("MICROEXPRESSION", "microexpression_cue", "Face", v1._bili.authored(action, "microexpression_design")),
         ("BODY_SYNC", "body_sync_cue", "Body", True),  # performance.body_sync: writer-authored only, no template
@@ -1033,7 +1050,9 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
                 str(card.get("locomotion") or "").strip().lower(), "")
             look = _en(answer.get("look")) or _en(s.get("look"))
             return "; ".join(v for v in ("a living non-human subject, not a prop", look, gait) if v)
-        appearance = _en(answer.get("appearance")) or _en(s.get("appearance"))
+        # stamped: wardrobe only, the reference image owns the face, skin and look (line owner 2026-11-25,
+        # "AI face"); unstamped units keep appearance + wardrobe byte-identically
+        appearance = "" if stamped else (_en(answer.get("appearance")) or _en(s.get("appearance")))
         wardrobe = _en(answer.get("wardrobe")) or _en(s.get("wardrobe"))
         if wardrobe and appearance and wardrobe.lower() in appearance.lower():
             wardrobe = ""
@@ -1472,19 +1491,29 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
 
     # --- never -----------------------------------------------------------------------------------------
     # background figures are allowed only when the projection declares extras (H3_ACTION_NAMES_ONLY_FRAME, E24)
+    # line owner 2026-11-25: a stamped live-action unit with two or more people says "a change in the character
+    # count" instead of an extra-person negative; a negative never names a prop the unit needs
+    count_line = stamped and not anime and len(people) >= 2
     negatives = [NEVER_V2_STAMPED if stamped else NEVER_V2, "any person, hand or body part" if not subjects else
                  ("anyone beyond the listed people and background figures" if background_declared
-                  else "anyone else in frame")]
+                  else CHARACTER_COUNT_NEVER if count_line else "anyone else in frame")]
     if period:
         negatives.append(PERIOD_NEVER_V2)
-    for value in contract.get("negative_constraints") or []:
-        value = scrub(value)
+    authored = [scrub(value) for value in contract.get("negative_constraints") or []]
+    if stamped:
+        authored = _render_style.filter_negatives([v for v in authored if v], prop_names=v1.shot_prop_names_en(unit),
+                                                  multi_person=count_line, lang="en", count_term=CHARACTER_COUNT_NEVER)
+    for value in authored:
         if value:
             negatives.append(value[0].lower() + value[1:])
     if wuxia.get("status") == "SELECTED":
-        negatives.extend(scrub(v) for v in wuxia.get("negative_constraints_en") or [] if scrub(v))
+        wuxia_rows = [scrub(v) for v in wuxia.get("negative_constraints_en") or [] if scrub(v)]
+        negatives.extend(_render_style.filter_negatives(wuxia_rows, prop_names=v1.shot_prop_names_en(unit))
+                         if stamped else wuxia_rows)
     if stamped and v1.skin_finish_applies(unit, plan, anime=anime, has_people=bool(subjects)):
         negatives.append(SKIN_FINISH_NEVER)  # live-action skin / hair finish (line owner 2026-11-20, KO E01)
+    if stamped and not anime:  # texture negatives (line owner 2026-11-25, "AI face")
+        negatives.append(TEXTURE_NEVER_PEOPLE if subjects else TEXTURE_NEVER_NO_PEOPLE)
     if stamped and all_locked:  # KO E05 2026-11-21: the set never moves with the actor
         negatives.append(FRAME_WOBBLE_NEVER)
     negatives.append("music")

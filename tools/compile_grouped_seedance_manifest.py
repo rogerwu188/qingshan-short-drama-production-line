@@ -574,7 +574,7 @@ def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None 
     resolution = str(unit.get("resolution") or "720p")
     aspect_ratio = str(unit.get("aspect_ratio") or "9:16")
     lines = [
-        f"【视频任务】{unit['duration_seconds']}秒，竖屏{aspect_ratio}，{resolution}，{model_display_name(model)}；写实古装悬疑电影质感。",
+        f"【视频任务】{unit['duration_seconds']}秒，竖屏{aspect_ratio}，{resolution}，{model_display_name(model)}；写实古装悬疑剧。",
         f"【天气硬合同】weather={weather}",
         "【场景与人物】" + "；".join(scene_parts) + "。使用随任务传入的参考图保持人物面孔、服装、场景和道具一致。",
         "【服装身份硬合同】" + wardrobe_line,

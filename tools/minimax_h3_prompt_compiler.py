@@ -438,7 +438,7 @@ def compile_h3_prompt(unit: dict[str, Any]) -> str:
             retention.append(f"@图片{index}：fully_preserved - {role_text}。")
 
     description: list[str] = [
-        "目标视频为真人实拍、写实古装悬疑电影质感，保持同一人物身份、服装、场景地图、道具、天气和光向。",
+        "目标视频为真人实拍、写实古装悬疑剧，保持同一人物身份、服装、场景地图、道具、天气和光向。",
         f"服装身份锁：{wardrobe}",
         voice_block,
         f"[Shot 1] {_shot_scale(unit.get('camera_plan'))}从@图片1的构图和状态开始。"
