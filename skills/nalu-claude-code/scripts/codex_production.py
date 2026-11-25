@@ -354,6 +354,168 @@ def final_review_step(episode: str) -> dict[str, Any]:
     return launch_reviewer(episode)
 
 
+# ---------------------------------------------------------------------------------- independent script review (S1)
+# E28 (device …1101, 2026-11-25): S1 stopped on WRITER_CAPABILITY_STEP_OWED:SCRIPT_REVIEW_MISSING for ~4 h.  The
+# writer must not review its own script (writer_capability.review_independence), and nothing launched the
+# independent reader -- the writer waited for a reviewer prompt file nobody wrote, until a maintainer authored one by
+# hand.  The engine now does it the way it runs the final review: it writes the request (script_review.py request),
+# writes the reviewer prompt, starts a separate `codex exec` (fresh thread, REVIEWER_MODEL) that submits its own
+# answers, then resumes the writer once to respond.  Free (no paid provider call), bounded attempts.
+SCRIPT_REVIEW_OWED = ("WRITER_CAPABILITY_STEP_OWED:SCRIPT_REVIEW_MISSING",
+                      "WRITER_CAPABILITY_STEP_OWED:SCRIPT_REVIEW_NOT_INDEPENDENT")
+MAX_SCRIPT_REVIEWER_ATTEMPTS = 2
+SCRIPT_REVIEWER_PROMPT_NAME = "independent_reviewer_prompt.txt"
+SCRIPT_REVIEWER_ID = "claude-code-nalu-vlm"   # nalu_qa_common.REVIEWER_ID: the protocol constant the validator demands
+
+
+def script_review_owed(episode: str) -> bool:
+    return any(str(b).startswith(SCRIPT_REVIEW_OWED) for b in _s1_blockers(episode))
+
+
+def _engine_env() -> dict[str, str]:
+    engine, runtime = roots()
+    return {**os.environ, "NALU_ENGINE_ROOT": str(engine), "NALU_RUNTIME_ROOT": str(runtime),
+            "NALU_WORK_ROOT": os.environ.get("NALU_WORK_ROOT") or str(engine / "workflow" / "nalu")}
+
+
+def script_review_requests(episode: str) -> list[Path]:
+    """The episode's script-review requests, oldest first (vlm_review_protocol names them <EP>-script_review-<run>)."""
+    base = roots()[1] / "runtime" / "reviews" / episode
+    return sorted(base.glob(f"{episode}-script_review-*_request.json"), key=lambda p: (p.stat().st_mtime, p.name))
+
+
+def script_review_submitted(request: Path) -> Path | None:
+    """The validated submission bound to ``request`` (same sha), or None."""
+    path = request.with_name(request.name.replace("_request.json", "_submitted.json"))
+    record = read_json(path)
+    if ((record.get("validation") or {}).get("status") == "PASS"
+            and record.get("request_sha256") == _file_sha(request)):
+        return path
+    return None
+
+
+def write_script_review_request(episode: str) -> tuple[Path | None, str]:
+    """script_review.py request --episode <EP> (offline, free).  Returns (request, error)."""
+    engine, _ = roots()
+    venv = engine / ".qingshan-venv" / "bin" / "python"
+    tool = engine / "lines" / "nalu" / "runtime" / "tools" / "script_review.py"
+    try:
+        done = subprocess.run([str(venv if venv.is_file() else sys.executable), str(tool), "request",
+                               "--episode", episode], cwd=engine, env=_engine_env(), capture_output=True,
+                              text=True, timeout=600)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, f"{type(exc).__name__}"
+    try:
+        out = json.loads((done.stdout or "").strip().splitlines()[-1])
+        path = Path(out["request"])
+    except (IndexError, ValueError, KeyError, TypeError):
+        return None, f"exit={done.returncode}:{(done.stderr or done.stdout or '')[-200:]}"
+    return (path, "") if path.is_file() else (None, f"REQUEST_NOT_WRITTEN:{path}")
+
+
+def script_reviewer_prompt(episode: str, request: Path, answers: Path, process_id: str, submit_cmd: str,
+                           template_cmd: str) -> str:
+    return f"""你是 NALU 短剧 {episode} 的**独立剧本审核者**（读者视角），不是写手。你只读审核请求里的匿名梗概，不看、不信任何生产记录或写手的说法。
+
+1. 读审核请求：`{request}`。`reviewer_contract` 的规则、`questionnaire`（每题的 enum）、`observed_fields` 和每个 item 的
+   `media[].path`（匿名梗概，sha 已绑定）、`closed_vocabulary`、`scene_labels` 就是你要做的全部。
+2. 从头到尾读完梗概（`media[].path` 指向的文件）再作答。
+3. 先生成空模板看格式：`{template_cmd}`（它写出 `*_answers_TEMPLATE.json`，那只是模板，不能提交）。
+   按模板格式把你自己的答案写到 `{answers}`：
+   - `schema` 用模板里的值；删掉模板标记字段 `__NOT_A_REVIEW_FILL_EVERY_NULL__` 和 `_refusal`，`reviewer` = `{SCRIPT_REVIEWER_ID}`，
+     `reviewed_at` = 当前 UTC ISO 时间，`request_path` = 请求路径，`request_sha256` 用 `sha256sum` 算请求文件；
+   - 每个 item：`answers` 每题只填它 enum 里的一个值（FAIL 表示文字没给你这题要的东西，是给写手的问题，不是否决）；
+     `observation` 写你实际读到了什么（至少几十个字，具体到场景和事件）；`observed` 的每个字段都给列表（闭合词表里的值，
+     词表外的写 `UNDECLARED:<你读到的>`）；每个 item 都要加 `confusion_points`（模板里没有这个键）：列出每个让你困惑的点（`scene` 用 `scene_labels` 里的标签，
+     `question` 用你自己的话，`why` 说明文字为什么没交代清楚），没有就写空列表 `[]`；`defects` 写 `[]` 或你发现的问题。
+   如实判断，不要为了通过而改答案；也不要打分。
+4. 自己提交：`{submit_cmd}`。退出码 0 就完成；退出码 2（INVALID）就读输出里的 failures，修正答案格式后再提交一次。
+5. 只允许写 `{answers}`、模板文件和你在 `$TMPDIR` 下的临时目录；不改剧本、合同、引擎、订单或任何其它文件；不读任何密钥文件。
+   审核者 id `{process_id}` 只用于记录。
+最后一行输出：`SCRIPT_REVIEW_SUBMITTED: {{"exit_code": <submit 退出码>}}`
+"""
+
+
+def launch_script_reviewer(episode: str) -> dict[str, Any]:
+    """Start (at most MAX_SCRIPT_REVIEWER_ATTEMPTS times per request) the independent script reviewer."""
+    env = codex_env()
+    exe = codex_exe(env)
+    if not exe or env is None:
+        return {"status": "BLOCKED", "reason": "CODEX_OR_PROVIDER_MISSING"}
+    engine, _ = roots()
+    d = run_dir(episode) / "script_reviewer"
+    d.mkdir(parents=True, exist_ok=True)
+    state = read_json(d / "reviewer.json")
+    if alive(state.get("pid")):
+        return {"status": "RUNNING", "pid": state.get("pid"), "log": state.get("log")}
+    requests = script_review_requests(episode)
+    request = requests[-1] if requests else None
+    if request is None:  # the writer never asked: the engine writes the request (binds the current narrative)
+        request, error = write_script_review_request(episode)
+        if request is None:
+            return {"status": "BLOCKED", "reason": f"SCRIPT_REVIEW_REQUEST_FAILED:{error}"}
+    request_sha = _file_sha(request)
+    if state.get("request_sha256") != request_sha:
+        state = {"request_sha256": request_sha}
+    attempts = int(state.get("attempts") or 0)
+    if attempts >= MAX_SCRIPT_REVIEWER_ATTEMPTS:
+        return {"status": "EXHAUSTED", "attempts": attempts, "log": state.get("log")}
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    process_id = f"codex-script-reviewer-{episode}-{ts}"
+    venv = engine / ".qingshan-venv" / "bin" / "python"
+    tools = engine / "lines" / "nalu" / "runtime" / "tools"
+    answers = request.with_name(request.name.replace("_request.json", "_answers.json"))
+    submit_cmd = f"{venv} {tools}/script_review.py submit --request {request} --answers {answers}"
+    template_cmd = f"{venv} {tools}/vlm_review_protocol.py example-answers --request {request}"
+    prompt = script_reviewer_prompt(episode, request, answers, process_id, submit_cmd, template_cmd)
+    # the same file name a maintainer once wrote by hand (E28): the prompt is the engine's, on disk, every time
+    work = Path(env.get("NALU_WORK_ROOT") or engine / "workflow" / "nalu") / episode / "script_review"
+    try:
+        work.mkdir(parents=True, exist_ok=True)
+        (work / SCRIPT_REVIEWER_PROMPT_NAME).write_text(prompt, encoding="utf-8")
+    except OSError:
+        pass
+    pfile, log, last = d / f"review_{ts}.prompt.md", d / f"review_{ts}.jsonl", d / f"review_{ts}.last.txt"
+    pfile.write_text(prompt, encoding="utf-8")
+    argv = [exe, "exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check",
+            "-m", REVIEWER_MODEL, "-o", str(last), "-"]
+    with open(log, "w", encoding="utf-8") as out, open(pfile, encoding="utf-8") as stdin:
+        proc = subprocess.Popen(argv, cwd=engine, stdout=out, stderr=subprocess.DEVNULL, stdin=stdin, env=env,
+                                start_new_session=True)
+    state.update({"pid": proc.pid, "attempts": attempts + 1, "log": str(log), "process_id": process_id,
+                  "request": str(request), "model": REVIEWER_MODEL_ID,
+                  "started_at": datetime.now(timezone.utc).isoformat()})
+    write_json(d / "reviewer.json", state)
+    note(f"{episode} 独立剧本审核：引擎启动审核者（{REVIEWER_MODEL_ID}，第 {attempts + 1} 次，pid {proc.pid}）")
+    return {"status": "STARTED", "pid": proc.pid, "attempt": attempts + 1, "log": str(log), "request": str(request)}
+
+
+SCRIPT_REVIEW_RESPOND_MESSAGE = (
+    "S1 的 WRITER_CAPABILITY_STEP_OWED:SCRIPT_REVIEW_* 已由引擎处理：引擎启动的独立剧本审核者已提交审核 {submitted}"
+    "（你没有写、也不要改）。现在正式回应：读它的 items[].confusion_points，按 lines/nalu/runtime/tools/script_review.py "
+    "写回应 JSON（schema nalu.script_review_writer_responses.v1，responder 写 codex-writer，submitted_sha256 = 该文件 sha256，"
+    "每个困惑点一条 REVISED/EXPLAINED，没有困惑点就 items: []），然后跑 "
+    "`script_review.py respond --submitted {submitted} --responses <你的回应> --out {report}`，"
+    "改了剧本就先改再回应；之后重跑 S1→S3 照常生产。免费，不问线主，不要自己审自己的剧本，不报 BLOCKED。")
+
+
+def script_review_step(episode: str, session: dict[str, Any]) -> dict[str, Any]:
+    """S1 owes an independent script review: launch / wait for the reviewer; once its submission is on record,
+    RESUME the writer to respond (once per submission)."""
+    state = read_json(run_dir(episode) / "script_reviewer" / "reviewer.json")
+    if alive(state.get("pid")):
+        return {"status": "RUNNING", "pid": state.get("pid")}
+    for request in reversed(script_review_requests(episode)):
+        submitted = script_review_submitted(request)
+        if submitted is None:
+            continue
+        sha = _file_sha(submitted)
+        if sha in (session.get("script_review_resumed") or []):
+            return {"status": "WRITER_STILL_OWES_RESPONSE", "submitted": str(submitted)}
+        return {"status": "RESUME_WRITER", "submitted": str(submitted), "submitted_sha256": sha}
+    return launch_script_reviewer(episode)
+
+
 def provider() -> dict[str, str] | None:
     _, runtime = roots()
     cred = runtime / "credentials"
@@ -1604,6 +1766,28 @@ def tick(system: bool = False) -> dict[str, Any]:
         if out.get("status") == "STARTED":
             return res
         reason = f"RESUME_FAILED:{out.get('reason') or out.get('status')}"
+    elif state == "BLOCKED" and script_review_owed(ep):
+        # E28 2026-11-25: the independent script review is launched by the engine, never waited for (see
+        # launch_script_reviewer); the writer is resumed once per submission to respond
+        step = script_review_step(ep, session)
+        res["script_review"] = step
+        if step["status"] in ("STARTED", "RUNNING"):
+            did.append(f"script_reviewer:{step['status']}")
+            return res
+        if step["status"] == "RESUME_WRITER":
+            report = (Path(os.environ.get("NALU_WORK_ROOT") or roots()[0] / "workflow" / "nalu") / ep
+                      / "writer_capability" / f"{ep}_SCRIPT_REVIEW_REPORT.json")
+            out = resume(ep, SCRIPT_REVIEW_RESPOND_MESSAGE.format(submitted=step["submitted"], report=report))
+            session = read_json(d / "session.json")
+            session["script_review_resumed"] = sorted(set(session.get("script_review_resumed") or [])
+                                                      | {step["submitted_sha256"]})
+            write_json(d / "session.json", session)
+            did.append(f"resume_script_review_response:{out.get('status')}")
+            if out.get("status") == "STARTED":
+                return res
+            reason = f"RESUME_FAILED:{out.get('reason') or out.get('status')}"
+        else:
+            reason = f"SCRIPT_REVIEW_REQUIRED:{step['status']}"  # reviewer exhausted / blocked: the agent takes over
     elif state == "WAITING_REMOTE":
         # remote work (S6 rendering, H3 queue, zero-cost provider outage) is followed here for free; Codex is woken
         # only when the stage needs judgement (paid_run_status.tick_decision; device …1144 E08/E09 cost study)

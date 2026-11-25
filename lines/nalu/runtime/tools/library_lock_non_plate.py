@@ -319,6 +319,20 @@ def _bgm_is_none(bgm: Any) -> bool:
     return value.startswith("NO_EXTERNAL_BGM") or value.startswith("NONE")
 
 
+def _bgm_undecided(bgm: Any) -> bool:
+    """``NO_BGM`` / missing / an object without a mode: the writer did not decide, so the line default
+    (nalu_bgm_default, BGM default ON 2026-10-22) derives the cue contract at S6/S7.  SCREENPLAY_V1's compiler
+    writes ``NO_BGM`` for every contract that does not author music (E28 S3 2026-11-25: the music row failed
+    ``contract_bgm_policy_consistent`` on that value).  The sealed contract declares no external BGM asset, so
+    the S3 music row is a consistent declaration either way."""
+    if bgm is None:
+        return True
+    if isinstance(bgm, dict):
+        mode = str(bgm.get("mode") or bgm.get("usage_mode") or "").strip().upper()
+        return mode in ("", "NO_BGM") and not bgm.get("used")
+    return str(bgm).strip().upper() in ("", "NO_BGM")
+
+
 def _owner_has_dialogue(ctx: "Ctx", owner: str | None) -> bool:
     name = next((c.get("canonical_name") for c in (ctx.contract.get("character_entities") or []) if c.get("character_id") == owner), None)
     for shot in ctx.contract.get("shots") or []:
@@ -536,9 +550,12 @@ def lock_declared_audio(ctx: Ctx, category: str, row: dict[str, Any]) -> dict[st
         bgm = audio.get("bgm")
         selective = isinstance(bgm, dict) and str(bgm.get("mode") or "").upper() == "SELECTIVE" and bool(bgm.get("cues"))
         lock["bgm_mode"] = (bgm.get("mode") if isinstance(bgm, dict) else "NONE")
+        undecided = _bgm_undecided(bgm)
+        if undecided:
+            lock["bgm_mode"] = "LINE_DEFAULT_DERIVED_LATER"
         checks.append({"id": "contract_bgm_policy_consistent",
-                       "status": "PASS" if (_bgm_is_none(bgm) and not spec.get("external_bgm_allowed")) or selective else "FAIL",
-                       "note": "NONE (E01/E02) or SELECTIVE with cues (D-32, seq=13 c2); the requirement row's external_bgm_allowed flag is derived and not authoritative for SELECTIVE"})
+                       "status": "PASS" if ((_bgm_is_none(bgm) or undecided) and not spec.get("external_bgm_allowed")) or selective else "FAIL",
+                       "note": "NONE (E01/E02), NO_BGM/omitted (line default cue derived at S6/S7, nalu_bgm_default) or SELECTIVE with cues (D-32, seq=13 c2); the requirement row's external_bgm_allowed flag is derived and not authoritative for SELECTIVE"})
     elif category == "accents":
         locale = accent_locale(spec)
         lock.update({"locale": locale, "pronunciation_profile": spec.get("pronunciation_profile"),
@@ -627,8 +644,14 @@ def run_lock(ctx: Ctx, report_path: Path, force: bool) -> dict[str, Any]:
                      "checks": [(c["id"], c["status"]) for c in new_row["qa"]["checks"]]}
             results.append(entry)
             if new_row["status"] != "LOCKED":
-                failures.append({"category": category, "asset_id": asset_id,
-                                 "errors": [f"{c['id']}:{c['status']}" for c in new_row["qa"]["checks"] if c["status"] != "PASS"]})
+                failure = {"category": category, "asset_id": asset_id,
+                           "errors": [f"{c['id']}:{c['status']}" for c in new_row["qa"]["checks"] if c["status"] != "PASS"]}
+                if category == "voices" and not new_row.get("artifacts"):
+                    # E28 2026-11-25: the S3 writer read these rows as an S3 blocker.  A voice reference is made at
+                    # S4; before that the row is expected to be open and S3 never gates on it.
+                    failure["expected_before_s4"] = True
+                    failure["note"] = "VOICE_REFERENCE_PENDING_S4: normal before S4 (voices are generated at S4); not an S3 blocker"
+                failures.append(failure)
     ctx.library["updated_at"] = utc_now()
     write_json(ctx.library_path, ctx.library)
     libraries = [str(ctx.library_path)]

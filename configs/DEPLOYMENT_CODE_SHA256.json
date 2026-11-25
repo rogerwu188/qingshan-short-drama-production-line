@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2610,
+  "file_count": 2612,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -829,7 +829,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/library_lock_non_plate.py",
-      "sha256": "af4f5faaf51c083f803301c5db436bec2525f0af80f470acaf469463257517e2"
+      "sha256": "563caf5ec6c66ffad1619090e37c22dd1f4c93132e29d28aa3c158ee38ad4ac2"
     },
     {
       "path": "lines/nalu/runtime/tools/materialize_paid_authorization.py",
@@ -1033,7 +1033,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/studio_asset_resolve.py",
-      "sha256": "b372c652f6412378472be3536445ee65e2fe7afa3a9222b310d7f313a8232eb1"
+      "sha256": "b25c337cd031408ef266b5e6ba159de1e246e96aa1ee976abefffe5f85a79fa0"
     },
     {
       "path": "lines/nalu/runtime/tools/subtitle_text_match.py",
@@ -1125,7 +1125,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "deedadbcd7a5f65cc329cd683bf08d5d420d24d3f66e28f4713af7ef8152bf22"
+      "sha256": "3d73187fb9fe4b3b40e75738556788a68abee483674a17732b52d2e9cf0ea14b"
     },
     {
       "path": "skills/nalu-claude-code/scripts/collective_provision.py",
@@ -8777,7 +8777,7 @@
     },
     {
       "path": "tools/tests/test_nalu_codex_executor.py",
-      "sha256": "12ab413fa5144031ce272465df3615014830c5da00abb8364b82a0fa0ceb788e"
+      "sha256": "89106e11ef988bc84d5291a79b88eaaee8e3327c06b65557a9980f1f9b55f66b"
     },
     {
       "path": "tools/tests/test_nalu_craft_standard.py",
@@ -9022,6 +9022,10 @@
     {
       "path": "tools/tests/test_no_disabled_regression_ci.py",
       "sha256": "4a4e43de85d3d83bfa074bea89760c7bbc8de398298b1d225f13aa08dbd28db6"
+    },
+    {
+      "path": "tools/tests/test_non_plate_bgm_policy.py",
+      "sha256": "9db6c5d19e2948441cdad3e8953719f1c43f056c1d45c390d935a572260d0a6d"
     },
     {
       "path": "tools/tests/test_noncontact_sound.py",
@@ -9754,6 +9758,10 @@
     {
       "path": "tools/tests/test_studio_asset_library_wiring.py",
       "sha256": "88a5ae6ceb61eae7d701792e87f1008524c9d407cb9593143518bd092923ab04"
+    },
+    {
+      "path": "tools/tests/test_studio_resolve_archive_restore.py",
+      "sha256": "b321c46441b0ba0252c1b71a2949f85bcdb8be967dc0a43a93c3aef9afdbe021"
     },
     {
       "path": "tools/tests/test_submit_boundary_dialogue_language.py",
