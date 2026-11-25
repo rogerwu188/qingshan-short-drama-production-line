@@ -1973,6 +1973,19 @@ def script_length_check(ctx: Ctx) -> dict[str, Any]:
     out = {"authored_seconds": authored, "target_seconds": target, "limit_seconds": limit,
            "floor_seconds": floor, "target_declared": declared is not None,
            "shots": len(contract.get("shots") or [])}
+    # E27 2026-11-25: the nominal sum over-states the cut (S7 trims every unit; folded silent steps add no time).
+    # Advisory only: the expected cut runtime and, below 0.95 x target, what the writer adds (never silent inserts).
+    try:
+        import screenplay_compile as _spc  # noqa: PLC0415 -- same directory
+        estimate = _spc.cut_runtime_estimate(contract.get("shots") or [], target=target,
+                                             target_declared=declared is not None,
+                                             language=str(contract.get("dialogue_language") or "zh"))
+        out["cut_estimate_seconds"] = estimate["estimated_cut_seconds"]
+        out["cut_estimate_ratio"] = estimate["ratio"]
+        if estimate["warning"] and declared is not None:
+            out["advisory"] = f"{estimate['warning']}: {_spc.RUNTIME_SHORT_FIX}"
+    except Exception:  # noqa: BLE001 -- an estimate never breaks S1
+        pass
     if authored < floor and declared is not None and not s1_pacing_in_flight(ctx.p) \
             and ctx_craft_profile(ctx) == "BILI_V1":
         # CHANGE_SPEC WP1: an episode is 1 main + <= 1 secondary plot event -- a short script deepens its scenes
@@ -1997,6 +2010,7 @@ def script_length_check(ctx: Ctx) -> dict[str, Any]:
 #: S1 blockers that are writer-fixable defects of the script itself (integrity, never taste): they return the
 #: script to the writer, free, inside the bounded integrity loop below
 S1_INTEGRITY_PREFIXES = ("SCRIPT_TOO_SHORT", "SCRIPT_TOO_LONG", "SCRIPT_INTEGRITY_FAIL", "DIRECTION_POLICY_INTEGRITY_FAIL",
+                         "RUNTIME_ESTIMATE_SHORT",
                          "CHARACTER_ENTITY_CONTRACT_FAIL", "SCRIPT_STRUCTURE_CONTRACT_FAIL",
                          "CONTINUITY_STATE_CONTRACT_FAIL", "STATIC_DESIGN_GATE_FAIL",
                          "WRITER_CAPABILITY_STEP_OWED:SCRIPT_REVIEW_NOT_INDEPENDENT")
@@ -2037,6 +2051,27 @@ def s1_integrity_round(p: Any, layer_shas: dict[str, Any], blockers: list[str]) 
                                    f"{S1_INTEGRITY_MAX_ROUNDS} revisions did not clear the script's integrity "
                                    "failures: admitted and recorded (SCRIPT_INTEGRITY_ADMITTED_AFTER_EXHAUSTION); "
                                    "the line continues")}
+
+
+def s1_runtime_feedback(p: Any, layer_shas: dict[str, Any], length: dict[str, Any]) -> str:
+    """RUNTIME_ESTIMATE_SHORT as ONE writer revision (E27 2026-11-25; E26 was held RUNTIME_SHORT at release): the
+    expected cut runtime (``script_length.advisory``, after folding) under 0.95 x the declared brief target goes back
+    to the writer through the bounded integrity loop once -- on the first failing script that carries it (re-running
+    the same bytes stays that round).  Once a different script was already sent back for it, it is only recorded:
+    never a second round, never a hard stop.  '' when nothing is owed.  Never raises."""
+    advisory = str((length or {}).get("advisory") or "")
+    if not advisory.startswith("RUNTIME_ESTIMATE_SHORT"):
+        return ""
+    try:
+        sha = hashlib.sha256(json.dumps(layer_shas or {}, sort_keys=True).encode("utf-8")).hexdigest()
+        state = read_json(Path(getattr(p, "logs")) / S1_INTEGRITY_LEDGER, {}) or {}
+        for row in state.get("rounds") or []:
+            if isinstance(row, dict) and row.get("layers_sha256") != sha and any(
+                    str(c).startswith("RUNTIME_ESTIMATE_SHORT") for c in row.get("codes") or []):
+                return ""  # the writer already had its chance on an earlier script
+    except Exception:  # noqa: BLE001 -- unknown ledger: send it once
+        pass
+    return advisory
 
 
 def s1_integrity_blockers(decision: dict[str, Any], blockers: list[str]) -> list[str]:
@@ -2427,6 +2462,12 @@ def stage_s1(ctx: Ctx) -> StageResult:
     in_flight = s1_pacing_in_flight(p)
     direction_policy, direction_blockers = s1_direction_policy(ctx, p, in_flight=in_flight)
     integrity_blockers += direction_blockers
+    # E27 2026-11-25: one writer revision for a cut that will run short (BILI_V1, before any paid stage)
+    runtime_feedback = "" if in_flight or ctx_craft_profile(ctx) != "BILI_V1" else \
+        s1_runtime_feedback(p, layer_shas, length)
+    if runtime_feedback:
+        integrity_blockers.append(runtime_feedback)
+        length["routed_to_writer"] = True
 
     # Writer-capability record (line owner 2026-11-01): under WRITER_CAPABILITY_V1 an
     # episode must show an arc ledger, its own adaptation disposition, an answered

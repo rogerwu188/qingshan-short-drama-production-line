@@ -1348,6 +1348,7 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
     blocking = sp_task.get("blocking") or {}
     scene_state = spec.get("scene_state") or {}
     design = spec.get("visual_design") or {}
+    see = spec.get("visual") if isinstance(spec.get("visual"), dict) else {}
     entry_state = str(shot.get("entry_state") or "").strip()
     if not entry_state:
         raise ValueError(f"{shot_id}: entry_state is empty; keyframes have no fallback source")
@@ -1594,6 +1595,10 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
         ("atmosphere", f"空气与质感：{design.get('atmosphere')}", False),
         ("material_detail", f"材质细节：{join(design.get('material_detail'), '、')}", False),
         ("depth_layers", f"纵深层次：{join(design.get('depth_layers'), '｜')}", False),
+        # E27 脑补 (screenplay @see): the stakes made visible (the scene's first shot) and the environment's sensory
+        # state -- static facts the still may show; a line with an extend-word or an action leak is dropped
+        *([("see_stakes", f"看得见的处境：{see['stakes']}", False)] if see.get("stakes") else []),
+        *([("see_environment", f"环境细节：{see['environment']}", False)] if see.get("environment") else []),
         ("blank7", "", True),
         ("reference_head", "【参考图用途（逐张，不得越权）】", True),
         *[(f"reference_{index}", line, True) for index, line in enumerate(reference_lines)],

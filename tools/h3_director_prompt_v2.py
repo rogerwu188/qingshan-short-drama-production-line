@@ -934,6 +934,16 @@ def _bili_v1_parts(unit: dict[str, Any], plan: dict[str, Any], source: dict[str,
         if timeline:
             parts.append(timeline)
             evidence[f"{prefix}.PERFORMANCE_TIMELINE"] = timeline
+    # E27 脑补: what the viewer must see (stakes, the shot's detail, each one's business, the environment once)
+    stated = {key.split(".", 1)[1] for key in evidence if key.startswith("VISUAL.") and evidence[key]}
+    for key, sentence in v1._bili.visual_sentences(spec, list(label_by_id.items()), speaking=bool(speaker_label),
+                                                   skip=stated & {"ENVIRONMENT"}):
+        sentence = _sentence(scrub(sentence)) if scrub(sentence) else ""
+        if sentence:
+            parts.append(sentence)
+            evidence[f"{prefix}.VISUAL.{key}"] = sentence
+            if key == "ENVIRONMENT":
+                evidence["VISUAL.ENVIRONMENT"] = sentence
     authored_rows = (
         ("MICROEXPRESSION", "microexpression_cue", "Face", v1._bili.authored(action, "microexpression_design")),
         ("BODY_SYNC", "body_sync_cue", "Body", True),  # performance.body_sync: writer-authored only, no template

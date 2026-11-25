@@ -268,13 +268,18 @@ def _wet_beat(unit: dict[str, Any], plan: dict[str, Any]) -> bool:
 
 
 def _specs_without_timeline(specs: Any) -> Any:
-    """The specs minus the compiled micro-performance (its grief beat says "without tears" -- not a wet beat)."""
+    """The specs minus the compiled micro-performance (its grief beat says "without tears" -- not a wet beat) and
+    minus the scene environment of the 脑补 block (E27: "eave water drips on the stone" wets no skin or hair; a
+    stakes / detail / business text that does wet someone still counts)."""
     out = []
     for spec in specs if isinstance(specs, list) else []:
         perf = ((spec.get("action") or {}).get("performance") if isinstance(spec, dict) else None)
         if isinstance(perf, dict) and "timeline" in perf:
             spec = {**spec, "action": {**spec["action"], "performance": {k: v for k, v in perf.items()
                                                                           if k != "timeline"}}}
+        visual = spec.get("visual") if isinstance(spec, dict) else None
+        if isinstance(visual, dict) and ("environment" in visual or "environment_en" in visual):
+            spec = {**spec, "visual": {k: v for k, v in visual.items() if k not in ("environment", "environment_en")}}
         out.append(spec)
     return out
 
@@ -1199,6 +1204,13 @@ def _bili_v1_beat_lines(unit: dict[str, Any], plan: dict[str, Any], source: dict
         if timeline:
             evidence[f"BEAT.{beat_number}.PERFORMANCE_TIMELINE"] = timeline
             line += " " + timeline
+    # E27 脑补: what the viewer must see (stakes, the shot's detail, each one's business, the environment once)
+    skip = {"ENVIRONMENT"} if evidence.get("VISUAL.ENVIRONMENT") else set()
+    for key, sentence in _bili.visual_sentences(spec, visible, speaking=dialogue_binding is not None, skip=skip):
+        evidence[f"BEAT.{beat_number}.VISUAL.{key}"] = sentence
+        if key == "ENVIRONMENT":
+            evidence["VISUAL.ENVIRONMENT"] = sentence
+        line += " " + sentence
     return line
 
 

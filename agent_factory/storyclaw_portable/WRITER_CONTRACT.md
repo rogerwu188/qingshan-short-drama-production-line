@@ -269,6 +269,24 @@ Every other series keeps the sections above unchanged.
   on visible evidence or an action; the ending enlarges the question; no monologue / narration / dialogue without a
   result; "he is in pain" becomes a choice he must make on the spot.  Fewer beats per episode -- let the central
   conflict build across a scene instead of covering six plot points in one or two lines each.
+- **Silent units (11-25, E27 S01: 4 of 9 units were unreadable silent procedure inserts).** `（无声）` only for a beat
+  the viewer reads at a glance: a reveal, a payoff, an attack, an entrance / exit, a reaction close-up (`#反应`, <= 3
+  per episode), the music passage (`#音乐`, one <= 8 s per episode).  Small physical steps are written into the
+  adjacent dialogue shot's action and done while speaking or listening (S7 cuts a dialogue unit to its words).  The
+  compiler folds an untagged (or `#转折` / `#招牌`-only) silent shot into the adjacent line when it fits (<= 2 action
+  sentences, 72 characters), merges two silent shots in a row, and warns about the rest (`SILENT_PROCEDURE_KEPT`,
+  `SILENT_RUN`, `SILENT_UNITS_OVER`: > 1 per scene).  The first ~10 s show who / where / what is at stake
+  (`OPENING_*` warnings).
+- **What the viewer must see (11-25, 脑补).** A novel leaves the reader to imagine; video must show it.  Per scene
+  write `@see 赌注=… | 关系=… | 环境=… | <name>=…`: the stakes and relationships as visible evidence (props, wounds,
+  positions, who blocks whom), the environment's state and sensory specifics (rain on hair, breath, lantern light, wet
+  stone), each character's own physical business and behaviour this scene; before a key shot a `（画面）…` line of
+  what exactly is seen.  Never faces or looks (identity comes from the reference images).  They reach the H3 prompt
+  as concrete English sentences (with their twins) and the keyframe as static facts; a missing `@see` is a warning.
+- **Character voice (11-25).** Each main character has a distinct voice -- diction, rhythm and one verbal habit
+  (`SERIES_CARD` `voice` + `verbal_habit`); every line carries subtext and an intent and changes the other person's
+  situation; no exposition lines.  Script-doctor warnings: `DOCTOR_VOICE_UNDECLARED`, `DOCTOR_VOICES_ALIKE`,
+  `DOCTOR_EXPOSITION_LINE`, `DOCTOR_LINE_LANDS_NOWHERE`.
 
 ## Camera grammar (CAMERA_GRAMMAR_V1)
 

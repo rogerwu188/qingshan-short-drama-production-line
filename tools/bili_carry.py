@@ -164,6 +164,66 @@ def performance_timeline_line(action: Any, who: str, listener: str = "",
     return ("Performance, played as visible changes, never a held pose: " + " ".join(rows)) if rows else ""
 
 
+# --------------------------------------------------------------------------- 脑补: what the viewer must see (E27)
+#: all visual sentences of one beat together (the H3 boundary is 10 000 runes; a typical BILI unit renders ~4-6 k)
+VISUAL_MAX_CHARS = 900
+#: identity comes from the reference images (#342): appearance words are dropped from the visual sentences
+_APPEARANCE = re.compile(r"\b(?:handsome|beautiful|pretty|gorgeous|cute|complexion|skin|jawline|cheekbones?|"
+                         r"facial features|face shape|features|make-?up|freckles?|eye colou?r|hair colou?r|"
+                         r"hairstyle|slender|delicate|youthful|aged|wrinkled|appearance|looks like)\b", re.I)
+FOLDED_WHILE_SPEAKING = ("All of this action plays while the line is spoken: it starts with the first word and is "
+                         "done by the last; nothing waits until before or after the line.")
+
+
+def _no_appearance(text: str) -> str:
+    """Drop the clauses that re-describe a face or a look (the references own identity)."""
+    clauses = [c for c in re.split(r"(?<=[;,])\s+", text) if c.strip()]
+    kept = [c for c in clauses if not _APPEARANCE.search(c)]
+    return " ".join(kept).strip().rstrip(".;,")
+
+
+def visual_sentences(spec: Any, subjects: list[tuple[str, str]], *, speaking: bool = False,
+                     skip: Iterable[str] = ()) -> list[tuple[str, str]]:
+    """[(key, sentence)] from ``prompt_spec.visual`` (screenplay ``@see`` / ``（画面）``, the writer's English twins):
+    the stakes made visible, the shot's concrete detail, each visible character's own business, the environment;
+    plus, on a speaking beat that absorbed a silent step (``action.folded_silent``), that it plays during the line.
+
+    ``subjects``: [(entity id, label)] in frame; ``skip``: keys already stated in this unit (the environment is
+    said once).  Appearance clauses are dropped; the sentences stop at VISUAL_MAX_CHARS.  [] without the block."""
+    spec = spec if isinstance(spec, dict) else {}
+    visual = spec.get("visual") if isinstance(spec.get("visual"), dict) else {}
+    action = spec.get("action") if isinstance(spec.get("action"), dict) else {}
+    skip = set(skip)
+    rows: list[tuple[str, str]] = []
+    stakes = _no_appearance(english(visual.get("stakes_en"), 420))
+    if stakes:
+        rows.append(("STAKES", f"What the viewer must see in this frame: {stakes}."))
+    detail = _no_appearance(english(visual.get("detail_en"), 420))
+    if detail:
+        rows.append(("DETAIL", f"Visible detail: {detail}."))
+    if speaking and action.get("folded_silent"):
+        rows.append(("FOLDED", FOLDED_WHILE_SPEAKING))
+    business = visual.get("business_en")
+    if isinstance(business, dict):
+        for label, text in _per_subject(business, subjects):
+            text = _no_appearance(_strip_label(text, label))
+            if text:
+                rows.append((f"BUSINESS.{label}", f"{label}'s own way of moving here: {_lower_first(text)}."))
+    environment = _no_appearance(english(visual.get("environment_en"), 320))
+    if environment:
+        rows.append(("ENVIRONMENT", f"Around them: {_lower_first(environment)}."))
+    out: list[tuple[str, str]] = []
+    used = 0
+    for key, sentence in rows:
+        if key in skip or CJK.search(sentence):
+            continue
+        if used + len(sentence) > VISUAL_MAX_CHARS:
+            continue
+        out.append((key, sentence))
+        used += len(sentence) + 1
+    return out
+
+
 def _join(names: list[str]) -> str:
     return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
 
@@ -279,4 +339,5 @@ __all__ = [
     "active", "english", "lead_in_sentences", "listener_reaction_sentences", "held_prop_sentences",
     "field_source", "authored", "field_sources", "en_twin_failures", "en_twin_check", "LEAD_IN_SECONDS",
     "TRANSLATE_RULE", "FALLBACK_FIELDS", "performance_timeline_sentences", "performance_timeline_line",
+    "visual_sentences", "VISUAL_MAX_CHARS", "FOLDED_WHILE_SPEAKING",
 ]

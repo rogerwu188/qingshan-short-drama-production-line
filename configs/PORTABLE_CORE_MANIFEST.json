@@ -510,6 +510,7 @@
     "tools.tests.test_ledger_and_irony",
     "tools.tests.test_director_pass",
     "tools.tests.test_e27_prompt_round",
-    "tools.tests.test_live_skin_prompt_hygiene"
+    "tools.tests.test_live_skin_prompt_hygiene",
+    "tools.tests.test_e27_naobu_round"
   ]
 }

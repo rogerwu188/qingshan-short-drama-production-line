@@ -305,7 +305,7 @@
     "音乐": "MUSIC_PASSAGE",
     "静默": "SILENCE",
     "插入": "INSERT",
-    "交代": "REPORT"
+    "交代": "REPORT", "反应": "REACTION"
   },
   "entrance_words_zh": [
     "走进",

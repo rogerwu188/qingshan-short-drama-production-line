@@ -20,7 +20,10 @@ scene plans).  It writes four small files under ``workflow/claude_writer_agent/s
 
 * one dialogue line = one shot (``beat_role: LINE`` unless tagged); an action line attaches to the next line's shot
   (or back to the previous shot when its subject just spoke and the next line is someone else's); a trailing
-  action block or a ``（无声）`` line is its own silent shot;
+  action block or a ``（无声）`` line is its own silent shot -- kept only when it carries a readable beat (a beat tag,
+  an entrance / exit), else folded into the adjacent line (``apply_silent_policy``, E27 2026-11-25);
+* ``@see`` (stakes / relations / environment / each character's business) and ``（画面）`` lines become
+  ``prompt_spec.visual`` (+ English twins): what the viewer must SEE (E27 脑补);
 * a reaction beat ``[X 反应：...]`` becomes ``listener_reaction`` (+ ``listener_reaction_en``) on the shot it
   follows, or ``lead_in_reaction`` on the next shot when nothing precedes it (WP3 decides the final placement);
 * props (``{道具 名 @人.手}`` or YAML) become ``props.reference_cards`` and every shot's ``props`` list;
@@ -64,6 +67,40 @@ TOOL_ID = "lines/nalu/runtime/tools/screenplay_compile.py"
 SILENT_SECONDS = 4.0
 FALLBACK = "fallback"
 AUTHORED = "screenplay"
+
+# --- silent units policy (E27 2026-11-25, line owner: "开头有很多意义不明的没有台词的高频切镜头") -------------------
+#: 1101 E27 S01 opened on 9 units, 4 of them silent 2.5-3 s procedure inserts (sword caught, rope cut, rope falls,
+#: collapse) the viewer could not parse.  A silent unit must carry a beat the viewer can read (a reveal, a payoff, an
+#: attack, a reaction close-up, the music passage, an insert the writer tags); a plain physical step -- also one
+#: tagged only ``#转折`` -- is folded into the adjacent dialogue unit (the character does it while speaking or
+#: listening).  Never a gate: what cannot be folded safely stays and is reported as a warning.
+SILENT_READABLE_TAGS = frozenset({"揭示", "爽点", "笑点", "结尾", "钩子", "攻击", "音乐", "静默", "插入", "反应", "先物"})
+#: owner-approved wordless units outside the per-scene count: the <= 8 s music passage, the <= 3 reaction close-ups
+SILENT_EXEMPT_TAGS = frozenset({"音乐", "反应"})
+SILENT_PER_SCENE_MAX = 1
+#: a dialogue unit takes at most this many action sentences / characters of action after a fold (2-6 s H3 unit)
+FOLD_MAX_ACTIONS = 2
+FOLD_MAX_CHARS = 72
+#: the first ~10 s of an episode must make who / where / what is at stake visible
+OPENING_WINDOW_SECONDS = 10.0
+#: an unanswered visual English twin (advisory text): the prompt simply omits it, the compile never stalls on it
+VISUAL_EN_NONE = "(none)"
+
+# --- runtime budget after folding (E27 2026-11-25, coordinator: folding shortens the cut) ---------------------------
+#: S7 cuts a dialogue unit to its words and a silent unit to its 2-3 s peak, so the nominal target_seconds (4 s per
+#: shot) over-states the cut.  Calibrated on 1101 E27 (measured release timeline): 26 dialogue units cut to 79.4 s
+#: against 82.0 s of derived line seconds (mean -0.1 s), 9 silent units to 27.7 s (3.1 s each); the model gives
+#: 109 s for the 107.1 s that shipped.  The release holds below 0.85 x the brief target (final_fix_round
+#: RUNTIME_MIN_RATIO); the writer is warned below 0.95 x so a fold-shortened script is deepened with scene content
+#: (more exchanges, a developed conflict), never padded with silent inserts.  Warning only.
+CUT_SILENT_SECONDS = 3.0
+CUT_REACTION_SECONDS = 2.0
+CUT_MUSIC_SECONDS = 2.0
+RUNTIME_DEFAULT_TARGET_SECONDS = 110.0   # = nalu_pipeline.SCRIPT_DEFAULT_TARGET_SECONDS (line owner 2026-10-27)
+RUNTIME_WARN_RATIO = 0.95
+RUNTIME_HOLD_RATIO = 0.85                # = final_fix_round.RUNTIME_MIN_RATIO
+#: folding / merging stops while the post-fold cut estimate would drop below this x target (coordinator 11-25)
+RUNTIME_FOLD_FLOOR = 0.92
 
 
 # =========================================================================== light YAML (subset)
@@ -324,6 +361,11 @@ _REACTION = re.compile(r"^\[(?P<who>[^\]\s：:]+?)\s*反应\s*[：:](?P<text>[^\
 _PROP = re.compile(r"^\{道具\s+(?P<name>[^\s@}]+)\s*(?:@(?P<owner>[^.\s}]+)(?:\.(?P<hand>[^\s}]+))?)?\s*"
                    r"(?P<desc>[^}]*)\}$")
 _SILENT = re.compile(r"^[（(](?:无声|silent)[)）]\s*")
+_VISUAL = re.compile(r"^[（(](?:画面|visual)[)）]\s*")
+_SEE = re.compile(r"^@(?:see|画面)\s+(?P<body>.+)$")
+_SEE_KEYS = {"赌注": "stakes", "处境": "stakes", "stakes": "stakes", "关系": "relations", "站位": "relations",
+             "relations": "relations", "relation": "relations", "环境": "environment", "env": "environment",
+             "environment": "environment", "感官": "senses", "senses": "senses", "sense": "senses"}
 _DIALOGUE = re.compile(r"^(?P<pre>[^：:（(\[{。！？]{1,40}?)(?:[（(](?P<paren>[^）)]*)[）)])?\s*[：:](?P<line>.+)$")
 _TAG = re.compile(r"\s+#(?P<tag>[^\s#]+)\s*$")
 
@@ -375,6 +417,28 @@ def parse_card(body: str) -> dict[str, Any]:
     return card
 
 
+def parse_see(body: str) -> dict[str, Any]:
+    """``@see 赌注=… | 关系=… | 环境=… | 感官=… | 凌瑶=…``: what the viewer must SEE in this scene (E27 脑补).
+    {stakes, relations, environment, senses, business: {name: text}}; a key that is not a known field is a
+    character name (``人[凌瑶]`` / ``business[凌瑶]`` also accepted)."""
+    see: dict[str, Any] = {"business": {}}
+    for part in re.split(r"\s*[|｜]\s*", body.strip()):
+        key, sep, value = part.partition("=")
+        if not sep:
+            key, sep, value = part.partition("＝")
+        key, value = key.strip(), _clean(value)
+        if not sep or not key or not value:
+            continue
+        field = _SEE_KEYS.get(key) or _SEE_KEYS.get(key.lower())
+        if field:
+            see[field] = "；".join(x for x in (see.get(field), value) if x)
+            continue
+        m = re.fullmatch(r"(?:人|business|who)\[(?P<who>[^\]]+)\]", key)
+        name = (m.group("who") if m else key).strip()
+        see["business"][name] = "；".join(x for x in (see["business"].get(name), value) if x)
+    return see
+
+
 def parse(md: str) -> dict[str, Any]:
     """The screenplay as data: {title, scenes: [{num, heading, location_name, time, light, card, items, line_no}],
     errors}.  Items: action / dialogue / reaction / prop (each with ``tags`` and ``line_no``); names are resolved
@@ -396,7 +460,7 @@ def parse(md: str) -> dict[str, Any]:
             current = {"num": m.group("num").upper(), "heading": m.group("rest").strip(),
                        "location_name": parts[0] if parts else "", "time": parts[1] if len(parts) > 1 else "",
                        "light": parts[2] if len(parts) > 2 else "", "card": {"goals": []}, "items": [],
-                       "line_no": no}
+                       "see": {}, "line_no": no}
             scenes.append(current)
             continue
         if current is None:
@@ -408,7 +472,21 @@ def parse(md: str) -> dict[str, Any]:
             current["card"].update(card)
             current["card"]["goals"] = goals
             continue
+        m = _SEE.match(line)
+        if m:
+            see = parse_see(m.group("body"))
+            merged = current.setdefault("see", {})
+            for key, value in see.items():
+                if key == "business":
+                    merged.setdefault("business", {}).update(value)
+                else:
+                    merged[key] = "；".join(x for x in (merged.get(key), value) if x)
+            continue
         text, tags = _tags(line)
+        if _VISUAL.match(text):
+            current["items"].append({"kind": "visual", "text": _VISUAL.sub("", text).strip(), "tags": tags,
+                                     "line_no": no})
+            continue
         m = _REACTION.match(text)
         if m:
             current["items"].append({"kind": "reaction", "who": m.group("who").strip(), "text": m.group("text").strip(),
@@ -668,6 +746,7 @@ def _shot_items(scene: dict[str, Any], cast: Cast, errors: list[str]) -> list[di
     pending: list[dict[str, Any]] = []
     lead_in: list[dict[str, Any]] = []
     props_next: list[dict[str, Any]] = []
+    visual_next: list[dict[str, Any]] = []  # （画面） lines describe the shot that follows them
 
     def next_dialogue(index: int) -> dict[str, Any] | None:
         for it in items[index + 1:]:
@@ -679,9 +758,10 @@ def _shot_items(scene: dict[str, Any], cast: Cast, errors: list[str]) -> list[di
 
     def new_shot(kind: str, **kw: Any) -> dict[str, Any]:
         shot = {"kind": kind, "actions": [], "reactions": [], "lead_in": list(lead_in), "props": list(props_next),
-                "tags": [], **kw}
+                "visual": list(visual_next), "tags": [], **kw}
         lead_in.clear()
         props_next.clear()
+        visual_next.clear()
         shots.append(shot)
         return shot
 
@@ -689,6 +769,9 @@ def _shot_items(scene: dict[str, Any], cast: Cast, errors: list[str]) -> list[di
         kind = it["kind"]
         if kind == "prop":
             props_next.append(it)
+            continue
+        if kind == "visual":
+            visual_next.append(it)
             continue
         if kind == "dialogue":
             shot = new_shot("dialogue", speaker=it["speaker"], paren=it["paren"], line=it["line"],
@@ -736,7 +819,282 @@ def _shot_items(scene: dict[str, Any], cast: Cast, errors: list[str]) -> list[di
         lead_in.clear()
     if props_next and shots:
         shots[-1]["props"].extend(props_next)
+    if visual_next and shots:
+        shots[-1]["visual"].extend(visual_next)
     return shots
+
+
+# =========================================================================== silent units policy (E27)
+def _tag_heads(shot: dict[str, Any]) -> set[str]:
+    return {str(t).partition(":")[0] for t in shot.get("tags") or []}
+
+
+def silent_readable(shot: dict[str, Any]) -> bool:
+    """A silent shot that carries a beat the viewer can read: the writer tagged it as one, or it is an entrance /
+    exit (someone walks in or out: a WIDE of its own, never folded into a line)."""
+    if _tag_heads(shot) & SILENT_READABLE_TAGS:
+        return True
+    text = "".join(_clean(a.get("text")) for a in shot.get("actions") or [])
+    return _has_any(text, screenplay_lexicon().get("entrance_words_zh") or [])
+
+
+def silent_exempt(shot: dict[str, Any]) -> bool:
+    return bool(_tag_heads(shot) & SILENT_EXEMPT_TAGS)
+
+
+def _action_load(*shots: dict[str, Any]) -> tuple[int, int]:
+    rows = [a for sh in shots for a in sh.get("actions") or []]
+    return len(rows), sum(len(_clean(a.get("text"))) for a in rows)
+
+
+def _fits(*shots: dict[str, Any]) -> bool:
+    count, chars = _action_load(*shots)
+    return count <= FOLD_MAX_ACTIONS and chars <= FOLD_MAX_CHARS
+
+
+def _merge_tags(first: list[str], second: list[str]) -> list[str]:
+    return list(dict.fromkeys([*first, *second]))
+
+
+def _fold_into(target: dict[str, Any], src: dict[str, Any], where: str) -> None:
+    """Fold the silent ``src`` into the dialogue ``target``: before its line (``next``) or after it (``prev``).  The
+    target's own tags win the beat role (they come last); the silent shot's reactions play as the target's
+    listener reactions, so no lead-in second is added."""
+    if where == "next":
+        target["actions"] = [*src["actions"], *target["actions"]]
+        target["lead_in"] = [*src.get("lead_in", []), *target["lead_in"]]
+        target["reactions"] = [*src.get("reactions", []), *target["reactions"]]
+        target["visual"] = [*src.get("visual", []), *target.get("visual", [])]
+    else:
+        target["actions"] = [*target["actions"], *src["actions"]]
+        target["reactions"] = [*target["reactions"], *src.get("lead_in", []), *src.get("reactions", [])]
+        target["visual"] = [*target.get("visual", []), *src.get("visual", [])]
+    target["props"] = [*target["props"], *src.get("props", [])]
+    target["tags"] = _merge_tags(src.get("tags") or [], target.get("tags") or [])
+    target.setdefault("folded", []).append({"line_no": src.get("line_no"), "where": where,
+                                            "text": "".join(_sentence(a["text"]) for a in src["actions"])})
+
+
+def _procedure_rank(shot: dict[str, Any]) -> int:
+    """How readable a foldable silent step still is: 0 untagged, 1 ``#招牌`` (signature business), 2 ``#转折``."""
+    heads = _tag_heads(shot)
+    return 2 if "转折" in heads else 1 if heads else 0
+
+
+def apply_silent_policy(shots: list[dict[str, Any]], scene_num: str,
+                        allowed: set[Any] | None = None) -> dict[str, Any]:
+    """Fold / merge the scene's silent procedure shots in place.  {applied, warnings, before, after}.
+
+    1. an untagged (or only ``#转折`` / ``#招牌``) silent shot folds into the adjacent dialogue shot -- the line it
+       leads into when its subject speaks next or nobody spoke just before, else the line it follows -- while that
+       shot keeps <= FOLD_MAX_ACTIONS actions / FOLD_MAX_CHARS characters (an off-screen line never takes one);
+    2. two silent shots in a row (not both the music passage) merge into one when they fit, else warn;
+    3. more than SILENT_PER_SCENE_MAX silent shots (music passage / reaction close-ups exempt) warn.
+
+    ``allowed`` (runtime-aware folding, :func:`fold_budget`): the ``line_no`` of the silent shots the runtime budget
+    lets go; any other one is kept (``SILENT_KEPT_FOR_RUNTIME``) and still gets its SILENT_* advisory.  None = all.
+    ``removed`` in the result: [{line_no, rank, scene}] of the shots folded / merged away."""
+    applied: list[str] = []
+    warnings: list[str] = []
+    removed: list[dict[str, Any]] = []
+
+    def budget_ok(sh: dict[str, Any]) -> bool:
+        if allowed is None or sh.get("line_no") in allowed:
+            return True
+        tag = f"SILENT_KEPT_FOR_RUNTIME:{scene_num}:L{sh.get('line_no')}"
+        if tag not in warnings:
+            warnings.append(tag)
+        return False
+
+    before = sum(1 for sh in shots if sh["kind"] == "silent")
+    i = 0
+    while i < len(shots):
+        sh = shots[i]
+        if sh["kind"] != "silent" or silent_readable(sh) or not sh.get("actions"):
+            i += 1
+            continue
+        prv = shots[i - 1] if i > 0 else None
+        nxt = shots[i + 1] if i + 1 < len(shots) else None
+        subject = next((a.get("subject") for a in sh["actions"] if a.get("subject")), "")
+        options = []
+        for cand, where in ((nxt, "next"), (prv, "prev")):
+            if cand is None or cand["kind"] != "dialogue" or _offscreen(cand.get("paren", "")):
+                continue
+            options.append((cand, where))
+        # the subject's own line first (he does it while he speaks), then the line it leads into
+        options.sort(key=lambda o: (o[0].get("speaker") != subject, o[1] != "next"))
+        fitting = [(cand, where) for cand, where in options if _fits(cand, sh)]
+        if not fitting or not budget_ok(sh):
+            warnings.append(f"SILENT_PROCEDURE_KEPT:{scene_num}:L{sh.get('line_no')}")
+            i += 1
+            continue
+        cand, where = fitting[0]
+        removed.append({"line_no": sh.get("line_no"), "rank": _procedure_rank(sh), "scene": scene_num})
+        _fold_into(cand, sh, where)
+        applied.append(f"SILENT_FOLDED:{scene_num}:L{sh.get('line_no')}->{where}:L{cand.get('line_no')}")
+        del shots[i]
+    i = 1
+    while i < len(shots):
+        a, b = shots[i - 1], shots[i]
+        if a["kind"] == "silent" and b["kind"] == "silent" and not ("音乐" in _tag_heads(a) and "音乐" in _tag_heads(b)):
+            if _fits(a, b) and not (silent_exempt(a) or silent_exempt(b)) and budget_ok(b):
+                removed.append({"line_no": b.get("line_no"), "rank": _procedure_rank(b), "scene": scene_num})
+                a["actions"] = [*a["actions"], *b["actions"]]
+                a["reactions"] = [*a["reactions"], *b.get("lead_in", []), *b["reactions"]]
+                a["props"] = [*a["props"], *b["props"]]
+                a["visual"] = [*a.get("visual", []), *b.get("visual", [])]
+                a["tags"] = _merge_tags(a["tags"], b["tags"])
+                a.setdefault("merged", []).append(b.get("line_no"))
+                applied.append(f"SILENT_MERGED:{scene_num}:L{b.get('line_no')}->L{a.get('line_no')}")
+                del shots[i]
+                continue
+            warnings.append(f"SILENT_RUN:{scene_num}:L{b.get('line_no')}")
+        i += 1
+    counted = [sh for sh in shots if sh["kind"] == "silent" and not silent_exempt(sh)]
+    if len(counted) > SILENT_PER_SCENE_MAX:
+        warnings.append(f"SILENT_UNITS_OVER:{scene_num}:{len(counted)}")
+    return {"applied": applied, "warnings": warnings, "before": before, "removed": removed,
+            "after": sum(1 for sh in shots if sh["kind"] == "silent")}
+
+
+def _grouped_estimate(grouped: list[list[dict[str, Any]]], language: str) -> float:
+    """The cut estimate (:func:`cut_runtime_estimate`'s model) of the grouped, not yet compiled shots."""
+    total = 0.0
+    for shots in grouped:
+        for sh in shots:
+            if sh["kind"] == "dialogue":
+                total += _dialogue_seconds(f"X：{sh.get('line') or ''}", language)
+            else:
+                heads = _tag_heads(sh)
+                total += CUT_REACTION_SECONDS if "反应" in heads else CUT_MUSIC_SECONDS if "音乐" in heads \
+                    else CUT_SILENT_SECONDS
+    return total
+
+
+def fold_budget(grouped: list[tuple[str, list[dict[str, Any]]]], language: str, target: float) -> dict[str, Any]:
+    """Runtime-aware folding (E27 2026-11-25): which silent shots may fold / merge while the post-fold cut estimate
+    stays >= RUNTIME_FOLD_FLOOR x target.  A dry run finds the foldable ones; they are granted in order -- the
+    opening scene first (the owner's complaint was the opening), then the least readable step (untagged before
+    ``#招牌`` before ``#转折``), then script order -- each costing CUT_SILENT_SECONDS of cut.  Pure."""
+    import copy as _copy  # noqa: PLC0415
+    pre = _grouped_estimate([shots for _, shots in grouped], language)
+    floor = RUNTIME_FOLD_FLOOR * target
+    budget = pre - floor
+    candidates = []
+    for order, (num, shots) in enumerate(grouped):
+        for row in apply_silent_policy(_copy.deepcopy(shots), num)["removed"]:
+            candidates.append((order, row["rank"], row["line_no"] or 0, row))
+    allowed: set[Any] = set()
+    spent = 0.0
+    for _, _, _, row in sorted(candidates, key=lambda c: c[:3]):
+        if spent + CUT_SILENT_SECONDS <= budget + 1e-9:
+            allowed.add(row["line_no"])
+            spent += CUT_SILENT_SECONDS
+    return {"pre_fold_estimate": round(pre, 1), "floor_seconds": round(floor, 1), "target_seconds": target,
+            "foldable": len(candidates), "allowed": allowed, "granted": len(allowed),
+            "held_back": sorted(c[3]["line_no"] for c in candidates if c[3]["line_no"] not in allowed),
+            "post_fold_estimate": round(pre - spent, 1)}
+
+
+def _visual_block(sh: dict[str, Any], shot_id: str, visible: list[tuple[str, str]], env_zh: str,
+                  business_by_id: dict[str, str], tr: "Translations") -> dict[str, Any]:
+    """``prompt_spec.visual`` (E27 脑补): {stakes, detail, environment, business: {cid}} + English twins.  An
+    unanswered twin is left out (the H3 prompt omits the sentence); never a blocker."""
+
+    def en(text: str) -> str:
+        value = tr.get("visual", text, shot_id, VISUAL_EN_NONE)
+        return "" if value == VISUAL_EN_NONE else value
+
+    out: dict[str, Any] = {}
+    rows = sh.get("visual") or []
+    stakes = "；".join(_clean(v["text"]) for v in rows if v.get("stakes") and _clean(v["text"]))
+    detail = "".join(_sentence(v["text"]) for v in rows if not v.get("stakes") and _clean(v["text"]))
+    for key, text in (("stakes", stakes), ("detail", detail), ("environment", env_zh)):
+        if text:
+            out[key] = text
+            english = en(text)
+            if english:
+                out[f"{key}_en"] = english
+    business = {cid: business_by_id[cid] for cid, _ in visible if business_by_id.get(cid)}
+    if business:
+        out["business"] = business
+        english = {cid: en(text) for cid, text in business.items()}
+        english = {cid: text for cid, text in english.items() if text}
+        if english:
+            out["business_en"] = english
+    return out
+
+
+def cut_runtime_estimate(shots: list[dict[str, Any]], *, language: str = "zh", target: Any = None,
+                         target_declared: bool | None = None) -> dict[str, Any]:
+    """The expected content runtime of the cut (after folding, after S7's trims) vs the brief target.
+
+    {nominal_seconds, estimated_cut_seconds, target_seconds, target_declared, ratio, warn_below, hold_below,
+    dialogue_seconds, silent_units, warning}.  ``warning`` is ``RUNTIME_ESTIMATE_SHORT:<est>s<<floor>s(target T)``
+    below RUNTIME_WARN_RATIO x target, else ''.  Never raises."""
+    try:
+        declared = float(target) if target not in (None, "") else None
+    except (TypeError, ValueError):
+        declared = None
+    goal = declared or RUNTIME_DEFAULT_TARGET_SECONDS
+    nominal = dialogue = silent_total = 0.0
+    silent_units = 0
+    for shot in shots or []:
+        if not isinstance(shot, dict):
+            continue
+        spec = shot.get("prompt_spec") if isinstance(shot.get("prompt_spec"), dict) else {}
+        try:
+            nominal += float(shot.get("target_seconds") or 0)
+        except (TypeError, ValueError):
+            pass
+        line = _clean(spec.get("dialogue") or shot.get("dialogue"))
+        if line and line.split("：", 1)[-1].strip():
+            dialogue += _dialogue_seconds(line, language)
+            continue
+        role = _clean(spec.get("beat_role")).upper()
+        silent_units += 1
+        silent_total += (CUT_REACTION_SECONDS if role == "REACTION" else
+                         CUT_MUSIC_SECONDS if role == "MUSIC_PASSAGE" else CUT_SILENT_SECONDS)
+    estimate = round(dialogue + silent_total, 1)
+    ratio = round(estimate / goal, 3) if goal else 0.0
+    floor = round(goal * RUNTIME_WARN_RATIO, 1)
+    warning = (f"RUNTIME_ESTIMATE_SHORT:{estimate:g}s<{floor:g}s(target {goal:g}s)" if estimate < floor else "")
+    return {"nominal_seconds": round(nominal, 1), "estimated_cut_seconds": estimate, "target_seconds": goal,
+            "target_declared": declared is not None if target_declared is None else target_declared,
+            "ratio": ratio, "warn_below": RUNTIME_WARN_RATIO, "hold_below": RUNTIME_HOLD_RATIO,
+            "dialogue_seconds": round(dialogue, 1), "silent_units": silent_units, "warning": warning}
+
+
+#: what the writer does about RUNTIME_ESTIMATE_SHORT (no story text)
+RUNTIME_SHORT_FIX = ("the cut will run short of the brief after S7's trims (silent steps were folded into lines): "
+                     "deepen the scenes you have -- more back-and-forth exchanges, a resisted demand, one more turn "
+                     "per scene, the source's own business and reactions inside the lines; never pad with silent "
+                     "inserts or new plot events")
+
+
+def opening_check(shots: list[dict[str, Any]], scenes: list[dict[str, Any]]) -> dict[str, Any]:
+    """The first ~OPENING_WINDOW_SECONDS must show who / where / what is at stake (E27: 阿夜, bound to the
+    pillar, was not on screen for the first 15 s).  Warnings only."""
+    warnings: list[str] = []
+    clock, window = 0.0, []
+    for shot in shots:
+        if clock >= OPENING_WINDOW_SECONDS:
+            break
+        window.append(shot)
+        clock += float(shot.get("target_seconds") or 0)
+    seen = {_clean(r.get("character_id")) for s in window for r in (s.get("prompt_spec") or {}).get("cast") or []
+            if isinstance(r, dict)}
+    first = scenes[0] if scenes else {}
+    unseen = [cid for cid in first.get("present") or [] if cid not in seen]
+    warnings += [f"OPENING_CAST_UNSEEN:{cid}" for cid in unseen]
+    stakes = any(((s.get("prompt_spec") or {}).get("visual") or {}).get("stakes") for s in window)
+    if scenes and not stakes:
+        warnings.append(f"OPENING_STAKES_UNDECLARED:{_clean(first.get('scene_id'))}")
+    silent = sum(1 for s in window if not s.get("dialogue"))
+    if silent >= 2:
+        warnings.append(f"OPENING_SILENT_HEAVY:{silent}")
+    return {"warnings": warnings, "window_shots": [s.get("shot_id") for s in window], "cast_seen": sorted(seen),
+            "cast_unseen": unseen, "stakes_visible": stakes, "silent_shots": silent}
 
 
 def _offscreen(paren: str) -> bool:
@@ -808,8 +1166,18 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
     structure: list[dict[str, Any]] = []
     tag_roles = screenplay_lexicon().get("tag_beat_roles") or {}
     turn_shots: dict[str, tuple[str, str]] = {}
+    silent_applied: list[str] = []
+    silent_counts: list[dict[str, Any]] = []
 
-    for scene in parsed.get("scenes") or []:
+    # group every scene first: the runtime budget of the silent policy is episode-wide (opening scene first)
+    grouped = [(scene["num"], _shot_items(scene, cast, errors)) for scene in parsed.get("scenes") or []]
+    try:
+        fold_target = float(brief.get("target_seconds") or outline.get("target_seconds")
+                            or RUNTIME_DEFAULT_TARGET_SECONDS)
+    except (TypeError, ValueError):
+        fold_target = RUNTIME_DEFAULT_TARGET_SECONDS
+    budget = fold_budget(grouped, language, fold_target)
+    for scene_index, scene in enumerate(parsed.get("scenes") or []):
         sid = _scene_id(episode, scene["num"])
         card = scene["card"]
         loc = _resolve_location(scene, locations)
@@ -836,11 +1204,33 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                 prop_rows[pid].setdefault("owner", owner)
                 if pr["hand"]:
                     prop_rows[pid]["hand"] = pr["hand"]
-        shots = _shot_items(scene, cast, errors)
+        shots = grouped[scene_index][1]
+        policy = apply_silent_policy(shots, scene["num"], budget["allowed"])
+        silent_applied.extend(policy["applied"])
+        warnings.extend(policy["warnings"])
+        silent_counts.append({"scene": scene["num"], "before": policy["before"], "after": policy["after"]})
+        # 脑补 (E27): what the viewer must SEE.  The scene's stakes / relations play in its first shot (the
+        # establishing beat: whoever they name is put in frame); the environment and each character's business
+        # ride on every shot of the scene; （画面） lines describe the shot that follows them.
+        see = scene.get("see") or {}
+        stakes_zh = "；".join(_clean(see.get(k)) for k in ("stakes", "relations") if _clean(see.get(k)))
+        env_zh = "；".join(_clean(see.get(k)) for k in ("environment", "senses") if _clean(see.get(k)))
+        business_by_id: dict[str, str] = {}
+        for name, text in (see.get("business") or {}).items():
+            cid = cast.resolve(name) or (cast.prefix(name) or ("", ""))[0]
+            if cid:
+                business_by_id[cid] = _clean(text)
+            else:
+                warnings.append(f"SEE_WHO_UNKNOWN:{scene['num']}:{name}")
+        if not (stakes_zh or env_zh or business_by_id):
+            warnings.append(f"SEE_MISSING:{scene['num']}")
+        if stakes_zh and shots:
+            shots[0].setdefault("visual", []).insert(0, {"kind": "visual", "text": stakes_zh, "stakes": True})
         present: list[str] = []
         for sh in shots:
             for cid in ([sh.get("speaker")] if sh.get("speaker") and not _offscreen(sh.get("paren", "")) else []) + \
                     [c for a in sh["actions"] for c in cast.mentions(a["text"])] + \
+                    [c for v in sh.get("visual") or [] for c in cast.mentions(v["text"])] + \
                     [r["who_id"] for r in sh["reactions"] + sh["lead_in"]]:
                 if cid and cid not in present:
                     present.append(cid)
@@ -884,7 +1274,7 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
             # who is visible: the speaker (unless OS), whoever the actions put on screen, the reaction owners, and
             # the addressee as an over-the-shoulder listener (11-23 rule: dialogue with the listener in frame)
             named: list[str] = []
-            for a in sh["actions"]:
+            for a in [*sh["actions"], *(sh.get("visual") or [])]:
                 for cid in cast.mentions(a["text"]):
                     if cid not in named:
                         named.append(cid)
@@ -1118,6 +1508,11 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                     action[key] = list(dict.fromkeys(r["who_id"] for r in rows))
             if touch_partner:
                 action["contact_point"] = next((a["text"] for a in sh["actions"] if _contact(a["text"])), "")
+            if sh.get("folded"):
+                # a silent procedure step folded into this line (E27 silent policy): it plays while the line is
+                # spoken -- S7 cuts a dialogue unit to the words, so nothing may wait for before / after the line
+                action["folded_silent"] = [dict(row) for row in sh["folded"]]
+            visual = _visual_block(sh, shot_id, visible, env_zh, business_by_id, tr)
             tag_heads = [t.partition(":")[0] for t in tags]
             wp6: dict[str, Any] = {}
             if "招牌" in tag_heads:
@@ -1152,6 +1547,7 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                 "props": shot_props,
                 "sound": {"ambience": ambience, "sfx": [], "music": "SELECTIVE_BGM"},
                 "beat_role": beat_role,
+                **({"visual": visual} if visual else {}),
                 "internal_transition_authoring": {"transition_mode": "CONTINUOUS_ACTION",
                                                   "reason": f"{scene['num']}第{index}拍接上一拍"},
                 **({"offscreen_character_ids": [speaker]} if offscreen_speaker else {}),
@@ -1224,6 +1620,13 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                     directing.append(f"表演分拍：{_ptl.zh_summary(timeline)}")
             if reaction_zh:
                 directing.append(f"反应：{reaction_zh}")
+            if sh.get("folded"):
+                directing.append("并入的无声动作（边说边做）：" + "".join(r["text"] for r in sh["folded"]))
+            for key, head in (("stakes", "看得见的处境"), ("detail", "画面"), ("environment", "环境")):
+                if visual.get(key):
+                    directing.append(f"{head}：{visual[key]}")
+            for cid, text in (visual.get("business") or {}).items():
+                directing.append(f"{cast.name(cid)}的小动作：{text}")
             if shot_props:
                 directing.append("道具：" + "、".join(f"{p['prop']}@{p.get('owner_name') or '—'}.{p.get('hand') or '—'}"
                                                    for p in shot_props))
@@ -1435,6 +1838,13 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
     fallback_fields = sum(1 for s in shots_out for v in s["prompt_spec"]["action"]["field_sources"].values()
                           if v == FALLBACK)
     all_fields = sum(len(s["prompt_spec"]["action"]["field_sources"]) for s in shots_out) or 1
+    opening = opening_check(shots_out, block_scenes)
+    warnings.extend(opening["warnings"])
+    runtime = cut_runtime_estimate(shots_out, language=language,
+                                   target=brief.get("target_seconds") or outline.get("target_seconds"))
+    if runtime["warning"]:
+        warnings.append(runtime["warning"])
+        runtime["fix"] = RUNTIME_SHORT_FIX
     fallback_keys = {k for _, _, k in tr.fallback_log}
     unanswered = set(tr.requests) - fallback_keys
     report = {"schema": SCHEMA, "episode": episode, "status": "FAIL" if errors else
@@ -1445,7 +1855,12 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
               "fallback_field_share": round(fallback_fields / all_fields, 3),
               "en_stale": len(set(tr.rows) - tr.used),
               "authored_action_shots": sum(1 for s in shots_out if s["prompt_spec"]["action"]["source"] == AUTHORED),
-              "props": len(reference_cards)}
+              "props": len(reference_cards),
+              "silent_policy": {"applied": silent_applied, "scenes": silent_counts,
+                                "runtime_budget": {k: v for k, v in budget.items() if k != "allowed"},
+                                "silent_shots": sum(1 for s in shots_out if not s.get("dialogue"))},
+              "opening": {k: v for k, v in opening.items() if k != "warnings"},
+              "runtime_estimate": runtime}
     return {"contract": contract, "narrative_md": narrative_md, "directing_md": directing_md, "manifest": manifest,
             "en_request": en_request, "report": report}
 
@@ -1532,8 +1947,8 @@ def _series_card_block(card: dict[str, Any]) -> dict[str, Any]:
     rows = []
     for c in card.get("characters") or []:
         if isinstance(c, dict):
-            row = {k: c[k] for k in ("name", "want", "fear", "voice", "signature_business", "signature_prop",
-                                     "palette", "cues", "main") if c.get(k) not in (None, "", [])}
+            row = {k: c[k] for k in ("name", "want", "fear", "voice", "verbal_habit", "signature_business",
+                                     "signature_prop", "palette", "cues", "main") if c.get(k) not in (None, "", [])}
             row["character_id"] = _clean(c.get("character_id") or c.get("id"))
             rows.append(row)
     out = {"characters": rows} if rows else {}
@@ -1542,6 +1957,11 @@ def _series_card_block(card: dict[str, Any]) -> dict[str, Any]:
             out = cl.normalise_series_card({"characters": rows}) or out
         except Exception:  # noqa: BLE001
             pass
+        # the voice fields the script doctor reads (E27: one distinct voice per main character) survive normalising
+        voices = {r["character_id"]: {k: r[k] for k in ("voice", "verbal_habit") if r.get(k)} for r in rows}
+        for row in out.get("characters") or []:
+            if isinstance(row, dict):
+                row.update(voices.get(_clean(row.get("character_id")), {}))
     out.update({k: card[k] for k in ("premise", "engine", "series_id") if card.get(k)})
     return out if out.get("characters") else {}
 
