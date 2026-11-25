@@ -86,6 +86,20 @@ OPENING_WINDOW_SECONDS = 10.0
 #: an unanswered visual English twin (advisory text): the prompt simply omits it, the compile never stalls on it
 VISUAL_EN_NONE = "(none)"
 
+# --- runtime budget after folding (E27 2026-11-25, coordinator: folding shortens the cut) ---------------------------
+#: S7 cuts a dialogue unit to its words and a silent unit to its 2-3 s peak, so the nominal target_seconds (4 s per
+#: shot) over-states the cut.  Calibrated on 1101 E27 (measured release timeline): 26 dialogue units cut to 79.4 s
+#: against 82.0 s of derived line seconds (mean -0.1 s), 9 silent units to 27.7 s (3.1 s each); the model gives
+#: 109 s for the 107.1 s that shipped.  The release holds below 0.85 x the brief target (final_fix_round
+#: RUNTIME_MIN_RATIO); the writer is warned below 0.95 x so a fold-shortened script is deepened with scene content
+#: (more exchanges, a developed conflict), never padded with silent inserts.  Warning only.
+CUT_SILENT_SECONDS = 3.0
+CUT_REACTION_SECONDS = 2.0
+CUT_MUSIC_SECONDS = 2.0
+RUNTIME_DEFAULT_TARGET_SECONDS = 110.0   # = nalu_pipeline.SCRIPT_DEFAULT_TARGET_SECONDS (line owner 2026-10-27)
+RUNTIME_WARN_RATIO = 0.95
+RUNTIME_HOLD_RATIO = 0.85                # = final_fix_round.RUNTIME_MIN_RATIO
+
 
 # =========================================================================== light YAML (subset)
 class YamlError(ValueError):
@@ -947,6 +961,53 @@ def _visual_block(sh: dict[str, Any], shot_id: str, visible: list[tuple[str, str
     return out
 
 
+def cut_runtime_estimate(shots: list[dict[str, Any]], *, language: str = "zh", target: Any = None,
+                         target_declared: bool | None = None) -> dict[str, Any]:
+    """The expected content runtime of the cut (after folding, after S7's trims) vs the brief target.
+
+    {nominal_seconds, estimated_cut_seconds, target_seconds, target_declared, ratio, warn_below, hold_below,
+    dialogue_seconds, silent_units, warning}.  ``warning`` is ``RUNTIME_ESTIMATE_SHORT:<est>s<<floor>s(target T)``
+    below RUNTIME_WARN_RATIO x target, else ''.  Never raises."""
+    try:
+        declared = float(target) if target not in (None, "") else None
+    except (TypeError, ValueError):
+        declared = None
+    goal = declared or RUNTIME_DEFAULT_TARGET_SECONDS
+    nominal = dialogue = silent_total = 0.0
+    silent_units = 0
+    for shot in shots or []:
+        if not isinstance(shot, dict):
+            continue
+        spec = shot.get("prompt_spec") if isinstance(shot.get("prompt_spec"), dict) else {}
+        try:
+            nominal += float(shot.get("target_seconds") or 0)
+        except (TypeError, ValueError):
+            pass
+        line = _clean(spec.get("dialogue") or shot.get("dialogue"))
+        if line and line.split("：", 1)[-1].strip():
+            dialogue += _dialogue_seconds(line, language)
+            continue
+        role = _clean(spec.get("beat_role")).upper()
+        silent_units += 1
+        silent_total += (CUT_REACTION_SECONDS if role == "REACTION" else
+                         CUT_MUSIC_SECONDS if role == "MUSIC_PASSAGE" else CUT_SILENT_SECONDS)
+    estimate = round(dialogue + silent_total, 1)
+    ratio = round(estimate / goal, 3) if goal else 0.0
+    floor = round(goal * RUNTIME_WARN_RATIO, 1)
+    warning = (f"RUNTIME_ESTIMATE_SHORT:{estimate:g}s<{floor:g}s(target {goal:g}s)" if estimate < floor else "")
+    return {"nominal_seconds": round(nominal, 1), "estimated_cut_seconds": estimate, "target_seconds": goal,
+            "target_declared": declared is not None if target_declared is None else target_declared,
+            "ratio": ratio, "warn_below": RUNTIME_WARN_RATIO, "hold_below": RUNTIME_HOLD_RATIO,
+            "dialogue_seconds": round(dialogue, 1), "silent_units": silent_units, "warning": warning}
+
+
+#: what the writer does about RUNTIME_ESTIMATE_SHORT (no story text)
+RUNTIME_SHORT_FIX = ("the cut will run short of the brief after S7's trims (silent steps were folded into lines): "
+                     "deepen the scenes you have -- more back-and-forth exchanges, a resisted demand, one more turn "
+                     "per scene, the source's own business and reactions inside the lines; never pad with silent "
+                     "inserts or new plot events")
+
+
 def opening_check(shots: list[dict[str, Any]], scenes: list[dict[str, Any]]) -> dict[str, Any]:
     """The first ~OPENING_WINDOW_SECONDS must show who / where / what is at stake (E27: 阿夜, bound to the
     pillar, was not on screen for the first 15 s).  Warnings only."""
@@ -1707,6 +1768,11 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
     all_fields = sum(len(s["prompt_spec"]["action"]["field_sources"]) for s in shots_out) or 1
     opening = opening_check(shots_out, block_scenes)
     warnings.extend(opening["warnings"])
+    runtime = cut_runtime_estimate(shots_out, language=language,
+                                   target=brief.get("target_seconds") or outline.get("target_seconds"))
+    if runtime["warning"]:
+        warnings.append(runtime["warning"])
+        runtime["fix"] = RUNTIME_SHORT_FIX
     fallback_keys = {k for _, _, k in tr.fallback_log}
     unanswered = set(tr.requests) - fallback_keys
     report = {"schema": SCHEMA, "episode": episode, "status": "FAIL" if errors else
@@ -1720,7 +1786,8 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
               "props": len(reference_cards),
               "silent_policy": {"applied": silent_applied, "scenes": silent_counts,
                                 "silent_shots": sum(1 for s in shots_out if not s.get("dialogue"))},
-              "opening": {k: v for k, v in opening.items() if k != "warnings"}}
+              "opening": {k: v for k, v in opening.items() if k != "warnings"},
+              "runtime_estimate": runtime}
     return {"contract": contract, "narrative_md": narrative_md, "directing_md": directing_md, "manifest": manifest,
             "en_request": en_request, "report": report}
 

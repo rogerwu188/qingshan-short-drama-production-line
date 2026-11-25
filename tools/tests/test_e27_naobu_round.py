@@ -159,6 +159,57 @@ class SilentPolicyTest(unittest.TestCase):
         self.assertNotIn("SILENT_RUN:E09-S01-05", dp.silent_policy_advisories(shots))
 
 
+# --------------------------------------------------------------------------- runtime budget after folding
+class RuntimeEstimateTest(unittest.TestCase):
+    def test_estimate_counts_lines_and_silent_units_after_folding(self):
+        before = spc.cut_runtime_estimate([
+            {"target_seconds": 4, "prompt_spec": {"dialogue": "甲：东西认得主人。你还说他偷？"}},
+            {"target_seconds": 4, "prompt_spec": {"beat_role": "ACTION"}},
+            {"target_seconds": 4, "prompt_spec": {"beat_role": "REACTION"}},
+            {"target_seconds": 4, "prompt_spec": {"beat_role": "MUSIC_PASSAGE"}}], target=20)
+        line = spc._dialogue_seconds("甲：东西认得主人。你还说他偷？", "zh")
+        self.assertEqual(before["estimated_cut_seconds"], round(line + 3.0 + 2.0 + 2.0, 1))
+        self.assertEqual(before["nominal_seconds"], 16.0)
+        self.assertEqual(before["silent_units"], 3)
+        self.assertTrue(before["warning"].startswith("RUNTIME_ESTIMATE_SHORT:"))
+        self.assertEqual(spc.cut_runtime_estimate([], target=None)["target_seconds"], 110.0)
+
+    def test_compile_reports_the_post_fold_estimate_and_warns_short(self):
+        out = compile_md(E27_S01)
+        est = out["report"]["runtime_estimate"]
+        self.assertEqual(est["silent_units"], 1)        # after folding
+        self.assertLess(est["estimated_cut_seconds"], est["nominal_seconds"])
+        self.assertIn("RUNTIME_ESTIMATE_SHORT", " ".join(out["report"]["warnings"]))
+        self.assertIn("never pad with silent inserts", est["fix"])
+        self.assertEqual(out["report"]["status"], "PASS")   # a warning, never a blocker
+        long = spc.compile_screenplay(spc.parse(E27_S01), copy.deepcopy(CAST_PROPS), {}, {}, episode="E27",
+                                      en_fallback=True, brief={"target_seconds": 18})
+        self.assertFalse(long["report"]["runtime_estimate"]["warning"])
+
+
+    def test_s1_length_check_carries_the_estimate_as_an_advisory(self):
+        import json as _json
+        import tempfile
+        from types import SimpleNamespace
+        from unittest import mock
+
+        import nalu_pipeline as npl
+        # 30 silent shots of 4 s: 120 s nominal passes the length floor, but the cut is ~90 s -> advisory, not blocked
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            contract = d / "contract.json"
+            contract.write_text(_json.dumps({"shots": [{"target_seconds": 4.0} for _ in range(30)]}), encoding="utf-8")
+            (d / "briefs").mkdir()
+            (d / "briefs" / "E03_PRODUCTION_BRIEF.json").write_text(_json.dumps({"target_seconds": 110}))
+            ctx = SimpleNamespace(episode="E03", p=SimpleNamespace(contract=contract))
+            with mock.patch.object(npl, "RUNTIME", d), mock.patch.object(npl, "_camera_grammar_on", lambda _c: True):
+                out = npl.script_length_check(ctx)
+        self.assertEqual(out["status"], npl.PASS)
+        self.assertEqual(out["cut_estimate_seconds"], 90.0)
+        self.assertTrue(out["advisory"].startswith("RUNTIME_ESTIMATE_SHORT:90s<104.5s"))
+        self.assertNotIn("integrity_blocker", out)
+
+
 # --------------------------------------------------------------------------- opening + 脑补
 class VisualExpansionTest(unittest.TestCase):
     def _see_md(self) -> str:
@@ -351,11 +402,11 @@ class WriterGuidanceTest(unittest.TestCase):
             self.assertIn(needle, section)
         self.assertLessEqual(len(section), craft.MAX_CODEX_SECTION_CHARS)
         production = (ROOT / "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md").read_text(encoding="utf-8")
-        for needle in ("边说边做", "SILENT_PROCEDURE_KEPT", "@see 赌注=", "（画面）", "verbal_habit", "DOCTOR_VOICES_ALIKE",
+        for needle in ("边说边做", "SILENT_PROCEDURE_KEPT", "RUNTIME_ESTIMATE_SHORT", "@see 赌注=", "（画面）", "verbal_habit", "DOCTOR_VOICES_ALIKE",
                        "不写长相"):
             self.assertIn(needle, production)
         fmt = (ROOT / "docs/knowledge/SCREENPLAY_FORMAT_V1.md").read_text(encoding="utf-8")
-        for needle in ("`@see k=v", "`（画面）…`", "`#反应`", "Silent units (E27", "Opening (E27)", "脑补 (E27)"):
+        for needle in ("`@see k=v", "`（画面）…`", "`#反应`", "Silent units (E27", "Opening (E27)", "Runtime budget after folding", "脑补 (E27)"):
             self.assertIn(needle, fmt)
         contract = (ROOT / "agent_factory/storyclaw_portable/WRITER_CONTRACT.md").read_text(encoding="utf-8")
         for needle in ("Silent units (11-25", "What the viewer must see (11-25", "Character voice (11-25"):

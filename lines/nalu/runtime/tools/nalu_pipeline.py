@@ -1973,6 +1973,19 @@ def script_length_check(ctx: Ctx) -> dict[str, Any]:
     out = {"authored_seconds": authored, "target_seconds": target, "limit_seconds": limit,
            "floor_seconds": floor, "target_declared": declared is not None,
            "shots": len(contract.get("shots") or [])}
+    # E27 2026-11-25: the nominal sum over-states the cut (S7 trims every unit; folded silent steps add no time).
+    # Advisory only: the expected cut runtime and, below 0.95 x target, what the writer adds (never silent inserts).
+    try:
+        import screenplay_compile as _spc  # noqa: PLC0415 -- same directory
+        estimate = _spc.cut_runtime_estimate(contract.get("shots") or [], target=target,
+                                             target_declared=declared is not None,
+                                             language=str(contract.get("dialogue_language") or "zh"))
+        out["cut_estimate_seconds"] = estimate["estimated_cut_seconds"]
+        out["cut_estimate_ratio"] = estimate["ratio"]
+        if estimate["warning"] and declared is not None:
+            out["advisory"] = f"{estimate['warning']}: {_spc.RUNTIME_SHORT_FIX}"
+    except Exception:  # noqa: BLE001 -- an estimate never breaks S1
+        pass
     if authored < floor and declared is not None and not s1_pacing_in_flight(ctx.p) \
             and ctx_craft_profile(ctx) == "BILI_V1":
         # CHANGE_SPEC WP1: an episode is 1 main + <= 1 secondary plot event -- a short script deepens its scenes
