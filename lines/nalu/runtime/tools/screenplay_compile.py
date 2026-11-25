@@ -1717,7 +1717,16 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                                 "acquired": {"episode": episode, "shot_id": (prop_uses.get(pid) or [""])[0]},
                                 "used_in_shot_ids": prop_uses.get(pid) or [],
                                 "payoff_shot_ids": (prop_uses.get(pid) or [])[-1:]})
-    non_character_entities = [dict(c) for c in reference_cards if c.get("kind")]
+    def _being_note(row: dict[str, Any], fallback: str) -> str:
+        # build_episode_asset_requirements reads row["note"] (physical function)
+        return (_clean(row.get("note")) or _clean(row.get("description"))
+                or _clean(row.get("description_en")) or fallback)
+
+    non_character_entities = [
+        {**dict(c), "note": _being_note({**(declared_beings.get(c["entity_id"]) or {}),
+                                         **(prop_rows.get(c["entity_id"]) or {})},
+                                        c.get("name") or c["entity_id"])}
+        for c in reference_cards if c.get("kind")]
     carried = {c["entity_id"] for c in non_character_entities}
     for bid, row in declared_beings.items():
         fields = _being_fields(bid, row)
@@ -1728,6 +1737,7 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                                           if _clean(row.get("description")) else {}),
                                        **({"description_en": _clean(row.get("description_en"))}
                                           if _clean(row.get("description_en")) else {}),
+                                       "note": _being_note(row, _clean(row.get("name")) or bid),
                                        **fields})
     # ---- characters
     entities = []
