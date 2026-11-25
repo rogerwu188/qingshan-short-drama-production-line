@@ -85,6 +85,7 @@ import nalu_paths as _np  # noqa: E402
 import bgm_cue_shaping as _shape  # noqa: E402
 sys.path.insert(0, str(Path(f"{_np.ENGINE_ROOT}")))
 from tools import dialogue_voice_metrics as dvm  # noqa: E402
+from tools import line_loudness as _lines  # noqa: E402
 from tools.final_cut_audience_detectors import DEFAULTS as DETECTOR_DEFAULTS, decide_loudness  # noqa: E402
 
 SCHEMA = "nalu.final_cut_audio_bed.v1"
@@ -115,6 +116,22 @@ DUCK_MAX_DB = 10.0
 BILI_V1_PAD_GAIN_DB = round(20.0 * math.log10(_shape.BILI_V1_BED_VOLUME / _shape.LEGACY_BED_VOLUME), 2)
 BILI_V1_PAD_LEVEL_DBFS = round(PAD_LEVEL_DBFS + BILI_V1_PAD_GAIN_DB, 2)
 BILI_V1_DUCK_MAX_DB = 14.0
+
+
+def plan_music_level(bgm_plan: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The music-level profile the BGM plan was made under (bgm_cue_shaping.MUSIC_LEVEL_B on its cues), unless
+    ``NALU_S7_MUSIC_LEVEL=legacy``; None = the previous pad level / duck."""
+    if _shape.music_level() is None or not isinstance(bgm_plan, dict):
+        return None
+    return next((c["music_level"] for c in bgm_plan.get("cues") or [] if isinstance(c.get("music_level"), dict)), None)
+
+
+def scale_to_lufs(x: np.ndarray, target_lufs: float) -> tuple[np.ndarray, float | None]:
+    """``x`` scaled so its integrated loudness (BS.1770) is ``target_lufs``; (x, None) when it cannot be measured."""
+    measured = _lines.gated_loudness(_lines.k_weight(x, SR), SR)
+    if not math.isfinite(measured):
+        return x, None
+    return (x * db_to_lin(target_lufs - measured)).astype(np.float32), round(measured, 2)
 
 
 def pad_levels(bgm_plan: dict[str, Any] | None) -> tuple[float, float]:
@@ -636,6 +653,14 @@ def main(argv: list[str] | None = None) -> int:
 
     before = measure_release(a.input, cuts, windows, with_window_lufs=not a.no_window_lufs)
 
+    # per-line loudness on the mix (device 1101 E27 2026-11-25, LOUDNESS_JUMP): outlier lines to the median line level
+    line_levelling: dict[str, Any] = {"status": "DISABLED"}
+    if _lines.enabled() and windows:
+        try:
+            native, line_levelling = _lines.level_lines(native, SR, windows)
+        except Exception as exc:  # noqa: BLE001 -- a polish step: the mix keeps its lines as they were
+            line_levelling = {"status": f"SKIPPED_ERROR:{type(exc).__name__}:{str(exc)[:160]}"}
+
     bed_plan = plan_bed_classes(segments, unit_scene, scene_location, total_s)
     bed = render_bed(bed_plan, total_n, a.seed)
 
@@ -647,18 +672,34 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("wall_to_wall needs --bgm-plan and --bgm-selection (the pad is built from the paid cues only)")
         plan = read_json(a.bgm_plan); selection = read_json(a.bgm_selection)
         pad_level_dbfs, pad_duck_max_db = pad_levels(plan)
+        # music level B (owner 2026-11-25): the pad sits below_dialogue_lu under the median line on this mix, ducks
+        # at most |duck_db| under a line and comes back within release_s, so a short gap between lines is no dip
+        level = plan_music_level(plan)
+        dialogue_lufs = line_levelling.get("target_lufs") if isinstance(line_levelling, dict) else None
+        pad_release_s = DUCK_RELEASE_S
+        if level is not None:
+            pad_duck_max_db = abs(float(level["duck_db"]))
+            pad_release_s = float(level["release_s"])
         pad_regions = plan_pad_regions(plan.get("cues", []), content_end, total_s)
         sources: dict[str, np.ndarray] = {}
+        pad_source_lufs: dict[str, Any] = {}
         for key in {r["source_key"] for r in pad_regions}:
             src = Path(selection["sources"][key]["selected"])
             pad_sources[key] = str(src)
             sources[key] = make_pad_source(decode_audio(src), pad_level_dbfs)
+            if level is not None and dialogue_lufs is not None:
+                sources[key], pad_source_lufs[key] = scale_to_lufs(
+                    sources[key], float(dialogue_lufs) - float(level["below_dialogue_lu"]))
         pad = render_pad(pad_regions, sources, total_n, content_end)
-        env_db, hop = envelope_db(native.mean(axis=1))
+        env_db, hop = envelope_db(native.mean(axis=1), release_s=pad_release_s)
         gain = duck_gain_db(env_db, max_db=pad_duck_max_db)
         pad = apply_gain_curve(pad, gain, hop)
         duck_applied = {"threshold_dbfs": DUCK_THRESHOLD_DBFS, "ratio": DUCK_RATIO, "max_db": pad_duck_max_db,
-                        "attack_s": DUCK_ATTACK_S, "release_s": DUCK_RELEASE_S,
+                        "attack_s": DUCK_ATTACK_S, "release_s": pad_release_s,
+                        **({"music_level": level, "dialogue_lufs": dialogue_lufs,
+                            "pad_target_lufs": (round(float(dialogue_lufs) - float(level["below_dialogue_lu"]), 2)
+                                                if dialogue_lufs is not None else None),
+                            "pad_source_lufs_before_scaling": pad_source_lufs} if level is not None else {}),
                         "median_duck_db_in_speech": round(float(np.median(gain[env_db > -24])), 2) if np.any(env_db > -24) else None}
     else:
         duck_applied = None
@@ -694,6 +735,7 @@ def main(argv: list[str] | None = None) -> int:
         "bed_plan": bed_plan, "bed_rms_dbfs": round(lin_to_db(math.sqrt(float(np.mean(bed_mono ** 2)))), 2),
         "bed_min_frame_dbfs": round(float(frame_rms_db(bed_mono).min()), 2),
         "pad_regions": pad_regions, "pad_sources": pad_sources,
+        "line_levelling": {k: v for k, v in line_levelling.items() if k != "after"} if isinstance(line_levelling, dict) else line_levelling,
         "sfx_layer": {k: sfx_record.get(k) for k in ("status", "enabled", "library", "counts", "record_path", "error") if k in sfx_record},
         "line_windows": {"source": str(a.line_windows) if a.line_windows else None, **window_stats, "written_to": str(a.windows_out) if a.windows_out else None},
         "before": {k: v for k, v in before.items() if k != "cut_rows"},

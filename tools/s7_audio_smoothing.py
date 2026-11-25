@@ -69,7 +69,9 @@ MIN_SPEECH_SECONDS = 0.5
 UNCHANGED_BELOW_DB = 0.25
 
 # --- 3. cut crossfades ---------------------------------------------------------------------------------------
-CUT_CROSSFADE_S = 0.08
+#: device 1101 E27 (2026-11-25, deep review AUDIO_DIP_AT_CUT on 12 cuts): 40 ms (was 80 ms) -- short enough that a
+#: line's last syllable is never faded, long enough to remove the click (the final fix round may still widen it)
+CUT_CROSSFADE_S = 0.04
 #: a crossfade needs real handles; with less than this much material beyond the cut the cut fades through instead
 MIN_CROSSFADE_S = 0.04
 #: fade-through (no handles: H3 clips are mostly used whole): the outgoing sound fades out over its last
@@ -93,11 +95,16 @@ def merge_windows(windows: list[dict[str, Any]], gap: float = DUCK_MERGE_GAP_S) 
     return [(round(a, 3), round(b, 3)) for a, b in merged]
 
 
-def duck_shape(cue_windows: list[dict[str, Any]]) -> dict[str, Any]:
-    """The stamped duck shape recorded on a BGM plan cue (release-timeline seconds)."""
-    return {"policy": "CAMERA_GRAMMAR_V1_SMOOTH_DUCK", "merge_gap_s": DUCK_MERGE_GAP_S,
-            "attack_s": DUCK_ATTACK_S, "release_s": DUCK_RELEASE_S, "curve": "raised_cosine",
-            "windows": [{"start": a, "end": b} for a, b in merge_windows(cue_windows)]}
+def duck_shape(cue_windows: list[dict[str, Any]], level: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The stamped duck shape recorded on a BGM plan cue (release-timeline seconds).  ``level``: the music-level
+    profile (bgm_cue_shaping.MUSIC_LEVEL_B: merge only gaps < 0.25 s, 0.15 s attack, 0.3 s release, so the music comes
+    back up in a short gap between lines instead of staying ducked); None = the CAMERA_GRAMMAR_V1 shape."""
+    gap = float(level["merge_gap_s"]) if level else DUCK_MERGE_GAP_S
+    return {"policy": f"MUSIC_LEVEL_{level['id']}_SMOOTH_DUCK" if level else "CAMERA_GRAMMAR_V1_SMOOTH_DUCK",
+            "merge_gap_s": gap,
+            "attack_s": float(level["attack_s"]) if level else DUCK_ATTACK_S,
+            "release_s": float(level["release_s"]) if level else DUCK_RELEASE_S, "curve": "raised_cosine",
+            "windows": [{"start": a, "end": b} for a, b in merge_windows(cue_windows, gap)]}
 
 
 def smooth_duck_expr(cue: dict[str, Any]) -> str:

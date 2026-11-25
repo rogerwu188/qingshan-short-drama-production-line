@@ -1499,6 +1499,9 @@ def run(episode: str, *, review_path: Path | None = None,
     # names, bound to THIS media sha256, is admitted as ADMITTED_BY_LINE_OWNER_ORDER.  Never self-issued:
     # no order, an unbound order, a different sha or one extra reason → the unit stays rejected.
     acceptance = apply_roger_postgen_acceptance(episode, rows, p.postgen_dir)
+    # §5 default terms recorded by the engine itself (device 1101 E27 2026-11-25: 18 hand-written orders): a content
+    # reject whose one paid redo is already spent is admitted on the default terms, its REJECT evidence kept
+    engine_default = apply_engine_default_postgen_acceptance(episode, rows, p.postgen_dir, acceptance)
 
     # episode-level boundary acceptance across the downloaded units
     boundary = run_media_boundary(episode, rows)
@@ -1543,6 +1546,7 @@ def run(episode: str, *, review_path: Path | None = None,
                                  / f"{row['unit_id']}_POST_GENERATION_QA.json")}
                   for row in rows],
         "roger_gate_acceptance": acceptance,
+        "engine_default_acceptance": engine_default,
         "reroll_requests": str(p.reroll_requests),
         "reroll_request_count": rerolls["request_count"],
         "reroll_not_executable": rerolls.get("not_executable") or [],
@@ -1795,6 +1799,89 @@ def find_postgen_acceptance(orders: list[dict[str, Any]], *, episode: str, unit_
                       else "NO_ORDER_MATCHES_EPISODE_GATE_REASONS_AND_SHA")
     info["candidates"] = candidates[:12]
     return None, info
+
+
+ENGINE_DEFAULT_ACCEPT_ENV = "NALU_POSTGEN_ENGINE_DEFAULT_ACCEPT"
+OWNER_REVIEW_ENV = "NALU_OWNER_REVIEW_REQUIRED"
+ENGINE_APPROVER = "engine_default_terms"
+
+
+def engine_default_acceptance_enabled(environ: dict[str, str] | None = None) -> bool:
+    """Off with ``NALU_POSTGEN_ENGINE_DEFAULT_ACCEPT=off`` or when the line restored the owner review
+    (``project.owner_review_required: true`` -> the pipeline sets ``NALU_OWNER_REVIEW_REQUIRED=1``)."""
+    env = os.environ if environ is None else environ
+    if str(env.get(ENGINE_DEFAULT_ACCEPT_ENV) or "").strip().lower() in ("0", "off", "false", "no"):
+        return False
+    return str(env.get(OWNER_REVIEW_ENV) or "").strip().lower() not in ("1", "true", "yes", "on")
+
+
+def apply_engine_default_postgen_acceptance(episode: str, rows: list[dict[str, Any]], postgen_dir: Path,
+                                            acceptance: dict[str, Any] | None = None,
+                                            environ: dict[str, str] | None = None) -> dict[str, Any]:
+    """CLAUDE_CODE_PRODUCTION §5, recorded by the engine (line owner 2026-11-20 "never wait"; device 1101 E27
+    2026-11-25: the agent hand-wrote default-acceptance orders for 18 voice out-of-band units).
+
+    A still-REJECTED unit is admitted on the default terms only when the policy already leaves nothing else to do:
+      * its one paid redo is spent (``redo_already_used``: a superseded take on disk, the Q2 auto-redo record, or a
+        submitted reroll in the ledger) -- §5: "已有该单元旧片就不再重做，直接按本节记单接受";
+      * its technical QA passed (``TECHNICAL_PASS_CONTENT_UNREVIEWED``): only content reasons (voice band, dialogue,
+        speech rate, basic plot, combat) -- a technical failure still needs the line owner's sha-bound order, which
+        the Q2 admission gate verifies itself.
+    The REJECT row, reasons and evidence stay; the record names the engine and the terms, never a line-owner order.
+    A unit whose redo is still available keeps the choice (controlled redo or an order), exactly as before."""
+    if not engine_default_acceptance_enabled(environ):
+        return {"status": "DISABLED", "accepted_unit_ids": []}
+    p = QaPaths(episode)
+    reroll_ledger = engine_module("reroll_cost_guard")
+    ledger = read_json(p.reroll_ledger, {"schema": "nalu.reroll_ledger.v1", "episode": episode, "events": []})
+    accepted: list[dict[str, Any]] = []
+    kept: list[dict[str, Any]] = []
+    for row in rows:
+        if row.get("verdict") != "REJECT":
+            continue
+        unit_id = row["unit_id"]
+        technical = (row.get("technical_qa") or {}).get("status")
+        used = redo_already_used(p, episode, unit_id, reroll_ledger.reroll_number_for(ledger, unit_id))
+        if technical != "TECHNICAL_PASS_CONTENT_UNREVIEWED" or not used:
+            kept.append({"unit_id": unit_id, "why": ("TECHNICAL_FAILURE_NEEDS_LINE_OWNER_ORDER"
+                                                     if technical != "TECHNICAL_PASS_CONTENT_UNREVIEWED"
+                                                     else "REDO_STILL_AVAILABLE")})
+            continue
+        reasons = [str(r) for r in row.get("reasons") or [] if str(r)]
+        record = {"schema": "nalu.post_generation_engine_default_acceptance.v1", "episode": episode,
+                  "unit_id": unit_id, "gate_id": POSTGEN_GATE_ID, "gate_status_kept": "REJECT",
+                  "accepted_detectors": sorted({_acceptance_detector(unit_id, r) for r in reasons}),
+                  "media_sha256": row.get("media_sha256"), "approved_by": ENGINE_APPROVER,
+                  "terms": "CLAUDE_CODE_PRODUCTION §5 默认条款自动接受：质量问题不阻塞连续生产（每单元付费重做最多一次）",
+                  "redo_evidence": used, "recorded_at": now(), "recorded_by": TOOL_ID, "self_issued": True,
+                  "note": "engine record under the standing default terms; not a line-owner order"}
+        row.update({"engine_verdict": "REJECT", "engine_reasons": reasons, "verdict": "ADMIT",
+                    "verdict_basis": "MEASURED_REJECT+ENGINE_DEFAULT_TERMS (§5: one paid redo already used)",
+                    "reasons": [], "primary_reason": None, "engine_default_acceptance": record})
+        write_json(postgen_dir / unit_id / f"{unit_id}_POST_GENERATION_QA.json", row)
+        accepted.append(record)
+    out: dict[str, Any] = {"status": "APPLIED" if accepted else "NONE",
+                           "accepted_unit_ids": [r["unit_id"] for r in accepted], "kept_rejected": kept}
+    if accepted:
+        write_json(postgen_dir / f"{episode}_ENGINE_DEFAULT_ACCEPTANCE.json", {
+            "schema": "nalu.post_generation_engine_default_acceptance_summary.v1", "episode": episode,
+            "recorded_at": now(), "recorded_by": TOOL_ID, "accepted": accepted, "kept_rejected": kept})
+    if acceptance is not None and accepted:
+        done = set(out["accepted_unit_ids"])
+        needed = [n for n in acceptance.get("orders_needed") or [] if n.get("unit_id") not in done]
+        acceptance["still_rejected_unit_ids"] = [u for u in acceptance.get("still_rejected_unit_ids") or []
+                                                 if u not in done]
+        if needed:
+            acceptance["orders_needed"] = needed
+            acceptance["record_hint"] = (
+                f"record_supervisor_order.py --episode {episode} --gate-id {POSTGEN_GATE_ID} "
+                + " ".join(" ".join(n["record_args"]) for n in needed)
+                + " --order ... --context '<unit: reasons, redo count>' --orders <private inbox>"
+                "; then rerun S6 (one order, one seq for all units)")
+        else:
+            acceptance.pop("orders_needed", None)
+            acceptance.pop("record_hint", None)
+    return out
 
 
 def apply_roger_postgen_acceptance(episode: str, rows: list[dict[str, Any]],

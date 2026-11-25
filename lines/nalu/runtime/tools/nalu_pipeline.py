@@ -10814,6 +10814,9 @@ def s6_qa(ctx: Ctx, res: StageResult) -> dict[str, Any]:
     auth_env = {env: str(authority.get(key)) for key, env in AUTH_ENV.items()
                 if key in ("orders_path", "latest_order_seq", "line_owner_id")
                 and authority.get(key) and not os.environ.get(env)}
+    # §5 default acceptance is recorded by the runner itself unless the line restored the owner review
+    if owner_review_required(ctx):
+        auth_env["NALU_OWNER_REVIEW_REQUIRED"] = "1"
     run_step = (qa_run(ctx, run_argv, name="s6_qa_post_generation_qa_runner", extra_env=auth_env) if auth_env
                 else qa_run(ctx, run_argv, name="s6_qa_post_generation_qa_runner"))
     res.steps.append(run_step)
@@ -13586,6 +13589,9 @@ def s7_dialogue_tail_trim(ctx: Ctx, res: StageResult, contract: dict[str, Any]
     peak = s7_peak_window_trim(ctx, perf, contract, grouping)
     # device 1101 E24 (2026-11-23): fragments of H3's own internal cuts (0.25 s / 0.37 s flashes) are trimmed away
     internal = s7_internal_cut_trim(ctx, res, perf, asr)
+    # device 1101 E27 (2026-11-25, "排队朗读"): the next speaker's line enters 0.1-0.2 s before the picture cut (J-cut;
+    # the in-point moves, the renderer plays the head of the line under the previous shot, lip sync kept)
+    s7_dialogue_jcut(ctx, res, perf, contract, grouping, vo_seconds)
     perf_path = p.assembly / f"{ctx.episode}_PERFORMANCE_CUT.json"
     write_json(perf_path, perf)
     report, head = _perf.merge(report, head, perf)
@@ -13615,6 +13621,39 @@ def s7_dialogue_tail_trim(ctx: Ctx, res: StageResult, contract: dict[str, Any]
     # (owner 2026-11-19): segments starting after the line end stay out of the caption / V.O. timing
     trimmed = _head.strip_words(_trim.trim_unit_asr(_perf.cut_unit_asr(asr, cut, perf), report))
     return trimmed, (report_path if report["trimmed_units"] else None)
+
+
+def s7_dialogue_jcut_path(ctx: Any) -> Path:
+    return ctx.p.assembly / f"{ctx.episode}_DIALOGUE_JCUT.json"
+
+
+def s7_dialogue_jcut(ctx: Any, res: Any, perf: dict[str, Any], contract: dict[str, Any], grouping: dict[str, Any],
+                     vo_seconds: dict[str, list[float]]) -> dict[str, Any]:
+    """Plan the J-cuts between two speakers (tools/dialogue_jcut.py) and fold each next-unit in-point into the
+    performance-cut rows before they are merged into the head-trim report.  Report <EP>_DIALOGUE_JCUT.json (the
+    AgentCut build reads it, --dialogue-jcut).  NALU_S7_JCUT=off disables it.  Free; never raises, never blocks."""
+    import dialogue_jcut as _jcut
+    path = s7_dialogue_jcut_path(ctx)
+    try:
+        # units the J-cut must not touch: V.O. narration holds, authored re-cuts (derived clips with their own timing)
+        skip = {uid for uid, rows in (vo_seconds or {}).items() if rows}
+        recut_plan = read_json(ctx.p.assembly / f"{ctx.episode}_UNIT_RECUT_PLAN.json", {}) or {}
+        recut_units = recut_plan.get("units") or {}
+        skip |= ({str(k) for k in recut_units} if isinstance(recut_units, dict)
+                 else {str(r.get("unit_id")) for r in recut_units if isinstance(r, dict)})
+        report = _jcut.plan(perf, contract, grouping, skip_units=skip)
+        report["changed_units"] = _jcut.apply_to_performance_cut(perf, report)
+        report["episode"] = ctx.episode
+        write_json(path, report)
+        res.receipts.append(str(path))
+        res.details["dialogue_jcut"] = {"report": str(path), "applied": report["applied"],
+                                        "removed_seconds": report["removed_seconds"]}
+        return report
+    except Exception as exc:  # noqa: BLE001 -- an edit polish, never a blocker
+        write_json(path, {"schema": _jcut.SCHEMA, "episode": ctx.episode, "rows": [],
+                          "status": f"SKIPPED_ERROR:{type(exc).__name__}:{exc}"})
+        res.details["dialogue_jcut"] = {"report": str(path), "status": f"SKIPPED_ERROR:{type(exc).__name__}"}
+        return {}
 
 
 def s7_internal_cut_trim(ctx: Ctx, res: StageResult, perf: dict[str, Any], asr: dict[str, Any]) -> dict[str, Any]:
@@ -14211,6 +14250,10 @@ def _stage_s7_pass(ctx: Ctx) -> StageResult:
     if head_trim:
         build_argv += ["--dialogue-head-trim", head_trim]
         res.details["commands"]["build_agentcut"] = q(build_argv)
+        if (res.details.get("dialogue_jcut") or {}).get("applied"):
+            # the J-cut in-points are inside the head-trim report; the build registers the audio pre-roll
+            build_argv += ["--dialogue-jcut", s7_dialogue_jcut_path(ctx)]
+            res.details["commands"]["build_agentcut"] = q(build_argv)
     # 3c. push-in compensation (CAMERA_GRAMMAR_V1 locked-camera units; measured on the trimmed cut, never blocks)
     push_in = s7_push_in_compensation(ctx, res, read_json(p.contract, {}) or {})
     if push_in is not None:
