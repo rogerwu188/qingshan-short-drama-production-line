@@ -235,6 +235,19 @@ class CompileE25Test(unittest.TestCase):
         self.assertNotIn("kind", refs["PROP-CUP"])
         self.assertEqual([], self.c["non_character_entities"])  # plain props stay out
 
+    def test_beings_carry_a_note_for_the_asset_builder(self):
+        # E28 (1101): build_episode_asset_requirements reads row["note"]; a CREATURE
+        # without note in the contract raised KeyError at S2.
+        parsed = spc.parse("## S01 殿 · 日\n@card goal[甲]=a | obstacle=b | turn=c\n[道具 白狐]\n甲：走。\n")
+        cast_props = {"cast": [{"id": "CHAR-A", "name": "甲"}], "locations": [{"id": "LOC-X", "name": "殿"}],
+                      "props": [{"id": "PROP-FOX", "name": "白狐", "kind": "CREATURE", "description": "白狐",
+                                 "note": "九尾灵狐，四足行走"}],
+                      "non_character_entities": [{"entity_id": "PROP-BIRD", "name": "青鸟", "kind": "ANIMAL"}]}
+        c = spc.compile_screenplay(parsed, cast_props, {}, {}, episode="E01")["contract"]
+        beings = {r["entity_id"]: r for r in c["non_character_entities"]}
+        self.assertEqual("九尾灵狐，四足行走", beings["PROP-FOX"]["note"])
+        self.assertEqual("青鸟", beings["PROP-BIRD"]["note"])
+
     def test_partner_action_and_reactions_name_the_reacting_character(self):
         spec = shot(self.c, "E25-S01-10")["prompt_spec"]  # 商余烬看着令牌，低低笑了一声 / 白桃：你笑什么？
         self.assertEqual("CHAR-SHANGYUJIN", spec["action"]["subject_id"])
