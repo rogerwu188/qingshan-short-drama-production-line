@@ -5,7 +5,9 @@ Doc: https://www.x2creel.ai/matrix-api-docs (V1.3.0, OpenAPI /matrix-openapi.jso
 endpoints, header ``X-API-Key`` (the user's existing X2C key) and ``device_sn`` in every body; no
 ``action`` field, no category.  This mode is selected by ``publish_x2creel.py`` when
 ``X2C_API_MODE=matrix`` (or, with X2C_API_MODE unset, when NALU_DEVICE_SN / X2C_MATRIX_API_URL is set);
-``X2C_API_MODE=open`` forces the legacy open-api flow.
+``X2C_API_MODE=open`` forces the legacy open-api flow.  Without the env var, ``qingshan.json``
+``deployment.x2c_api_mode`` decides, and a single-machine deployment (``deployment.mode: single``,
+deployment_mode.py) uses open-api.
 
   publish_x2creel.py publish --episode E01 [--title --description --hashtags a,b --video --cover
                                             --series-key --episode-number N --resend]
@@ -66,7 +68,13 @@ SLEEP = time.sleep  # patched in tests
 
 
 def matrix_mode() -> bool:
-    mode = os.environ.get("X2C_API_MODE", "").strip().lower()
+    # $X2C_API_MODE > qingshan.json deployment.x2c_api_mode > single mode => open (deployment_mode.py; the system
+    # cron never sees an interactive env var, so the choice is persisted in the runtime config)
+    try:
+        import deployment_mode as dm  # same folder
+        mode = dm.x2c_api_mode(px.runtime())
+    except Exception:  # noqa: BLE001
+        mode = os.environ.get("X2C_API_MODE", "").strip().lower()
     if mode in ("open", "legacy", "open-api"):
         return False
     if mode == "matrix":

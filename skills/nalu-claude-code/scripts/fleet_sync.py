@@ -327,9 +327,17 @@ def build_status(cp: Any, tick_result: dict) -> tuple[dict, str, str]:
     try:
         import publish_x2c_matrix as mx  # noqa: PLC0415
         if mx.matrix_mode():
+            x2c["api_mode"] = "matrix"
             x2c["published"] = len(mx.sent_episodes())
+        else:
+            x2c["api_mode"] = "open"
     except Exception:  # noqa: BLE001
         pass
+    try:
+        import deployment_mode as dm  # noqa: PLC0415  (single-machine vs fleet, owner 2026-11-25)
+        deployment = dm.mode(runtime)
+    except Exception:  # noqa: BLE001
+        deployment = "fleet"
     state = str(ns.get("state") or run or "")
     fix_summary, fix_note = final_fix_note(engine, ep)
     blocker_text = _newest_blocker(engine, ep) if ep and state == "BLOCKED" else ""
@@ -349,6 +357,7 @@ def build_status(cp: Any, tick_result: dict) -> tuple[dict, str, str]:
         "pipeline": pipeline, "x2c": x2c, "engine_sha": _engine_sha(engine),
         "final_review": (tick_result.get("final_review") or {}).get("status"),
         "dialogue_language": dialogue_language(runtime),
+        "deployment_mode": deployment,
     }
     try:
         status["hopsapi_credits"] = hopsapi_credits(engine, runtime)

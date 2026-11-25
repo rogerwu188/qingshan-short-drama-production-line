@@ -75,9 +75,20 @@ bash $S/setup_host.sh --pin <PIN>          # 自动安装 Codex（npm）、写 ~
 `CODEX_CONFIG` / `codex_config` 为 `VERIFY_FAILED` 时把 `detail`（key 已打码）告诉线主，多半是地址、key 或模型名不对。
 
 ## 3. 线主提供的信息（只通过对话）
+- **部署模式（线主 2026-11-25）**：默认 `fleet`（机房集群，下面各节的默认行为）。部署者附带的 SetupInfo 里有一行
+  `部署模式：单机`（或 `mode: single` / `单机模式`），或用户在对话里说改成单机/集群时，跑
+  `python3 $S/deployment_mode.py set single`（改回 `set fleet`；`show` 查看），写进 `$NALU_RUNTIME_ROOT/qingshan.json` 的
+  `deployment: {"mode": "single"|"fleet", "x2c_api_mode": "open"|"matrix"}`（原子写，不含任何密钥；系统 cron 也按它走）。
+  优先级：环境变量 `NALU_DEPLOYMENT_MODE` / `X2C_API_MODE` > `qingshan.json` > 默认（fleet / 矩阵）。这一行不是密钥。
+  **单机模式**与集群的区别只有三条：① X2C 走旧 open-api 到用户自己的 X2C 账号（§6，要分类 genre），不用设备矩阵、不登记 SN；
+  ② 原著**必须由用户提供**（文件或粘贴的正文，存进 `sources/<作品>/delivered/`），下面「自己选/上网找/原创兜底」全部不适用，没有就停下请用户发——
+  `codex_production.py start` 在单机模式下没有 `delivered/` 原著时返回 `BLOCKED` `SOURCE_REQUIRED_FROM_USER`；
+  ③ 首次配置向用户要齐：HopsAPI 地址 + key（§2）、Giggle key、X2C key、原著文件（必需）；预算可选（默认不变）、模型可选（默认 gpt-6.1-sol）。
+  fleet 上报照常开着（`NALU_FLEET_URL` 默认不变），看板上的 `deployment_mode` 字段显示 single / fleet。
 - Giggle API key：线主在对话里发来时，直接写入 `$NALU_ENGINE_ROOT/.env` 的 `GIGGLE_API_KEY=`（保持 600），只回复「已配置 GIGGLE_API_KEY」。
 - 原著：**线主在对话里发了原著文件，就用这个文件**（线主 2026-11-05，原文会从 StoryClaw 代理发来，Codex 直接用）；
-  没发文件时代理自己选、自己取正文，不向线主索要原著（选法见 §3.1）。
+  没发文件时代理自己选、自己取正文，不向线主索要原著（选法见 §3.1）。**单机模式例外**：只用用户发的文件/正文（粘贴的正文存成 txt 放进
+  `sources/<作品>/delivered/`），没有就停下请用户发，不上网找、不自选、不写原创兜底。
   - **线主发来的原著文件**（txt / md / docx / epub / html；PDF 先 `pdftotext -layout` 转成 txt）：消息里会带附件在本机的路径，
     把原文件复制到 `$NALU_RUNTIME_ROOT/sources/<作品>/delivered/`（不改原文件），用 §3.1 的 `intake_source_text.py --input <该文件>` 入库，
     `SOURCE_SELECTION.md` 写「线主提供的原文文件：<文件名>，<收到日期>」和 sha256，**不上网另找版本、不替换、不补写**；
@@ -173,6 +184,7 @@ python3 $S/codex_production.py report                                # 给线主
 - `IDLE` 但没有 NALU_STATUS 行（会话异常结束）：`resume --message "继续，并在最后输出 NALU_STATUS 行"`。
 - `reason` 以 `PROVIDER_ERROR` 开头：LLM provider 的 key、额度或地址出问题，告诉线主，本项目暂停。
 - `PUBLISH_BLOCKED` / `PUBLISH_EPISODE_NUMBER_COLLISION`：见 §6。
+- `start` 返回 `BLOCKED` `SOURCE_REQUIRED_FROM_USER`（单机模式，§3）或 Codex 以此停下：请用户发原著文件，入库后再 `start` / `resume --message "原著已补齐，继续"`；不上网找。
 只读结构化输出；不要改 Codex 写的剧本、订单、审核或事务文件。用户说「暂停」：`touch $NALU_RUNTIME_ROOT/series/PAUSED`；
 恢复时删掉它。
 
@@ -195,7 +207,11 @@ $P $S/publish_x2creel.py status                           # 本地记录 + X2C �
 - 返回 `BLOCKED: X2C_API_KEY_MISSING` 时请线主发 X2C key（§3），收到后重跑；其余 `ERROR` 记进 `series/STATUS.md`，下一次心跳重试，不阻塞下一集生产。
 - **发行暂扣（线主 2026-11-23）**：成片时长 < 目标 0.85 或终修后仍有未解决的烧字（ACCEPT_CORRECT 除外）时，引擎在 `final_fix_round.json` 记 `RELEASE_HELD:<类别>`，心跳不发这一集、也不重试，写进 `series/REDO_BACKLOG.json` 待日后重做；S8 照常批准，下一集照常开拍，不等线主。开关：`NALU_RELEASE_BLOCK_OBJECTIVE_DEFECTS=off` 关闭，`NALU_RELEASE_BLOCK_CLASSES=<类别>|all|none` 收窄/放宽。
 - 只用 X2C 分发 API 的 1、2、3、4、5、6 步（分类、上传 URL、发布、追加、查询、列出），不用 3.5（Developer JWT 代发布）。
-- **设备矩阵模式（X2C「StoryClaw 设备矩阵 API」，线主 2026-11-06 起默认）**：上面的命令（及心跳发行）默认走 `publish_x2c_matrix.py`；
+- **单机模式（§3，`deployment.mode: single`）**：默认走旧 open-api（`deployment.x2c_api_mode: open`），即本节上面的命令，用用户自己的 X2C key；
+  第一集前必须选好分类：`categories --lang <剧集语言>`，把显示名逐字写进简报 `genre`、`genre_lang`（派单条款里就写上，后续集沿用）；
+  简报缺分类时心跳记【需要处理】（`FIRST_PUBLISH_NEEDS_TITLE_DESCRIPTION_CATEGORY`），不发行。下面矩阵专有的功能（SN 登记、`DEVICE_NOT_FOUND`、
+  `list` / `close`、广告创意上下文）在 open 模式一律跳过（返回 `SKIPPED` `X2C_OPEN_API_MODE`，不报错）。
+- **设备矩阵模式（X2C「StoryClaw 设备矩阵 API」，线主 2026-11-06 起默认，集群部署）**：上面的命令（及心跳发行）默认走 `publish_x2c_matrix.py`；
   已经用旧 open-api 发过集的那部剧继续用旧接口直到做完，`X2C_API_MODE=open` 强制旧接口。本机须在 X2C 后台「设备矩阵映射」登记，否则返回 404 `DEVICE_NOT_FOUND`（记进 STATUS，不阻塞生产）。设备 SN 没配环境变量时自动读本机硬件序列号
   （`$S/device_sn.py`：缓存 → `/sys/class/dmi/id/product_serial` → `dmidecode -s system-serial-number` → `sudo -n dmidecode`，读到后缓存到
   `$NALU_RUNTIME_ROOT/credentials/device_sn`；首次配置时跑一次 `python3 $S/device_sn.py` 把 SN 报给线主登记到 X2C）：同一个 X2C key，无分类、无 action；

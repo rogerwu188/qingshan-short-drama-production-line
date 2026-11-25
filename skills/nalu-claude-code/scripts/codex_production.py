@@ -881,10 +881,22 @@ def revise_message(base: str, episode: str) -> str:
                    "不手改四层，不写 build_<ep>_layers.py。）")
 
 
+def deployment_section() -> str:
+    """The single-machine note for the start prompt (deployment_mode.py); '' in fleet mode.  Never raises."""
+    try:
+        sys.path.insert(0, str(HERE))
+        import deployment_mode as dm  # noqa: PLC0415  (same folder)
+        return dm.codex_section(roots()[1])
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def build_prompt(episode: str, brief: str, guidance: str = "", craft: str | None = None) -> str:
     craft = craft_standard_section(episode) if craft is None else craft
+    single = deployment_section()
     return (f"你是 NALU 短剧生产线的生产执行者。严格按照下面的生产合同执行集 {episode}。\n\n"
             + production_contract_text(episode) + "\n" + CODEX_ADAPTER
+            + (f"\n\n{single}" if single else "")
             + (f"\n\n## 本次线主/编排代理附加说明\n{brief}" if brief else "")
             + (f"\n\n{craft}" if craft else "")
             + (f"\n\n{guidance}" if guidance else ""))
@@ -957,6 +969,14 @@ def record_guidance(episode: str, prepared: dict[str, Any], prompt_with: str, pr
 def start(episode: str, brief: str = "") -> dict[str, Any]:
     if not contract_path().is_file():
         return {"status": "BLOCKED", "reason": f"CONTRACT_MISSING:{contract_path()}"}
+    try:  # single-machine mode (owner 2026-11-25): the user must provide the novel; nobody scrapes the web
+        sys.path.insert(0, str(HERE))
+        import deployment_mode as dm  # noqa: PLC0415
+        blocked = dm.source_check(roots()[1])
+    except Exception:  # noqa: BLE001 -- an unreadable mode is fleet mode
+        blocked = None
+    if blocked:
+        return {**blocked, "episode": episode}
     guidance = knowledge_guidance(episode)
     section = str(guidance.get("section") or "")
     craft = craft_standard_section(episode)
@@ -1484,6 +1504,9 @@ def publish_next() -> dict[str, Any] | None:
         note(f"X2C 发行暂缓 {ep}：等待第 {','.join(nums) or '?'} 集过审，避免追加时重复发号顶掉它")
     elif st == "EPISODE_NUMBER_COLLISION":
         note(f"【需要处理】X2C {ep} 拿到第 {out.get('episode_number')} 集，与 {out.get('collides_with')} 撞号（见 SKILL.md §6）")
+    elif out.get("reason") == "FIRST_PUBLISH_NEEDS_TITLE_DESCRIPTION_CATEGORY":
+        note(f"【需要处理】X2C {ep} 未发行（open-api）：简报缺 title / synopsis / genre，"
+             f"按 publish_x2creel.py categories --lang <剧集语言> 选显示名写进简报 genre 与 genre_lang 后再发（见 SKILL.md §6）")
     elif str(out.get("reason") or "").startswith("CATEGORY_NOT_IN_X2C_LIST"):
         note(f"【需要处理】X2C {ep} 未发行：简报 genre「{brief.get('genre')}」不在 X2C 该语言的分类列表里，"
              f"按 publish_x2creel.py categories --lang <剧集语言> 的显示名改简报后再发（见 SKILL.md §6）")
@@ -1876,6 +1899,11 @@ def report() -> dict[str, Any]:
             spent[row["episode"]] = row.get("recorded_total_credits")
     out["local_spent_credits"] = spent
     sys.path.insert(0, str(HERE))
+    try:
+        import deployment_mode as dm  # noqa: PLC0415
+        out["deployment_mode"] = dm.mode(runtime)
+    except Exception:  # noqa: BLE001
+        out["deployment_mode"] = "fleet"
     import publish_x2creel as px  # noqa: E402
     import publish_x2c_matrix as mx  # noqa: E402
     if mx.matrix_mode():
