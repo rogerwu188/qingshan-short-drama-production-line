@@ -1130,6 +1130,13 @@ contrast than the tail it starts from), so texture and sheen can compound down a
   pulled <= 2.5, skin highlights above the anchor's own level compressed.  Per-pixel / small symmetric filters only:
   geometry untouched.  `<unit>.raw.png` keeps the pre-normalisation frame, `<unit>.tail_normalize.json` records
   `tail_normalized` + before / after / anchor stats.  Fail-open; `NALU_TAIL_NORMALIZE=0` turns it off.
+* **Texture cap** (line owner 2026-11-25, zh E27 S01 on device …1101): a 9-unit CONTINUOUS_ACTION chain turned the
+  BACKGROUND painterly / mosaic (pillar carving, sky) and faces waxy by the 6th generation while the face-only
+  sharpness step stayed quiet -- whole-frame mid-band energy |G(1)-G(4)| climbed x2.1 over units 004-009, ~x1.17 at
+  each unit boundary.  The normaliser now also measures the WHOLE frame's fine (|g-G(1)|) and mid (|G(1)-G(4)|) band
+  energy and, above 1.10x the chain root anchor's, scales those bands back toward it (low band G(4) kept, gain
+  floor 0.55 per generation, <= 3 passes).  `ops.texture` and `stats.{before,after,anchor}.texture` record it.
+  Zero credits, no gate; the same `NALU_TAIL_NORMALIZE=0` opt-out.
 * **Prompt**: stamped (CAMERA_GRAMMAR_V1) live-action H3 units with people carry `SKIN_FINISH_NEGATIVE` (natural
   matte skin, dry hair, no sweaty sheen) -- skipped for anime and when the unit's text makes skin or hair wet.
 * **Detect** (free, never a gate): every freshly extracted unit gets `real_final_frames/<unit>.skin_sheen.json`

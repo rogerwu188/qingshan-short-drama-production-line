@@ -118,6 +118,76 @@ class NormalizeImageTests(unittest.TestCase):
         self.assertEqual(tfn.drifted(tfn.compare(tfn.metrics(clean_frame(3)), self.ref)), [])
 
 
+def background_chain(img: "np.ndarray", generations: int) -> "np.ndarray":
+    """What a long CONTINUOUS_ACTION chain did to zh E27 S01 (device …1101, 2026-11-25): every H3 regeneration
+    amplifies the mid band (painterly carving / mosaic sky) over the WHOLE frame, background included, ~x1.2."""
+    x = img.astype(np.float32)
+    rng = np.random.default_rng(11)
+    worms = cv2.GaussianBlur(rng.normal(0, 1.5, x.shape[:2]).astype(np.float32), (0, 0), 2.0)[..., None]
+    for _ in range(generations):
+        b1, b4 = cv2.GaussianBlur(x, (0, 0), 1.0), cv2.GaussianBlur(x, (0, 0), 4.0)
+        x = b4 + (b1 - b4) * 1.15 + (x - b1) * 1.05 + worms
+        ok, enc = cv2.imencode(".jpg", np.clip(x, 0, 255).astype(np.uint8), [cv2.IMWRITE_JPEG_QUALITY, 85])
+        x = cv2.imdecode(enc, cv2.IMREAD_COLOR).astype(np.float32)
+    return np.clip(x, 0, 255).astype(np.uint8)
+
+
+@unittest.skipIf(cv2 is None, "OpenCV not installed")
+class TextureChainTests(unittest.TestCase):
+    """Line owner 2026-11-25 (zh E27 S01): the background turned painterly / mosaic down a 9-unit chain while the
+    face-only sharpness step stayed quiet.  The whole-frame band energy is capped at the chain root anchor's."""
+
+    def setUp(self):
+        self.anchor = clean_frame(0)
+        self.ref = tfn.texture_energy(self.anchor)
+
+    def test_a_compounded_background_is_pulled_back_to_the_anchor(self):
+        tail = background_chain(clean_frame(1), generations=2)
+        before = tfn.texture_energy(tail)
+        self.assertGreater(before["mid"], 1.5 * self.ref["mid"])
+        result, ops = tfn.normalize_image(tail, self.anchor, tail)  # start == tail: the face step sees no excess
+        after = tfn.texture_energy(result)
+        self.assertIn("texture", ops)
+        self.assertLess(after["mid"], before["mid"] * 0.8)
+        self.assertLessEqual(after["mid"], self.ref["mid"] * tfn.TEXTURE_TRIGGER * 1.05)
+
+    def test_gain_floor_bounds_one_generation(self):
+        tail = background_chain(clean_frame(1), generations=12)
+        result, ops = tfn.normalize_image(tail, self.anchor, tail)
+        total = ops["texture"]["total_gain"]
+        self.assertGreaterEqual(total["mid"], tfn.TEXTURE_GAIN_MIN - 1e-6)
+        self.assertGreaterEqual(total["fine"], tfn.TEXTURE_GAIN_MIN - 1e-6)
+        self.assertLessEqual(len(ops["texture"]["passes"]), tfn.TEXTURE_MAX_PASSES)
+
+    def test_texture_step_keeps_geometry_and_mean(self):
+        tail = background_chain(clean_frame(1), generations=4)
+        result, ops = tfn.normalize_image(tail, self.anchor, tail)
+        g0 = cv2.cvtColor(tail, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        g1 = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        (dx, dy), _ = cv2.phaseCorrelate(g0, g1)
+        self.assertLess(abs(dx) + abs(dy), 0.25)
+        self.assertEqual(ops["tone"]["L"]["shift"], 0.0)
+
+    def test_a_tail_at_the_anchors_texture_is_untouched_by_it(self):
+        _, ops = tfn.normalize_image(clean_frame(1), self.anchor)
+        self.assertNotIn("texture", ops)
+        _, ops = tfn.normalize_image(background_chain(clean_frame(1), 4), background_chain(clean_frame(0), 4))
+        self.assertNotIn("texture", ops)  # a rich anchor allows a rich tail: only drift past the root is removed
+
+    def test_sidecar_records_the_texture_stats(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            frame, anchor = Path(tmp) / "E27-VU-008.png", Path(tmp) / "S01-01-keyframe-v1.png"
+            cv2.imwrite(str(frame), background_chain(clean_frame(1), 4))
+            cv2.imwrite(str(anchor), self.anchor)
+            raw, side = tfn.companion_paths(frame)
+            out = tfn.normalize_tail_frame(frame, anchor=anchor, raw_copy=raw, sidecar=side, env={})
+            self.assertEqual(out["status"], "NORMALIZED")
+            stats = json.loads(side.read_text())["stats"]
+            self.assertLess(stats["after"]["texture"]["mid"], stats["before"]["texture"]["mid"])
+            self.assertIn("texture", stats["anchor"])
+            self.assertIn("texture", out["ops"])
+
+
 @unittest.skipIf(cv2 is None, "OpenCV not installed")
 class NormalizeFileTests(unittest.TestCase):
     def _files(self, tmp: Path) -> tuple[Path, Path]:

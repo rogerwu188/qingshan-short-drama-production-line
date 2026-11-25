@@ -22,6 +22,15 @@ supervisor, the unit's planned start keyframe):
   measured as Laplacian variance on the face / skin region at the tail's size, a Gaussian blend proportional to the
   excess -- no unsharp mask anywhere;
 * noise: a mild edge-preserving bilateral filter on the same condition;
+* texture (line owner 2026-11-25, zh E27 S01 on device …1101): a 9-unit CONTINUOUS_ACTION chain in a night-rain
+  courtyard turned painterly / mosaic-like in the BACKGROUND (pillar carving, wall, sky) and waxy on faces from the
+  6th generation on.  Measured on the release: whole-frame mid-band energy |G(1)-G(4)| climbed 5.4 -> 6.7 -> 8.3
+  -> 9.2 -> 11.2 -> 12.9 over units 004-009 (x2.1 the chain root; every other unit of the episode 5-8), the jump
+  sitting at each unit boundary (~x1.17 per H3 regeneration).  The sharpening step above measures only the face /
+  skin Laplacian (finest band) and only against the previous generation, so the mid band compounded unchecked.
+  The tail's whole-frame band energy (fine |g-G(1)| and mid |G(1)-G(4)|) is now capped at the chain root anchor's:
+  above ``TEXTURE_TRIGGER`` x the anchor, both bands are scaled down toward the anchor's level (gain floor
+  ``TEXTURE_GAIN_MIN``; the low band G(4) -- tone, shapes, edges' position -- is kept as it is);
 * specular sheen: a soft highlight knee on L inside the face / skin region (face box widened upward over the hair),
   knee at the anchor's own skin highlight level -- compresses highlights, never paints.
 
@@ -58,6 +67,11 @@ SHARP_BLEND_MAX = 0.65
 SHARP_MAX_PASSES = 3
 #: bilateral denoise (only when the tail is sharper / noisier than the anchor)
 BILATERAL = {"d": 5, "sigmaColor": 14.0, "sigmaSpace": 3.0}
+#: texture: whole-frame band energy vs the chain root anchor (line owner 2026-11-25, zh E27 S01 mosaic background)
+TEXTURE_SIGMAS = (1.0, 4.0)
+TEXTURE_TRIGGER = 1.10           # act when a band carries > 10 % more energy than the anchor's
+TEXTURE_GAIN_MIN = 0.55          # never remove more than 45 % of a band in one generation
+TEXTURE_MAX_PASSES = 3
 #: specular knee: L (0..100) above which skin highlights are compressed, and the slope above it
 KNEE_FLOOR = 72.0
 KNEE_DEFAULT = 82.0
@@ -169,6 +183,24 @@ def metrics(image: Any, region: Any | None = None) -> dict[str, Any]:
             "global_l_std": round(float(L.std()), 2)}
 
 
+def texture_energy(image: Any) -> dict[str, float]:
+    """Whole-frame band energy of one BGR frame: ``fine`` = mean |g - G(1)|, ``mid`` = mean |G(1) - G(4)|.  Content
+    statistics of the whole picture (background included), not a face measurement."""
+    import cv2  # noqa: PLC0415
+    import numpy as np  # noqa: PLC0415
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    b1 = cv2.GaussianBlur(gray, (0, 0), TEXTURE_SIGMAS[0])
+    b4 = cv2.GaussianBlur(gray, (0, 0), TEXTURE_SIGMAS[1])
+    return {"fine": round(float(np.abs(gray - b1).mean()), 3), "mid": round(float(np.abs(b1 - b4).mean()), 3)}
+
+
+def _band_gain(current: float, reference: float) -> float:
+    """Gain that brings ``current`` band energy back to ``reference`` (1.0 = untouched; only ever lowers)."""
+    if reference <= 1e-6 or current <= reference * TEXTURE_TRIGGER:
+        return 1.0
+    return float(max(TEXTURE_GAIN_MIN, reference / current))
+
+
 def _ratio(a: float, b: float) -> float:
     return round(float(a) / float(b), 3) if b and b > 1e-6 else 0.0
 
@@ -241,6 +273,30 @@ def normalize_image(tail: Any, anchor: Any, start: Any | None = None) -> tuple[A
     if passes:
         ops["desharpen"] = {"passes": passes, "sigma": SHARP_BLUR_SIGMA, "bilateral": BILATERAL}
 
+    # 1b. texture: whole-frame fine / mid band energy capped at the chain root anchor's (background included) --
+    #     the face-only sharpness step above lets the mid band compound down a long chain (zh E27 S01)
+    te_t = texture_energy(np.clip(out, 0, 255).astype(np.uint8))
+    te_a = texture_energy(anchor)
+    tex_passes: list[dict[str, Any]] = []
+    total = {"fine": 1.0, "mid": 1.0}
+    current = te_t
+    while len(tex_passes) < TEXTURE_MAX_PASSES:
+        # the cumulative gain per band never goes below TEXTURE_GAIN_MIN (re-blurring makes one pass undershoot)
+        g_fine = max(_band_gain(current["fine"], te_a["fine"]), TEXTURE_GAIN_MIN / total["fine"])
+        g_mid = max(_band_gain(current["mid"], te_a["mid"]), TEXTURE_GAIN_MIN / total["mid"])
+        if g_fine >= 0.999 and g_mid >= 0.999:
+            break
+        b1 = cv2.GaussianBlur(out, (0, 0), TEXTURE_SIGMAS[0])
+        b4 = cv2.GaussianBlur(out, (0, 0), TEXTURE_SIGMAS[1])
+        out = b4 + (b1 - b4) * min(g_mid, 1.0) + (out - b1) * min(g_fine, 1.0)
+        total = {"fine": total["fine"] * min(g_fine, 1.0), "mid": total["mid"] * min(g_mid, 1.0)}
+        current = texture_energy(np.clip(out, 0, 255).astype(np.uint8))
+        tex_passes.append({"gain_fine": round(min(g_fine, 1.0), 3), "gain_mid": round(min(g_mid, 1.0), 3),
+                           "after": current})
+    if tex_passes:
+        ops["texture"] = {"before": te_t, "anchor": te_a, "passes": tex_passes,
+                          "total_gain": {k: round(v, 3) for k, v in total.items()}}
+
     # 2. tone: skin statistics when both frames show skin, else whole frame at half strength
     lab = cv2.cvtColor(np.clip(out, 0, 255) / 255.0, cv2.COLOR_BGR2Lab)
     lab_a = _lab(anchor)
@@ -305,10 +361,11 @@ def normalize_tail_frame(frame: Path, *, anchor: Path | None, raw_copy: Path, si
         import cv2  # noqa: PLC0415
         tail_img, anchor_img = _read(frame), _read(Path(anchor))
         start_img = _read(Path(start)) if start is not None and Path(start).is_file() else None
-        before = metrics(tail_img)
-        anchor_m = metrics(_fit(anchor_img, tail_img.shape))
+        before = {**metrics(tail_img), "texture": texture_energy(tail_img)}
+        anchor_m = {**metrics(_fit(anchor_img, tail_img.shape)),
+                    "texture": texture_energy(_fit(anchor_img, tail_img.shape))}
         result, ops = normalize_image(tail_img, anchor_img, start_img)
-        after = metrics(result)
+        after = {**metrics(result), "texture": texture_energy(result)}
         shutil.copyfile(frame, raw_copy)
         tmp = frame.with_name(frame.stem + ".norm" + frame.suffix)
         if not cv2.imwrite(str(tmp), result):
