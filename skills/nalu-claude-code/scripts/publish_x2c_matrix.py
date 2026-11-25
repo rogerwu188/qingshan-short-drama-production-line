@@ -12,6 +12,9 @@ endpoints, header ``X-API-Key`` (the user's existing X2C key) and ``device_sn`` 
   publish_x2creel.py status        (/distribution/status: review_status + matrix_jobs per episode)
   publish_x2creel.py list          (/distribution/list: this device's series)
   publish_x2creel.py close --series <series_key>   (/distribution/close; then a new series can start)
+  publish_x2creel.py creative-context [--series K] [--episode EP] [--dry-run] [--force]
+                   (/advertising/creative-context: characters' images + locked voices for X2C's ROAN ads; also run
+                    automatically and non-blocking after every successful publish; see x2c_creative_context.py)
 
 Env: NALU_DEVICE_SN (required), NALU_DEVICE_NAME (optional), X2C_MATRIX_API_URL (default = X2C PRODUCTION
 https://ukbyfmmerxhlghlhbxtz.supabase.co/functions/v1/matrix-api/v1, where the device mappings live; TEST is
@@ -310,7 +313,21 @@ def cmd_publish(a: argparse.Namespace) -> dict[str, Any]:
             "episode_number": res.get("episode_number", number), "account_id": res.get("account_id"),
             "routing_status": res.get("routing_status"), "review_status": res.get("review_status"),
             "x2c_status": res.get("review_status"), "published_video": str(video), "published_variant": "FINAL",
-            "duration_seconds": body.get("duration_seconds"), "cover_source": row.get("cover_source")}
+            "duration_seconds": body.get("duration_seconds"), "cover_source": row.get("cover_source"),
+            # X2C 广告创意上下文 (characters' images + locked voices for ROAN ads): non-blocking, after project_id
+            "creative_context": _creative_context_after_publish(key, a.episode, series.get("project_id"))}
+
+
+def _creative_context_after_publish(key: str, episode: str, project_id: str | None) -> dict[str, Any]:
+    if not project_id:
+        return {"status": "NO_PROJECT_YET"}
+    try:
+        import x2c_creative_context as xcc  # same folder
+        if not xcc.enabled():
+            return {"status": "DISABLED"}
+        return xcc.after_publish(key, episode)
+    except BaseException as exc:  # noqa: BLE001  never blocks the release
+        return {"status": "ERROR", "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
 
 
 def _project_for(state: dict[str, Any], key: str | None) -> tuple[str | None, str | None]:
@@ -366,6 +383,12 @@ def cmd_close(a: argparse.Namespace) -> dict[str, Any]:
     return {"status": "CLOSED", "series_key": key, "project_id": project, "response": res}
 
 
+def cmd_creative_context(a: argparse.Namespace) -> dict[str, Any]:
+    import x2c_creative_context as xcc  # same folder
+    return xcc.run(getattr(a, "series", None), getattr(a, "episode", None), dry_run=bool(getattr(a, "dry_run", False)),
+                   force=bool(getattr(a, "force", False)))
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -378,8 +401,13 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("status"); s.add_argument("--series", default=None)
     sub.add_parser("list")
     c = sub.add_parser("close"); c.add_argument("--series", required=True)
+    cc = sub.add_parser("creative-context", help="X2C 广告创意上下文: post characters' reference images + voices")
+    cc.add_argument("--series", default=None); cc.add_argument("--episode", default=None)
+    cc.add_argument("--dry-run", action="store_true", help="print the payload; no upload, no POST, no state write")
+    cc.add_argument("--force", action="store_true", help="re-post characters whose payload hash is unchanged")
     a = ap.parse_args(argv)
-    out = {"publish": cmd_publish, "status": cmd_status, "list": cmd_list, "close": cmd_close}[a.cmd](a)
+    out = {"publish": cmd_publish, "status": cmd_status, "list": cmd_list, "close": cmd_close,
+           "creative-context": cmd_creative_context}[a.cmd](a)
     print(json.dumps(out, ensure_ascii=False, indent=2))
     return 0 if out["status"] not in ("BLOCKED", "ERROR") else 3
 

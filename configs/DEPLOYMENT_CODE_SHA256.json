@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2612,
+  "file_count": 2615,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -1109,7 +1109,7 @@
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
-      "sha256": "2de4b823fa7803950faa4d6897285f7ba9b76b3edeadb2e3f9406fdc7da89e8d"
+      "sha256": "8e3185c2288c99805612f4a9097a0c568966c8df03cb9868aaf64405a831c023"
     },
     {
       "path": "skills/nalu-claude-code/scripts/apply_runtime_fixups.py",
@@ -1125,7 +1125,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "3d73187fb9fe4b3b40e75738556788a68abee483674a17732b52d2e9cf0ea14b"
+      "sha256": "85af45793b78225ad5d6373aaa3d26c1b8a8ce6b1ba32717287e0b37473a4968"
     },
     {
       "path": "skills/nalu-claude-code/scripts/collective_provision.py",
@@ -1177,7 +1177,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/publish_x2c_matrix.py",
-      "sha256": "d63af1b8007cc03835775548ded28fc8ac7c411916f5760dff2359a1cecaeee1"
+      "sha256": "00b899bc25643cffe82c19775463fa90a1d4caa3046f86bbe4f50124fcaf6a74"
     },
     {
       "path": "skills/nalu-claude-code/scripts/publish_x2creel.py",
@@ -1190,6 +1190,10 @@
     {
       "path": "skills/nalu-claude-code/scripts/setup_host.sh",
       "sha256": "c5f7d107c8a48729c4c35236f9909bf4516b9f049fcd395fddafd7a66c709c49"
+    },
+    {
+      "path": "skills/nalu-claude-code/scripts/x2c_creative_context.py",
+      "sha256": "259d3aeb4fb2288be8c92815d541d7e85725e88ae8461bb96577bfa36df580e3"
     },
     {
       "path": "skills/qingshan-nalu/SKILL.md",
@@ -8484,6 +8488,10 @@
       "sha256": "46c4b3e51b729e7a4c5439f4d1a42a44d1685887c9018b4f8d356ea51ce85ee4"
     },
     {
+      "path": "tools/tests/test_identity_lock_reused_subject_guard.py",
+      "sha256": "3d288f37ca2b9ec64552f482c17a22b60459d223899a05d046887e7ea5696e36"
+    },
+    {
       "path": "tools/tests/test_identity_original_preservation.py",
       "sha256": "20f1551eb59005c2fe13a3859829d6eda7d61fa797766751089d62bf0fd49da1"
     },
@@ -10074,6 +10082,10 @@
     {
       "path": "tools/tests/test_wuxia_combat_profile_selector.py",
       "sha256": "6c145038df02925eb8ba29cf1a39460a4499e48bb8819b88f6f6a4e3f3b0d34b"
+    },
+    {
+      "path": "tools/tests/test_x2c_creative_context.py",
+      "sha256": "8540081adf22c5ac8b62a0e1082cb50784692bf4fd04877f97ae5b8ac0c4c831"
     },
     {
       "path": "tools/tests/test_youtube_shorts_runtime_gate.py",
