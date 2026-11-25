@@ -52,6 +52,7 @@ def build(
     unit_audio_levelling=None,
     audio_cut_crossfade_seconds=None,
     text_removal=None,
+    dialogue_jcut=None,
 ):
     if generation_contract is None:
         raise ValueError("generation_contract is required for automatic audio-profile binding")
@@ -119,6 +120,20 @@ def build(
         head_report = json.loads(_abs(dialogue_head_trim).read_text(encoding="utf-8"))
         head_cut = {str(row["unit_id"]): float(row["head_cut_seconds"])
                     for row in head_report.get("units") or [] if row.get("trimmed")}
+
+    # S7 J-cut (tools/dialogue_jcut.py, device 1101 E27 2026-11-25): next-unit in-points already moved inside the
+    # head-trim report; here each one is checked against the clip actually built and its audio pre-roll registered
+    # (metadata.audio_jcut, rendered by render_portable_timeline).  A J-cut that cannot be honoured gets its in-point
+    # back, so no syllable of the next line is ever lost.
+    jcut_rows = {}
+    jcut_report_path = None
+    if dialogue_jcut:
+        jcut_report_path = _abs(dialogue_jcut)
+        jcut_rows = {str(r["to_unit_id"]): r
+                     for r in json.loads(jcut_report_path.read_text(encoding="utf-8")).get("rows") or []
+                     if r.get("status") == "APPLIED"}
+    jcuts = []
+    jcut_reverted = []
 
     # CAMERA_GRAMMAR_V1 push-in compensation (S7 report, tools/push_in_compensation.py): unit -> compensated clip
     # (same frames, audio stream copied bit-exact).  Used for the unit's picture AND native sound, so both clips keep
@@ -263,6 +278,30 @@ def build(
                          "report": str(_abs(dialogue_head_trim))}
             source_in = head_trim["head_cut_seconds"]
             duration = head_trim["kept_seconds"]
+        jcut_row = jcut_rows.get(source_id)
+        jcut_meta = None
+        if jcut_row is not None:
+            prev_meta = (video_clips[-1].get("metadata") or {}) if video_clips else {}
+            honoured = (head_trim is not None
+                        and abs(float(head_trim["head_cut_seconds"]) - float(jcut_row["after_in"])) <= 0.002
+                        and prev_meta.get("source_id") == str(jcut_row.get("from_unit_id"))
+                        and not prev_meta.get("unit_recut") and not prev_meta.get("sound_bridge_out")
+                        and float(jcut_row["preroll"]) <= source_in + 1e-6)
+            if honoured:
+                jcut_meta = {"from_unit_id": jcut_row["from_unit_id"], "preroll_seconds": float(jcut_row["preroll"]),
+                             "overlap_seconds": float(jcut_row["overlap"]),
+                             "fade_in_seconds": float(jcut_row.get("fade_in") or 0.03),
+                             "fade_out_seconds": float(jcut_row.get("fade_out") or 0.03),
+                             "in_point_before_jcut": float(jcut_row["before_in"]),
+                             "report": str(jcut_report_path)}
+            elif head_trim is not None and abs(float(head_trim["head_cut_seconds"]) - float(jcut_row["after_in"])) <= 0.002:
+                # the head trim carries the J-cut in-point but its pre-roll cannot be played: restore the in-point
+                back = max(0.0, float(jcut_row["before_in"]))
+                duration = round(duration + (source_in - back), 6)
+                source_in = back
+                head_trim = {**head_trim, "head_cut_seconds": round(back, 6), "kept_seconds": round(duration, 6),
+                             "jcut_reverted": True}
+                jcut_reverted.append(source_id)
         stab_row = stabilized.get(source_id) if recut_meta is None else None
         stab_meta = None
         if stab_row is not None and audio_source.resolve() == source.resolve() \
@@ -314,6 +353,9 @@ def build(
             clip_metadata["dialogue_tail_trim"] = tail_trim
         if head_trim is not None:
             clip_metadata["dialogue_head_trim"] = head_trim
+        if jcut_meta is not None:
+            clip_metadata["dialogue_jcut"] = jcut_meta
+            jcuts.append({"index": len(video_clips), "to_unit_id": source_id, **jcut_meta})
         if push_in_meta is not None:
             clip_metadata["push_in_compensation"] = push_in_meta
         if recut_meta is not None:
@@ -386,6 +428,7 @@ def build(
                 "dialogue_classification": "SPEAKING" if expected_text.strip() else "NON_SPEAKING",
                 "reused_for_silent_visual": silent,
                 **({"unit_audio_levelling": level_meta} if level_meta is not None else {}),
+                **({"dialogue_jcut": jcut_meta} if jcut_meta is not None else {}),
             },
         })
         admissions.append({
@@ -474,6 +517,10 @@ def build(
         # CAMERA_GRAMMAR_V1: render_portable_timeline crossfades the native audio at every cut (not the picture)
         project["metadata"]["audio_cut_crossfade"] = {"seconds": float(audio_cut_crossfade_seconds), "curve": "qsin",
                                                       "policy": "CAMERA_GRAMMAR_V1_EQUAL_POWER_CUT_CROSSFADE"}
+    if jcuts or jcut_reverted:
+        # S7 J-cut: render_portable_timeline plays each listed clip's audio pre-roll under the previous clip's tail
+        project["metadata"]["audio_jcut"] = {"policy": "S7_DIALOGUE_JCUT", "report": str(jcut_report_path),
+                                             "cuts": jcuts, "reverted_units": jcut_reverted}
     if bridges is not None:
         project["metadata"]["dialogue_sound_bridge"] = {"report": str(_abs(dialogue_sound_bridge)),
                                                         "bridges": bridges}
@@ -528,6 +575,7 @@ def main():
     parser.add_argument("--push-in-compensation", help="Optional S7 push-in compensation report (CAMERA_GRAMMAR_V1): use each compensated locked-camera clip (picture + its copied native audio)")
     parser.add_argument("--stabilized-clips", help="Optional S7 lock-off/smoothing summary (clip_lockoff_stabilize.py --summary, Roger 2026-10-30 E12 item 2): use each LOCK_OFF/SMOOTH derived clip for the unit's picture and its bit-exact copied sound")
     parser.add_argument("--unit-recut", help="Optional S7 unit re-cut report (nalu.unit_recut_report.v1, Roger 2026-10-30 E12 item 3): use each APPLIED derived clip for the unit's picture and sound (in=0, report duration), overriding measured-edit / head / tail trims")
+    parser.add_argument("--dialogue-jcut", help="Optional S7 J-cut report (tools/dialogue_jcut.py): register each APPLIED J-cut's audio pre-roll (metadata.audio_jcut) when the head-trim in-point matches; otherwise restore the in-point")
     parser.add_argument("--text-removal", help="Optional S7 burned-text removal report (tools/burned_text_removal.py, line owner 2026-11-23): use each APPLIED cleaned copy of the unit's picture (same frames and audio) when its source path + sha match the picture this builder chose")
     args = parser.parse_args()
     print(json.dumps(build(
@@ -550,6 +598,7 @@ def main():
         unit_audio_levelling=args.unit_audio_levelling,
         audio_cut_crossfade_seconds=args.audio_cut_crossfade_seconds,
         text_removal=args.text_removal,
+        dialogue_jcut=args.dialogue_jcut,
     ), ensure_ascii=False))
 
 

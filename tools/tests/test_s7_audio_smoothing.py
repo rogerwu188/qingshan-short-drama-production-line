@@ -113,7 +113,8 @@ class CrossfadeTest(unittest.TestCase):
                  {"in": 0.0, "duration": 2.0, "metadata": {"sound_bridge_out": {"seconds": 0.5}}},
                  {"in": 0.0, "duration": 2.0}]
         plan = smooth.crossfade_plan(clips, [4.0, 3.5, 3.0, 2.0, 2.0])
-        self.assertEqual(plan[0], {"mode": "CROSSFADE", "head": 0.04, "tail": 0.04, "seconds": 0.08, "fade": 0.0})
+        # 40 ms since device 1101 E27 (2026-11-25): 20 ms from each handle
+        self.assertEqual(plan[0], {"mode": "CROSSFADE", "head": 0.02, "tail": 0.02, "seconds": 0.04, "fade": 0.0})
         self.assertEqual(plan[1]["mode"], "FADE_THROUGH")   # clip 1 has no tail, clip 2 no head
         self.assertEqual(plan[1]["fade"], smooth.FADE_THROUGH_HALF_S)
         self.assertEqual(plan[2]["mode"], "FADE_THROUGH")

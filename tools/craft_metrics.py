@@ -49,6 +49,12 @@ BAND: dict[str, dict[str, Any]] = {
 }
 FALLBACK_FIELDS = ("motion_direction", "physical_causality", "microexpression_design", "physical_action_design",
                    "contact_point")
+#: SCREENPLAY_V1 contracts (screenplay_compile.py) never write the LEGACY action fields above -- they record what the
+#: compiler filled itself in ``prompt_spec.action.field_sources`` ("fallback").  Device 1101 E27 (2026-11-25) reported
+#: fallback_share_pct 69.5 because the LEGACY reading counted the three fields the format does not have as templates
+#: (105 of 151 slots).  The performance fields (body_action / delivery) exist only on a spoken line, so a silent
+#: shot's entries for them are not counted.
+SCREENPLAY_PERFORMANCE_FIELDS = ("body_action", "delivery", "delivery_en", "business_en")
 OTS_EXTENTS = ("BACK_AND_SHOULDERS_ONLY", "BACK_OF_HEAD", "OVER_THE_SHOULDER", "OTS")
 WORK_SIDE = 360
 MOTION_FPS = 12.0
@@ -344,6 +350,7 @@ def measure_contract(contract: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(contract, dict) or not contract.get("shots"):
         return {"status": "NOT_MEASURED", "reason": "no generation contract"}
     shots = [s for s in contract.get("shots") or [] if isinstance(s, dict)]
+    screenplay_v1 = str(contract.get("writer_format") or "").upper() == "SCREENPLAY_V1"
     total = sum(_num(s.get("target_seconds")) or 0.0 for s in shots)
     multi = 0.0
     dialogue = reacted = dedicated = moving = 0
@@ -379,6 +386,14 @@ def measure_contract(contract: dict[str, Any] | None) -> dict[str, Any]:
         camera = spec.get("camera_plan") if isinstance(spec.get("camera_plan"), dict) else {}
         family = str(camera.get("motion_family") or "").upper()
         moving += 1 if family and family not in ("LOCKED", "STATIC", "NONE") else 0
+        sources = action.get("field_sources") if isinstance(action.get("field_sources"), dict) else None
+        if sources is not None and screenplay_v1:
+            for field, origin in sources.items():
+                if field in SCREENPLAY_PERFORMANCE_FIELDS and not has_line:
+                    continue  # no line, no performance: nothing was templated
+                slots += 1
+                fallback += 1 if str(origin).lower() == "fallback" else 0
+            continue
         for field in FALLBACK_FIELDS:
             if field == "contact_point" and not _authored(action.get(field)):
                 continue  # an absent contact is no contact, not a template
@@ -406,6 +421,7 @@ def measure_contract(contract: dict[str, Any] | None) -> dict[str, Any]:
                                          if two_person else None),
         "camera_move_plan_pct": _pct(moving, len(shots)),
         "fallback_share_pct": _pct(fallback, slots),
+        "fallback_basis": "screenplay_field_sources" if screenplay_v1 else "legacy_action_fields",
         "ledger": ledger,
     }
 

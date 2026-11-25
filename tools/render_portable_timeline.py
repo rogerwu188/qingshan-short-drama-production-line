@@ -141,6 +141,86 @@ def _crossfade_audio_filters(audio_rows: list[dict], audios: list[dict], seconds
     return filters
 
 
+def audio_placement_plan(audio_rows: list[dict], audios: list[dict], seconds: float, jcuts: list[dict],
+                         source_seconds: list[float]) -> list[dict]:
+    """S7 J-cut (metadata.audio_jcut, tools/dialogue_jcut.py): every clip's audio as one segment placed at its own
+    timeline position.  Ordinary cuts keep the equal-power crossfade of ``crossfade_plan`` (same head/tail handles
+    and curves as the acrossfade chain); at a J-cut the incoming clip's audio starts ``preroll_seconds`` before the
+    cut from its own source (``[in - preroll, in]``, so it stays locked to its picture) and fades in over
+    ``fade_in_seconds``, while the outgoing clip plays on to the cut and fades out over ``fade_out_seconds`` (using
+    up to half of it from its own tail handle).  Returns rows {input, src_start, length, place, fade_in, fade_out,
+    volume}."""
+    try:
+        from tools import s7_audio_smoothing as _smooth
+    except ImportError:
+        import s7_audio_smoothing as _smooth  # type: ignore
+    slots = [{**clip, "duration": row["duration"]} for clip, row in zip(audios, audio_rows)]
+    if seconds > 0:
+        plan = _smooth.crossfade_plan(slots, source_seconds, seconds)
+    else:
+        plan = [{"mode": "HARD", "head": 0.0, "tail": 0.0, "seconds": 0.0, "fade": 0.0} for _ in slots[1:]]
+    for jc in jcuts:
+        index = int(jc["index"])
+        if not 0 < index < len(slots):
+            continue
+        out_clip = slots[index - 1]
+        tail_room = max(0.0, float(source_seconds[index - 1]) - float(out_clip.get("in") or 0.0)
+                        - float(out_clip["duration"]))
+        fade_out = float(jc.get("fade_out_seconds") or 0.03)
+        preroll = min(float(jc["preroll_seconds"]), float(slots[index].get("in") or 0.0),
+                      float(out_clip["duration"]) / 2.0)
+        plan[index - 1] = {"mode": "JCUT", "head": round(preroll, 6), "tail": round(min(fade_out / 2.0, tail_room), 6),
+                           "fade_in": min(float(jc.get("fade_in_seconds") or 0.03), preroll), "fade_out": fade_out}
+    rows, place = [], 0.0
+    for index, row in enumerate(audio_rows):
+        before = plan[index - 1] if index > 0 else None
+        after = plan[index] if index < len(plan) else None
+        head = before["head"] if before and before["mode"] in ("CROSSFADE", "JCUT") else 0.0
+        tail = after["tail"] if after and after["mode"] in ("CROSSFADE", "JCUT") else 0.0
+        fade_in = (before["seconds"] if before and before["mode"] == "CROSSFADE"
+                   else before["fade"] if before and before["mode"] == "FADE_THROUGH"
+                   else before["fade_in"] if before and before["mode"] == "JCUT" else 0.0)
+        fade_out = (after["seconds"] if after and after["mode"] == "CROSSFADE"
+                    else after["fade"] if after and after["mode"] == "FADE_THROUGH"
+                    else after["fade_out"] if after and after["mode"] == "JCUT" else 0.0)
+        length = row["duration"] + head + tail
+        rows.append({"input": row["input"], "src_start": round(max(0.0, row["in"] - head), 6),
+                     "length": round(length, 6), "place": round(max(0.0, place - head), 6),
+                     "fade_in": round(min(fade_in, length / 2.0), 6), "fade_out": round(min(fade_out, length / 2.0), 6),
+                     "volume": row["volume"], "cut_mode_in": before["mode"] if before else None})
+        place += row["duration"]
+    return rows
+
+
+def _placed_audio_filters(audio_rows: list[dict], audios: list[dict], seconds: float, sample_rate: int,
+                          jcuts: list[dict]) -> list[str]:
+    try:
+        from tools import s7_audio_smoothing as _smooth
+    except ImportError:
+        import s7_audio_smoothing as _smooth  # type: ignore
+    placed = audio_placement_plan(audio_rows, audios, seconds, jcuts,
+                                  [_audio_seconds(row["path"]) for row in audio_rows])
+    total = sum(row["duration"] for row in audio_rows)
+    curve = _smooth.CROSSFADE_CURVE
+    filters, labels = [], []
+    for index, seg in enumerate(placed):
+        fades = ""
+        if seg["fade_in"] > 0:
+            fades += f",afade=t=in:st=0:d={seg['fade_in']:.6f}:curve={curve}"
+        if seg["fade_out"] > 0:
+            fades += f",afade=t=out:st={seg['length'] - seg['fade_out']:.6f}:d={seg['fade_out']:.6f}:curve={curve}"
+        delay = int(round(seg["place"] * sample_rate))
+        filters.append(
+            f"[{seg['input']}:a:0]atrim=start={seg['src_start']:.6f}:duration={seg['length']:.6f},"
+            f"asetpts=PTS-STARTPTS,aresample={sample_rate},aformat=channel_layouts=stereo,"
+            f"apad=whole_dur={seg['length']:.6f},atrim=duration={seg['length']:.6f},volume={seg['volume']:g}"
+            f"{fades},adelay=delays={delay}S:all=1[p{index}]")
+        labels.append(f"[p{index}]")
+    filters.append("".join(labels) + f"amix=inputs={len(labels)}:duration=longest:normalize=0,"
+                   f"apad=whole_dur={total:.6f},atrim=duration={total:.6f}[aout]")
+    return filters
+
+
 def build_ffmpeg_command(project_path: Path, output_override: Path | None = None) -> list[str]:
     project_path = project_path.expanduser().resolve()
     project = json.loads(project_path.read_text(encoding="utf-8"))
@@ -182,6 +262,12 @@ def build_ffmpeg_command(project_path: Path, output_override: Path | None = None
         _reject_unsupported(track)
     crossfade = (project.get("metadata") or {}).get("audio_cut_crossfade") or {}
     crossfade_seconds = _number(crossfade.get("seconds", 0), "metadata.audio_cut_crossfade.seconds") if crossfade else 0.0
+    jcuts = [row for row in (((project.get("metadata") or {}).get("audio_jcut") or {}).get("cuts") or [])
+             if isinstance(row, dict)]
+    for row in jcuts:
+        _number(row.get("index"), "metadata.audio_jcut.cuts[].index", minimum=1)
+        _number(row.get("preroll_seconds"), "metadata.audio_jcut.cuts[].preroll_seconds")
+    per_clip_audio = crossfade_seconds > 0 or bool(jcuts)
     audio_rows: list[dict] = []
     aspect_cache: dict[str, float | None] = {}
     if output_path == project_path:
@@ -222,7 +308,7 @@ def build_ffmpeg_command(project_path: Path, output_override: Path | None = None
         # source runs short) and its audio slot is exactly as long, so picture and sound stay locked at every cut
         frames = max(1, round(duration * fps))
         exact = (f",tpad=stop_mode=clone:stop=2,trim=end_frame={frames},setpts=PTS-STARTPTS"
-                 if crossfade_seconds > 0 else "")
+                 if per_clip_audio else "")
         filters.append(
             f"[{v_index}:v:0]trim=start={v_in:.6f}:duration={duration:.6f},"
             f"setpts=PTS-STARTPTS,{_fit_filter(video_path, width, height, aspect_cache)},"
@@ -230,7 +316,7 @@ def build_ffmpeg_command(project_path: Path, output_override: Path | None = None
             # at all (0:1); concat refuses segments whose SAR differs, so every segment is forced to square pixels
             f"setsar=1,fps={fps:g},format=yuv420p{exact}[v{index}]"
         )
-        if crossfade_seconds > 0:
+        if per_clip_audio:
             audio_rows.append({"input": a_index, "path": audio_path, "in": a_in, "volume": volume,
                                "duration": frames / fps})
             concat_inputs.append(f"[v{index}]")
@@ -243,7 +329,10 @@ def build_ffmpeg_command(project_path: Path, output_override: Path | None = None
         concat_inputs.extend((f"[v{index}]", f"[a{index}]"))
         cursor += duration
 
-    if crossfade_seconds > 0:
+    if jcuts:
+        filters.append("".join(concat_inputs) + f"concat=n={len(videos)}:v=1:a=0[vout]")
+        filters.extend(_placed_audio_filters(audio_rows, audios, crossfade_seconds, sample_rate, jcuts))
+    elif crossfade_seconds > 0:
         filters.append("".join(concat_inputs) + f"concat=n={len(videos)}:v=1:a=0[vout]")
         filters.extend(_crossfade_audio_filters(audio_rows, audios, crossfade_seconds, sample_rate))
     else:

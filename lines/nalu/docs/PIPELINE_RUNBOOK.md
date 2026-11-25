@@ -1224,6 +1224,40 @@ Owner: 「既然 gemini 可以'看'视频，需要做的非常细致」.  Code: 
   face (QA-FACE-ARTIFACT), skin sheen, hands (QA-HAND-ARTIFACT → HAND_ARTIFACT) → paid S6 redo; loudness / audio
   artefacts / tails / BGM → free S7; lip sync, voice, continuity, AI artefacts and every CRAFT-* → record + KB.
 
+## S7 dialogue rhythm and sound (device 1101 E27 deep review, 2026-11-25)
+E27: every line ended 0.15–0.25 s before its cut and the next speaker started after it over a faint bed
+(~-40 dBFS, "排队朗读"); 12 audible dips at cuts; consecutive lines up to 6 LU apart (lines -12.6..-21.5 LUFS);
+`fallback_share_pct=69.5`.  All free, no new gate:
+* **J-cut** (`tools/dialogue_jcut.py`, `s7_dialogue_jcut`; CAMERA_GRAMMAR_V1 performance cut): between two speaking
+  units of different speakers, when the previous line has already stopped sounding (tail-guard `speech_end`, else
+  word end + 0.25 s) at least 0.04 s + the 30 ms fade before the next voice enters, the next unit's in-point moves to
+  `line_start + 0.15 s` (`NALU_S7_JCUT_SECONDS`, clamped 0.1–0.2) and its audio starts `overlap + 30 ms` before the
+  picture cut from its own source (project `metadata.audio_jcut`, rendered by `render_portable_timeline`; the
+  outgoing clip fades out over 30 ms at the cut).  The picture cut stays on the frame after the previous line's tail
+  guard; picture and sound of the next unit share one source time (lip sync).  V.O. and re-cut units are skipped; the
+  build restores the in-point when a J-cut cannot be honoured.  Report `assembly/<EP>_DIALOGUE_JCUT.json`;
+  `NALU_S7_JCUT=off` disables it.  `s7_edit_invariants` no longer counts a cut ≤ 0.25 s after a line's start as a
+  cut inside the line.
+* **Cut crossfade** 40 ms (was 80 ms; `NALU_S7_CUT_CROSSFADE_SECONDS` / the final fix round still widen it).
+* **Music level B** (owner-approved; `bgm_cue_shaping.MUSIC_LEVEL_B`, `NALU_S7_MUSIC_LEVEL=legacy` restores): the cue
+  duck is -10 dB under a line, merges only gaps < 0.25 s and releases in 0.3 s (a 0.5 s gap between lines comes back
+  to ~-0.4 dB instead of staying at -14 dB); at mix time each cue's volume is set so the music sits 6 LU under the
+  dialogue measured on the picture (`music_level_b` in the mix report); the audio-bed pad follows the same target
+  (dialogue = median line on the mix), ducks at most 10 dB and releases in 0.3 s.
+* **Per-line loudness on the mix** (`tools/line_loudness.py`, in `final_cut_audio_bed.py`, `NALU_S7_LINE_LOUDNESS=off`
+  disables): each line window (BS.1770 gated) more than 1 LU from the median line goes to the median (±8 dB clamp,
+  60 ms raised-cosine ramps outside the window, gaps untouched).  On E27's shipped audio: range 8.9 → 1.3 LU, largest
+  adjacent jump 6.1 → 1.0 LU.
+* **fallback_share_pct**: SCREENPLAY_V1 contracts are measured from `prompt_spec.action.field_sources` ("fallback")
+  -- the old reading counted three LEGACY action fields the format never writes (E27: 105 of 151 slots); a silent
+  shot's body_action / delivery entries are not counted.  E27: 69.5 % → 3.8 %.
+* **S6 post-generation default acceptance** (`post_generation_qa_runner.apply_engine_default_postgen_acceptance`):
+  a content-only REJECT (technical QA passed: voice band, dialogue, speech rate, plot, combat) whose one paid redo is
+  already spent is admitted by the engine on the §5 default terms (`approved_by: engine_default_terms`, REJECT row and
+  reasons kept, `postgen/<EP>_ENGINE_DEFAULT_ACCEPTANCE.json`); a unit whose redo is still available, or with a
+  technical failure, is listed for an order exactly as before.  Off with `project.owner_review_required: true` or
+  `NALU_POSTGEN_ENGINE_DEFAULT_ACCEPT=off`.
+
 ## Final fix round + S8 engine approval (line owner 2026-11-20)
 Owner: 「不要等我了，我自己看不过来」 — episodes never stop and wait for the line owner on quality.  Code:
 `lines/nalu/runtime/tools/final_fix_round.py` (pure) wired in `nalu_pipeline.py` (`s7_final_fix_round`,

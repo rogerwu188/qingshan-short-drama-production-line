@@ -623,12 +623,19 @@ def cmd_plan(a: argparse.Namespace) -> int:
         # CAMERA_GRAMMAR_V1 (line owner 2026-10-27, lab E07 "BGM goes louder/quieter"): one smooth, lighter duck
         # over each dialogue exchange instead of a -8 dB toggle per line (tools/s7_audio_smoothing.py)
         smooth = _smoothing(contract, a.episode)
+        # music level B (owner 2026-11-25): on the smooth-duck path the music comes back up in short gaps and sits
+        # ~6 LU under the dialogue there (volume set at mix time from measured loudness); -10 dB under a line
+        level = _shape.music_level() if smooth is not None else None
+        if level is not None:
+            duck = float(level["duck_db"])
         shape = {}
         if smooth is not None and dialogue:
-            shape = {"duck_shape": smooth.duck_shape(dialogue)}
+            shape = {"duck_shape": smooth.duck_shape(dialogue, level)}
         sc = shaped[cue_id]
-        if bili_v1:   # WP5-B: full bed level only 0.4 s (guard + ramp) away from a line
+        if bili_v1 and level is None:   # WP5-B: full bed level only 0.4 s (guard + ramp) away from a line
             shape = {**shape, "duck_guard_s": _shape.BILI_V1_DUCK_GUARD_S}
+        if level is not None:
+            shape = {**shape, "music_level": level}
         cues_out.append({"cue_id": cue_id, "narrative_function": func, "source_key": cue["source_key"],
                          "shots": shots, "timeline_start": t0, "duration": round(t1 - t0, 3),
                          "volume": volume, "dialogue_duck_db": duck, "dialogue_windows": dialogue,
@@ -858,6 +865,48 @@ def _curve(cue: dict) -> str:
     return str(cue.get("fade_curve") or "hsin")
 
 
+def music_level_b_volumes(plan: dict, selection: dict, picture: Path) -> dict:
+    """Music level B (bgm_cue_shaping.MUSIC_LEVEL_B, owner 2026-11-25): each cue carrying ``music_level`` gets the
+    volume that puts it ``below_dialogue_lu`` under the episode's dialogue -- the dialogue measured on the picture
+    being mixed (EBU R128 over every dialogue window of the plan), the cue on its own source over the placed
+    length.  A measurement that fails keeps the authored volume (recorded).  Free; never raises."""
+    cues = [c for c in plan.get("cues") or [] if c.get("music_level")]
+    if not cues:
+        return {}
+    tools = str(ENGINE / "tools")
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    import s7_audio_smoothing as _smooth
+    import bgm_cue_shaping as _shape
+    out: dict = {"cues": {}}
+    try:
+        ffmpeg = _media.require_ffmpeg()
+    except Exception as exc:  # noqa: BLE001
+        return {"status": f"SKIPPED:{type(exc).__name__}", "cues": {}}
+    spans = sorted({(round(float(w["start"]), 3), round(float(w["end"]), 3))
+                    for c in plan.get("cues") or [] for w in c.get("dialogue_windows") or []
+                    if w.get("source") != "VOICE_OVER" and float(w["end"]) - float(w["start"]) > 0.2})
+    dialogue = None
+    try:
+        dialogue = _smooth.measure_spans(picture, list(spans), ffmpeg=ffmpeg)["integrated_loudness_lufs"] if spans else None
+    except Exception as exc:  # noqa: BLE001
+        out["dialogue_error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+    out["dialogue_lufs"] = dialogue
+    for cue in cues:
+        src = Path(selection["sources"][cue["source_key"]]["selected"])
+        try:
+            source_lufs = _smooth.measure_spans(src, [(0.0, float(cue["duration"]))],
+                                                ffmpeg=ffmpeg)["integrated_loudness_lufs"]
+        except Exception:  # noqa: BLE001
+            source_lufs = None
+        volume, basis = _shape.level_b_volume(source_lufs, dialogue, cue["music_level"], float(cue["volume"]))
+        out["cues"][cue["cue_id"]] = {"volume": volume, "basis": basis, "source_lufs": source_lufs,
+                                      "authored_volume": float(cue["volume"]),
+                                      "target_lufs": (round(dialogue - float(cue["music_level"]["below_dialogue_lu"]), 2)
+                                                      if dialogue is not None else None)}
+    return out
+
+
 def cmd_mix(a: argparse.Namespace) -> int:
     p = Paths(a.episode, contract=a.contract, assembly=a.assembly, grouping=a.grouping,
               project=a.project, work=a.work, transactions=a.bgm_transactions_dir)
@@ -873,11 +922,14 @@ def cmd_mix(a: argparse.Namespace) -> int:
     srcs = {}
     for key, row in selection["sources"].items():
         srcs[key] = len(inputs); inputs.append(row["selected"])
+    level_b = music_level_b_volumes(plan, selection, source)
     filters, labels = [], []
     for i, cue in enumerate(plan["cues"]):
         idx = srcs[cue["source_key"]]
         dur = float(cue["duration"]); start = float(cue["timeline_start"])
         fin, fout = _fades(cue)
+        if cue["cue_id"] in level_b.get("cues", {}):
+            cue["volume"] = level_b["cues"][cue["cue_id"]]["volume"]
         filters.append(
             f"[{idx}:a]atrim=start=0:end={dur:.3f},asetpts=PTS-STARTPTS,aresample=48000,"
             f"aformat=sample_fmts=fltp:channel_layouts=stereo,"
@@ -975,7 +1027,8 @@ def cmd_mix(a: argparse.Namespace) -> int:
               "output_sha256": sha256_file(out), "stem": str(p.stem), "stem_sha256": sha256_file(p.stem),
               "stem_timeline": str(p.stem_timeline), "stem_timeline_sha256": sha256_file(p.stem_timeline),
               "stem_note": "stem = cue-only solo music at unity gain (gate audibility); stem_timeline = placed, scaled and dialogue-ducked signal that was mixed",
-              "video_stream_bit_exact": True, "cues": len(clips), "project_updated": str(p.project)}
+              "video_stream_bit_exact": True, "cues": len(clips), "project_updated": str(p.project),
+              **({"music_level_b": level_b} if level_b else {})}
     write_json(p.mix_report, report)
     print(json.dumps({"status": "PASS", "output": str(out), "stem": str(p.stem), "cues": len(clips)}, ensure_ascii=False))
     return 0

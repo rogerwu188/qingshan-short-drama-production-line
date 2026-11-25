@@ -101,6 +101,34 @@ def bed_volume(authored: Any, *, bili_v1: bool) -> float:
     return value
 
 
+#: Music level "B" (owner-approved 2026-11-25 after the device 1101 E27 deep review: every short gap between lines fell to
+#: a faint bed at ~-40 dBFS -- the music stayed ducked across any gap under 2.5 s): in a gap without dialogue the music
+#: sits about ``below_dialogue_lu`` under the dialogue; under a line it is still ducked ``duck_db``; the duck merges only
+#: gaps shorter than ``merge_gap_s`` and comes back up within ``release_s`` (raised cosine), so a 0.5 s gap between two
+#: lines is no longer a dip.  ``NALU_S7_MUSIC_LEVEL=legacy`` restores the previous duck (WP5-B / CAMERA_GRAMMAR_V1).
+MUSIC_LEVEL_ENV = "NALU_S7_MUSIC_LEVEL"
+MUSIC_LEVEL_B = {"id": "B", "below_dialogue_lu": 6.0, "duck_db": -10.0, "merge_gap_s": 0.25, "attack_s": 0.15,
+                 "release_s": 0.3, "min_volume": 0.02, "max_volume": 1.0}
+
+
+def music_level(environ: dict[str, str] | None = None) -> dict[str, Any] | None:
+    """The music-level profile (level B, the default) or None (``NALU_S7_MUSIC_LEVEL=legacy``/``off``)."""
+    raw = str((os.environ if environ is None else environ).get(MUSIC_LEVEL_ENV) or "B").strip().upper()
+    return None if raw in ("LEGACY", "OFF", "0", "NONE") else dict(MUSIC_LEVEL_B)
+
+
+def level_b_volume(source_lufs: float | None, dialogue_lufs: float | None, level: dict[str, Any],
+                   fallback: float) -> tuple[float, str]:
+    """Cue volume putting the cue ``below_dialogue_lu`` under the dialogue (both measured, LUFS); the authored
+    ``fallback`` when either measurement is missing.  Clamped to [min_volume, max_volume]."""
+    if source_lufs is None or dialogue_lufs is None or source_lufs != source_lufs or dialogue_lufs != dialogue_lufs \
+            or source_lufs < -70 or dialogue_lufs < -70:
+        return float(fallback), "AUTHORED_VOLUME_NOT_MEASURED"
+    target = float(dialogue_lufs) - float(level["below_dialogue_lu"])
+    volume = 10 ** ((target - float(source_lufs)) / 20.0)
+    return round(min(float(level["max_volume"]), max(float(level["min_volume"]), volume)), 4), "MUSIC_LEVEL_B"
+
+
 def duck_db(*, bili_v1: bool) -> float:
     """The stamped dialogue duck: LEGACY -10 dB (unchanged), BILI_V1 -14 dB (WP5-B)."""
     return BILI_V1_DUCK_DB if bili_v1 else DUCK_DB

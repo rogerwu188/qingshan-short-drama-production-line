@@ -36,6 +36,9 @@ SENTENCE_TAIL_SECONDS = 0.4
 HEAD_LEAD_SECONDS = 0.1
 TAIL_GAP_FLAG_SECONDS = 0.15      # the post-S7 measurement: a line ending closer than this to the next cut
 SPEECH_OVERLAP_SECONDS = 0.3      # a shot "contains" a line when at least this much speech plays under it
+#: S7 J-cut (tools/dialogue_jcut.py, device 1101 E27 2026-11-25): the next speaker's line may start up to 0.2 s before
+#: the picture cut on purpose; a cut this close after a line's START is that J-cut, not a cut inside the line
+JCUT_HEAD_TOLERANCE_SECONDS = 0.25
 SNAP_MAX_SECONDS = 1.0            # an unsafe join is moved at most this far to the nearest line boundary
 STEP_SECONDS = 0.02
 EPS = 1e-6
@@ -468,7 +471,7 @@ def measure_cut(*, shots: list[dict[str, Any]], lines: list[dict[str, Any]],
                           "gap_seconds": round(nxt - w1, 3), **({"unit_id": unit} if unit else {}),
                           "s7_cut": at_s7(nxt)})
         for c in cuts:
-            if w0 + 0.12 < c < w1 - 0.12:
+            if w0 + max(0.12, JCUT_HEAD_TOLERANCE_SECONDS) < c < w1 - 0.12:
                 mids.append({"at": c, "line_start": round(w0, 3), "line_end": round(w1, 3),
                              **({"unit_id": unit} if unit else {}), "s7_cut": at_s7(c)})
     lengths = [b - a for a, b in rows]
