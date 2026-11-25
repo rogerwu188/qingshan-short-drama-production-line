@@ -809,7 +809,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/identity_qa_lock.py",
-      "sha256": "895b3f5cfce1683933c800cbbbf1be0955d2afdd5587dec9f27d29011fb44f04"
+      "sha256": "72a06278c41c75574efb4cd2f39935b4bf2b582771bacc4584b8aac1dbbdf6a5"
     },
     {
       "path": "lines/nalu/runtime/tools/ingest_yewujiang_source.py",
