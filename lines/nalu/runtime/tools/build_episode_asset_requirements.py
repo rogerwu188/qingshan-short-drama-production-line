@@ -727,7 +727,7 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
             scope,
             {
                 "asset_kind": "PROP_IDENTITY_REFERENCE",
-                "physical_function": row["note"],
+                "physical_function": row.get("note") or row.get("description") or row["name"],
                 "canonical_name": row["name"],
                 "aspect_ratio": "9:16",
                 "visual_culture": visual_culture,

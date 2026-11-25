@@ -234,6 +234,9 @@ class CompileE25Test(unittest.TestCase):
         self.assertEqual(card, refs["PROP-FOX"]["creature_card"])
         self.assertNotIn("kind", refs["PROP-CUP"])
         self.assertEqual([], self.c["non_character_entities"])  # plain props stay out
+        # S2 asset requirements read row["note"] (E28 S2 KeyError 2026-11-25): every being carries one
+        self.assertEqual("白狐", beings["PROP-FOX"]["note"])
+        self.assertEqual("青鸟", beings["PROP-BIRD"]["note"])
 
     def test_partner_action_and_reactions_name_the_reacting_character(self):
         spec = shot(self.c, "E25-S01-10")["prompt_spec"]  # 商余烬看着令牌，低低笑了一声 / 白桃：你笑什么？

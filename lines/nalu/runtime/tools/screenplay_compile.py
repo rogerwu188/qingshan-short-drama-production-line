@@ -1719,6 +1719,7 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                                 "payoff_shot_ids": (prop_uses.get(pid) or [])[-1:]})
     non_character_entities = [dict(c) for c in reference_cards if c.get("kind")]
     carried = {c["entity_id"] for c in non_character_entities}
+    # S2 asset requirements read row["note"] as the prop's physical function (E28 S2 KeyError, 2026-11-25)
     for bid, row in declared_beings.items():
         fields = _being_fields(bid, row)
         if bid in carried or not fields:
@@ -1729,6 +1730,9 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                                        **({"description_en": _clean(row.get("description_en"))}
                                           if _clean(row.get("description_en")) else {}),
                                        **fields})
+    for row in non_character_entities:
+        row.setdefault("note", row.get("description") or row.get("description_en") or row.get("name")
+                       or row["entity_id"])
     # ---- characters
     entities = []
     for cid, row in cast.rows.items():
