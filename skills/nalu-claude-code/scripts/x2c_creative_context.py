@@ -330,6 +330,8 @@ def _code(err: Any) -> str | None:
 # ---------------------------------------------------------------- main entry
 def run(series_key: str | None = None, episode: str | None = None, *, dry_run: bool = False,
         force: bool = False) -> dict[str, Any]:
+    if not mx.matrix_mode():  # single-machine / open-api deployments have no device matrix: nothing to send
+        return {"status": "SKIPPED", "reason": "X2C_OPEN_API_MODE"}
     if not enabled() and not dry_run:
         return {"status": "DISABLED", "reason": "X2C_CREATIVE_CONTEXT=off"}
     state = mx.load_state()

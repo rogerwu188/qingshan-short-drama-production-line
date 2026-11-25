@@ -28,7 +28,8 @@ file was sent (``published_variant`` AD|FINAL).  The default cover is the series
 
 Matrix mode (DEFAULT since 2026-11-06; a series already sent through the old open-api keeps it until it ends) every
 command is handled by publish_x2c_matrix.py (X2C "StoryClaw 设备矩阵 API"; see that file); X2C_API_MODE=open
-keeps this legacy open-api flow.
+keeps this legacy open-api flow, and so does a single-machine deployment (``qingshan.json`` ``deployment.mode:
+single``, deployment_mode.py), where the matrix-only ``list`` / ``close`` / ``creative-context`` return SKIPPED.
 
 The API key is read from $X2C_API_KEY, else $NALU_RUNTIME_ROOT/credentials/x2c_api_key (mode 600).
 It is never printed.
@@ -312,8 +313,15 @@ def main() -> int:
     p.add_argument("--lang", default="zh", help="the series' language (zh|en); the category must have this target_language")
     sub.add_parser("status")
     f = sub.add_parser("forget"); f.add_argument("--episode", required=True)
+    # matrix-only commands: a clean no-op in open-api mode (single-machine deployments), never an argparse error
+    for name in ("list", "close", "creative-context"):
+        m = sub.add_parser(name); m.add_argument("--series", default=None); m.add_argument("--episode", default=None)
+        m.add_argument("--dry-run", action="store_true"); m.add_argument("--force", action="store_true")
     a = ap.parse_args()
-    if a.cmd == "categories":
+    if a.cmd in ("list", "close", "creative-context"):
+        out = {"status": "SKIPPED", "reason": "X2C_OPEN_API_MODE", "command": a.cmd,
+               "note": "device-matrix-only command; this deployment publishes through the X2C open-api"}
+    elif a.cmd == "categories":
         out = {"status": "OK", "lang": a.lang, "categories": [{"id": x["id"], "name": x["name"], "target_language": x.get("target_language")}
                                               for x in call("distribution/categories", lang=a.lang).get("categories") or []]}
     elif a.cmd == "publish":

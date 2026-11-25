@@ -13,7 +13,8 @@
 #                    in ~/nalu_runtime/credentials/llm_provider.json (asked from the line owner once; the
 #                    miniPCs produce with Codex only since 2026-10-13 (default model gpt-6.1-sol since 2026-10-16); Claude Code is not installed)
 # Result: ~/.nalu_setup_state.json and ONE final JSON line on stdout:
-#   NALU_SETUP: {"status":"READY|NEEDS_PROVIDER|BLOCKED", "failed_step":..., "steps":{...}, ...}
+#   NALU_SETUP: {"status":"READY|NEEDS_PROVIDER|BLOCKED", "failed_step":..., "deployment_mode":"fleet|single", "steps":{...}, ...}
+#   (deployment_mode: deployment_mode.py show / set single|fleet; persisted in ~/nalu_runtime/qingshan.json)
 #   NEEDS_PROVIDER: everything else is ready; the agent asks the owner for the provider URL + key, writes
 #   the file, and runs this again.
 #
@@ -79,7 +80,11 @@ finish() {  # status failed_step
   local notes="" n
   for n in "${NOTES[@]+"${NOTES[@]}"}"; do notes="$notes\"${n//\"/\'}\","; done
   notes="${notes%,}"
-  local json="{\"status\":\"$1\",\"failed_step\":\"$2\",\"pin\":\"$PIN\",\"engine\":\"$ENGINE\",\"runtime\":\"$RUNTIME\",\"log\":\"$LOG\",\"steps\":{${steps%,}},\"notes\":[${notes}],\"at\":\"$TS\"}"
+  # deployment mode (single machine vs fleet, owner 2026-11-25; deployment_mode.py, qingshan.json deployment.mode)
+  local dmode=fleet
+  [ -f "$S/deployment_mode.py" ] && dmode="$(NALU_RUNTIME_ROOT="$RUNTIME" python3 "$S/deployment_mode.py" mode 2>/dev/null || echo fleet)"
+  case "$dmode" in single|fleet) ;; *) dmode=fleet ;; esac
+  local json="{\"status\":\"$1\",\"failed_step\":\"$2\",\"deployment_mode\":\"$dmode\",\"pin\":\"$PIN\",\"engine\":\"$ENGINE\",\"runtime\":\"$RUNTIME\",\"log\":\"$LOG\",\"steps\":{${steps%,}},\"notes\":[${notes}],\"at\":\"$TS\"}"
   printf '%s\n' "$json" >"$STATE"
   printf 'NALU_SETUP: %s\n' "$json"
   [ "$1" = READY ] && exit 0 || exit 3
