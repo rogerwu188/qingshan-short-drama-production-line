@@ -216,6 +216,25 @@ class CompileE25Test(unittest.TestCase):
                                               "locations": [{"id": "LOC-X", "name": "殿"}]}, {}, {}, episode="E01")
         self.assertEqual("乙：抬头", out["contract"]["shots"][0]["prompt_spec"]["action"]["lead_in_reaction"])
 
+    def test_creature_kind_and_card_reach_the_contract(self):
+        parsed = spc.parse("## S01 殿 · 日\n@card goal[甲]=a | obstacle=b | turn=c\n[道具 白狐]\n甲：走。\n")
+        card = {"body": "白色四足", "tails": 9}
+        cast_props = {"cast": [{"id": "CHAR-A", "name": "甲"}], "locations": [{"id": "LOC-X", "name": "殿"}],
+                      "props": [{"id": "PROP-FOX", "name": "白狐", "kind": "CREATURE", "description": "白狐"},
+                                {"id": "PROP-CUP", "name": "茶杯", "description": "茶杯"}],
+                      "non_character_entities": [
+                          {"entity_id": "PROP-FOX", "name": "白狐", "kind": "CREATURE", "creature_card": card},
+                          {"entity_id": "PROP-BIRD", "name": "青鸟", "kind": "ANIMAL"}]}
+        c = spc.compile_screenplay(parsed, cast_props, {}, {}, episode="E01")["contract"]
+        beings = {r["entity_id"]: r for r in c["non_character_entities"]}
+        self.assertEqual({"PROP-FOX", "PROP-BIRD"}, set(beings))
+        self.assertEqual(("CREATURE", card), (beings["PROP-FOX"]["kind"], beings["PROP-FOX"]["creature_card"]))
+        self.assertEqual("ANIMAL", beings["PROP-BIRD"]["kind"])
+        refs = {r["entity_id"]: r for r in c["props"]["reference_cards"]}
+        self.assertEqual(card, refs["PROP-FOX"]["creature_card"])
+        self.assertNotIn("kind", refs["PROP-CUP"])
+        self.assertEqual([], self.c["non_character_entities"])  # plain props stay out
+
     def test_partner_action_and_reactions_name_the_reacting_character(self):
         spec = shot(self.c, "E25-S01-10")["prompt_spec"]  # 商余烬看着令牌，低低笑了一声 / 白桃：你笑什么？
         self.assertEqual("CHAR-SHANGYUJIN", spec["action"]["subject_id"])
