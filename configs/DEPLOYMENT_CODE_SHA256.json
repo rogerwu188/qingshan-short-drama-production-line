@@ -477,7 +477,7 @@
     },
     {
       "path": "docs/knowledge/SCREENPLAY_FORMAT_V1.md",
-      "sha256": "dec1f65edf48af7bf85d9732ee014918c41657d02f34eae862d450c55827f05b"
+      "sha256": "e616e375ee53842311bfa7e8749e937669803159540e582dcac4cd0cddba480b"
     },
     {
       "path": "docs/knowledge/VALIDATION_REPORT.md",
@@ -501,7 +501,7 @@
     },
     {
       "path": "lines/nalu/docs/PIPELINE_RUNBOOK.md",
-      "sha256": "78236a5d0034a4378a0bf07a23f48669d0e749709c258139645598660c9c743f"
+      "sha256": "6829ed5a098c9ab83ba5a3fb1eab26372ece927a44aeebe81584635938dc8e70"
     },
     {
       "path": "lines/nalu/docs/PORT_PARITY_REPORT.md",
@@ -869,7 +869,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "5039a13c5ae322dc220f6e1b60e1d2dd32a896fe41528b1fa29668224929d735"
+      "sha256": "4cf45d1d9b4358de83ffe02b4ec8a1cbeea9383892884e5c208161490de8c4b0"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -1001,7 +1001,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/screenplay_compile.py",
-      "sha256": "32fc91fdbe76eeffa5e798ce66f30afb8b63750b351224100a2212c47b8df00c"
+      "sha256": "c0630859f4bbb2ad1434053bc34ee5a6bdc62612643833fb65534e0c9e9968f3"
     },
     {
       "path": "lines/nalu/runtime/tools/script_pacing_check.py",
@@ -1105,7 +1105,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "5207c31104e13b5ce10baf5693a0149f5df53e982e10738bffdea2aed1bad569"
+      "sha256": "7146b2e2c631502d019971dcfedf59e56bcbc4eaca818b1eb08621b77617ab90"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -7133,7 +7133,7 @@
     },
     {
       "path": "tools/tail_frame_normalize.py",
-      "sha256": "eb3e1e02cabef58881eaabb4709d20242723494fe2c98f4f63b80f650f54ec27"
+      "sha256": "02dafc2308431e69dbd1e57f59b60bd089f814285923e17393456ef8d90fe242"
     },
     {
       "path": "tools/tail_frame_text_clean.py",
@@ -7981,7 +7981,7 @@
     },
     {
       "path": "tools/tests/test_e27_naobu_round.py",
-      "sha256": "228bb6dcac236da26857a2fbca3846bc9349b2770c47368f11803232c522d126"
+      "sha256": "919620bc8b9d73bb9da1a97278a08753f9c0466f5d4ffaf855af957bdbc7859c"
     },
     {
       "path": "tools/tests/test_e27_prompt_round.py",
@@ -9829,7 +9829,7 @@
     },
     {
       "path": "tools/tests/test_tail_frame_normalize.py",
-      "sha256": "068d204c4b4bbacd0df685edf08b329218f9b8e504d8ee4a8d508abbeb4ab73d"
+      "sha256": "d3a4abe2feac9580ad608677e609e8cdb025ab2650a535bef31adde8ee3373f8"
     },
     {
       "path": "tools/tests/test_tail_frame_text_clean.py",

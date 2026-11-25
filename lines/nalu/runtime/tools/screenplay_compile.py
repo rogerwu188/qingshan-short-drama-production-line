@@ -99,6 +99,8 @@ CUT_MUSIC_SECONDS = 2.0
 RUNTIME_DEFAULT_TARGET_SECONDS = 110.0   # = nalu_pipeline.SCRIPT_DEFAULT_TARGET_SECONDS (line owner 2026-10-27)
 RUNTIME_WARN_RATIO = 0.95
 RUNTIME_HOLD_RATIO = 0.85                # = final_fix_round.RUNTIME_MIN_RATIO
+#: folding / merging stops while the post-fold cut estimate would drop below this x target (coordinator 11-25)
+RUNTIME_FOLD_FLOOR = 0.92
 
 
 # =========================================================================== light YAML (subset)
@@ -873,16 +875,37 @@ def _fold_into(target: dict[str, Any], src: dict[str, Any], where: str) -> None:
                                             "text": "".join(_sentence(a["text"]) for a in src["actions"])})
 
 
-def apply_silent_policy(shots: list[dict[str, Any]], scene_num: str) -> dict[str, Any]:
+def _procedure_rank(shot: dict[str, Any]) -> int:
+    """How readable a foldable silent step still is: 0 untagged, 1 ``#招牌`` (signature business), 2 ``#转折``."""
+    heads = _tag_heads(shot)
+    return 2 if "转折" in heads else 1 if heads else 0
+
+
+def apply_silent_policy(shots: list[dict[str, Any]], scene_num: str,
+                        allowed: set[Any] | None = None) -> dict[str, Any]:
     """Fold / merge the scene's silent procedure shots in place.  {applied, warnings, before, after}.
 
     1. an untagged (or only ``#转折`` / ``#招牌``) silent shot folds into the adjacent dialogue shot -- the line it
        leads into when its subject speaks next or nobody spoke just before, else the line it follows -- while that
        shot keeps <= FOLD_MAX_ACTIONS actions / FOLD_MAX_CHARS characters (an off-screen line never takes one);
     2. two silent shots in a row (not both the music passage) merge into one when they fit, else warn;
-    3. more than SILENT_PER_SCENE_MAX silent shots (music passage / reaction close-ups exempt) warn."""
+    3. more than SILENT_PER_SCENE_MAX silent shots (music passage / reaction close-ups exempt) warn.
+
+    ``allowed`` (runtime-aware folding, :func:`fold_budget`): the ``line_no`` of the silent shots the runtime budget
+    lets go; any other one is kept (``SILENT_KEPT_FOR_RUNTIME``) and still gets its SILENT_* advisory.  None = all.
+    ``removed`` in the result: [{line_no, rank, scene}] of the shots folded / merged away."""
     applied: list[str] = []
     warnings: list[str] = []
+    removed: list[dict[str, Any]] = []
+
+    def budget_ok(sh: dict[str, Any]) -> bool:
+        if allowed is None or sh.get("line_no") in allowed:
+            return True
+        tag = f"SILENT_KEPT_FOR_RUNTIME:{scene_num}:L{sh.get('line_no')}"
+        if tag not in warnings:
+            warnings.append(tag)
+        return False
+
     before = sum(1 for sh in shots if sh["kind"] == "silent")
     i = 0
     while i < len(shots):
@@ -900,20 +923,22 @@ def apply_silent_policy(shots: list[dict[str, Any]], scene_num: str) -> dict[str
             options.append((cand, where))
         # the subject's own line first (he does it while he speaks), then the line it leads into
         options.sort(key=lambda o: (o[0].get("speaker") != subject, o[1] != "next"))
-        for cand, where in options:
-            if _fits(cand, sh):
-                _fold_into(cand, sh, where)
-                applied.append(f"SILENT_FOLDED:{scene_num}:L{sh.get('line_no')}->{where}:L{cand.get('line_no')}")
-                del shots[i]
-                break
-        else:
+        fitting = [(cand, where) for cand, where in options if _fits(cand, sh)]
+        if not fitting or not budget_ok(sh):
             warnings.append(f"SILENT_PROCEDURE_KEPT:{scene_num}:L{sh.get('line_no')}")
             i += 1
+            continue
+        cand, where = fitting[0]
+        removed.append({"line_no": sh.get("line_no"), "rank": _procedure_rank(sh), "scene": scene_num})
+        _fold_into(cand, sh, where)
+        applied.append(f"SILENT_FOLDED:{scene_num}:L{sh.get('line_no')}->{where}:L{cand.get('line_no')}")
+        del shots[i]
     i = 1
     while i < len(shots):
         a, b = shots[i - 1], shots[i]
         if a["kind"] == "silent" and b["kind"] == "silent" and not ("音乐" in _tag_heads(a) and "音乐" in _tag_heads(b)):
-            if _fits(a, b) and not (silent_exempt(a) or silent_exempt(b)):
+            if _fits(a, b) and not (silent_exempt(a) or silent_exempt(b)) and budget_ok(b):
+                removed.append({"line_no": b.get("line_no"), "rank": _procedure_rank(b), "scene": scene_num})
                 a["actions"] = [*a["actions"], *b["actions"]]
                 a["reactions"] = [*a["reactions"], *b.get("lead_in", []), *b["reactions"]]
                 a["props"] = [*a["props"], *b["props"]]
@@ -928,8 +953,47 @@ def apply_silent_policy(shots: list[dict[str, Any]], scene_num: str) -> dict[str
     counted = [sh for sh in shots if sh["kind"] == "silent" and not silent_exempt(sh)]
     if len(counted) > SILENT_PER_SCENE_MAX:
         warnings.append(f"SILENT_UNITS_OVER:{scene_num}:{len(counted)}")
-    return {"applied": applied, "warnings": warnings, "before": before,
+    return {"applied": applied, "warnings": warnings, "before": before, "removed": removed,
             "after": sum(1 for sh in shots if sh["kind"] == "silent")}
+
+
+def _grouped_estimate(grouped: list[list[dict[str, Any]]], language: str) -> float:
+    """The cut estimate (:func:`cut_runtime_estimate`'s model) of the grouped, not yet compiled shots."""
+    total = 0.0
+    for shots in grouped:
+        for sh in shots:
+            if sh["kind"] == "dialogue":
+                total += _dialogue_seconds(f"X：{sh.get('line') or ''}", language)
+            else:
+                heads = _tag_heads(sh)
+                total += CUT_REACTION_SECONDS if "反应" in heads else CUT_MUSIC_SECONDS if "音乐" in heads \
+                    else CUT_SILENT_SECONDS
+    return total
+
+
+def fold_budget(grouped: list[tuple[str, list[dict[str, Any]]]], language: str, target: float) -> dict[str, Any]:
+    """Runtime-aware folding (E27 2026-11-25): which silent shots may fold / merge while the post-fold cut estimate
+    stays >= RUNTIME_FOLD_FLOOR x target.  A dry run finds the foldable ones; they are granted in order -- the
+    opening scene first (the owner's complaint was the opening), then the least readable step (untagged before
+    ``#招牌`` before ``#转折``), then script order -- each costing CUT_SILENT_SECONDS of cut.  Pure."""
+    import copy as _copy  # noqa: PLC0415
+    pre = _grouped_estimate([shots for _, shots in grouped], language)
+    floor = RUNTIME_FOLD_FLOOR * target
+    budget = pre - floor
+    candidates = []
+    for order, (num, shots) in enumerate(grouped):
+        for row in apply_silent_policy(_copy.deepcopy(shots), num)["removed"]:
+            candidates.append((order, row["rank"], row["line_no"] or 0, row))
+    allowed: set[Any] = set()
+    spent = 0.0
+    for _, _, _, row in sorted(candidates, key=lambda c: c[:3]):
+        if spent + CUT_SILENT_SECONDS <= budget + 1e-9:
+            allowed.add(row["line_no"])
+            spent += CUT_SILENT_SECONDS
+    return {"pre_fold_estimate": round(pre, 1), "floor_seconds": round(floor, 1), "target_seconds": target,
+            "foldable": len(candidates), "allowed": allowed, "granted": len(allowed),
+            "held_back": sorted(c[3]["line_no"] for c in candidates if c[3]["line_no"] not in allowed),
+            "post_fold_estimate": round(pre - spent, 1)}
 
 
 def _visual_block(sh: dict[str, Any], shot_id: str, visible: list[tuple[str, str]], env_zh: str,
@@ -1105,7 +1169,15 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
     silent_applied: list[str] = []
     silent_counts: list[dict[str, Any]] = []
 
-    for scene in parsed.get("scenes") or []:
+    # group every scene first: the runtime budget of the silent policy is episode-wide (opening scene first)
+    grouped = [(scene["num"], _shot_items(scene, cast, errors)) for scene in parsed.get("scenes") or []]
+    try:
+        fold_target = float(brief.get("target_seconds") or outline.get("target_seconds")
+                            or RUNTIME_DEFAULT_TARGET_SECONDS)
+    except (TypeError, ValueError):
+        fold_target = RUNTIME_DEFAULT_TARGET_SECONDS
+    budget = fold_budget(grouped, language, fold_target)
+    for scene_index, scene in enumerate(parsed.get("scenes") or []):
         sid = _scene_id(episode, scene["num"])
         card = scene["card"]
         loc = _resolve_location(scene, locations)
@@ -1132,8 +1204,8 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                 prop_rows[pid].setdefault("owner", owner)
                 if pr["hand"]:
                     prop_rows[pid]["hand"] = pr["hand"]
-        shots = _shot_items(scene, cast, errors)
-        policy = apply_silent_policy(shots, scene["num"])
+        shots = grouped[scene_index][1]
+        policy = apply_silent_policy(shots, scene["num"], budget["allowed"])
         silent_applied.extend(policy["applied"])
         warnings.extend(policy["warnings"])
         silent_counts.append({"scene": scene["num"], "before": policy["before"], "after": policy["after"]})
@@ -1785,6 +1857,7 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
               "authored_action_shots": sum(1 for s in shots_out if s["prompt_spec"]["action"]["source"] == AUTHORED),
               "props": len(reference_cards),
               "silent_policy": {"applied": silent_applied, "scenes": silent_counts,
+                                "runtime_budget": {k: v for k, v in budget.items() if k != "allowed"},
                                 "silent_shots": sum(1 for s in shots_out if not s.get("dialogue"))},
               "opening": {k: v for k, v in opening.items() if k != "warnings"},
               "runtime_estimate": runtime}

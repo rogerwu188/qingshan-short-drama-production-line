@@ -67,9 +67,10 @@ E27_S01 = "\n".join([
 ])
 
 
-def compile_md(md: str, answers: dict | None = None) -> dict:
+def compile_md(md: str, answers: dict | None = None, target: float = 10.0) -> dict:
+    """A one-scene fixture: a 10 s brief target leaves the runtime budget free to fold (see RuntimeBudgetTest)."""
     return spc.compile_screenplay(spc.parse(md), copy.deepcopy(CAST_PROPS), {}, {}, episode="E27",
-                                  translations=answers, en_fallback=True)
+                                  translations=answers, en_fallback=True, brief={"target_seconds": target})
 
 
 def s01(out: dict) -> list[dict]:
@@ -132,7 +133,7 @@ class SilentPolicyTest(unittest.TestCase):
                         "凌瑶（对掌门）：东西还我。",
                         "（无声）掌门后退。",
                         "（无声）凌瑶收剑。", ""])
-        out = compile_md(md)
+        out = compile_md(md, target=1.0)
         shots = s01(out)
         self.assertEqual(len(silent(shots)), 1)
         self.assertTrue(any(a.startswith("SILENT_MERGED:S01") for a in out["report"]["silent_policy"]["applied"]))
@@ -175,9 +176,9 @@ class RuntimeEstimateTest(unittest.TestCase):
         self.assertEqual(spc.cut_runtime_estimate([], target=None)["target_seconds"], 110.0)
 
     def test_compile_reports_the_post_fold_estimate_and_warns_short(self):
-        out = compile_md(E27_S01)
+        out = compile_md(E27_S01, target=110)
         est = out["report"]["runtime_estimate"]
-        self.assertEqual(est["silent_units"], 1)        # after folding
+        self.assertEqual(est["silent_units"], 4)        # far under budget: nothing folds (runtime-aware)
         self.assertLess(est["estimated_cut_seconds"], est["nominal_seconds"])
         self.assertIn("RUNTIME_ESTIMATE_SHORT", " ".join(out["report"]["warnings"]))
         self.assertIn("never pad with silent inserts", est["fix"])
@@ -186,6 +187,43 @@ class RuntimeEstimateTest(unittest.TestCase):
                                       en_fallback=True, brief={"target_seconds": 18})
         self.assertFalse(long["report"]["runtime_estimate"]["warning"])
 
+
+    def test_folding_stops_at_the_runtime_floor_least_readable_first(self):
+        pre = spc.fold_budget([("S01", spc._shot_items(spc.parse(E27_S01)["scenes"][0],
+                                                       spc.Cast(CAST_PROPS["cast"]), []))], "zh", 10.0)
+        full = pre["pre_fold_estimate"]
+        # a target that leaves room for exactly two 3 s folds: the untagged steps go first, the #转折 catch stays
+        target = (full - 6.5) / spc.RUNTIME_FOLD_FLOOR
+        out = compile_md(E27_S01, target=target)
+        budget = out["report"]["silent_policy"]["runtime_budget"]
+        self.assertEqual(budget["granted"], 2)
+        self.assertGreaterEqual(budget["post_fold_estimate"], budget["floor_seconds"])
+        applied = out["report"]["silent_policy"]["applied"]
+        self.assertTrue(all("L7->" not in a for a in applied))            # the #转折 silent (line 7) is kept
+        self.assertIn("SILENT_KEPT_FOR_RUNTIME:S01:L7", out["report"]["warnings"])
+        turn = next(s for s in s01(out) if s["prompt_spec"]["beat_role"] == "TURN")
+        self.assertFalse(turn.get("dialogue"))
+        self.assertEqual(out["report"]["status"], "PASS")
+
+    def test_s1_routes_a_short_cut_to_the_writer_once(self):
+        import json as _json
+        import tempfile
+        from types import SimpleNamespace
+
+        import nalu_pipeline as npl
+        length = {"advisory": "RUNTIME_ESTIMATE_SHORT:90s<104.5s(target 110s): deepen"}
+        with tempfile.TemporaryDirectory() as d:
+            p = SimpleNamespace(logs=Path(d))
+            first = npl.s1_runtime_feedback(p, {"a": "1"}, length)
+            self.assertTrue(first.startswith("RUNTIME_ESTIMATE_SHORT"))
+            self.assertTrue(first.startswith(npl.S1_INTEGRITY_PREFIXES))         # rides the bounded integrity loop
+            decision = npl.s1_integrity_round(p, {"a": "1"}, [first])
+            self.assertEqual(decision["decision"], "REVISE")
+            self.assertTrue(npl.s1_runtime_feedback(p, {"a": "1"}, length))      # same script: same round
+            self.assertEqual(npl.s1_runtime_feedback(p, {"a": "2"}, length), "")  # revised script: recorded only
+            self.assertEqual(npl.s1_runtime_feedback(p, {"a": "2"}, {}), "")
+            self.assertIn("RUNTIME_ESTIMATE_SHORT", npl.s1_integrity_admission_marker([first]))
+            _json.loads((Path(d) / npl.S1_INTEGRITY_LEDGER).read_text())
 
     def test_s1_length_check_carries_the_estimate_as_an_advisory(self):
         import json as _json
