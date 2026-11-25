@@ -515,6 +515,71 @@ class CodexExecutorTests(unittest.TestCase):
         self.reap(out["pid"])
         self.assertEqual(out["resumed_from"], "th-1")
 
+    # ------------------------------------------------------------------ independent script review (E28 2026-11-25)
+    def script_review_episode(self, ep="E28"):
+        self.write_provider()
+        self.run_episode(f'S1 等审核\nNALU_STATUS: {{"episode":"{ep}","state":"BLOCKED"}}', ep)
+        self.set_stages(ep, {"S1": {"status": "BLOCKED",
+                                    "blockers": ["WRITER_CAPABILITY_STEP_OWED:SCRIPT_REVIEW_MISSING"]}})
+        reviews = self.runtime / "runtime/reviews" / ep
+        reviews.mkdir(parents=True, exist_ok=True)
+        return reviews
+
+    def test_s1_owed_script_review_launches_the_engine_reviewer_and_writes_its_prompt(self):
+        # E28: S1 waited ~4 h for a reviewer prompt nobody wrote; the engine now writes it and starts the reviewer
+        reviews = self.script_review_episode()
+        written = []
+
+        def fake_request(ep):
+            path = reviews / f"{ep}-script_review-20261125T000000Z_request.json"
+            path.write_text('{"schema": "req", "kind": "script_review"}')
+            written.append(path)
+            return path, ""
+        self._patch("write_script_review_request", fake_request)
+        t = self.cp.tick()
+        self.assertEqual(t["action"], "NONE", t)
+        self.assertEqual(t["script_review"]["status"], "STARTED")
+        self.assertEqual(len(written), 1)                               # the engine wrote the missing request
+        state = json.loads((self.runtime / "claude_code/E28/script_reviewer/reviewer.json").read_text())
+        self.reap(state["pid"])
+        self.assertEqual(state["model"], "hopsapi/gpt-6.1-sol")
+        prompt = (self.engine / "workflow/nalu/E28/script_review/independent_reviewer_prompt.txt").read_text()
+        self.assertIn("script_review.py submit --request", prompt)
+        self.assertIn(str(written[0]), prompt)
+        self.assertIn("claude-code-nalu-vlm", prompt)
+        # second attempt on the same request, then the agent takes over (bounded, never loops)
+        self.assertEqual(self.cp.tick()["script_review"]["status"], "STARTED")
+        self.reap(json.loads((self.runtime / "claude_code/E28/script_reviewer/reviewer.json").read_text())["pid"])
+        t = self.cp.tick()
+        self.assertEqual((t["action"], t["reason"]), ("AGENT", "SCRIPT_REVIEW_REQUIRED:EXHAUSTED"))
+        self.assertEqual(len(written), 1)
+
+    def test_submitted_script_review_resumes_the_writer_once(self):
+        reviews = self.script_review_episode()
+        request = reviews / "E28-script_review-20261125T000000Z_request.json"
+        request.write_text('{"schema": "req"}')
+        submitted = reviews / "E28-script_review-20261125T000000Z_submitted.json"
+        submitted.write_text(json.dumps({"validation": {"status": "PASS"},
+                                         "request_sha256": self.cp._file_sha(request)}))
+        resumed = []
+        self._patch("resume", lambda ep, msg: resumed.append(msg) or {"status": "STARTED"})
+        t = self.cp.tick()
+        self.assertEqual(t["script_review"]["status"], "RESUME_WRITER", t)
+        self.assertEqual(len(resumed), 1)
+        self.assertIn(str(submitted), resumed[0])
+        self.assertIn("writer_capability/E28_SCRIPT_REVIEW_REPORT.json", resumed[0])
+        t = self.cp.tick()                                               # resumed once per submission
+        self.assertEqual(t["reason"], "SCRIPT_REVIEW_REQUIRED:WRITER_STILL_OWES_RESPONSE")
+        self.assertEqual(len(resumed), 1)
+
+    def test_a_submission_for_another_request_does_not_count(self):
+        reviews = self.script_review_episode()
+        request = reviews / "E28-script_review-20261125T000000Z_request.json"
+        request.write_text('{"schema": "req"}')
+        (reviews / "E28-script_review-20261125T000000Z_submitted.json").write_text(json.dumps(
+            {"validation": {"status": "PASS"}, "request_sha256": "0" * 64}))
+        self.assertIsNone(self.cp.script_review_submitted(request))
+
 
 if __name__ == "__main__":
     unittest.main()

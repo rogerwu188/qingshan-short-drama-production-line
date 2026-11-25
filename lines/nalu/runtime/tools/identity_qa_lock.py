@@ -407,10 +407,33 @@ def materialise(episode: str, submitted: dict[str, Any],
                     "failures": [f"library_project_mismatch:{path}:"
                                  f"{library.get('project_id')}!={p.series_id}"]}
 
+    # E28 (device …1101, 2026-11-25): a subject this episode REUSES from the series library is not reviewed here
+    # (vlm_review_protocol drops it from the identity request; library_lock_non_plate copies the prior LOCKED row).
+    # A hand-made supplementary review that names it must never re-lock or downgrade the series' LOCKED row.
+    reused_locked: set[str] = set()
+    try:
+        req_assets = (read_json(p.asset_requirements, {}) or {}).get("assets") or {}
+        series_assets = (libraries.get(p.asset_library) or read_json(p.asset_library, {}) or {}).get("assets") or {}
+        for cat, req_rows in req_assets.items():
+            for req in req_rows if isinstance(req_rows, list) else []:
+                aid = str(req.get("asset_id") or "")
+                prior = (series_assets.get(cat) or {}).get(aid) if isinstance(series_assets.get(cat), dict) else None
+                if (str(((req.get("reuse") or {}).get("status")) or "") == "REUSED_FROM_PRIOR_LIBRARY"
+                        and isinstance(prior, dict) and str(prior.get("status") or "").startswith("LOCKED")
+                        and (prior.get("qa") or {}).get("status") == "PASS"):
+                    reused_locked.add(aid)
+    except Exception:  # noqa: BLE001 -- the guard never breaks the lock itself
+        reused_locked = set()
     for item in submitted.get("items") or []:
         asset_id = item["item_id"]
         request_item = item.get("request_item") or {}
         category = request_item.get("category") or "characters"
+        if asset_id in reused_locked:
+            rows.append({"asset_id": asset_id, "category": category, "qa_status": "PASS",
+                         "status": "REUSED_LOCKED_UNCHANGED", "verdict": item.get("verdict"),
+                         "plate_count": 0, "objective_decision": "NOT_APPLICABLE_REUSED_FROM_PRIOR_LIBRARY",
+                         "blockers": [], "libraries_updated": []})
+            continue
         deliverables = (request_item.get("expectations") or {}).get("card_deliverables") or []
         plates = [Path(media["path"]) for media in request_item.get("media") or []
                   if media.get("role") == "IDENTITY_PLATE" and media.get("path")
