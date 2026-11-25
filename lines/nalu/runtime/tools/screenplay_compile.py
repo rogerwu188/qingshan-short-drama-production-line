@@ -1266,6 +1266,23 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                           "shot_ids": scene_shot_ids})
 
     # ---- props
+    # Visible beings (kind CREATURE / ANIMAL, or a creature_card) declared in CAST_PROPS
+    # non_character_entities or props: their kind and card must reach the contract so the
+    # S3 card library and the Q2 creature checks treat them as creatures, not plain props.
+    declared_beings: dict[str, dict[str, Any]] = {}
+    for row in cast_props.get("non_character_entities") or []:
+        bid = _clean(row.get("entity_id") or row.get("id")) if isinstance(row, dict) else ""
+        if bid:
+            declared_beings[bid] = dict(row)
+
+    def _being_fields(pid: str, row: dict[str, Any]) -> dict[str, Any]:
+        decl = declared_beings.get(pid) or {}
+        kind = _clean(row.get("kind") or decl.get("kind")).upper()
+        card = row.get("creature_card") if isinstance(row.get("creature_card"), dict) else decl.get("creature_card")
+        if kind not in {"CREATURE", "ANIMAL"} and not isinstance(card, dict):
+            return {}
+        return {"kind": kind or "CREATURE", **({"creature_card": card} if isinstance(card, dict) else {})}
+
     reference_cards = []
     for pid, row in prop_rows.items():
         owner = cast.resolve(_clean(row.get("owner"))) or _clean(row.get("owner"))
@@ -1278,9 +1295,22 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                                 "owner_id": owner,
                                 "hand": _clean(row.get("hand")), "description": _clean(row.get("description")),
                                 **({"description_en": desc_en} if desc_en else {}),
+                                **_being_fields(pid, row),
                                 "acquired": {"episode": episode, "shot_id": (prop_uses.get(pid) or [""])[0]},
                                 "used_in_shot_ids": prop_uses.get(pid) or [],
                                 "payoff_shot_ids": (prop_uses.get(pid) or [])[-1:]})
+    non_character_entities = [dict(c) for c in reference_cards if c.get("kind")]
+    carried = {c["entity_id"] for c in non_character_entities}
+    for bid, row in declared_beings.items():
+        fields = _being_fields(bid, row)
+        if bid in carried or not fields:
+            continue
+        non_character_entities.append({"entity_id": bid, "name": _clean(row.get("name")) or bid,
+                                       **({"description": _clean(row.get("description"))}
+                                          if _clean(row.get("description")) else {}),
+                                       **({"description_en": _clean(row.get("description_en"))}
+                                          if _clean(row.get("description_en")) else {}),
+                                       **fields})
     # ---- characters
     entities = []
     for cid, row in cast.rows.items():
@@ -1328,7 +1358,7 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
         "protagonist_ids": [cid for cid in (series_card.get("protagonist_ids") or cast_props.get("protagonist_ids")
                                             or []) if cid in cast.rows] or ([entities[0]["character_id"]]
                                                                            if entities else []),
-        "non_character_entities": [],
+        "non_character_entities": non_character_entities,
         "scene_states": scene_states,
         "shots": shots_out,
         "internal_transition_authoring": transitions,

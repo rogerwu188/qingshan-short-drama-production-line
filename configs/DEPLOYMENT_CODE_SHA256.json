@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2602,
+  "file_count": 2603,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -997,7 +997,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/screenplay_compile.py",
-      "sha256": "9c2a3901cfa442d4e3ffaf418b291b77b52438c1f837ad6738c17c9dedfb8cdf"
+      "sha256": "ee0a04b995a2feef1ed8a91a31e134031ec3f096b9250a78e0901752a63c459b"
     },
     {
       "path": "lines/nalu/runtime/tools/script_pacing_check.py",
@@ -8536,6 +8536,10 @@
       "sha256": "3c8fbbe8c3ee35ebd56ed3be0573d1dc2e16db5e1a1cb8204142c27a794bb16b"
     },
     {
+      "path": "tools/tests/test_keyframe_finalization_runtime_policy.py",
+      "sha256": "b25e007d6050ab5a1ffbeacdd2773cdc8bf019d902716c9ecd2910904892ffa0"
+    },
+    {
       "path": "tools/tests/test_keyframe_identity_measurement_guard.py",
       "sha256": "32874c295826b0e456e16e294c4bba57615df81724467fac3ffda6571a92a5d9"
     },
@@ -9461,7 +9465,7 @@
     },
     {
       "path": "tools/tests/test_screenplay_compile.py",
-      "sha256": "b348df999e2d73da7f3298ffb10ee19a28b0c5804ccb0c161023e21b9c0876e8"
+      "sha256": "ce99fe428c92e1bb6a418e1382404da6666c23a222e4a970d4c00875c572df8a"
     },
     {
       "path": "tools/tests/test_script_density_gate_preflight.py",
