@@ -32,6 +32,17 @@ the four questions a script doctor asks, measured where the contract can answer 
   DOCTOR_GOAL_UNCLEAR:<scene>           the opening scene names no immediate goal for the protagonist
   DOCTOR_TURN_ON_EMPTY_LINE:<shot>      the turn / reveal lands on a bare line (no authored action or evidence)
 
+Character voice advisories (E27 2026-11-25, line owner "人物还是不够生动"; warnings only):
+
+  DOCTOR_VOICE_UNDECLARED:<character>   a main speaker (>= DOCTOR_MAIN_LINES lines) has no ``voice`` / ``verbal_habit``
+                                        on the series card
+  DOCTOR_VOICES_ALIKE:<a>|<b>           two main speakers talk alike (line length, questions, exclamations, breaks
+                                        and sentence-final particles all within the margins)
+  DOCTOR_EXPOSITION_LINE:<shot>         a line only tells the audience a fact (report-style), in a scene that is not
+                                        already flagged as explaining only
+  DOCTOR_LINE_LANDS_NOWHERE:<shot>      a line nobody reacts to or answers: no listener reaction, no lead-in reaction
+                                        on the next shot, the next line is not the addressee's, no beat tag
+
 Pure functions; never raises (any error = no finding).  Stdlib only.
 """
 from __future__ import annotations
@@ -95,6 +106,11 @@ _QUESTION_WORDS = ("谁", "什么", "哪", "怎么", "为何", "吗")
 DOCTOR_FIRST_HIT_MAX_S = 8.0
 DOCTOR_EXPLAIN_SHARE = 0.5
 _HIT_ROLES = frozenset({"ATTACK", "REVEAL", "TURN", "PAYOFF", "PUNCHLINE"})
+#: character voice (advisory): a main speaker has at least this many lines in the episode
+DOCTOR_MAIN_LINES = 3
+DOCTOR_VOICE_MARGINS = {"length": 2.0, "question": 0.2, "exclaim": 0.2, "break": 0.2}
+_PARTICLES = "吧呢啊嘛呀哦哈啦咯哼喽罢"
+DOCTOR_CAP = 4
 
 
 def _config(name: str) -> dict[str, Any]:
@@ -525,9 +541,108 @@ def script_doctor(contract: dict[str, Any], lines: list[dict[str, Any]] | None =
                 empty.append(_clean(shot.get("shot_id")))
         answers["turns_on_empty_lines"] = empty
         warnings += [f"DOCTOR_TURN_ON_EMPTY_LINE:{sid}" for sid in empty[:4]]
+        # 5-8. character voice and lines that change something (E27)
+        voice = voice_doctor(contract, lines, language, lexicon, props, set(explains))
+        warnings += voice["warnings"]
+        answers["voice"] = voice["answers"]
         return {"warnings": warnings, "answers": answers}
     except Exception as exc:  # noqa: BLE001 -- advisory only
         return {"warnings": [f"DOCTOR_CHECK_ERROR:{type(exc).__name__}"], "answers": {}}
+
+
+def _voice_profile(texts: list[str]) -> dict[str, Any]:
+    n = len(texts) or 1
+    ends = [t.rstrip("。！？!?…—．. ") for t in texts]
+    return {"length": sum(len(norm(t)) for t in texts) / n,
+            "question": sum(1 for t in texts if re.search(r"[？?]", t)) / n,
+            "exclaim": sum(1 for t in texts if re.search(r"[！!]", t)) / n,
+            "break": sum(1 for t in texts if re.search(r"[…—]", t)) / n,
+            "particles": sorted({e[-1] for e in ends if e and e[-1] in _PARTICLES})}
+
+
+def _speaker_ids(contract: dict[str, Any]) -> dict[str, str]:
+    """dialogue label -> character id (canonical name and aliases)."""
+    out: dict[str, str] = {}
+    for row in contract.get("character_entities") or []:
+        if isinstance(row, dict) and _clean(row.get("character_id")):
+            for name in [row.get("canonical_name"), row.get("name"), *(row.get("aliases") or [])]:
+                if _clean(name):
+                    out.setdefault(_clean(name), _clean(row["character_id"]))
+    return out
+
+
+def voice_doctor(contract: dict[str, Any], lines: list[dict[str, Any]], language: str = "zh",
+                 lexicon: dict[str, list[str]] | None = None, props: list[str] | None = None,
+                 explaining_scenes: set[str] | None = None) -> dict[str, Any]:
+    """Character voice + lines that land (E27): {warnings, answers}.  Advisory only; never raises."""
+    try:
+        lexicon = lexicon if lexicon is not None else report_lexicon(language)
+        props = props if props is not None else _prop_names(contract)
+        warnings: list[str] = []
+        by_speaker: dict[str, list[str]] = {}
+        for line in lines:
+            if line.get("speaker"):
+                by_speaker.setdefault(line["speaker"], []).append(line["text"])
+        main = [s for s, texts in by_speaker.items() if len(texts) >= DOCTOR_MAIN_LINES]
+        ids = _speaker_ids(contract)
+        card = contract.get("series_card") if isinstance(contract.get("series_card"), dict) else {}
+        voiced = {_clean(r.get("character_id")) or _clean(r.get("name")): r for r in card.get("characters") or []
+                  if isinstance(r, dict)}
+        if voiced:
+            for speaker in main:
+                row = voiced.get(ids.get(speaker, "")) or voiced.get(speaker) or next(
+                    (r for r in voiced.values() if _clean(r.get("name")) == speaker), None)
+                if row is None or not (_clean(row.get("voice")) and _clean(row.get("verbal_habit"))):
+                    warnings.append(f"DOCTOR_VOICE_UNDECLARED:{ids.get(speaker) or speaker}")
+        profiles = {s: _voice_profile(by_speaker[s]) for s in main}
+        alike = []
+        for i, a in enumerate(main):
+            for b in main[i + 1:]:
+                pa, pb = profiles[a], profiles[b]
+                if all(abs(pa[k] - pb[k]) <= m for k, m in DOCTOR_VOICE_MARGINS.items()) and \
+                        pa["particles"] == pb["particles"]:
+                    alike.append(f"{a}|{b}")
+        warnings += [f"DOCTOR_VOICES_ALIKE:{pair}" for pair in alike[:DOCTOR_CAP]]
+        explaining_scenes = explaining_scenes or set()
+        exposition = [line["shot_id"] for line in lines if line["scene_id"] not in explaining_scenes
+                      and classify_line(line, language, lexicon, props) == "REPORT"]
+        warnings += [f"DOCTOR_EXPOSITION_LINE:{sid}" for sid in list(dict.fromkeys(exposition))[:DOCTOR_CAP]]
+        # a line that lands nowhere: nobody reacts to it or answers it
+        shots = [s for s in contract.get("shots") or [] if isinstance(s, dict)]
+        pos = {_clean(s.get("shot_id")): i for i, s in enumerate(shots)}
+        spoken_by_shot = {line["shot_id"]: line for line in lines}
+        nowhere = []
+        for line in lines:
+            i = pos.get(line["shot_id"])
+            if i is None:
+                continue
+            spec = shots[i].get("prompt_spec") if isinstance(shots[i].get("prompt_spec"), dict) else {}
+            action = spec.get("action") if isinstance(spec.get("action"), dict) else {}
+            role = spec.get("role_semantic_disambiguation") if isinstance(
+                spec.get("role_semantic_disambiguation"), dict) else {}
+            if action.get("listener_reaction") or action.get("listener_reaction_en") or \
+                    _clean(spec.get("beat_role")).upper() not in ("", "LINE"):
+                continue
+            nxt = shots[i + 1] if i + 1 < len(shots) else None
+            if nxt is None or _clean(nxt.get("scene_id")) != _clean(shots[i].get("scene_id")):
+                continue  # the scene's last line: the cut answers it
+            nspec = nxt.get("prompt_spec") if isinstance(nxt.get("prompt_spec"), dict) else {}
+            naction = nspec.get("action") if isinstance(nspec.get("action"), dict) else {}
+            if naction.get("lead_in_reaction") or naction.get("lead_in_reaction_en"):
+                continue
+            answer = spoken_by_shot.get(_clean(nxt.get("shot_id")))
+            listener = _clean(role.get("dialogue_listener_id"))
+            if answer and answer.get("speaker") and answer["speaker"] != line.get("speaker") and (
+                    not listener or ids.get(answer["speaker"], answer["speaker"]) == listener):
+                continue
+            if not answer and naction.get("primary_action"):
+                continue  # a silent beat answers it with an action
+            nowhere.append(line["shot_id"])
+        warnings += [f"DOCTOR_LINE_LANDS_NOWHERE:{sid}" for sid in list(dict.fromkeys(nowhere))[:DOCTOR_CAP]]
+        return {"warnings": warnings, "answers": {"main_speakers": main, "profiles": profiles, "alike": alike,
+                                                 "exposition_lines": exposition, "lands_nowhere": nowhere}}
+    except Exception as exc:  # noqa: BLE001 -- advisory only
+        return {"warnings": [f"DOCTOR_VOICE_CHECK_ERROR:{type(exc).__name__}"], "answers": {}}
 
 
 #: failure code -> the fix the writer can act on (no story text)
@@ -559,9 +674,18 @@ FIXES = {
                            "and make the first lines push toward it",
     "DOCTOR_TURN_ON_EMPTY_LINE": "land the twist on visible evidence or an action (a prop handed over, a mark shown, "
                                  "a door opened), not on a line alone",
+    "DOCTOR_VOICE_UNDECLARED": "give each main character a voice on the series card: voice (diction, rhythm) and "
+                               "verbal_habit (one habit: a clipped command, a rhetorical question, a pet word, a "
+                               "trailing-off) and write every line of theirs in it",
+    "DOCTOR_VOICES_ALIKE": "these two talk alike: change one's rhythm and diction (short commands vs. long winding "
+                           "questions, plain words vs. formal ones, a particle or habit only one of them uses)",
+    "DOCTOR_EXPOSITION_LINE": "no line tells the audience a fact: make it a demand, a threat, a refusal or a "
+                              "dig at the other person, with the fact as its subtext, or show the fact as an object",
+    "DOCTOR_LINE_LANDS_NOWHERE": "every line must change the other person's situation: give the addressee a visible "
+                                 "reaction or an answer, or cut the line",
 }
 
 
-__all__ = ["SCHEMA", "TARGETS", "FIXES", "check", "script_doctor", "source_texts", "declared_chapters", "event_allocation",
+__all__ = ["SCHEMA", "TARGETS", "FIXES", "check", "script_doctor", "voice_doctor", "source_texts", "declared_chapters", "event_allocation",
            "source_details", "report_lines", "classify_line", "slogan_lines", "reveal_failures", "spoken_lines",
            "norm", "joined_source"]

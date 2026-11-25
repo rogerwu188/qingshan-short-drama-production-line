@@ -783,6 +783,40 @@ def _apply_cu_mcu_ceiling(contract: dict[str, Any], shots: list[dict[str, Any]],
         advisories.append(f"SHOT_GRAMMAR_CU_MCU_OVER:{ratio():.2f}")
 
 
+# --------------------------------------------------------------------------- silent units policy (E27 2026-11-25)
+#: 1101 E27 S01: 4 of 9 units were silent 2.5-3 s procedure inserts nobody could read.  The screenplay compiler
+#: folds / merges them (screenplay_compile.apply_silent_policy); this pass only reports what is left on any contract
+#: (also a non-screenplay one): two silent units in a row (the music passage excepted), more than one silent unit
+#: per scene (music passage / reaction close-ups exempt), a silent-heavy opening.  Advisories only, never a gate.
+SILENT_EXEMPT_ROLES = frozenset({"MUSIC_PASSAGE", "REACTION"})
+SILENT_PER_SCENE_MAX = 1
+OPENING_WINDOW_SECONDS = 10.0
+
+
+def silent_policy_advisories(shots: list[dict[str, Any]]) -> list[str]:
+    out: list[str] = []
+    for scene_id, idx in _scenes(shots):
+        silent = [i for i in idx if not speaking(shots[i])]
+        counted = [i for i in silent if beat_role(shots[i]) not in SILENT_EXEMPT_ROLES]
+        if len(counted) > SILENT_PER_SCENE_MAX:
+            out.append(f"SILENT_UNITS_OVER:{scene_id}:{len(counted)}")
+        for a, b in zip(idx, idx[1:]):
+            if a in silent and b in silent and not (beat_role(shots[a]) == beat_role(shots[b]) == "MUSIC_PASSAGE"):
+                out.append(f"SILENT_RUN:{_clean(shots[b].get('shot_id'))}")
+    clock, heavy = 0.0, 0
+    for shot in shots:
+        if clock >= OPENING_WINDOW_SECONDS:
+            break
+        heavy += 0 if speaking(shot) else 1
+        try:
+            clock += float(shot.get("target_seconds") or 0)
+        except (TypeError, ValueError):
+            pass
+    if heavy >= 2:
+        out.append(f"OPENING_SILENT_HEAVY:{heavy}")
+    return out
+
+
 def _apply_short_units(shots: list[dict[str, Any]], applied: list[str]) -> None:
     """2 s H3 floor: a dedicated silent reaction / insert plays 1.5-2.5 s (ep3 rhythm) and is requested at 2 s."""
     for shot in shots:
@@ -882,6 +916,7 @@ def direct(contract: dict[str, Any], *, force: bool = False) -> tuple[dict[str, 
     if grammar_decided:
         _apply_cu_mcu_ceiling(out, shots, grammar_decided, applied, advisories)
     _apply_cuts(shots, applied, advisories)
+    advisories += silent_policy_advisories(shots)
     if unit_min_seconds() <= 2:
         _apply_short_units(shots, applied)
     reactions = reaction_coverage(out)
