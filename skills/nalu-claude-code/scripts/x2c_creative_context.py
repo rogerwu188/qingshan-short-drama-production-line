@@ -10,8 +10,12 @@ Same base URL and X-API-Key as the publisher (publish_x2c_matrix.base_url(): PRO
 AFTER ``publish`` returned the series' ``project_id``: automatically (non-blocking) after every successful
 publish / add-episodes, or by hand: ``publish_x2creel.py creative-context [--series K] [--episode EP] [--dry-run]``.
 
-What goes out per character (main characters = contract ``protagonist_ids``; plus every character the asset library
-marks SERIES_CORE and every speaker heard in >= 2 published episodes):
+Who goes out (X2C 2026-11-25: male lead, female lead and main characters only): the contract ``protagonist_ids``
+plus the series card's main characters.  ``role`` is one of protagonist / female_lead / male_lead /
+supporting_character: leads of both genders map to female_lead / male_lead, a lead without an opposite-gender
+counterpart (or of unknown gender) is ``protagonist``, every other main character ``supporting_character``.
+
+What goes out per character:
 
 * reference_image_urls: <= 8 public HTTPS images in the order headshot, three-quarter bust, turnaround, full body,
   others.  A recorded public URL is used as is; a local identity card is uploaded once through the matrix
@@ -19,14 +23,18 @@ marks SERIES_CORE and every speaker heard in >= 2 published episodes):
   user:password, a #fragment or a signed/expiring query are never sent.
 * voice: provider "giggle" (the anchor is a Giggle public asset), model = the episode's video model (the model that
   speaks it, MiniMax-H3), id = generation_voice_id, anchor_url = voice registry remote_url, version, status "active",
-  language, gender, style, F0 band from voice_cast.json, a speaker_voice_contract line, metadata.duration_seconds.
+  language, gender, style (the registry timbre / voice name), F0 band from voice_cast.json, a speaker_voice_contract
+  line, metadata.duration_seconds (the line's ~2-4 s native H3 reference clips; X2C confirmed they are fine).
 
 A character without a locked public voice anchor or without any image is skipped with the reason recorded.
 
-State: ``series[<key>].creative_context`` in $NALU_RUNTIME_ROOT/distribution/x2c_matrix.json -- per character the
-payload sha256, voice version / identity, last status + http, sent_at.  A character is re-posted only when its
-payload hash changes; when its voice (provider / id / anchor) changes the old version is retired first and the new
-voice goes out as version + 1.  Every failure (4xx/5xx, UNKNOWN_ROUTE 404 where the route is not live) is recorded
+Upload once per project (X2C 2026-11-25: ads reuse the context): a character goes out on the first successful
+publish where it has a locked public voice and an image, and never again for that series -- image / metadata drift
+is NOT a reason to re-post.  The only re-sends: its voice anchor / id / provider changed (the old version is retired
+first, the new voice goes out as version + 1), an earlier attempt failed, or ``--force``.  A main character skipped
+earlier for missing assets goes out once they exist.  State: ``series[<key>].creative_context`` in
+$NALU_RUNTIME_ROOT/distribution/x2c_matrix.json -- per character payload sha256, voice version / identity, last
+status + http, sent_at.  Every failure (4xx/5xx, UNKNOWN_ROUTE 404 where the route is not live) is recorded
 and retried after the next episode; nothing here ever blocks a release.  ``X2C_CREATIVE_CONTEXT=off`` disables it.
 """
 from __future__ import annotations
@@ -48,6 +56,7 @@ RETIRE = "advertising/voice-registry/retire"
 MAX_IMAGES = 8          # H3 uses the first 8 (the API accepts 16)
 MAX_ANCHOR_SECONDS = 12.0
 MAX_CHARACTERS = 12
+ROLES = ("protagonist", "female_lead", "male_lead", "supporting_character")
 LOCKED = {"LOCKED_PRODUCTION_READY", "AGENTCUT_GENERATED_REGISTERED_PRODUCTION_READY"}
 IMAGE_ROLE_ORDER = ("FRONT_NEUTRAL_HEADSHOT", "HEADSHOT", "THREE_QUARTER_BUST", "BUST", "TURNAROUND",
                     "FULL_BODY_STANDING", "FULL_BODY")
@@ -110,14 +119,19 @@ def engine_root() -> Path:
     return Path(env).expanduser() if env else Path(__file__).resolve().parents[3]
 
 
-def contract_for(episode: str) -> dict[str, Any]:
+def contract_path_for(episode: str) -> Path | None:
     state = read_json(px.runtime() / "runtime" / "pipeline_state" / f"{episode}.json") or {}
     pinned = ((state.get("layers") or {}).get("paths") or {}).get("generation_contract")
     for path in (pinned, engine_root() / "workflow/claude_writer_agent/scripts" / f"{episode}_GENERATION_CONTRACT_v1.json"):
         data = read_json(Path(path)) if path else None
         if isinstance(data, dict) and data.get("character_entities"):
-            return data
-    return {}
+            return Path(path)
+    return None
+
+
+def contract_for(episode: str) -> dict[str, Any]:
+    path = contract_path_for(episode)
+    return (read_json(path) or {}) if path else {}
 
 
 def video_model(episode: str, row: dict[str, Any]) -> str:
@@ -214,32 +228,60 @@ def resolve_images(cands: list[dict[str, Any]], uploads: dict[str, str], *, dry_
     return urls
 
 
-def roster(contracts: dict[str, dict[str, Any]], library: dict[str, Any]) -> tuple[dict[str, dict], set[str]]:
-    """{cid: entity} of main + recurring characters, and the main-character ids."""
+def series_card_mains(contract: dict[str, Any], contract_path: Path | None) -> tuple[set[str], set[str]]:
+    """(character ids, names) of the series card's main characters (craft_ledger.load_series_card's lookup)."""
+    card: dict[str, Any] = {}
+    try:
+        import importlib
+        import sys
+        tools = Path(__file__).resolve().parents[3] / "lines/nalu/runtime/tools"
+        if str(tools) not in sys.path:
+            sys.path.append(str(tools))
+        cl = importlib.import_module("craft_ledger")
+        card = cl.load_series_card(contract, px.runtime(), contract_path.parent if contract_path else None)
+    except Exception:  # noqa: BLE001
+        raw = contract.get("series_card") if isinstance(contract.get("series_card"), dict) else {}
+        card = {"characters": [c for c in raw.get("characters") or [] if isinstance(c, dict)]}
+    ids, names = set(), set()
+    for row in card.get("characters") or []:
+        if isinstance(row, dict) and row.get("main") is not False:
+            if row.get("character_id") or row.get("id"):
+                ids.add(str(row.get("character_id") or row.get("id")).strip())
+            if row.get("name"):
+                names.add(str(row["name"]).strip())
+    return ids, names
+
+
+def entity_gender(entity: dict[str, Any]) -> str | None:
+    return gender_of(entity.get("sex"), entity.get("gender"), (entity.get("identity_lock") or {}).get("sex"))
+
+
+def roster(contracts: dict[str, dict[str, Any]], card_ids: set[str], card_names: set[str]) -> dict[str, dict]:
+    """{cid: entity + _role} of the main characters: protagonist_ids first, then the series card's main characters."""
     entities: dict[str, dict[str, Any]] = {}
-    mains: set[str] = set()
-    speaks: dict[str, int] = {}
+    leads: list[str] = []
     for contract in contracts.values():
         for ent in contract.get("character_entities") or []:
             if isinstance(ent, dict) and ent.get("character_id"):
                 entities.setdefault(str(ent["character_id"]), ent)
-        mains |= {str(c) for c in contract.get("protagonist_ids") or []}
-        for cid in {str(u.get("speaker_id")) for u in (contract.get("audio_contract") or {}).get("dialogue_units") or []
-                    if isinstance(u, dict)}:
-            speaks[cid] = speaks.get(cid, 0) + 1
-    core = {cid for cid, row in ((library.get("assets") or {}).get("characters") or {}).items()
-            if isinstance(row, dict) and row.get("priority") == "SERIES_CORE"}
-    wanted = [c for c in entities if c in mains] + [c for c in entities if c not in mains and
-                                                     (c in core or speaks.get(c, 0) >= 2)]
-    return {c: entities[c] for c in wanted[:MAX_CHARACTERS]}, mains
+        leads += [str(c) for c in contract.get("protagonist_ids") or [] if str(c) not in leads]
+    leads = [c for c in leads if c in entities]
+    others = [c for c, e in entities.items() if c not in leads and
+              (c in card_ids or str(e.get("canonical_name") or "").strip() in card_names)]
+    paired = {"female", "male"} <= {entity_gender(entities[c]) for c in leads}
+    out: dict[str, dict[str, Any]] = {}
+    for cid in leads:
+        g = entity_gender(entities[cid])
+        out[cid] = {**entities[cid], "_role": f"{g}_lead" if paired and g else "protagonist", "_main": True}
+    for cid in others:
+        out[cid] = {**entities[cid], "_role": "supporting_character", "_main": True}
+    return dict(list(out.items())[:MAX_CHARACTERS])
 
 
 # ---------------------------------------------------------------- payload
-def build_character(cid: str, entity: dict[str, Any], *, is_main: bool, episode: str, language: str,
-                    paths: dict[str, Path], registry: dict[str, Any], cast: dict[str, Any],
-                    char_registry: dict[str, Any], library: dict[str, Any], uploads: dict[str, str],
-                    version: int, dry_run: bool) -> tuple[dict[str, Any] | None, str | None]:
-    """(character payload, None) or (None, skip reason)."""
+def build_voice(cid: str, entity: dict[str, Any], *, episode: str, language: str, registry: dict[str, Any],
+                cast: dict[str, Any], version: int) -> tuple[dict[str, Any] | None, str | None]:
+    """(voice payload, None) or (None, skip reason).  Offline: no upload, no POST."""
     crow = (cast.get("characters") or {}).get(cid) or {}
     row = voice_row(cid, entity, crow, registry)
     if not row:
@@ -256,14 +298,13 @@ def build_character(cid: str, entity: dict[str, Any], *, is_main: bool, episode:
         duration = None
     if duration is not None and duration > MAX_ANCHOR_SECONDS:
         return None, f"VOICE_ANCHOR_OVER_{int(MAX_ANCHOR_SECONDS)}S:{duration}"
-    notes: list[str] = []
-    images = resolve_images(image_candidates(cid, char_registry, library), uploads, dry_run=dry_run, notes=notes)
-    if not images:
-        return None, "NO_PUBLIC_REFERENCE_IMAGE" + (f":{','.join(sorted(set(notes)))}" if notes else "")
     name = str(entity.get("canonical_name") or row.get("character") or cid)
     gender = gender_of(entity.get("sex"), entity.get("gender"), row.get("gender"), crow.get("gender"),
                        (entity.get("identity_lock") or {}).get("sex"))
-    style = str(crow.get("timbre_brief") or row.get("voice_selection") or row.get("voice_name") or "").strip()
+    # style = the voice's timbre description (X2C: e.g. calm, warm, 低沉, 温柔, 成熟女声)
+    style = next((str(v).strip() for v in (row.get("timbre_brief"), row.get("timbre"), row.get("voice_style"),
+                                            crow.get("timbre_brief"), row.get("voice_selection"), row.get("voice_name"),
+                                            row.get("generation_voice_name")) if str(v or "").strip()), "")
     lang = str(row.get("language") or "").strip() or LANG.get(str(language or "zh").lower().split("-")[0], "zh-CN")
     voice: dict[str, Any] = {
         "provider": "giggle", "model": video_model(episode, row), "id": str(voice_id), "anchor_url": anchor,
@@ -284,19 +325,24 @@ def build_character(cid: str, entity: dict[str, Any], *, is_main: bool, episode:
     vmeta = {"duration_seconds": duration, "voice_name": row.get("voice_name") or row.get("generation_voice_name"),
              "remote_asset_id": row.get("remote_asset_id"), "anchor_sha256": row.get("local_sha256"),
              "episode_first_locked": row.get("episode_first_locked"),
-             "note": "anchor shorter than the recommended 3-10 s is the line's native H3 reference clip"
+             "note": "native H3 reference clip of this line (short by design)"
                      if duration is not None and duration < 3 else None}
     voice["metadata"] = {k: v for k, v in vmeta.items() if v is not None}
-    role = str(entity.get("role") or ("main character" if is_main else "supporting character"))
+    return voice, None
+
+
+def build_character(cid: str, entity: dict[str, Any], voice: dict[str, Any], images: list[str], *,
+                    episode: str) -> dict[str, Any]:
+    name = str(entity.get("canonical_name") or cid)
+    role = entity.get("_role") if entity.get("_role") in ROLES else "supporting_character"
     meta = {"source": "nalu", "episode": episode, "english_name": entity.get("english_name"),
             "apparent_age": entity.get("apparent_age_range")}
-    return {"character_id": cid, "character_name": name, "role": role, "is_main_character": bool(is_main),
-            "is_fictional": True, "reference_image_urls": images, "voice": voice,
-            "metadata": {k: v for k, v in meta.items() if v}}, None
+    return {"character_id": cid, "character_name": name, "role": role,
+            "is_main_character": bool(entity.get("_main", True)), "is_fictional": True,
+            "reference_image_urls": images, "voice": voice, "metadata": {k: v for k, v in meta.items() if v}}
 
 
-def voice_identity(char: dict[str, Any]) -> str:
-    v = char["voice"]
+def voice_identity(v: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps([v["provider"], v["id"], v["anchor_url"]]).encode()).hexdigest()
 
 
@@ -347,6 +393,7 @@ def run(series_key: str | None = None, episode: str | None = None, *, dry_run: b
     if not episode:
         return {"status": "NO_EPISODE", "series_key": key}
     contracts = {ep: c for ep in sorted(set(published) | {episode}, key=ep_sort) if (c := contract_for(ep))}
+    card_ids, card_names = series_card_mains(contracts.get(episode) or {}, contract_path_for(episode))
     paths = runtime_paths(episode)
     registry = read_json(paths["voice_registry"]) or {}
     cast = read_json(paths["voice_cast"]) or {}
@@ -357,7 +404,7 @@ def run(series_key: str | None = None, episode: str | None = None, *, dry_run: b
     ctx = series.setdefault("creative_context", {"characters": {}, "image_uploads": {}})
     ctx.setdefault("characters", {})
     uploads = dict(ctx.setdefault("image_uploads", {}))
-    chosen, mains = roster(contracts, library)
+    chosen = roster(contracts, card_ids, card_names)
     sn = mx.device_sn() if not dry_run else os.environ.get("NALU_DEVICE_SN", "<device_sn>")
     result: dict[str, Any] = {"status": "OK", "dry_run": dry_run, "series_key": key, "project_id": project,
                               "episode": episode, "environment": mx.environment(), "sent": [], "unchanged": [],
@@ -368,50 +415,63 @@ def run(series_key: str | None = None, episode: str | None = None, *, dry_run: b
     route_down = False
     for cid, entity in chosen.items():
         rec = ctx["characters"].setdefault(cid, {})
+        sent = rec.get("last_status") == "SENT"
         version = int(rec.get("voice_version") or 1)
+        voice, why = build_voice(cid, entity, episode=episode, language=language, registry=registry, cast=cast,
+                                 version=version)
+        if voice is None:
+            if sent:  # already registered with X2C: a later registry gap never un-sends it
+                result["unchanged"].append(cid)
+                continue
+            result["skipped"][cid] = why
+            rec.update(skipped=why, checked_at=now())
+            continue
+        ident = voice_identity(voice)
+        acked = rec.get("acked_version")
+        voice_changed = bool(acked and rec.get("voice_identity") and rec["voice_identity"] != ident)
+        # upload once per project: a registered character is never re-posted for image / metadata drift
+        if sent and not voice_changed and not force:
+            result["unchanged"].append(cid)
+            continue
+        if voice_changed:
+            version = int(acked) + 1
+            voice["version"] = version
+            voice["speaker_voice_contract"] = voice["speaker_voice_contract"].replace(
+                f"voice v{rec.get('voice_version') or 1}", f"voice v{version}", 1)
+        notes: list[str] = []
         try:
-            char, why = build_character(cid, entity, is_main=cid in mains, episode=episode, language=language,
-                                        paths=paths, registry=registry, cast=cast, char_registry=char_registry,
-                                        library=library, uploads=uploads, version=version, dry_run=dry_run)
+            images = resolve_images(image_candidates(cid, char_registry, library), uploads,
+                                    dry_run=dry_run or route_down, notes=notes)
         except SystemExit as exc:  # an image upload failed
-            char, why = None, f"IMAGE_UPLOAD_FAILED:{str(exc.code)[:200]}"
-        if char is None:
+            images, notes = [], [f"IMAGE_UPLOAD_FAILED:{str(exc.code)[:200]}"]
+        if not images:
+            why = "NO_PUBLIC_REFERENCE_IMAGE" + (f":{','.join(sorted(set(notes)))}" if notes else "")
             result["skipped"][cid] = why
             rec.update(skipped=why, checked_at=now())
             continue
         rec.pop("skipped", None)
-        ident = voice_identity(char)
-        needs_retire = bool(rec.get("voice_identity") and rec["voice_identity"] != ident and rec.get("acked_version"))
-        if needs_retire:
-            version = int(rec["acked_version"]) + 1
-            char["voice"]["version"] = version
-            char["voice"]["speaker_voice_contract"] = char["voice"]["speaker_voice_contract"].replace(
-                f"voice v{rec['acked_version']}", f"voice v{version}", 1)
+        char = build_character(cid, entity, voice, images, episode=episode)
         digest = payload_hash(char)
-        if not force and rec.get("payload_sha256") == digest and rec.get("last_status") == "SENT":
-            result["unchanged"].append(cid)
-            continue
         payloads.append(char)
         if dry_run or route_down:
             continue
-        if needs_retire and int(rec["acked_version"]) not in (rec.get("retired_versions") or []):
-            old = int(rec["acked_version"])
+        if voice_changed and int(acked) not in (rec.get("retired_versions") or []):
             ok, http, body = try_call(RETIRE, {"device_sn": sn, "project_id": project, "series_key": key,
-                                               "character_id": cid, "voice_version": old})
+                                               "character_id": cid, "voice_version": int(acked)})
             if not ok:
                 rec.update(last_status="RETIRE_FAILED", http=http, error=body, last_attempt_at=now())
                 result["failed"][cid] = {"step": "retire", "http": http, "code": _code(body)}
                 route_down = route_down or _code(body) == "UNKNOWN_ROUTE"
                 continue
-            rec.setdefault("retired_versions", []).append(old)
-            result["retired"].append({"character_id": cid, "voice_version": old})
+            rec.setdefault("retired_versions", []).append(int(acked))
+            result["retired"].append({"character_id": cid, "voice_version": int(acked)})
         ok, http, body = try_call(ENDPOINT, {"device_sn": sn, "project_id": project, "series_key": key,
                                              "characters": [char]})
         rec["last_attempt_at"] = now()
         if ok:
             rec.update(payload_sha256=digest, voice_identity=ident, voice_version=version, acked_version=version,
-                       voice_id=char["voice"]["id"], anchor_url=char["voice"]["anchor_url"], last_status="SENT",
-                       http=http, sent_at=now(), image_count=len(char["reference_image_urls"]), error=None)
+                       voice_id=voice["id"], anchor_url=voice["anchor_url"], role=char["role"], last_status="SENT",
+                       http=http, sent_at=now(), image_count=len(images), error=None)
             result["sent"].append(cid)
         else:
             rec.update(last_status="FAILED", http=http, error=body, voice_version=version)
