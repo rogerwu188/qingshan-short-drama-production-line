@@ -644,7 +644,12 @@ def _set_grammar(contract: dict[str, Any], shot: dict[str, Any], scale: str, kin
     before = (_scale(shot), _frame_kind(shot))
     others = [c for c in visible_cast(shot) if c != who]
     role = _role(shot)
-    if kind == "SINGLE" and others:
+    if not who or not speaking(shot):
+        # E29 S1 (1101, 2026-11-26): a silent unit has no speaker, so "others" was its whole visible cast and a
+        # SINGLE decision emptied it.  The listener framing is a dialogue decision; a silent unit keeps its cast
+        # and its framing, the director only changes the scale.
+        kind = _frame_kind(shot)
+    elif kind == "SINGLE" and others:
         spec["cast"] = [r for r in spec.get("cast") or []
                         if not (isinstance(r, dict) and _clean(r.get("character_id") or r.get("character")) in others)]
         for key in ("entity_presence", "entity_states"):

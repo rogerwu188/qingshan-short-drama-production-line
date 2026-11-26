@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2618,
+  "file_count": 2619,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -757,7 +757,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/director_pass.py",
-      "sha256": "2cf8768f2db5044a977f54d1caf8f77f271eca117b349845d7f85aa81229bc21"
+      "sha256": "8035c1eaa69c1cb312c7a80253d72895fadb0d809ddb58e36218dc27c501cc8c"
     },
     {
       "path": "lines/nalu/runtime/tools/extend_global_space_map.py",
@@ -7998,6 +7998,10 @@
     {
       "path": "tools/tests/test_e28_burned_dialogue.py",
       "sha256": "02de23d00ed62ca7bb160e0bfc7c51d4010067daab7635b3bc4d9a95243c13d6"
+    },
+    {
+      "path": "tools/tests/test_e29_silent_cast.py",
+      "sha256": "4945016e3870acd3e12255c1e166b36dc6cce0db02a5f60798f4da3293f1c5f1"
     },
     {
       "path": "tools/tests/test_e36_effective_dialogue_length.py",
