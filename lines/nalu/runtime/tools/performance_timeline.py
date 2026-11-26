@@ -20,9 +20,10 @@ stays verbatim for the burned subtitles and the ASR match.
 
 Data: ``configs/PERFORMANCE_EMOTION_LEXICON_v1.json`` ``micro_performance``.  Pure functions, stdlib only.
 Timeline beats carry ``from`` / ``to`` as fractions of the line's window; ``{who}`` / ``{listener}`` / ``{trigger}``
-placeholders in the English text are filled by the renderer (``tools/bili_carry.py``) with the unit's provider labels
-and "the stressed word at about N s" -- the H3 boundary admits no Chinese outside the dialogue tags, so the English
-never quotes the trigger word; the CHANGE beat's ``trigger_at`` is the word's position as a fraction of the window.
+placeholders in the English text are filled by the renderer (``tools/bili_carry.py``) with the unit's provider labels.
+The H3 prompt carries the English beats untimed and without any reference to the spoken line (E28 2026-11-26: a
+time-coded "on the stressed word at about N s" timeline made H3 burn the line as on-screen text); the timing and the
+trigger word stay in the data and in the Chinese directing summary only.
 """
 from __future__ import annotations
 
@@ -126,7 +127,7 @@ class EmotionCurve:
         prev = self.last.get(who)
         if not prev:
             return base, "scene_start"
-        carried = {"zh": f"接上一句的状态：{prev['exit_zh']}", "en": f"carried over from the last line: {prev['exit_en']}"}
+        carried = {"zh": f"接上一句的状态：{prev['exit_zh']}", "en": f"carried over from the previous shot: {prev['exit_en']}"}
         a, b = prev.get("stage"), stage_of(emotion)
         if isinstance(a, int) and isinstance(b, int) and abs(b - a) > 1:
             names = lexicon().get("stage_names") or []
@@ -185,7 +186,7 @@ def build(*, who: str, emotion: str, emotion_en: str, line: str, paren: str = ""
          "trigger_at": t_change,
          "zh": trigger_zh + change_zh, "en": trigger_en + change_en},
         {"from": t_exit, "to": 1.0, "kind": "EXIT", "zh": "收尾定格：" + exit_state["zh"],
-         "en": "end frame: " + exit_state["en"] + ", lips closed after the last word"},
+         "en": "end frame: " + exit_state["en"] + ("" if "lips" in exit_state["en"] else ", lips closed")},
     ]
     curve.close(who, emotion, emotion_en, exit_state)
     return {"schema": SCHEMA, "emotion": emotion, "stage": stage_of(emotion), "curve": note,

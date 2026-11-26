@@ -117,62 +117,84 @@ def listener_reaction_sentences(action: Any, listeners: list[tuple[str, str]]) -
 
 
 # --------------------------------------------------------------------------- micro-performance timeline (E27)
-def _seconds(value: float) -> str:
-    return f"{round(value, 1):g}"
+#: E28 2026-11-26 (device 1101, RELEASE_HELD:BURN_UNRESOLVED): the time-coded timeline ("1.8–2.4 s, Alpha: on the
+#: stressed word at about 1.8 s: ... the word comes out ...") reads like a subtitle track -- H3 burned the spoken line
+#: as large mid-frame text and as a second subtitle row in 12 of 31 speaking units (E27, same lines without the
+#: timeline: none).  The performance is now rendered as an untimed face-and-body sequence: no seconds, no reference
+#: to the line, its words, syllables or voice, no FACS codes (letters + digits); the voice belongs to "Delivery:".
+_SPOKEN_CLAUSE = re.compile(r"\{trigger\}|\b(?:words?|lines?|syllables?|sentences?|speech|speak\w*|spoken|says?|said|"
+                            r"talk\w*|voice[sd]?|stress(?:ed)?|trigger\w*|pronounc\w*|utter\w*|subtitles?|captions?)\b",
+                            re.I)
+_FACS = re.compile(r"\s*\((?:one-sided\s+)?AU\s*\d+[A-E]?(?:\s*\+\s*AU\s*\d+[A-E]?)*\)|\bAU\s*\d+[A-E]?\b", re.I)
+_BEAT_PREFIX = re.compile(r"^(?:on \{trigger\}|during the line|end frame|carried over from the (?:last line|previous "
+                          r"shot))\s*:\s*", re.I)
+
+
+def silent_performance_text(text: str) -> str:
+    """One beat's English with every clause that names the spoken line (its words, syllables, voice, the trigger
+    word) dropped, FACS codes removed and time / trigger prefixes stripped: what the face and body do, only."""
+    text = _FACS.sub("", " ".join(str(text or "").split()))
+    while True:
+        stripped = _BEAT_PREFIX.sub("", text)
+        if stripped == text:
+            break
+        text = stripped
+    clauses = [c.strip() for c in re.split(r"[;,]\s+", text) if c.strip()]
+    kept = list(dict.fromkeys(re.sub(r"\s+with it$", "", c) for c in clauses if not _SPOKEN_CLAUSE.search(c)))
+    return ", ".join(kept).strip().rstrip(".;,: ")
 
 
 def performance_timeline_sentences(action: Any, who: str, listener: str = "",
                                    window: tuple[float, float] | None = None) -> list[str]:
     """The compiled micro-performance (``action.performance.timeline``, lines/nalu/runtime/tools/
-    performance_timeline.py) as time-coded sentences: entry state -> the change on the trigger word -> the end frame.
+    performance_timeline.py) as an untimed sequence of visible face / body states: entry -> change -> end frame.
 
     ``who``: the speaker's English label; ``listener``: the listener's label ("" -> "the other person");
-    ``window``: the beat's (start, end) seconds in the clip, default (0, 4).  [] when there is no timeline or the
-    text is not English."""
+    ``window`` is accepted for call compatibility and ignored (E28: no seconds in the performance).  [] when there
+    is no timeline or the text is not English."""
+    del window
     performance = action.get("performance") if isinstance(action, dict) else None
     timeline = performance.get("timeline") if isinstance(performance, dict) else None
     beats = timeline.get("beats") if isinstance(timeline, dict) else None
     if not who or not isinstance(beats, list) or not beats:
         return []
-    start, end = window if window and window[1] > window[0] else (0.0, 4.0)
-    span = end - start
     other = listener or "the other person"
     out: list[str] = []
     for beat in beats:
         if not isinstance(beat, dict):
             continue
-        try:
-            t0 = start + span * float(beat.get("from", 0.0))
-            t1 = start + span * float(beat.get("to", 1.0))
-            at = start + span * float(beat.get("trigger_at", beat.get("from", 0.0)))
-        except (TypeError, ValueError):
-            continue
-        # the H3 boundary admits no Chinese outside <d> tags: the trigger word is named by its time in the clip
-        trigger = f"the stressed word at about {_seconds(at)} s"
-        text = str(beat.get("en") or "").replace("{listener}", other).replace("{who}", who).replace("{trigger}", trigger)
-        text = " ".join(text.split()).strip().rstrip(".;,")
+        raw = str(beat.get("en") or "").replace("{listener}", other).replace("{who}", who)
+        text = silent_performance_text(raw)
         if not text or CJK.search(text):
             continue
-        out.append(f"{_seconds(t0)}–{_seconds(t1)} s, {who}: {text}.")
+        out.append(text)
     return out
 
 
 def performance_timeline_line(action: Any, who: str, listener: str = "",
                               window: tuple[float, float] | None = None) -> str:
-    """"Performance: <beat> <beat> <beat>" ('' when there is none)."""
+    """"<who>'s face and body, as visible changes ...: at first ...; then ...; at the end ..." ('' when none)."""
     rows = performance_timeline_sentences(action, who, listener, window)
-    return ("Performance, played as visible changes, never a held pose: " + " ".join(rows)) if rows else ""
+    if not rows:
+        return ""
+    steps = ["at first", "then", "at the end"] if len(rows) == 3 else (["at first", "at the end"] if len(rows) == 2
+                                                                        else ["throughout"])
+    if len(rows) > 3:
+        steps = ["at first"] + ["then"] * (len(rows) - 2) + ["at the end"]
+    body = "; ".join(f"{step}, {row}" for step, row in zip(steps, rows))
+    return f"{who}'s face and body change visibly, never a held pose: {body}."
 
 
 # --------------------------------------------------------------------------- 脑补: what the viewer must see (E27)
 #: all visual sentences of one beat together (the H3 boundary is 10 000 runes; a typical BILI unit renders ~4-6 k)
-VISUAL_MAX_CHARS = 900
+VISUAL_MAX_CHARS = 600
 #: identity comes from the reference images (#342): appearance words are dropped from the visual sentences
 _APPEARANCE = re.compile(r"\b(?:handsome|beautiful|pretty|gorgeous|cute|complexion|skin|jawline|cheekbones?|"
                          r"facial features|face shape|features|make-?up|freckles?|eye colou?r|hair colou?r|"
                          r"hairstyle|slender|delicate|youthful|aged|wrinkled|appearance|looks like)\b", re.I)
-FOLDED_WHILE_SPEAKING = ("All of this action plays while the line is spoken: it starts with the first word and is "
-                         "done by the last; nothing waits until before or after the line.")
+#: E28: never "while the line is spoken ... the first word ... the last" -- it points H3 at the words (burned text)
+FOLDED_WHILE_SPEAKING = ("All of this action flows on without a pause from the first frame to the last; nothing "
+                         "waits for a still moment.")
 
 
 def _no_appearance(text: str) -> str:
@@ -180,6 +202,17 @@ def _no_appearance(text: str) -> str:
     clauses = [c for c in re.split(r"(?<=[;,])\s+", text) if c.strip()]
     kept = [c for c in clauses if not _APPEARANCE.search(c)]
     return " ".join(kept).strip().rstrip(".;,")
+
+
+#: E28: a visual clause that refers to the spoken words or to writing (H3 renders it as text) is dropped; "line"
+#: (a red line, a line of soldiers) and "speaking" (timing a gesture against the speech act) are kept here
+_SPOKEN_VISUAL = re.compile(r"\b(?:words?|syllables?|sentences?|says?|said|spoken|subtitles?|captions?|lettering|written|"
+                            r"inscri\w*|reads? aloud)\b", re.I)
+
+
+def _not_spoken(text: str) -> str:
+    clauses = [c for c in re.split(r"(?<=[;,])\s+", text) if c.strip()]
+    return " ".join(c for c in clauses if not _SPOKEN_VISUAL.search(c)).strip().rstrip(".;,")
 
 
 def visual_sentences(spec: Any, subjects: list[tuple[str, str]], *, speaking: bool = False,
@@ -195,10 +228,10 @@ def visual_sentences(spec: Any, subjects: list[tuple[str, str]], *, speaking: bo
     action = spec.get("action") if isinstance(spec.get("action"), dict) else {}
     skip = set(skip)
     rows: list[tuple[str, str]] = []
-    stakes = _no_appearance(english(visual.get("stakes_en"), 420))
+    stakes = _not_spoken(_no_appearance(english(visual.get("stakes_en"), 420)))
     if stakes:
-        rows.append(("STAKES", f"What the viewer must see in this frame: {stakes}."))
-    detail = _no_appearance(english(visual.get("detail_en"), 420))
+        rows.append(("STAKES", f"In the frame: {stakes}."))  # E28: no "viewer must see" (burned text)
+    detail = _not_spoken(_no_appearance(english(visual.get("detail_en"), 420)))
     if detail:
         rows.append(("DETAIL", f"Visible detail: {detail}."))
     if speaking and action.get("folded_silent"):
@@ -206,7 +239,7 @@ def visual_sentences(spec: Any, subjects: list[tuple[str, str]], *, speaking: bo
     business = visual.get("business_en")
     if isinstance(business, dict):
         for label, text in _per_subject(business, subjects):
-            text = _no_appearance(_strip_label(text, label))
+            text = _not_spoken(_no_appearance(_strip_label(text, label)))
             if text:
                 rows.append((f"BUSINESS.{label}", f"{label}'s own way of moving here: {_lower_first(text)}."))
     environment = _no_appearance(english(visual.get("environment_en"), 320))
@@ -339,5 +372,5 @@ __all__ = [
     "active", "english", "lead_in_sentences", "listener_reaction_sentences", "held_prop_sentences",
     "field_source", "authored", "field_sources", "en_twin_failures", "en_twin_check", "LEAD_IN_SECONDS",
     "TRANSLATE_RULE", "FALLBACK_FIELDS", "performance_timeline_sentences", "performance_timeline_line",
-    "visual_sentences", "VISUAL_MAX_CHARS", "FOLDED_WHILE_SPEAKING",
+    "visual_sentences", "VISUAL_MAX_CHARS", "FOLDED_WHILE_SPEAKING", "silent_performance_text",
 ]

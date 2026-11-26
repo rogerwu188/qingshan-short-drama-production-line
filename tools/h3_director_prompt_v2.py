@@ -199,6 +199,9 @@ SPOKEN_NOT_WRITTEN_ONE = ("The line is only heard: the picture stays clean, with
                           "word of it.")
 SPOKEN_NOT_WRITTEN_MANY = ("The lines are only heard: the picture stays clean, with no subtitles, captions or "
                            "written words of them.")
+#: E28 2026-11-26 (device 1101, RELEASE_HELD:BURN_UNRESOLVED): the clean-picture rule also closes the Setting block,
+#: so H3 reads it before the action and the dialogue (stamped units only; no all-caps label, no digits)
+CLEAN_PICTURE_V2 = "Nothing is ever written anywhere in the picture: no subtitles, captions or lettering."
 
 
 # ----------------------------------------------------------------------------------------------------------
@@ -1228,6 +1231,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
             prop_sentences.append(f"the {row['name']} is {description[:1].lower() + description[1:]}")
     if prop_sentences:
         setting_lines.append(_sentence("Props: " + "; ".join(prop_sentences)))
+    if stamped:
+        setting_lines.append(CLEAN_PICTURE_V2)
 
     # --- camera ----------------------------------------------------------------------------------------
     camera, camera_receipt = camera_section(unit, plan, contract, beats)

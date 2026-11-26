@@ -258,8 +258,8 @@ Every other series keeps the sections above unchanged.
   beats only after trigger lines (attack / reveal / turn / payoff, <= 2 per scene) and name the other person in an
   action line only when they really interact -- a named person is pulled into the frame.  One continuous small action
   is allowed while speaking; reactions sit on the in-frame listener or the first 1–2 s of the next line.
-- **Performance (11-25).** The compiler expands each line into a time-coded micro-performance (entry state -> a
-  visible change on the line's hardest word -> end frame), carrying each character's exit state into their next line
+- **Performance (11-25).** The compiler expands each line into a micro-performance (entry state -> a
+  visible change on the line's hardest word -> end frame; the video prompt carries it untimed, face and body only), carrying each character's exit state into their next line
   of the scene; write the psychology in the parenthetical (结巴/说不出, 辩解, 愣住, 改口/掩饰) rather than the result,
   never write stutters into the line text, and let emotions move a step at a time (counter-attack -> self-justify ->
   crack -> first voice break -> admission).
