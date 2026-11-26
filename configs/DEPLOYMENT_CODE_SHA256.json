@@ -1109,7 +1109,7 @@
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
-      "sha256": "f7ca938881b1057767846cb5fcf11914aecb23ce8999ff2163ee0f13bd7bcb00"
+      "sha256": "774a74454eb59b75dca5fc2a4e1e2befa4458fca10f27e90abedd6cb5ba5c77c"
     },
     {
       "path": "skills/nalu-claude-code/scripts/apply_runtime_fixups.py",
@@ -1197,7 +1197,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/x2c_creative_context.py",
-      "sha256": "2cd1d46cac21ef26683b4279ac09c10c5fcc969b4b270fb02debd510ab03f502"
+      "sha256": "a5d75fe6242a33c526e4106d9faf2358ca79b0f278b2a94a3a7ed3d3e82308c0"
     },
     {
       "path": "skills/qingshan-nalu/SKILL.md",
@@ -10093,7 +10093,7 @@
     },
     {
       "path": "tools/tests/test_x2c_creative_context.py",
-      "sha256": "8540081adf22c5ac8b62a0e1082cb50784692bf4fd04877f97ae5b8ac0c4c831"
+      "sha256": "6be6abd1e446e83cb6e68d27aa7c0c256d45de044bf439a02c5e576e16109c1f"
     },
     {
       "path": "tools/tests/test_youtube_shorts_runtime_gate.py",

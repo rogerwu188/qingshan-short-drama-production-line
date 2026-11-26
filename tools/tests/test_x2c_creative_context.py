@@ -76,7 +76,7 @@ class CreativeContextTests(unittest.TestCase):
                         {"character_id": "CHAR-EXTRA", "canonical_name": "路人", "gender": "男"}],
                     "audio_contract": {"dialogue_units": [{"speaker_id": "CHAR-LINQIAO"}, {"speaker_id": "CHAR-ZHOUHENG"},
                                                           {"speaker_id": "CHAR-EXTRA"}]}}
-        cpath = Path(self.tmp.name) / "E01_GENERATION_CONTRACT_v1.json"
+        cpath = self.cpath = Path(self.tmp.name) / "E01_GENERATION_CONTRACT_v1.json"
         cpath.write_text(json.dumps(contract, ensure_ascii=False), encoding="utf-8")
         (rt / "pipeline_state/E01.json").write_text(json.dumps({"layers": {"paths": {"generation_contract": str(cpath)}}}))
         (root / "preproduction/E01/video_model.json").write_text(json.dumps({"video_model": "MiniMax-H3"}))
@@ -132,11 +132,14 @@ class CreativeContextTests(unittest.TestCase):
         self.assertNotIn("creative_context", mx.load_state()["series"]["urban-zh"])  # dry run writes nothing
         body = out["payload"]
         self.assertEqual((body["project_id"], body["series_key"], body["device_sn"]), ("p-1", "urban-zh", "test_00111"))
+        # only the main cast: protagonist_ids (+ series card mains); zhouheng / extra are speaking side roles
         self.assertEqual([c["character_id"] for c in body["characters"]], ["CHAR-LINQIAO"])
-        self.assertEqual(out["skipped"], {})  # zhouheng / extra speak in 1 episode only, not SERIES_CORE: not recurring
+        self.assertEqual(out["skipped"], {})
         lin = body["characters"][0]
         self.assertTrue(lin["is_main_character"] and lin["is_fictional"])
-        self.assertEqual((lin["character_name"], lin["role"]), ("林乔", "female lead"))
+        # a single lead without an opposite-gender counterpart -> protagonist (the contract's free-text role is ignored)
+        self.assertEqual((lin["character_name"], lin["role"]), ("林乔", "protagonist"))
+        self.assertEqual(lin["voice"]["style"], "年轻女性中音，清晰果断")  # the timbre description before the voice name
         self.assertEqual(len(lin["reference_image_urls"]), 3)
         self.assertIn("UPLOAD-PENDING", lin["reference_image_urls"][0])
         v = lin["voice"]
@@ -145,24 +148,44 @@ class CreativeContextTests(unittest.TestCase):
         self.assertEqual((v["language"], v["gender"], v["f0_min"], v["f0_max"], v["f0_median"]),
                          ("zh-CN", "female", 192.3, 260.1, 226.2))
         self.assertEqual(v["metadata"]["duration_seconds"], 2.04)
+        self.assertNotIn("recommended", json.dumps(v["metadata"]))
         self.assertIn("speaker_voice_contract", v)
         # CLI
         self.assertEqual(mx.main(["creative-context", "--dry-run"]), 0)
 
-    def test_send_then_idempotent_skip(self):
+    def main_cast(self):
+        """Lin Qiao + Zhou Heng are the two leads; 路人 is a main character on the series card."""
+        c = json.loads(self.cpath.read_text(encoding="utf-8"))
+        c["protagonist_ids"] = ["CHAR-LINQIAO", "CHAR-ZHOUHENG"]
+        c["series_card"] = {"characters": [{"character_id": "CHAR-EXTRA", "name": "路人", "main": True}]}
+        self.cpath.write_text(json.dumps(c, ensure_ascii=False), encoding="utf-8")
+
+    def test_roles_and_series_card_mains(self):
+        self.main_cast()
+        out = xcc.run(dry_run=True)
+        roles = {c["character_id"]: c["role"] for c in out["payload"]["characters"]}
+        self.assertEqual(roles, {"CHAR-LINQIAO": "female_lead", "CHAR-ZHOUHENG": "male_lead"})
+        self.assertEqual(out["skipped"], {"CHAR-EXTRA": "NO_LOCKED_VOICE_IN_REGISTRY"})
         self.registry["major_roles"].append({"character_id": "extra", "status": "LOCKED_PRODUCTION_READY",
                                              "voice_id": "v-x", "remote_url": ANCHOR_B})
         self.write_registry()
-        lib = {"assets": {"characters": {"CHAR-ZHOUHENG": {"priority": "SERIES_CORE"}}}}
-        (self.root / "runtime/asset_library.json").write_text(json.dumps(lib))
+        (self.root / "runtime/nalu_character_asset_registry.json").write_text(json.dumps({"characters": {
+            "CHAR-EXTRA": {"reference_image_urls": ["https://cdn.test/extra.png"]}}}))
+        out = xcc.run(dry_run=True)
+        extra = next(c for c in out["payload"]["characters"] if c["character_id"] == "CHAR-EXTRA")
+        self.assertEqual((extra["role"], extra["is_main_character"]), ("supporting_character", True))
+        self.assertTrue(all(c["role"] in xcc.ROLES for c in out["payload"]["characters"]))
+
+    def test_send_then_idempotent_skip(self):
+        self.main_cast()
         out = xcc.run()
         self.assertEqual(out["status"], "OK")
         self.assertEqual(sorted(out["sent"]), ["CHAR-LINQIAO", "CHAR-ZHOUHENG"])
+        self.assertEqual(out["skipped"], {"CHAR-EXTRA": "NO_LOCKED_VOICE_IN_REGISTRY"})
         posts = self.fake.sent(xcc.ENDPOINT)
         self.assertEqual(len(posts), 2)
         zh = posts[1]["characters"][0]
-        self.assertFalse(zh["is_main_character"])
-        self.assertEqual((zh["voice"]["id"], zh["voice"]["gender"]), ("clone_zh", "male"))
+        self.assertEqual((zh["voice"]["id"], zh["voice"]["gender"], zh["role"]), ("clone_zh", "male", "male_lead"))
         # headshot first, uploaded through the matrix upload-url, public_url used
         self.assertEqual(len(self.fake.sent("distribution/upload-url")), 6)
         self.assertTrue(all(u.startswith("https://media.x2c.test/pub/") for u in posts[0]["characters"][0]["reference_image_urls"]))
@@ -180,6 +203,33 @@ class CreativeContextTests(unittest.TestCase):
         out = xcc.run()
         self.assertEqual(sorted(out["unchanged"]), ["CHAR-LINQIAO", "CHAR-ZHOUHENG"])
         self.assertEqual(len(self.fake.requests), n)
+        # once per project: new images / style / metadata drift never re-post a registered character
+        extra_png = Path(self.tmp.name) / "plates/E01_CHAR-LINQIAO__TURNAROUND_y.png"
+        extra_png.write_bytes(b"new view")
+        reg = json.loads((self.root / "runtime/nalu_character_asset_registry.json").read_text())
+        reg["characters"]["CHAR-LINQIAO"]["canonical_reference_paths"].insert(0, str(extra_png))
+        (self.root / "runtime/nalu_character_asset_registry.json").write_text(json.dumps(reg))
+        self.registry["major_roles"][0]["voice_name"] = "温柔成熟女声"
+        self.registry["major_roles"][1]["duration_seconds"] = 4.2
+        self.write_registry()
+        out = xcc.run()
+        self.assertEqual(len(self.fake.requests), n)
+        self.assertEqual(out["sent"], [])
+        # a main character skipped for missing assets goes out once they exist -- only that one
+        self.registry["major_roles"].append({"character_id": "extra", "status": "LOCKED_PRODUCTION_READY",
+                                             "voice_id": "v-x", "remote_url": ANCHOR_B})
+        self.write_registry()
+        reg["characters"]["CHAR-EXTRA"] = {"reference_image_urls": ["https://cdn.test/extra.png"]}
+        (self.root / "runtime/nalu_character_asset_registry.json").write_text(json.dumps(reg))
+        out = xcc.run()
+        self.assertEqual(out["sent"], ["CHAR-EXTRA"])
+        self.assertEqual(len(self.fake.sent(xcc.ENDPOINT)), 3)
+        self.assertEqual(xcc.run()["sent"], [])
+        # a later registry gap never un-registers a character
+        self.registry["major_roles"] = []
+        self.write_registry()
+        out = xcc.run()
+        self.assertEqual((out["sent"], out["skipped"]), ([], {}))
 
     def test_voice_change_retires_then_bumps_version(self):
         xcc.run()
@@ -194,11 +244,13 @@ class CreativeContextTests(unittest.TestCase):
                                   "character_id": "CHAR-LINQIAO", "voice_version": 1})
         self.assertEqual(self.fake.sent(xcc.ENDPOINT)[-1]["characters"][0]["voice"]["version"], 2)
         self.assertEqual(self.ctx()["characters"]["CHAR-LINQIAO"]["voice_version"], 2)
-        # a style-only change later resends v2 without another retire
+        self.assertIn("voice v2", self.fake.sent(xcc.ENDPOINT)[-1]["characters"][0]["voice"]["speaker_voice_contract"])
+        # a style-only change afterwards sends nothing (once per project)
         self.registry["major_roles"][0]["voice_name"] = "x"
         self.write_registry()
         xcc.run()
         self.assertEqual(len(self.fake.sent(xcc.RETIRE)), 1)
+        self.assertEqual(len(self.fake.sent(xcc.ENDPOINT)), 2)
 
     def test_retire_ok_submit_failed_retries_without_second_retire(self):
         xcc.run()
