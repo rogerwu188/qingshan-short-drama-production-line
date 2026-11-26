@@ -209,21 +209,23 @@ def _outside_dialogue(text: str) -> str:
 
 
 class RenderTimelineTest(unittest.TestCase):
-    def test_v2_prints_time_coded_beats_without_chinese(self):
+    def test_v2_prints_untimed_beats_without_chinese(self):
+        # E28 2026-11-26: no seconds and no reference to the spoken words (a subtitle-like timeline made H3 burn
+        # the line as on-screen text); the beats stay in order: entry -> change -> end frame
         unit, plan = fixture()
         text, _ = render_h3_prompt(_with_timeline(unit, bili=True), plan)
-        self.assertIn("Performance, played as visible changes", text)
-        self.assertRegex(text, r"0–\d(\.\d)? s, Alpha: red-rimmed eyes")
-        self.assertIn("on the stressed word at about", text)
+        self.assertIn("Alpha's face and body change visibly, never a held pose: at first, red-rimmed eyes", text)
+        self.assertNotIn("stressed word", text)
+        self.assertNotRegex(text, r"\d–\d(\.\d)? s, Alpha")
         self.assertIn("looks at Beta for less than half a second", text)
-        self.assertLess(text.index("Performance, played"), text.index("End:"))
+        self.assertLess(text.index("face and body change visibly"), text.index("End:"))
         self.assertFalse(CJK.search(_outside_dialogue(text)))
         self.assertIn("subtitles", text)
 
     def test_v1_prints_the_timeline(self):
         unit, plan = fixture(director=False)
         text, _ = render_h3_prompt(_with_timeline(unit, bili=True), plan)
-        self.assertIn("Performance, played as visible changes", text)
+        self.assertIn("face and body change visibly", text)
         self.assertFalse(CJK.search(_outside_dialogue(text)))
 
     def test_legacy_ignores_the_timeline(self):
@@ -232,7 +234,7 @@ class RenderTimelineTest(unittest.TestCase):
         plain["ordered_prompt_specs"][0]["action"]["performance"].pop("timeline")
         before, _ = render_h3_prompt(plain, plan)
         after, _ = render_h3_prompt(_with_timeline(unit, bili=False), plan)
-        self.assertNotIn("Performance, played", after)
+        self.assertNotIn("face and body change visibly", after)
         self.assertEqual(before, after)
 
 

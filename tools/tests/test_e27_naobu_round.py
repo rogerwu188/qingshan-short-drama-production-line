@@ -318,14 +318,14 @@ class RenderVisualTest(unittest.TestCase):
         unit, plan = fixture()
         before, _ = render_h3_prompt(_bili_only(copy.deepcopy(unit)), plan)
         text, _ = render_h3_prompt(_with_visual(unit, bili=True, folded=True), plan)
-        self.assertIn("What the viewer must see in this frame: Beta's wrists are tied", text)
+        self.assertIn("In the frame: Beta's wrists are tied", text)
         self.assertIn("Visible detail: the rope has cut a red line", text)
         self.assertIn("Around them: rain drips in strings", text)
         self.assertIn("Beta's own way of moving here: keeps the head down", text)
         self.assertIn(bili_carry.FOLDED_WHILE_SPEAKING, text)
         self.assertNotIn("handsome", text)          # appearance clause dropped: the reference owns the face
         self.assertIn("Alpha's own way of moving here: smooths the left sleeve flat before speaking.", text)
-        self.assertLess(text.index("What the viewer must see"), text.index("End:"))
+        self.assertLess(text.index("In the frame:"), text.index("End:"))
         self.assertFalse(CJK.search(_outside_dialogue(text)))
         self.assertLess(len(text), _PROVIDER_RUNE_LIMIT)
         self.assertGreater(len(text), len(before))
@@ -334,7 +334,7 @@ class RenderVisualTest(unittest.TestCase):
     def test_v1_prints_the_visual_sentences(self):
         unit, plan = fixture(director=False)
         text, _ = render_h3_prompt(_with_visual(unit, bili=True), plan)
-        self.assertIn("What the viewer must see in this frame", text)
+        self.assertIn("In the frame:", text)
         self.assertIn("Around them:", text)
         self.assertFalse(CJK.search(_outside_dialogue(text)))
 

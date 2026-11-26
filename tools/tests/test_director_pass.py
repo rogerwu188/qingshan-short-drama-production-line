@@ -359,9 +359,10 @@ class LegacyByteIdentityTest(unittest.TestCase):
     """LEGACY series stay byte-identical (golden sha256 computed on origin/main 4103b32, before WP3)."""
 
     # render_v1/v2 re-pinned 2026-11-25 ("AI face" prompt fix: texture + character-count negatives, no look text in
-    # stamped H3 prompts); the pacing / direction-policy goldens are unchanged
+    # stamped H3 prompts); render_v2 re-pinned 2026-11-26 (E28 burned dialogue: clean-picture line closes Setting);
+    # the pacing / direction-policy goldens are unchanged
     GOLDEN = {
-        "render_v2": "50bbeb2d30c5adde443eee6b53d857035cd285cfd5e21f6430332540e4426cab",
+        "render_v2": "7c56dfeb19f4d85b2be53abfb57be98d4295c5804e25d3d363818e7e276df134",
         "render_v1": "89c204a6cc204e7e620e7aa283f505ecc38771c57eac76c893e9b1b5ecdb931c",
         "pace_slow": "47e90e1b7ed68fbcaed51428ae083c7b66d7c7ae849d89b9aaca4b2bdf72aa7a",
         "dpg_slow": "a7c6df758eea676a7bee201349e63afcb98e4a742c69e354c4e00888db8690b8",
