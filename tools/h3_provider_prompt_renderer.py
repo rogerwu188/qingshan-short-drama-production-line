@@ -1200,7 +1200,9 @@ def _bili_v1_beat_lines(unit: dict[str, Any], plan: dict[str, Any], source: dict
         except (KeyError, TypeError, ValueError):
             window = None
         listener = labels.get(str(role.get("dialogue_listener_id") or ""), "")
-        timeline = _bili.performance_timeline_line(spec_action, owner_label, listener, window)
+        authored = _bili.authored_performance_lines(spec_action, owner_label, listener)  # E28: writer's acting
+        timeline = (" ".join([authored[0].rstrip(":") + "."] + [r[2:] for r in authored[1:]]) if authored else
+                    _bili.performance_timeline_line(spec_action, owner_label, listener, window))
         if timeline:
             evidence[f"BEAT.{beat_number}.PERFORMANCE_TIMELINE"] = timeline
             line += " " + timeline

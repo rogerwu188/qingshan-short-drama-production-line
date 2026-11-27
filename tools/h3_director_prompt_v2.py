@@ -202,6 +202,15 @@ SPOKEN_NOT_WRITTEN_MANY = ("The lines are only heard: the picture stays clean, w
 #: E28 2026-11-26 (device 1101, RELEASE_HELD:BURN_UNRESOLVED): the clean-picture rule also closes the Setting block,
 #: so H3 reads it before the action and the dialogue (stamped units only; no all-caps label, no digits)
 CLEAN_PICTURE_V2 = "Nothing is ever written anywhere in the picture: no subtitles, captions or lettering."
+#: E28 review (2026-11-26, line owner: the ~4.8 k prompt was guardrails with 2-3 lines of performance; the acting
+#: tutorials invert that).  BILI_V1 stamped units state each guardrail ONCE and give the writer's performance the
+#: bulk: the camera lock once (no set-still line, no tripod line, no camera items in Never), identity once (one
+#: references sentence instead of a "never draw a second X" per reference, no closing anti-duplicate line, no
+#: "Nobody else appears" tail), a compact Never list.  The #352 clean-picture clauses all stay.
+LEAN_IDENTITY_V2 = ("Every face reference is the same person already in @Image1, never a second copy; each person "
+                    "keeps their own face, hair and outfit to the last frame and never turns into another character.")
+LEAN_CAMERA_STILL_V2 = ("Camera and set stay perfectly still on a tripod, the people the same size as in @Image1; "
+                        "only the people move.")
 
 
 # ----------------------------------------------------------------------------------------------------------
@@ -430,6 +439,20 @@ _DELIVERY_META = re.compile(
     r"|natural breathing|never a flat read|clear rises and falls|this take|lips? (?:in )?sync",
     re.IGNORECASE)
 _REDO_NOTE = re.compile(r"\b(?:previous|last|earlier) take\b", re.IGNORECASE)
+#: lab A/B 2026-11-26 (E28 S01, origin/main prompts): a Delivery clause that names or paraphrases the stressed words
+#: ("stresses saving him first", "becomes steady on going to find him", "stresses that he cannot wait") -> H3 burned
+#: the line as subtitles in 12 of 14 clips; with a voice-only Delivery 3 of 8 (S01-03: 1 of 4).  A reduction, not a
+#: cure: the Delivery stops pointing at the words, the S6 burn check stays the safety net.  Backstop for
+#: contracts compiled before the compiler dropped the words (screenplay_compile / performance_timeline.voice_only).
+_DELIVERY_POINTS_AT_WORDS = re.compile(
+    r"(?:\b(?:and|then|but)\s+)?(?:\b(?:suddenly|clearly|hard|heavily)\s+)?"
+    r"(?:\b(?:stress(?:es|ed|ing)?|emphasi[sz](?:es|ed|ing)?|accent(?:s|ed|ing)?|weight)\s+(?:on\s+)?(?:that|the|her|"
+    r"his|saving|going|it|this|those|these|[a-z]+ing)\b"
+    r"|\bon (?:the |his |her |their )?[^,;]{0,40}?\b(?:words?|name|title|phrase|question|sentence|half)\b"
+    r"|\bthe (?:word|phrase|name|title|second (?:half|question|sentence)|first (?:half|question|sentence)|last "
+    r"(?:words?|sentence))\b|\b(?:on|toward|at) (?:going|saving|asking|telling)\b).*$",
+    re.IGNORECASE)
+_DANGLING = re.compile(r"(?:(?:^|\s+)\b(?:putting|placing|with|and|then|but|more|less|distinctly|much|far)\b)+\s*$", re.I)
 DELIVERY_EN_LIMIT = 240
 
 
@@ -458,7 +481,9 @@ def stamped_delivery(performance: Any) -> tuple[str, list[str]]:
                 redo.append(note[0].upper() + note[1:] + ".")
             continue
         clauses = [c.strip() for c in re.split(r"[;,]\s*|\s+-+\s+|\.\s*$", sentence) if c.strip(" .")]
-        clauses = [c.strip(" .") for c in clauses if not _DELIVERY_META.search(c)]
+        clauses = [_DANGLING.sub("", _DELIVERY_POINTS_AT_WORDS.sub("", c)).strip(" .,;") for c in clauses
+                   if not _DELIVERY_META.search(c)]
+        clauses = [c for c in clauses if c]
         clauses = [re.sub(r"^(?:and|then|but)\s+(?=\S)", "", c) if i == 0 else c for i, c in enumerate(clauses)]
         if clauses:
             kept.append(", ".join(clauses))
@@ -466,13 +491,17 @@ def stamped_delivery(performance: Any) -> tuple[str, list[str]]:
     if len(contour) > DELIVERY_EN_LIMIT:
         contour = contour[:DELIVERY_EN_LIMIT].rsplit(",", 1)[0].rsplit(";", 1)[0].strip(" ,;")
     emotions = [w for w in _emotion_words(performance.get("emotion")) if w not in contour.lower()]
+    if contour and (performance.get("authored_en") or performance.get("emotion_basis") == "default"):
+        # E28 review: a defaulted lexicon word ("Cold —" on 23 of 31 lines) or a writer-authored performance: the
+        # writer's own contour speaks for itself
+        emotions = []
     lead = " and ".join(emotions[:2])
     if contour and lead:
         body = f"{lead} — " + (contour if re.match(r"I\b|[A-Z]{2}", contour) else contour[:1].lower() + contour[1:])
     elif contour:
         body = contour
     elif lead:
-        body = f"{lead}, the pitch and volume rising and falling with the meaning, the key word stressed"
+        body = f"{lead}, the pitch and volume rising and falling with the meaning"
     else:
         return "", redo
     return _sentence("Delivery: " + body[0].upper() + body[1:]), redo
@@ -831,7 +860,7 @@ def locked_camera_conflicts(text: str) -> list[str]:
 # ----------------------------------------------------------------------------------------------------------
 def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: set[str], people: int,
                      beings: int, exact_first_frame: bool = False,
-                     face_hidden: dict[str, str] | None = None) -> list[str]:
+                     face_hidden: dict[str, str] | None = None, lean: bool = False) -> list[str]:
     refs = unit.get("reference_images") or []
     sequence_by_path = {str(row.get("path") or ""): row for row in unit.get("reference_image_sequence") or []
                         if row.get("path") and str(row.get("entity_id") or "").startswith("CHAR-")}
@@ -874,7 +903,7 @@ def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: se
             if entity_id and ((onscreen and entity_id not in onscreen) or entity_id in offscreen_only):
                 line += (f" It is for identity only: {entity} stays out of frame in this clip; nobody on screen takes "
                          f"on {entity}'s face, hair or outfit.")
-            elif index > 1:
+            elif index > 1 and not lean:
                 # a face reference of someone already in the opening frame is that SAME person, not a second
                 # one: H3 otherwise sometimes renders the reference as an extra copy (lab E02 2026-10-23)
                 line += (f" This is the same {entity} already {'in' if exact_first_frame else 'standing in'} @Image1 — one person; never draw a "
@@ -911,7 +940,8 @@ def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: se
 
 def _bili_v1_parts(unit: dict[str, Any], plan: dict[str, Any], source: dict[str, Any], translated: dict[str, Any],
                    spec: dict[str, Any], parts: list[str], evidence: dict[str, str], prefix: str,
-                   label_by_id: dict[str, str], speaker_label: str, kept: list[str], scrub: Any) -> list[str]:
+                   label_by_id: dict[str, str], speaker_label: str, kept: list[str], scrub: Any,
+                   performance_blocks: list[str] | None = None) -> list[str]:
     """BILI_V1 only (CHANGE_SPEC WP4 items 2-3): the beat's authored lead-in reaction first ("For the first 1.5
     seconds, before speaking, ..."), then the authored micro-expression / body-sync / contact the writer wrote
     (field_sources "authored"; a preproduction fallback template stays omitted as before)."""
@@ -933,10 +963,18 @@ def _bili_v1_parts(unit: dict[str, Any], plan: dict[str, Any], source: dict[str,
         except (KeyError, TypeError, ValueError):
             window = None
         listener = label_by_id.get(str(role.get("dialogue_listener_id") or ""), "")
-        timeline = v1._bili.performance_timeline_line(action, speaker_label, listener, window)
-        if timeline:
-            parts.append(timeline)
-            evidence[f"{prefix}.PERFORMANCE_TIMELINE"] = timeline
+        authored = [scrub(row) for row in v1._bili.authored_performance_lines(action, speaker_label, listener)]
+        authored = [row for row in authored if row]
+        if authored and performance_blocks is not None:
+            # E28 review: the writer's performance is its own block, between the action and the dialogue
+            performance_blocks.append("\n".join(authored))
+            evidence[f"{prefix}.PERFORMANCE_TIMELINE"] = " ".join(authored)
+        else:
+            timeline = (" ".join([authored[0].rstrip(":") + "."] + [r[2:] for r in authored[1:]]) if authored
+                        else v1._bili.performance_timeline_line(action, speaker_label, listener, window))
+            if timeline:
+                parts.append(timeline)
+                evidence[f"{prefix}.PERFORMANCE_TIMELINE"] = timeline
     # E27 脑补: what the viewer must see (stakes, the shot's detail, each one's business, the environment once)
     stated = {key.split(".", 1)[1] for key in evidence if key.startswith("VISUAL.") and evidence[key]}
     for key, sentence in v1._bili.visual_sentences(spec, list(label_by_id.items()), speaking=bool(speaker_label),
@@ -981,6 +1019,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     crossmodal_by_speaker = {str(row.get("speaker") or "").strip(): row for row in crossmodal_rows}
     stamped = v1.director_active(unit, plan)  # CAMERA_GRAMMAR_V1 camera plans
     bili = v1._bili.active(unit)  # BILI_V1 carry-through (CHANGE_SPEC WP4); False on every LEGACY unit
+    lean = bili and stamped  # E28 review: each guardrail once, the performance gets the bulk
+    performance_blocks: list[str] = []
     kept_fact_ids: list[str] = []  # BILI_V1: authored facts V2 states instead of omitting (coverage receipt)
 
     # --- subjects and per-beat presence ----------------------------------------------------------------
@@ -1028,10 +1068,10 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
                    for s in subjects if s["partial"] and len(s["partial"]) == len(s["present"])
                    and set(s["partial"].values()) != {v1.SOFT_PROFILE_PART}}  # a soft profile shows the face
     reference_lines = _reference_lines(unit, plan, onscreen=onscreen_ids, people=len(people), beings=len(beings),
-                                       exact_first_frame=stamped, face_hidden=face_hidden)
+                                       exact_first_frame=stamped, face_hidden=face_hidden, lean=lean)
     if stamped and people and any("'s face and body." in line or "'s face only" in line or "character sheet of one" in line
                                   for line in reference_lines):
-        reference_lines.append(IDENTITY_LOCK_V2)
+        reference_lines.append(LEAN_IDENTITY_V2 if lean else IDENTITY_LOCK_V2)
     for index, row in enumerate(crossmodal_rows, 1):
         binding = f"{row['audio_slot']} is {row['provider_entity_label']}'s voice"
         # casting gender (2026-11-20, JA-01 E02 / 摄政王 E18: a woman on screen spoke with a man's voice): say whose
@@ -1123,9 +1163,13 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         tail = []
         if len(people) > 1:
             tail.append("Each keeps only their own clothes.")
-        tail.append("Nobody else appears beyond them and the background figures named above." if background else
-                    "Nobody else appears — no extra people, figures, reflections of people, or hands entering the frame.")
-        lines.append(" ".join(tail))
+        if background:
+            tail.append("Nobody else appears beyond them and the background figures named above.")
+        elif not lean:  # lean: the header's exact count + "a second copy of anyone" in Never say it
+            tail.append("Nobody else appears — no extra people, figures, reflections of people, or hands entering the "
+                        "frame.")
+        if tail:
+            lines.append(" ".join(tail))
         return lines
 
     adult = h3_adult_female_visual_block(unit)
@@ -1242,11 +1286,13 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         raise ValueError(f"{uid}:H3_CAMERA_LOCK_STRICT_ON_MOVING_CAMERA")
     camera_lock = strict_camera_lock_applies(unit, stamped=stamped,
                                              locked_single_take=all_locked and v1.ONE_TAKE in camera)
-    if stamped and all_locked:  # the set stays still, only the people move (KO E05 2026-11-21: camera wobble)
+    if lean and all_locked:  # E28 review: the stillness and the tripod lock in one sentence
+        camera += "\n" + LEAN_CAMERA_STILL_V2
+    elif stamped and all_locked:  # the set stays still, only the people move (KO E05 2026-11-21: camera wobble)
         camera += "\n" + LOCKED_OFF_STILL
     elif stamped and "handheld" not in camera.lower():  # a deliberate move stays explicit and steady
         camera += "\n" + STEADY_MOVE
-    if camera_lock:  # an ordinary sentence, never an all-caps label H3 could voice (owner 2026-11-01, lab E12)
+    if camera_lock and not (lean and all_locked):  # an ordinary sentence, never an all-caps label (owner 2026-11-01)
         camera += "\n" + CAMERA_LOCK_TRIPOD
     # engine redo after an objective Q2 push-in FAIL (q2_auto_redo, owner 2026-10-29): state the measured problem
     if stamped and all_locked:
@@ -1394,9 +1440,12 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
                 business_rendered = True
         if bili:
             parts = _bili_v1_parts(unit, plan, source, translated, spec, parts, evidence, prefix, label_by_id,
-                                   speaker_label, kept_fact_ids, scrub)
-        parts.append(_sentence(f"End: {exit_state}"))
-        evidence[f"{prefix}.EXIT"] = exit_state
+                                   speaker_label, kept_fact_ids, scrub, performance_blocks if lean else None)
+        if lean and _same(exit_state, action):  # E28 review: the action already ends there; never say it twice
+            evidence[f"{prefix}.EXIT"] = action
+        else:
+            parts.append(_sentence(f"End: {exit_state}"))
+            evidence[f"{prefix}.EXIT"] = exit_state
         last_exit = exit_state
         if source.get("internal_transition_after"):
             bridge = scrub(translated.get("internal_transition_after") or "")
@@ -1529,21 +1578,21 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         negatives.append(SKIN_FINISH_NEVER)  # live-action skin / hair finish (line owner 2026-11-20, KO E01)
     if stamped and not anime:  # texture negatives (line owner 2026-11-25, "AI face")
         negatives.append(TEXTURE_NEVER_PEOPLE if subjects else TEXTURE_NEVER_NO_PEOPLE)
-    if stamped and all_locked:  # KO E05 2026-11-21: the set never moves with the actor
+    if stamped and all_locked and not lean:  # KO E05 2026-11-21: the set never moves with the actor
         negatives.append(FRAME_WOBBLE_NEVER)
     negatives.append("music")
     if stamped and v1.anime_finish_applies(unit, plan, anime=anime, has_people=bool(subjects)):
         negatives.append(ANIME_FINISH_NEVER)  # anime skin / hair finish (line owner 2026-11-20, JA-01 E01)
     if anime:
         negatives.extend(_render_style.H3_NEGATIVES)
-    if camera_lock:
+    if camera_lock and not (lean and all_locked):  # lean: the Camera block already says it once
         negatives.append(CAMERA_LOCK_NEVER)
     if business_rendered:  # PERFORMANCE_VARIETY_V1 (line owner 2026-11-20, JA-01 E02)
         negatives.append(_pv.NEVER_STOCK)
         if not _pointing_scripted(unit):  # JA-01 E08 2026-11-22: the same raised index finger on every line
             negatives.append(_pv.NEVER_POINTING)
     never_line = "Never: " + "; ".join(dict.fromkeys(negatives)) + "."
-    if stamped and subjects:  # provider expert: the anti-duplicate rule is the prompt's last sentence (no person: none)
+    if stamped and subjects and not lean:  # provider expert: the anti-duplicate rule is the prompt's last sentence
         never_line += "\n" + v1.NO_DUPLICATE_PEOPLE
 
     def assemble(compact: bool) -> str:
@@ -1556,6 +1605,7 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
             "Setting:\n" + "\n".join(setting_lines),
             "Camera:\n" + camera,
             "\n".join(action_lines),
+            *(["\n\n".join(performance_blocks)] if performance_blocks else []),
             "\n".join(dialogue_lines),
             sound_line,
             never_line,

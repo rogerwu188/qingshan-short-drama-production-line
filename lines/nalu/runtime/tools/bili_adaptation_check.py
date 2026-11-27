@@ -42,6 +42,10 @@ Character voice advisories (E27 2026-11-25, line owner "人物还是不够生动
                                         already flagged as explaining only
   DOCTOR_LINE_LANDS_NOWHERE:<shot>      a line nobody reacts to or answers: no listener reaction, no lead-in reaction
                                         on the next shot, the next line is not the addressee's, no beat tag
+  DOCTOR_QUEST_LINE:<shot>              (E28 review 2026-11-26) a quest-giver line: it hands over a fact or a plan
+                                        (what is needed, where it is, who has it, "I can go and find him") with no
+                                        demand, refusal, bargain or threat on the other person -- 「想压住邪气，得用清风
+                                        神草」「青玄那里就有，我可以去找他」
 
 Pure functions; never raises (any error = no finding).  Stdlib only.
 """
@@ -111,6 +115,12 @@ DOCTOR_MAIN_LINES = 3
 DOCTOR_VOICE_MARGINS = {"length": 2.0, "question": 0.2, "exclaim": 0.2, "break": 0.2}
 _PARTICLES = "吧呢啊嘛呀哦哈啦咯哼喽罢"
 DOCTOR_CAP = 4
+#: a quest-giver line (zh): a need, a location of the item, a plan to fetch it (E28 review)
+QUEST_PATTERNS_ZH = re.compile(r"得用|要用|需要用?|非得|只有[^，。！？]{0,10}才(?:能|行|可以)|[^，。！？]{1,8}那(?:里|儿)(?:就|才)?有|"
+                               r"我(?:可以|能|这就|就)?去找|去找[^，。！？]{1,6}(?:要|拿|借|求)|可以用|办法是|法子是|据说|听说|传说")
+#: ... unless it presses on the other person: a demand / refusal / bargain / threat / a dig
+PRESSURE_ZH = re.compile(r"你(?:敢|得|必须|给我|别|不许|休想|凭什么)|给我|不许|休想|否则|不然|除非|条件|换|凭什么|别想|"
+                         r"[！!]|不准|你要是|你若")
 
 
 def _config(name: str) -> dict[str, Any]:
@@ -607,6 +617,9 @@ def voice_doctor(contract: dict[str, Any], lines: list[dict[str, Any]], language
         exposition = [line["shot_id"] for line in lines if line["scene_id"] not in explaining_scenes
                       and classify_line(line, language, lexicon, props) == "REPORT"]
         warnings += [f"DOCTOR_EXPOSITION_LINE:{sid}" for sid in list(dict.fromkeys(exposition))[:DOCTOR_CAP]]
+        quests = [line["shot_id"] for line in lines if language == "zh"
+                  and QUEST_PATTERNS_ZH.search(line["text"]) and not PRESSURE_ZH.search(line["text"])]
+        warnings += [f"DOCTOR_QUEST_LINE:{sid}" for sid in list(dict.fromkeys(quests))[:DOCTOR_CAP]]
         # a line that lands nowhere: nobody reacts to it or answers it
         shots = [s for s in contract.get("shots") or [] if isinstance(s, dict)]
         pos = {_clean(s.get("shot_id")): i for i, s in enumerate(shots)}
@@ -640,7 +653,8 @@ def voice_doctor(contract: dict[str, Any], lines: list[dict[str, Any]], language
             nowhere.append(line["shot_id"])
         warnings += [f"DOCTOR_LINE_LANDS_NOWHERE:{sid}" for sid in list(dict.fromkeys(nowhere))[:DOCTOR_CAP]]
         return {"warnings": warnings, "answers": {"main_speakers": main, "profiles": profiles, "alike": alike,
-                                                 "exposition_lines": exposition, "lands_nowhere": nowhere}}
+                                                 "exposition_lines": exposition, "quest_lines": quests,
+                                                 "lands_nowhere": nowhere}}
     except Exception as exc:  # noqa: BLE001 -- advisory only
         return {"warnings": [f"DOCTOR_VOICE_CHECK_ERROR:{type(exc).__name__}"], "answers": {}}
 
@@ -683,6 +697,10 @@ FIXES = {
                               "dig at the other person, with the fact as its subtext, or show the fact as an object",
     "DOCTOR_LINE_LANDS_NOWHERE": "every line must change the other person's situation: give the addressee a visible "
                                  "reaction or an answer, or cut the line",
+    "DOCTOR_QUEST_LINE": "no quest-giver lines (what is needed, where it is, who has it, 'I can go and find him'): turn "
+                         "the line into a demand, a refusal, a bargain or a threat that changes the other person's "
+                         "situation now, with the information as its subtext -- e.g. not 'X has it, I can go to him' "
+                         "but a line that refuses the other's help or names the price she will pay",
 }
 
 

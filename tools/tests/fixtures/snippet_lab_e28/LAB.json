@@ -1,0 +1,25 @@
+{
+ "episode": "LAB",
+ "duration": 4,
+ "resolution": "480p",
+ "characters": {
+  "CHAR-LINGYAO": {
+   "wardrobe_en": "Crimson cross-collar long robe with dark-silver shoulder armour and a tight sash",
+   "face": "",
+   "voice": ""
+  },
+  "CHAR-DONGYANG": {
+   "wardrobe_en": "Spotless white cross-collar long robe",
+   "face": "",
+   "voice": ""
+  }
+ },
+ "locations": {
+  "LOC-BEDROOM": {
+   "setting_en": "A moonlit wooden bedchamber at night: lattice windows, a painted folding screen, a low wooden table with a celadon bowl",
+   "sound_en": "Faint breathing from the bed; night wind tapping the window paper"
+  }
+ },
+ "first_frames": {},
+ "time_en": "Night; moonlight through the window"
+}

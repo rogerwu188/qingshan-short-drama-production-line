@@ -1602,7 +1602,8 @@ def integrity_revision_pending(episode: str, session: dict[str, Any]) -> str:
 TRANSLATION_REQUEST_MESSAGE = ("S1 的 SCREENPLAY_EN_TRANSLATION_REQUIRED 是翻译请求，不是阻塞、也不算改稿轮次（writer_format SCREENPLAY_V1，"
                                "WP4 要求每个中文字段都有英文孪生字段）：打开 workflow/claude_writer_agent/scripts/<EP>_SCREENPLAY_EN_REQUEST.json，"
                                "把每一行的 zh 直译成一句英文（保留物件、哪只手、动词和谁对谁，不改写成情绪词），按 key 写进 "
-                               "<EP>_SCREENPLAY_EN.json（{\"schema\": \"nalu.screenplay_en.v1\", \"rows\": {key: english}}，保留已有行），"
+                               "<EP>_SCREENPLAY_EN.json（{\"schema\": \"nalu.screenplay_en.v1\", \"rows\": {key: english}}，保留已有行）；"
+                               "field=perf / arc 的行（写手的表演）照 instruction_by_field 翻成看得见的行为或意图，不引用、不指向台词里的字、声音或时间，"
                                "然后跑 lines/nalu/runtime/tools/screenplay_compile.py <EP> 直到退出码 0，再重跑 S1→S3。免费，不问线主，不报 BLOCKED。")
 
 

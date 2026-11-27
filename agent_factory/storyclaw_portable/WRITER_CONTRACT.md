@@ -258,11 +258,23 @@ Every other series keeps the sections above unchanged.
   beats only after trigger lines (attack / reveal / turn / payoff, <= 2 per scene) and name the other person in an
   action line only when they really interact -- a named person is pulled into the frame.  One continuous small action
   is allowed while speaking; reactions sit on the in-frame listener or the first 1–2 s of the next line.
-- **Performance (11-25).** The compiler expands each line into a micro-performance (entry state -> a
-  visible change on the line's hardest word -> end frame; the video prompt carries it untimed, face and body only), carrying each character's exit state into their next line
-  of the scene; write the psychology in the parenthetical (结巴/说不出, 辩解, 愣住, 改口/掩饰) rather than the result,
-  never write stutters into the line text, and let emotions move a step at a time (counter-attack -> self-justify ->
-  crack -> first voice break -> admission).
+- **Performance — you author it (11-26, E28 review).** Under every on-screen line write an `@演` block:
+  `@演 要=<what they want from the other right now> | 压=<what they hold back> | 漏=<the physical leak: a swallow,
+  knuckles whitening, a breath that fails> | 裂=<where the protective layer cracks, by meaning: 到"救他"时……> |
+  做=<concrete visible face / eyes / hands / breath> | 收=<the end state> | 听=<the in-frame listener's visible
+  reaction>`; per character per scene an `@arc 名字=入场→出场` (anger protecting itself -> self-justify -> a crack ->
+  the first break -> admission; one step at a time, each line starts where the last one ended).  Grief = leak +
+  self-control + a relationship goal, never "tears streaming".  Stress / pauses go in the parenthetical
+  (先救他三个字落重, 在一部分前停顿): the engine takes the trigger from there, never guesses.  Never write stutters into the
+  line text.  Translate the `perf` rows as visible behaviour or intent -- never quote or point at the spoken words,
+  a syllable, the voice or a time (H3 burns quoted words in as text); the `delivery` rows are the voice only
+  (volume, pace, pitch, breath, pauses) -- never which words are stressed (the compiler already drops them).  Lines without `@演` fall back to a generic
+  lexicon timeline and S1 sends the script back once (`SCRIPT_CRAFT_REVISE:PERFORMANCE_UNAUTHORED`).
+- **Clean action lines (11-26).** Action lines, `@see` and `（画面）` describe acting, intent and visible business --
+  never engine rules: no 首帧 / 画面外 / 入画 / 镜头 / 机位 / "不让X进入画面" (the engine handles first frames, framing and
+  prop visibility; such clauses are dropped and reported, `SCRIPT_CRAFT_REVISE:RULE_TALK`).  One thing per character
+  per shot: the action line, the `@演 做` and the `@see` business must not contradict each other (the shot's own action
+  line wins).
 - **Beats (11-25, script doctor; warnings `DOCTOR_*`, never blocking).** Opening in ~35 s: abnormal event ->
   immediate goal -> deadly rule -> time-limited obstacle -> identity / information reversal -> unanswered question.
   Every world fact changes someone's situation now; the obstacle character has their own interest; the reversal lands
@@ -286,7 +298,14 @@ Every other series keeps the sections above unchanged.
 - **Character voice (11-25).** Each main character has a distinct voice -- diction, rhythm and one verbal habit
   (`SERIES_CARD` `voice` + `verbal_habit`); every line carries subtext and an intent and changes the other person's
   situation; no exposition lines.  Script-doctor warnings: `DOCTOR_VOICE_UNDECLARED`, `DOCTOR_VOICES_ALIKE`,
-  `DOCTOR_EXPOSITION_LINE`, `DOCTOR_LINE_LANDS_NOWHERE`.
+  `DOCTOR_EXPOSITION_LINE`, `DOCTOR_LINE_LANDS_NOWHERE`, `DOCTOR_QUEST_LINE`.
+- **Subtext, not quests (11-26, E28 review).** No quest-giver exchanges (「想压住邪气，得用清风神草」「青玄那里就有，我可以去找他」:
+  a need, where the item is, who has it, "I can go and find him").  Self-check every line: does it press on the other
+  person -- a demand, a refusal, a bargain, a threat, a dig -- and change their situation now?  If it only hands over
+  information, rewrite it so the information rides as subtext (she refuses his help and names the price she will pay;
+  he names the danger to make her back off).  Every speaker with >= 2 lines needs `voice` + `verbal_habit` on
+  `SERIES_CARD.yaml`; when S1 returns `SCRIPT_CRAFT_REVISE:SERIES_CARD_VOICE_MISSING:<names>`, add them for those
+  characters once (free; change nothing else on the card) and write their lines in that voice.
 
 ## Camera grammar (CAMERA_GRAMMAR_V1)
 
