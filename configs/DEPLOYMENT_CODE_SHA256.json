@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2625,
+  "file_count": 2626,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -797,7 +797,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/gemini_review_passes.py",
-      "sha256": "a9e5432060dafdc94ad318e939e238bee190072ea6263c4cd5212ca40dde9285"
+      "sha256": "e90dfa3c6edf129245334b8d8ad1e3055c5678341c06e17558a851ce55c25522"
     },
     {
       "path": "lines/nalu/runtime/tools/gemini_video_review.py",
@@ -8954,6 +8954,10 @@
     {
       "path": "tools/tests/test_nalu_release_unposted_waves.py",
       "sha256": "7126c6c58f681607a923e0f9e24b07986a95ae2e78518aac15b38ca5bb592541"
+    },
+    {
+      "path": "tools/tests/test_nalu_review_card_gender_age.py",
+      "sha256": "6b81471ebe9bc17a0e0cc71ff9b34f44303faa7cb27079cb495c6af12bf959f7"
     },
     {
       "path": "tools/tests/test_nalu_roger_gate_acceptance.py",
