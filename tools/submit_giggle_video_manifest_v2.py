@@ -1634,6 +1634,32 @@ def _final_fix_burn_retry(task: dict[str, Any]) -> int:
         return 0
 
 
+def _final_fix_clean_start_frame(task: dict[str, Any]) -> dict[str, Any] | None:
+    """The burn escalation's clean first frame (``h3_final_fix.clean_start_frame`` {path, sha256}; final_fix_round
+    v7, 2026-11-27) when present, else None."""
+    fix = task.get("h3_final_fix") or (task.get("machine_contract") or {}).get("h3_final_fix")
+    clean = (fix or {}).get("clean_start_frame") if isinstance(fix, dict) else None
+    return clean if isinstance(clean, dict) and clean.get("path") and clean.get("sha256") else None
+
+
+def _clean_start_frame_bytes(clean: dict[str, Any]) -> tuple[bytes | None, dict[str, Any]]:
+    """The clean frame's send bytes (the same send-time re-encode as every reference), or None with the reason when
+    the file is missing or its sha is not the recorded one (the caller then perturbs as before)."""
+    try:
+        from tools.giggle_api_client import _compressed_reference_bytes
+    except ModuleNotFoundError:
+        from giggle_api_client import _compressed_reference_bytes
+    path = resolve(clean["path"])
+    if not path.is_file():
+        return None, {"status": "CLEAN_START_FRAME_MISSING", "path": str(path)}
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    if actual != clean["sha256"]:
+        return None, {"status": "CLEAN_START_FRAME_SHA_MISMATCH", "path": str(path), "sha256": actual}
+    data, note = _compressed_reference_bytes(path)
+    return data, {**note, "status": "SENT", "path": str(path), "sha256": actual,
+                  **({"source_sha256": clean["source_sha256"]} if clean.get("source_sha256") else {})}
+
+
 def _burn_retry_module():
     try:
         from tools import h3_burn_retry
@@ -1704,7 +1730,19 @@ def _hopsapi_reference_uploads(task: dict[str, Any]) -> tuple[list[dict[str, Any
             # means "the bytes H3 received".
             data, aspect = _portrait_start_frame(data)
             note = {**note, "start_frame_aspect": aspect}
-        if index == 1 and (_burn_retry_index(task) or _final_fix_round(task)):
+        clean = _final_fix_clean_start_frame(task) if index == 1 and _final_fix_round(task) else None
+        if clean is not None:
+            # the burn escalation (final_fix_round v7, 2026-11-27): @Image1 is a fresh Img2Img re-render of the
+            # start frame that never came from burned footage (lab burn bisect 2026-11-26) -- sent as is, no
+            # perturbation; a missing / changed file falls back to the perturbed frame below (recorded)
+            clean_data, clean_note = _clean_start_frame_bytes(clean)
+            if clean_data is not None:
+                data, aspect = _portrait_start_frame(clean_data)
+                note = {**note, "burn_escalation_clean_start_frame": {**clean_note, "start_frame_aspect": aspect}}
+            else:
+                note = {**note, "burn_escalation_clean_start_frame": clean_note}
+                clean = None
+        if clean is None and index == 1 and (_burn_retry_index(task) or _final_fix_round(task)):
             # S6 burned-text retry (owner 2026-11-19): HopsAPI returns a byte-identical clip for identical request
             # bytes, so @Image1 is re-encoded with a retry-indexed change; recorded in the note.
             # A final-fix redo (owner 2026-11-20) takes the next index after the burn retries.

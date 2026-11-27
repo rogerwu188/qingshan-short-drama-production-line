@@ -344,8 +344,10 @@ class BurnRedoLoopTest(unittest.TestCase):
         self.assertEqual((rec["burn_status"], rec["kept_take_burned_frames"]), ("UNRESOLVED", 2))
         self.assertEqual(self.land("U1", (self.p.video_media / "U1.mp4").read_text()), [])  # decided: not again
         summary = P.final_fix_burn_summary(json.loads(P.final_fix_redo_path(self.ctx).read_text()))
+        # v7 burn escalation: no start frame on record here -> skipped, the best take is kept as before
         self.assertEqual(summary["U1"], {"status": "UNRESOLVED", "retries": 2, "retry_credits": 16.0,
-                                         "kept_burned_frames": 2, "reason": "RETRY_MAX_REACHED"})
+                                         "kept_burned_frames": 2, "reason": "RETRY_MAX_REACHED",
+                                         "escalation": "SKIPPED:NO_START_FRAME"})
         said = "\n".join(self.said)
         for tag in ("FINAL_FIX_BURN_RETRY unit=U1 frames=6/24 retry=1/2", "FINAL_FIX_BURN_RETRY_SUBMITTED unit=U1",
                     "FINAL_FIX_BURN_UNRESOLVED unit=U1 retry=2/2 reason=RETRY_MAX_REACHED"):

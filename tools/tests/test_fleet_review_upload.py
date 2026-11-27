@@ -138,6 +138,34 @@ class ReviewUploadTest(unittest.TestCase):
         self.assertNotIn(KEY, json.dumps(res))
         self.assertEqual(list(res["files"]), ["contract"])
 
+    def test_held_episode_uploads_the_newest_assembly_cut(self):
+        # RELEASE_HELD (2026-11-27, 1101 E29): no deliverable -> the newest assembly cut as <EP>_held_cut.mp4
+        asm = self.engine / "workflow/nalu/E29/assembly"
+        bgm = self.write(asm / "E29_picture_native_subbed_endcard_bgm.mp4", b"\x00bgm" * 10)
+        cand = self.write(asm / "E29_final_candidate_9x16.mp4", b"\x00cand" * 10)
+        os.utime(bgm, (1_000_000, 1_000_000))
+        ok, res, _ = fleet_sync.run_command(self.cp, {"type": "review_upload",
+                                                      "payload": {"episode": "E29", "files": ["final_cut"]}})
+        self.assertTrue(ok)
+        self.assertTrue(res["held"])
+        row = res["files"]["final_cut"]
+        self.assertEqual((row["file_name"], row["held"], row["source"]),
+                         ("E29_held_cut.mp4", True, "E29_final_candidate_9x16.mp4"))
+        self.assertEqual(self.calls[-1]["bytes"], len(b"\x00cand" * 10))
+        os.utime(cand, (900_000, 900_000))  # the end-card + BGM cut is newer now
+        _, res, _ = fleet_sync.run_command(self.cp, {"type": "review_upload",
+                                                     "payload": {"episode": "E29", "files": ["final_cut"]}})
+        self.assertEqual(res["files"]["final_cut"]["source"], "E29_picture_native_subbed_endcard_bgm.mp4")
+        # a released episode keeps its deliverable and no held flag
+        self.episode()
+        _, res, _ = fleet_sync.run_command(self.cp, {"type": "review_upload",
+                                                     "payload": {"episode": "E05", "files": ["final_cut"]}})
+        self.assertNotIn("held", res)
+        self.assertEqual(res["files"]["final_cut"]["file_name"], "E05_final_9x16.mp4")
+        _, res, _ = fleet_sync.run_command(self.cp, {"type": "review_upload",
+                                                     "payload": {"episode": "E30", "files": ["final_cut"]}})
+        self.assertEqual(res["missing"], [{"file": "final_cut", "reason": "NOT_FOUND"}])
+
     def test_rejects_bad_payloads_and_needs_a_key(self):
         for payload, err in (({"episode": "../E05"}, "REVIEW_UPLOAD_BAD_EPISODE"), ({}, "REVIEW_UPLOAD_BAD_EPISODE"),
                              ({"episode": "E05", "files": ["/etc/passwd"]}, "REVIEW_UPLOAD_BAD_FILES"),

@@ -7625,12 +7625,62 @@ def s7_residual_burn_bands(ctx: Ctx) -> Path | None:
                 (((rec.get("checks") or {}).get(rec.get("kept_take_sha256")) or {}).get("hits")))
             units[str(uid)] = {"y0": float(band["y0"]), "y1": float(band["y1"]), **({"texts": texts} if texts else {}),
                                "ocr": s7_burned_line_ocr(ctx, clip, rec)}
+    # final_fix_round v7 (2026-11-27): a final-fix redo whose kept take still burns ONLY inside our subtitle band
+    # (residual_text_band is recorded only then) is decided by the same strict burned-line check
+    for uid, rec in sorted(final_fix_band_units(ctx).items()):
+        clip = ctx.p.video_media / f"{uid}.mp4"
+        band = rec["residual_text_band"]
+        texts = list(band.get("texts") or [])
+        units[str(uid)] = {"y0": float(band["y0"]), "y1": float(band["y1"]), **({"texts": texts} if texts else {}),
+                           "source": "FINAL_FIX_UNRESOLVED",
+                           "ocr": s7_burned_line_ocr(ctx, clip, {"checks": rec.get("burn_checks") or {},
+                                                                 "kept_take_sha256": rec.get("kept_take_sha256")})}
     if not units:
         return None
     path = ctx.p.assembly / f"{ctx.episode}_S6_RESIDUAL_BURN_BANDS.json"
     write_json(path, {"schema": "nalu.s6_residual_burn_bands.v1", "episode": ctx.episode, "units": units,
                       "recorded_at": now(), "recorded_by": TOOL_ID})
     return path
+
+
+def final_fix_band_units(ctx: Any) -> dict[str, dict[str, Any]]:
+    """uid -> final-fix redo record of units whose kept take is still burned ONLY inside our subtitle band
+    (``burn_status`` UNRESOLVED + ``residual_text_band``, final_fix_round v7) and is still the unit's clip.
+    {} when none / unreadable (never raises)."""
+    out: dict[str, dict[str, Any]] = {}
+    try:
+        units = ((read_json(final_fix_redo_path(ctx), {}) or {}).get("units") or {}).items()
+        media = ctx.p.video_media
+    except Exception:  # noqa: BLE001
+        return out
+    for uid, rec in units:
+        if not isinstance(rec, dict) or rec.get("burn_status") != "UNRESOLVED":
+            continue
+        band = rec.get("residual_text_band")
+        clip = media / f"{uid}.mp4"
+        if not isinstance(band, dict) or band.get("y0") is None or not clip.is_file():
+            continue
+        if not rec.get("kept_take_sha256") or sha256_file(clip) != rec["kept_take_sha256"]:
+            continue  # redone / replaced since: the band belongs to another take
+        out[str(uid)] = rec
+    return out
+
+
+def final_fix_band_verdicts(ctx: Any) -> dict[str, list[str]]:
+    """uid -> the S7 strict burned-line verdicts (``<EP>_BURNIN_SUBTITLES.json`` burned_line_checks) of the
+    final-fix units in :func:`final_fix_band_units` -- objective_defects(burn_verdicts=...).  {} when none."""
+    units = final_fix_band_units(ctx)
+    if not units:
+        return {}
+    try:
+        burnin = read_json(ctx.p.assembly / f"{ctx.episode}_BURNIN_SUBTITLES.json", {}) or {}
+    except Exception:  # noqa: BLE001
+        return {}
+    out: dict[str, list[str]] = {}
+    for r in burnin.get("burned_line_checks") or []:
+        if isinstance(r, dict) and str(r.get("unit_id")) in units:
+            out.setdefault(str(r.get("unit_id")), []).append(str(r.get("verdict")))
+    return out
 
 
 def s7_burned_line_ocr(ctx: Any, clip: Path, rec: dict[str, Any]) -> dict[str, Any]:
@@ -7723,10 +7773,28 @@ def s6_final_fix_burn_check(ctx: Ctx, uid: str, clip: Path, clip_sha: str) -> di
     decision = _ffr.plan_burn_retry(rec, det, retry_max=retry_max, budget_left=budget_left, headroom=headroom,
                                     cost=cost)
     frames = f"{det.get('burned_frames')}/{det.get('frames_sampled')}"
+    esc_prior = dict(rec.get("burn_escalation") or {})
+    if esc_prior.get("status") == "PENDING" and retries and retries[-1].get("escalation"):
+        # the escalation take landed: its own outcome (the best take of all is still what is kept below)
+        rec["burn_escalation"] = {**esc_prior, "status": "CLEAN" if det.get("status") == "CLEAN" else
+                                  "BURNED" if det.get("status") == "BURNED" else str(det.get("status")),
+                                  "take_sha256": clip_sha, "burned_frames": det.get("burned_frames"),
+                                  "landed_at": now()}
+    elif decision["action"] == "KEEP_BEST" and det.get("status") == "BURNED" and not esc_prior:
+        # v7 burn escalation (2026-11-27, 1101 E29 VU-013): one more take with a clean re-rendered first frame
+        esc = s6_final_fix_burn_escalation(ctx, uid, rec, state)
+        if esc.get("action") == "ESCALATE":
+            decision = {**esc, "kept_reason": decision.get("reason")}
+        else:
+            rec["burn_escalation"] = {**{k: v for k, v in esc.items() if k != "action"}, "status": "SKIPPED",
+                                      "recorded_at": now()}
+            ctx.say(f"FINAL_FIX_BURN_ESCALATION_SKIPPED unit={uid} reason={esc.get('reason')}"
+                    + (f" cost={esc['cost']}" if esc.get("cost") is not None else ""))
     row: dict[str, Any] = {"unit_id": uid, "clip_sha256": clip_sha, "final_fix": True,
                            "detection": checks[clip_sha], **decision}
-    if decision["action"] == "RETRY":
+    if decision["action"] in ("RETRY", "ESCALATE"):
         n = int(decision["retry"])
+        escalate = decision["action"] == "ESCALATE"
         park = ctx.p.video_media / f"_superseded_{ctx.run_id}_final_fix_burn{n}"
         park.mkdir(parents=True, exist_ok=True)
         os.replace(clip, park / clip.name)
@@ -7737,12 +7805,23 @@ def s6_final_fix_burn_check(ctx: Ctx, uid: str, clip: Path, clip_sha: str) -> di
         retries.append({"retry": n, "failed_clip_sha256": clip_sha, "burned_frames": det.get("burned_frames"),
                         "parked_clip": str(park / clip.name), "cost": decision.get("cost"),
                         "budget_left_before": budget_left, "previous_sentence": rec.get("sentence"),
-                        "sentence": sentence, "run_id": ctx.run_id, "recorded_at": now(), "recorded_by": TOOL_ID})
+                        "sentence": sentence, "run_id": ctx.run_id, "recorded_at": now(), "recorded_by": TOOL_ID,
+                        **({"escalation": True} if escalate else {})})
         rec.update(burn_retry=n, burn_retries=retries, sentence=sentence, status="BURN_RETRY_PENDING",
                    burn_status="RETRY_PENDING")
         row["parked_clip"] = str(park / clip.name)
-        ctx.say(f"FINAL_FIX_BURN_RETRY unit={uid} frames={frames} retry={n}/{retry_max} cost={decision.get('cost')} "
-                f"budget_left={budget_left}")
+        if escalate:
+            rec["clean_start_frame"] = decision["clean_start_frame"]
+            rec["burn_escalation"] = {k: v for k, v in decision.items() if k not in ("action", "kept_reason")}
+            rec["burn_escalation"].update(status="PENDING", planned_credits=decision.get("cost"),
+                                          after=decision.get("kept_reason"), recorded_at=now())
+            ctx.say(f"FINAL_FIX_BURN_ESCALATE unit={uid} frames={frames} retry={n} cost={decision.get('cost')} "
+                    f"clean_start_frame={str(decision['clean_start_frame'].get('sha256'))[:12]} "
+                    f"voice_anchor={'yes' if (decision.get('voice_anchor') or {}).get('present') else 'no'} "
+                    f"format={decision.get('h3_prompt_format') or 'DIRECTOR_V2'}")
+        else:
+            ctx.say(f"FINAL_FIX_BURN_RETRY unit={uid} frames={frames} retry={n}/{retry_max} "
+                    f"cost={decision.get('cost')} budget_left={budget_left}")
     elif decision["action"] == "KEEP":
         rec.update(burn_status="RESOLVED" if det.get("status") == "CLEAN" else "KEPT_DETECTOR_FAIL_OPEN",
                    kept_take_sha256=clip_sha, kept_take_burned_frames=0, status="LANDED")
@@ -7770,6 +7849,14 @@ def s6_final_fix_burn_check(ctx: Ctx, uid: str, clip: Path, clip_sha: str) -> di
                    kept_take_sha256=best["sha256"], kept_take_burned_frames=best.get("burned_frames"),
                    kept_take_retry=best.get("retry"), status="LANDED", **({"burn_unresolved_budget": budget}
                                                                           if budget else {}))
+        # v7: a kept take burned ONLY inside our subtitle band joins S7's residual bands, so the existing strict
+        # burned-line check (#303) decides it: ACCEPT_CORRECT suppresses our duplicate cue (no blur, no mask)
+        hits = (checks.get(best["sha256"]) or {}).get("hits") or []
+        band = _br.residual_text_band(hits) if _ffr.confined_band(hits, _br.SUBTITLE_BAND) else None
+        rec.pop("residual_text_band", None)
+        if band:
+            texts = _br.residual_band_texts(hits)
+            rec["residual_text_band"] = {**band, **({"texts": texts} if texts else {})}
         checks.setdefault(best["sha256"], {})["kept_as_best"] = True
         ctx.say(f"FINAL_FIX_BURN_UNRESOLVED unit={uid} retry={len(retries)}/{retry_max} reason={decision['reason']} "
                 f"kept_take={str(best['sha256'])[:12]} burned_frames={best.get('burned_frames')}"
@@ -7783,6 +7870,94 @@ def s6_final_fix_burn_check(ctx: Ctx, uid: str, clip: Path, clip_sha: str) -> di
     return row
 
 
+def _final_fix_task(ctx: Any, uid: str) -> dict[str, Any]:
+    return next((t for t in (read_json(ctx.p.video_transaction, {}) or {}).get("tasks") or []
+                 if str(t.get("unit_id") or t.get("task_key")) == uid), {}) or {}
+
+
+def _engine_path(value: Any) -> Path:
+    path = Path(str(value))
+    return path if path.is_absolute() else ENGINE / path
+
+
+def s6_final_fix_clean_start_frame(ctx: Any, uid: str, source: Path) -> dict[str, Any]:
+    """One gpt-image-2 Img2Img clean re-render of the unit's start frame (burn_clean_start_frame.py, paid ~1.4 cr,
+    through ``Ctx.paid_step`` S6 and the durable image store the budget ledger reads).  {status, path, sha256, ...};
+    anything but READY means no escalation.  Never raises."""
+    try:
+        if not callable(getattr(ctx, "paid_step", None)):
+            return {"status": "PAID_STEP_UNAVAILABLE"}
+        if image_provider_info()["provider"] != "hopsapi":
+            return {"status": "SKIPPED_PROVIDER_NOT_HOPSAPI"}
+        import burn_clean_start_frame as _bcf  # noqa: PLC0415 -- same directory
+        tool = RT_TOOLS / "burn_clean_start_frame.py"
+        common = ["--episode", ctx.episode, "--unit", uid, "--source", source,
+                  "--out-dir", ctx.p.preprod / _bcf.DIRNAME, "--engine-root", ENGINE]
+        planned = image_batch_credits(ctx, 1)
+        status, step = ctx.paid_step([VENV, tool, "generate", *common], name=f"s6_burn_clean_start_frame_{uid}",
+                                     sid="S6", planned_credits=planned, dry_argv=[VENV, tool, "plan", *common],
+                                     note="burn escalation: one clean Img2Img re-render of the unit's start frame",
+                                     timeout=900)
+        result = qa_json(step) if status == PASS else {}
+        return {**result, "status": result.get("status") or status, "paid_step_status": status,
+                "planned_credits": planned}
+    except Exception as exc:  # noqa: BLE001 - no clean frame: no escalation
+        return {"status": "ERROR", "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
+
+
+def s6_final_fix_burn_escalation(ctx: Any, uid: str, rec: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
+    """v7 burn escalation (2026-11-27): the plan (final_fix_round.plan_burn_escalation: one per unit, the episode
+    cap NALU_FINAL_FIX_BURN_ESCALATION_CREDITS, the headroom), then the clean first frame.  ESCALATE carries
+    ``clean_start_frame`` {path, sha256, source, source_sha256} for the submitter's @Image1, the voice anchor check
+    and the unit's prompt format; anything else is a SKIP row with its reason.  Never raises."""
+    import final_fix_round as _ffr
+    try:
+        task = _final_fix_task(ctx, uid)
+        refs = task.get("reference_images") or []
+        source = _engine_path(refs[0]) if refs else None
+        if source is None or not source.is_file():
+            return {"action": "SKIP", "reason": "NO_START_FRAME"}
+        seconds = float(task.get("duration_seconds") or 0) or 6.0
+        video_cost = video_task_credits(episode_video_model(ctx.episode), seconds, 1,
+                                        episode_video_resolution(ctx.episode))
+        image_cost = image_batch_credits(ctx, 1)
+        try:
+            verdict = ctx.budget_check(0, label="final_fix_burn_escalation_headroom").get("budget_verdict") or {}
+            headroom = None if verdict.get("headroom_credits") is None else int(verdict["headroom_credits"])
+        except Exception:  # noqa: BLE001 - unknown headroom: no escalation
+            headroom = None
+        plan = _ffr.plan_burn_escalation(rec, {"status": "BURNED"}, cap=_ffr.burn_escalation_cap(),
+                                         spent=_ffr.burn_escalation_spent(state), video_cost=video_cost,
+                                         image_cost=image_cost, headroom=headroom)
+        if plan["action"] != "ESCALATE":
+            return plan
+        lines = list(task.get("dialogue_lines") or [])
+        audio = [u for u in task.get("reference_audio_urls") or [] if str(u or "").startswith("https://")]
+        voice = {"present": bool(audio) or not lines, "speaking": bool(lines), "anchors": len(audio)}
+        fmt = str(task.get("h3_prompt_format") or (task.get("machine_contract") or {}).get("h3_prompt_format") or "")
+        frame = s6_final_fix_clean_start_frame(ctx, uid, source)
+        if frame.get("status") != "READY" or not frame.get("path") or not Path(frame["path"]).is_file():
+            return {"action": "SKIP", "reason": f"CLEAN_FRAME_{frame.get('status') or 'FAILED'}",
+                    "clean_frame": {k: frame.get(k) for k in ("status", "error", "task_id", "text_check")
+                                    if frame.get(k) is not None},
+                    # an image create may have been charged: it counts against the escalation cap
+                    "planned_credits": image_cost if frame.get("task_id") else 0}
+        clean = {"path": str(frame["path"]), "sha256": sha256_file(Path(frame["path"])),
+                 "source": str(source), "source_sha256": sha256_file(source),
+                 "cost_credits": frame.get("cost_credits"), "text_check": (frame.get("text_check") or {}).get("status")}
+        return {**plan, "clean_start_frame": clean, "voice_anchor": voice,
+                **({"h3_prompt_format": fmt} if fmt else {})}
+    except Exception as exc:  # noqa: BLE001
+        return {"action": "SKIP", "reason": "ERROR", "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
+
+
+def _burn_escalation_label(esc: dict[str, Any] | None) -> str:
+    """PENDING / CLEAN / BURNED, or SKIPPED:<reason>."""
+    esc = esc or {}
+    status = str(esc.get("status") or "")
+    return f"SKIPPED:{esc.get('reason')}" if status == "SKIPPED" and esc.get("reason") else status
+
+
 def final_fix_burn_summary(redo_state: dict[str, Any] | None) -> dict[str, Any]:
     """unit -> {status, retries, kept_burned_frames, reason} of the round's burned-text redos (for the record)."""
     out = {}
@@ -7794,7 +7969,9 @@ def final_fix_burn_summary(redo_state: dict[str, Any] | None) -> dict[str, Any]:
                          "retry_credits": sum(float(r.get("cost") or 0) for r in rec.get("burn_retries") or []),
                          **({"kept_burned_frames": rec["kept_take_burned_frames"]}
                             if rec.get("kept_take_burned_frames") is not None else {}),
-                         **({"reason": rec["burn_unresolved_reason"]} if rec.get("burn_unresolved_reason") else {})}
+                         **({"reason": rec["burn_unresolved_reason"]} if rec.get("burn_unresolved_reason") else {}),
+                         **({"escalation": _burn_escalation_label(rec.get("burn_escalation"))}
+                            if (rec.get("burn_escalation") or {}).get("status") else {})}
     return out
 
 
@@ -13021,7 +13198,8 @@ def s7_review_plan_parity(ctx: Any, res: Any, final_audience: dict[str, Any]) ->
         record["plan_parity"] = _ffr.plan_parity_summary(parity)
         record["objective_defects"] = _ffr.objective_defects(
             record, runtime_s=timeline.get("content_runtime_seconds"), target_s=target, plan_parity=parity,
-            suspect_checks=checks, text_removed=s7_text_removed_in_cut(ctx))
+            suspect_checks=checks, text_removed=s7_text_removed_in_cut(ctx),
+            burn_verdicts=final_fix_band_verdicts(ctx))
         record["release_policy"] = _ffr.release_policy(record["objective_defects"])
         hold = _ffr.release_hold(record)
         if hold:
