@@ -139,6 +139,14 @@ def identity_tier_for(row: dict[str, Any]) -> str:
     return DEFAULT_IDENTITY_TIER
 
 
+def _official_text(text: str | None) -> bool:
+    try:
+        from tools.h3_provider_english_contract import is_official_ref_text
+    except ModuleNotFoundError:  # pragma: no cover
+        from h3_provider_english_contract import is_official_ref_text  # type: ignore
+    return is_official_ref_text(text or "")
+
+
 def _positive_prompt(text: str) -> str:
     positions = [text.find(value) for value in NEGATIVE_HEADERS if text.find(value) >= 0]
     return text[: min(positions)] if positions else text
@@ -256,6 +264,22 @@ def director_v2_background_clause(unbound: int, descriptors: list[str] | None = 
 def director_v2_roster_marker(label: str, count: int = 1) -> str:
     """The roster line start for one bound entity: "- Lin Qiao" (count 1) or with an explicit count."""
     return f"- {label}" if int(count) == 1 else f"- {label} (exactly {int(count)} instances)"
+
+
+def official_population_clause(people: int, beings: int = 0, unbound: int = 0,
+                               descriptors: list[str] | None = None) -> str:
+    """OFFICIAL_REF_V1 (tools/h3_official_ref_prompt.py): the exact-count sentence core of ``[Shot 1]``."""
+    total = int(people) + int(beings)
+    noun = (("person" if total == 1 else "people") if not beings else
+            ("being" if total == 1 else "beings") if not people else "subjects")
+    clause = f"exactly {number_word(total)} {noun} {'is' if total == 1 else 'are'} in frame"
+    background = director_v2_background_clause(unbound, descriptors)
+    return clause + (f", {background}" if background else "")
+
+
+def official_subject_marker(number: int, label: str) -> str:
+    """OFFICIAL_REF_V1: the subject_definitions line start that binds one identity to one <Subject N>."""
+    return f"<Subject {int(number)}> is {label}"
 
 
 def director_v2_onscreen_entity_ids(payload: dict[str, Any], projection: dict[str, Any]) -> list[str]:
@@ -612,7 +636,33 @@ def validate_provider_scope_projection(
                     )
         h3_model = str(model or payload.get("model") or "").strip().lower() in {"minimax-h3", "h3"}
         prompt_mode = projection.get("provider_scope_prompt_mode")
-        if h3_model and is_director_prompt_v2(payload) and not is_single_subject_mode(prompt_mode):
+        if h3_model and is_director_prompt_v2(payload) and _official_text(prompt_text) \
+                and not is_single_subject_mode(prompt_mode):
+            # OFFICIAL_REF_V1 (a V2 unit in MiniMax's six sections): every reference is a <Picture N>, every bound
+            # on-screen identity is one <Subject N>, and [Shot 1] states the exact population
+            onscreen = director_v2_onscreen_entity_ids(payload, projection)
+            lines = positive.splitlines()
+            for row in bindings:
+                entity_id = str(row.get("entity_id") or "")
+                is_identity = (
+                    str(row.get("binding_role") or "") or binding_role_for(entity_id, row.get("role"))
+                ) == "IDENTITY"
+                label = str(row.get("provider_entity_label") or "").casefold()
+                if f"<picture {row['reference_index']}>" not in positive or not label or label not in positive:
+                    failures.append("H3_PROVIDER_SCOPE_REFERENCE_MAPPING_MISSING:" + (entity_id or "UNKNOWN"))
+                if not is_identity or entity_id not in onscreen:
+                    continue
+                marker = re.compile(r"^<subject \d+> is " + re.escape(label) + r"\b")
+                if counts.get(entity_id, 1) != 1 or not any(marker.match(line) for line in lines):
+                    failures.append("H3_PROVIDER_SCOPE_INSTANCE_CARDINALITY_MISSING:" + (entity_id or "UNKNOWN"))
+            total = sum(int(counts.get(entity_id) or 1) for entity_id in onscreen)
+            core = re.compile(r"exactly " + re.escape(number_word(total)) + r" (?:person|people|beings?|subjects) "
+                              r"(?:is|are) in frame")
+            background_clause = director_v2_background_clause(
+                unbound if isinstance(unbound, int) else 0, projection.get("anonymous_role_descriptors") or [])
+            if not core.search(positive) or (background_clause and background_clause.casefold() not in positive):
+                failures.append("H3_PROVIDER_SCOPE_EXCLUSIVE_POPULATION_CLAUSE_MISSING")
+        elif h3_model and is_director_prompt_v2(payload) and not is_single_subject_mode(prompt_mode):
             # DIRECTOR_PROMPT_V2: same three promises (every reference mapped, every bound identity listed
             # once with its count, the exact population), in the V2 wording.
             onscreen = director_v2_onscreen_entity_ids(payload, projection)

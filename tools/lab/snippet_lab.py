@@ -331,6 +331,8 @@ def lab_unit(contract: dict[str, Any], shot: dict[str, Any], lab_cfg: dict[str, 
                                              if e["character_id"] in cast_ids]},
         "h3_provider_english_contract": english,
     }
+    if lab_cfg.get("h3_prompt_format"):  # per-arm A/B of the H3 prompt format (OFFICIAL_REF_V1 / DIRECTOR_V2)
+        unit["h3_prompt_format"] = lab_cfg["h3_prompt_format"]
     return unit, plan
 
 
