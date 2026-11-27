@@ -424,6 +424,9 @@ def materialise(episode: str, submitted: dict[str, Any],
                     reused_locked.add(aid)
     except Exception:  # noqa: BLE001 -- the guard never breaks the lock itself
         reused_locked = set()
+    # a card regenerated in this episode (distinctness re-design) is locked from its new review, never "unchanged"
+    reused_locked -= _distinct.regenerated_this_episode(
+        episode, plan=read_json(p.identity / "character_asset_plan.json", {}) or {}, libraries=list(libraries.values()))
     for item in submitted.get("items") or []:
         asset_id = item["item_id"]
         request_item = item.get("request_item") or {}

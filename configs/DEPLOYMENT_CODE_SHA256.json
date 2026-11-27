@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2623,
+  "file_count": 2625,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -737,7 +737,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/character_distinctness.py",
-      "sha256": "407fecba780be16c91d3535e0f740fcfddccac3073356be8b219cdc59f5a7cba"
+      "sha256": "d2b85e5728aacfaea1cad2a96f01f980c8546a417bf146b9d3ca8ea7b4c6428e"
     },
     {
       "path": "lines/nalu/runtime/tools/character_reference_sheet.py",
@@ -809,7 +809,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/identity_qa_lock.py",
-      "sha256": "72a06278c41c75574efb4cd2f39935b4bf2b582771bacc4584b8aac1dbbdf6a5"
+      "sha256": "5eab5cc7fcda73bb0212d7db469e2f44c7b837e511d0d5f2572ab79f45659980"
     },
     {
       "path": "lines/nalu/runtime/tools/ingest_yewujiang_source.py",
@@ -829,7 +829,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/library_lock_non_plate.py",
-      "sha256": "563caf5ec6c66ffad1619090e37c22dd1f4c93132e29d28aa3c158ee38ad4ac2"
+      "sha256": "559b46acb315dd1cbb680b9e6d4aedf46d50d6637c5adf419143fefa39c0a22b"
     },
     {
       "path": "lines/nalu/runtime/tools/materialize_paid_authorization.py",
@@ -869,7 +869,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "502ddc6dc2ad3f58e91f9c62c1cdf2e5352a69f946f058fed0231e7e7ef28a4b"
+      "sha256": "810621d04337dc6316aa4c543fc0789b45dc8d19ea939065815456d5e75b63cb"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -941,7 +941,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_register.py",
-      "sha256": "cee1a8a28f99888329f5c9a4d8f54caaa87d956bcd0c498330595742f1af2c12"
+      "sha256": "060e17c8c77feb500ca16e6ebdeb4d0facf6f5060e57267e408cbd1fe0a65e84"
     },
     {
       "path": "lines/nalu/runtime/tools/q2_auto_redo.py",
@@ -1069,7 +1069,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/vlm_review_protocol.py",
-      "sha256": "9ff98efd439fb198e2ad5a92bee74e16055f0c9cc5697178b34b5c0d385731ba"
+      "sha256": "40e34caf5771af9eddc2c4f8534a2d469ea24f2aa5f9afaa9d644ef4f5f9bd72"
     },
     {
       "path": "lines/nalu/runtime/tools/voice_gender.py",
@@ -7956,6 +7956,10 @@
       "sha256": "8d790695807ee9f8532acf412b1ceb858f9e49d27e4c067cd18ad574edbad065"
     },
     {
+      "path": "tools/tests/test_distinctness_regenerated_card_not_reused.py",
+      "sha256": "e575cb2e1dc987d34632a79ce8ea0f6c925e3299649732bd332e56300d634992"
+    },
+    {
       "path": "tools/tests/test_dramatic_quality_gate.py",
       "sha256": "4e24075f4db588c543bf08a1801eaaef24ee588347ddfd000d79de90577843d1"
     },
@@ -9226,6 +9230,10 @@
     {
       "path": "tools/tests/test_prompt_batch_qa_sheet_identity.py",
       "sha256": "2180184bc0730bbd0f9ea6ba167b2cf6f94462b0ae28b7a8f0abc43023d01e78"
+    },
+    {
+      "path": "tools/tests/test_prompt_batch_register_long_chain.py",
+      "sha256": "2822a3fda89fca3412ec906dcc8725959eb13b18edbc7ff20a82ba7c722c2ef8"
     },
     {
       "path": "tools/tests/test_prompt_batch_register_monologue_reuse.py",
