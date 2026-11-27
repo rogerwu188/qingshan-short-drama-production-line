@@ -65,6 +65,42 @@ FACE_FIELDS_EN = ("face shape, jawline, eye shape and spacing, nose bridge and s
                   "apparent age, build and distinctive marks (moles, scars, marks)")
 
 
+def regenerated_this_episode(episode: str, *, plan: dict[str, Any] | None = None,
+                             libraries: Iterable[dict[str, Any] | None] = ()) -> set[str]:
+    """Subjects this episode generates anew even though their requirement row may still say
+    REUSED_FROM_PRIOR_LIBRARY (device ...1101 E29 2026-11-27: S3 re-designed the LOCKED card CHAR-MOHANYUAN for
+    distinctness, but the cross-episode reuse marking dropped the new card from the identity review request, so it was
+    never locked and the asset-library gate failed).  A regenerated card is never "reused": it is reviewed and locked
+    by identity QA like a new card.  Covers (a) every subject the identity plan generates in this episode and (b) a
+    library card S3 superseded for distinctness (status SUPERSEDED_DISTINCTNESS_PENDING_REGENERATION, or a
+    ``distinctness_regeneration`` recorded for this episode).  Never raises."""
+    out: set[str] = set()
+    ep = str(episode or "").strip().upper()
+    try:
+        for row in (plan or {}).get("new_asset_groups") or []:
+            if isinstance(row, dict):
+                sid = str(row.get("subject_id") or row.get("id") or "").strip()
+                if sid:
+                    out.add(sid)
+    except Exception:  # noqa: BLE001
+        pass
+    for library in libraries:
+        try:
+            for assets in ((library or {}).get("assets") or {}).values():
+                if not isinstance(assets, dict):
+                    continue
+                for aid, asset in assets.items():
+                    if not isinstance(asset, dict):
+                        continue
+                    regen = asset.get("distinctness_regeneration")
+                    if (asset.get("status") == LOCKED_SUPERSEDED_STATUS
+                            or (isinstance(regen, dict) and str(regen.get("episode") or "").strip().upper() == ep)):
+                        out.add(str(aid))
+        except Exception:  # noqa: BLE001
+            continue
+    return out
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 

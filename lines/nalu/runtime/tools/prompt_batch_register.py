@@ -107,13 +107,15 @@ def main() -> int:
             # authored still is the reuse source's keyframe prompt -- not the cutaway that happens
             # to precede it (Lycan King E05 2026-11-15: VU-004/007/017 were bound to the listener
             # reaction).  A source that is itself such a reuse is followed to the keyframe it names.
-            reuse_row, source, hops = monologue_reuse[shots[0]], "", 0
-            while reuse_row and hops < 6:
+            # Followed to the root with no length cap, only a cycle guard (device 1101 E29 2026-11-27: a
+            # fixed 6-hop cap failed registration for every unit past the 6th link of a long chain).
+            reuse_row, source, seen_sources = monologue_reuse[shots[0]], "", {shots[0]}
+            while reuse_row:
                 source = str(reuse_row.get("reuse_source") or "")
-                if source in kf_by_shot:
+                if source in kf_by_shot or not source or source in seen_sources:
                     break
+                seen_sources.add(source)
                 reuse_row = monologue_reuse.get(source)
-                hops += 1
             first = kf_by_shot.get(source)
             if first:
                 source_unit = next((u["unit_id"] for u in grouping["units"]
@@ -129,15 +131,19 @@ def main() -> int:
             anchor = anchors.get(uid) or {}
             oac = anchor.get("opening_anchor_contract") or {}
             prev = oac.get("previous_unit_id")
-            hops = 0
-            while prev and not first and hops < 6:
-                prev_unit = next((u for u in grouping["units"] if u["unit_id"] == prev), None)
+            # Walk to the chain root (the first unit with its own keyframe) however long the
+            # CONTINUOUS_ACTION chain is -- device 1101 E29 2026-11-27: a fixed 6-hop cap left
+            # VU-008..VU-026 of one 20-unit chain unregistered.  Only a cycle stops the walk early.
+            units_by_id = {u["unit_id"]: u for u in grouping["units"]}
+            visited = {uid}
+            while prev and not first and prev not in visited:
+                visited.add(prev)
+                prev_unit = units_by_id.get(prev)
                 if not prev_unit:
                     break
-                first = kf_by_shot.get(prev_unit["editorial_shot_ids"][0])
+                first = kf_by_shot.get((prev_unit.get("editorial_shot_ids") or [None])[0])
                 if not first:
                     prev = ((anchors.get(prev) or {}).get("opening_anchor_contract") or {}).get("previous_unit_id")
-                hops += 1
             if not first:
                 problems.append(f"{uid}: no keyframe task for first shot {shots[0]} and no continuity source")
                 continue

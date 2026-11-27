@@ -820,6 +820,24 @@ def _script_reviewer_contract() -> dict[str, Any]:
     }
 
 
+def identity_reused_subjects(episode: str, p: Any, plan: dict[str, Any]) -> set[str]:
+    """Subjects the identity request leaves out as cross-episode reuse (D-33): requirement rows marked
+    REUSED_FROM_PRIOR_LIBRARY -- minus every card S3 regenerates in THIS episode (a distinctness re-design of a
+    LOCKED card).  A regenerated card is a new plate that must be reviewed, or it is never locked (device ...1101 E29
+    2026-11-27: CHAR-MOHANYUAN was re-designed, left out of the request, and the asset-library gate failed)."""
+    req_rows = (read_json(RUNTIME_PREPRODUCTION / episode / "asset_requirements.json", {}) or {}).get("assets") or {}
+    reused = {str(row.get("asset_id")) for cat in req_rows.values() if isinstance(cat, list) for row in cat
+              if str(((row.get("reuse") or {}).get("status")) or "") == "REUSED_FROM_PRIOR_LIBRARY"}
+    try:
+        import character_distinctness as _cd  # noqa: PLC0415
+        libraries = [read_json(path, {}) or {} for path in (getattr(p, "asset_library", None),
+                                                            getattr(p, "identity_library", None)) if path]
+        reused -= _cd.regenerated_this_episode(episode, plan=plan, libraries=libraries)
+    except Exception:  # noqa: BLE001
+        pass
+    return reused
+
+
 def build_request(kind: str, episode: str, *, items_filter: list[str] | None = None,
                   media_override: dict[str, list[dict[str, Any]]] | None = None,
                   out: Path | None = None, **kwargs: Any) -> dict[str, Any]:
@@ -889,10 +907,7 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
         # E03+ cross-episode reuse (D-33): a subject whose requirement row is REUSED_FROM_PRIOR_LIBRARY has no
         # plates in this episode (library_lock_non_plate copies the prior LOCKED row); it is not a review item
         # even when it also has an operator source photo (秦铭 in E03).
-        req_rows = (read_json(RUNTIME_PREPRODUCTION / episode / "asset_requirements.json", {}) or {}).get("assets") or {}
-        reused = {str(row.get("asset_id")) for cat in req_rows.values() if isinstance(cat, list) for row in cat
-                  if str(((row.get("reuse") or {}).get("status")) or "") == "REUSED_FROM_PRIOR_LIBRARY"}
-        planned -= reused
+        planned -= identity_reused_subjects(episode, p, plan)
         # Apply the filter whenever the plan was readable, even when the result is EMPTY.
         # An episode whose every requirement row is REUSED_FROM_PRIOR_LIBRARY generates no
         # plate of its own, so its reviewable set is the empty set — and gating this on

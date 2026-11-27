@@ -590,11 +590,23 @@ def run_lock(ctx: Ctx, report_path: Path, force: bool) -> dict[str, Any]:
     # E02+ cross-episode reuse (S3 skips plate subjects the runtime library already LOCKED): copy the
     # LOCKED row into this episode's library when every artifact file still matches its recorded sha.
     rt_assets = (ctx.runtime_library or {}).get("assets") or {}
+    # A card S3 regenerated in this episode (distinctness re-design of a LOCKED card) is not copied from the prior
+    # lock (that lock is superseded): identity QA locks the new card (device ...1101 E29 2026-11-27).
+    try:
+        import character_distinctness as _cd  # noqa: PLC0415
+        regenerated = _cd.regenerated_this_episode(
+            ctx.episode, plan=load_json(WORK_ROOT / ctx.episode / "identity/character_asset_plan.json")
+            if (WORK_ROOT / ctx.episode / "identity/character_asset_plan.json").is_file() else {},
+            libraries=[ctx.runtime_library])
+    except Exception:  # noqa: BLE001
+        regenerated = set()
     for category in ("characters", "props", "scenes"):
         by_id = assets.setdefault(category, {})
         for requirement in ctx.requirements.get("assets", {}).get(category, []):
             asset_id = requirement["asset_id"]
             if str((requirement.get("reuse") or {}).get("status") or "") != "REUSED_FROM_PRIOR_LIBRARY":
+                continue
+            if asset_id in regenerated:
                 continue
             cur = by_id.get(asset_id) or {}
             if cur.get("status") == "LOCKED":

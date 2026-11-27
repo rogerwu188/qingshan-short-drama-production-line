@@ -7137,14 +7137,15 @@ def tail_normalize_anchor(ctx: Ctx, unit_id: str) -> Path | None:
         first_shot = {str(u.get("unit_id")): (u.get("editorial_shot_ids") or [None])[0] for u in plan.get("units") or []}
         sourced = tail_sourced_units(ctx)
         decisions = start_frame_source_decisions(ctx)
-        uid, hops = unit_id, 0
-        while uid in sourced and hops < 64:
+        uid, visited = unit_id, {unit_id}
+        while uid in sourced:  # to the chain root, any length; a cycle stops the walk
             if (decisions.get(uid) or {}).get("start_frame_source") == START_FRAME_OWN:
                 break  # this unit opened on its own keyframe after all
             prev = sourced[uid].get("previous_unit_id")
-            if not prev:
+            if not prev or str(prev) in visited:
                 break
-            uid, hops = str(prev), hops + 1
+            uid = str(prev)
+            visited.add(uid)
         shot = first_shot.get(uid)
         if not shot:
             return None
