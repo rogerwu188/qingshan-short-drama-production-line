@@ -199,7 +199,9 @@ CLASS_TEXT: dict[str, tuple[str, str]] = {
     "QA-SUBTITLE-WRAP": ("A", "我方字幕排版：标点（！？。）或一两个字单独占一行、超过两行、我方字幕和画面里其它文字重叠压字。"
                               "（两行相同的字幕上下叠在一起不是排版问题，报 QA-BURNED-TEXT。）"),
     # B -- identity / continuity
-    "QA-IDENTITY-MISMATCH": ("B", "角色和其身份卡不符：脸型/五官/年龄/发型明显不是卡上那个人，或同一角色前后镜头换了一张脸；或景别机位不变时画面里的人在镜头内逐渐变成另一个角色（常是正在说话的那个）。"),
+    "QA-IDENTITY-MISMATCH": ("B", "角色和其身份卡不符：脸型/五官/年龄/发型明显不是卡上那个人，或同一角色前后镜头换了一张脸；或景别机位不变时画面里的人在镜头内逐渐变成另一个角色（常是正在说话的那个）；"
+                                "或性别特征/年龄感和卡上写的 gender/age 不符（女性角色长出胡子、男性角色被画成女性、"
+                                "年龄差出一代）——这些至少 P1，不是妆造问题。"),
     "LOOK-DRIFT": ("B", "同一场内同一角色造型前后不一致：服装颜色/款式、发型、胡子、配饰变了。"),
     "QA-PROP-CONTINUITY": ("B", "同一场内道具不连续：道具位置、数量、状态前后跳变。"),
     "QA-LIGHTING-CONTINUITY": ("B", "同一场内光线不连续：主光方向、色温、昼夜前后镜头不一致。"),
@@ -322,11 +324,17 @@ def _pick_plate(plates: Path, episode: str, char_id: str) -> Path | None:
     return (sheets or heads or found or [None])[0]
 
 
+def _card_view(card: dict[str, Any], *, wardrobe: bool = True) -> dict[str, Any]:
+    """The prompt row of one identity card: label plus whichever of gender / age / appearance / wardrobe it has."""
+    keys = ("gender", "age", "appearance") + (("wardrobe",) if wardrobe else ())
+    return {"label": card["label"], **{k: card[k] for k in keys if card.get(k)}}
+
+
 def episode_context(episode: str, *, work_root: Path | None = None, assembly: Path | None = None,
                     contract_path: Path | None = None) -> dict[str, Any]:
     """Free, local context for passes B and D from the episode's own files (best effort, {} parts when missing):
 
-    cards   [{label, character_id, image, appearance, wardrobe}] -- identity plates of the characters the episode
+    cards   [{label, character_id, image, gender, age, appearance, wardrobe}] -- identity plates of the characters the episode
             shows (S3), names replaced by 角色A/B.. everywhere
     scenes  [{scene, start, end, cast}] -- release-timeline windows of each scene
     shots   [{unit, scene, start, end, scale, beat}] -- the storyboard per video unit (anonymised beat)
@@ -367,12 +375,20 @@ def episode_context(episode: str, *, work_root: Path | None = None, assembly: Pa
         names = {n: labels[c] for c, n in order if n}
         bible = {str(r.get("character_id")): r for r in ((grouping.get("wardrobe_bible") or editorial.get(
             "wardrobe_bible") or {}).get("characters") or []) if isinstance(r, dict)}
+        # 2026-11-27 (deep review 1101 E26): the card carries the contract's gender / apparent age -- without them
+        # pass B graded a FEMALE character with a moustache as "P3 rough make-up" and a 45-55 magistrate played by a
+        # ~25-year-old went unreported
+        entities = {str(r.get("character_id")): r for r in (contract.get("character_entities") or [])
+                    if isinstance(r, dict) and r.get("character_id")}
         plates = work / "identity" / "plates"
         for cid, _name in order[:MAX_CARDS]:
             img = _pick_plate(plates, episode, cid) if plates.is_dir() else None
-            row = bible.get(cid) or {}
+            row, ent = bible.get(cid) or {}, entities.get(cid) or {}
             ctx["cards"].append({"label": labels[cid], "character_id": cid, "image": str(img) if img else None,
-                                 "appearance": anonymise(row.get("appearance_ch1") or row.get("role_basis"), names, 80),
+                                 "gender": str(ent.get("gender") or row.get("gender") or "").strip(),
+                                 "age": str(ent.get("apparent_age_range") or row.get("apparent_age_range") or "").strip(),
+                                 "appearance": anonymise(row.get("appearance_ch1") or ent.get("appearance_ch1")
+                                                         or row.get("role_basis"), names, 80),
                                  "wardrobe": anonymise(row.get("authored_description"), names, 80)})
         windows = {str(s.get("unit_id")): (float(s["output_start"]), float(s["output_end"]))
                    for s in timeline.get("segments") or [] if _num(s.get("output_start")) is not None
@@ -807,7 +823,9 @@ def build_pass_prompt(pid: str, *, duration: float, context: dict[str, Any] | No
              "、".join(c["label"] for c in context.get("cards") or [] if c.get("_sent")) +
              "），检查每个镜头里每个角色是否就是卡上的人；在每一场内部检查服装颜色、发型、配饰、道具、光线方向和色温、"
              "人物站位是否前后一致；不同角色是否长得几乎一样——把本集所有同性别角色两两对比（脸型、五官、发型发色、年龄感、"
-             "眼镜/胡子、体型），只靠衣服才能分清的就是 QA-LOOKALIKE-CAST。没有身份卡的角色（配角）按他在本集第一次出场的样子作为基准。",
+             "眼镜/胡子、体型），只靠衣服才能分清的就是 QA-LOOKALIKE-CAST。没有身份卡的角色（配角）按他在本集第一次出场的样子作为基准。"
+             "身份卡写了 gender 和 age：逐个角色核对画面里的性别特征和年龄感——女性角色有胡子/八字胡、男性角色被画成女性、"
+             "卡上 50 岁的人画成 20 多岁（或反过来）都报 QA-IDENTITY-MISMATCH，至少 P1，不要当成妆造粗糙报 OTHER/P3。",
         "C": "声音专审：认真听完整条音轨并看口型。逐句检查口型同步、每个角色前后声音是否一致且符合性别年龄、说话人是否对、"
              "句尾是否被切或没有自然停顿、相邻台词响度是否跳变、背景音乐起停是否生硬、音效是否缺失或突兀、音频瑕疵。",
         "D": "导演/剪辑专审：按分镜表逐镜头判断它有没有交代它的剧情节拍，镜头语法是否成立，每个节拍的节奏，"
@@ -843,9 +861,8 @@ def build_pass_prompt(pid: str, *, duration: float, context: dict[str, Any] | No
             [{"start": (r.get("window") or [None, None])[0], "end": (r.get("window") or [None, None])[1]}
              for r in leads["subtitle_wrap"] if isinstance(r, dict)], window))]
     if pid == "B":
-        cards = [{"label": c["label"], **({"appearance": c["appearance"]} if c.get("appearance") else {}),
-                  **({"wardrobe": c["wardrobe"]} if c.get("wardrobe") else {})}
-                 for c in context.get("cards") or [] if c.get("_sent") or c.get("appearance")]
+        cards = [_card_view(c) for c in context.get("cards") or []
+                 if c.get("_sent") or c.get("appearance") or c.get("gender") or c.get("age")]
         if cards:
             lines += ["", "角色身份卡（图片已附，名字已隐去）：", _json(cards)]
         if context.get("scenes"):
@@ -855,16 +872,15 @@ def build_pass_prompt(pid: str, *, duration: float, context: dict[str, Any] | No
         if leads.get("lookalike_faces"):
             lines += ["", "本地人脸相似度线索：", _json(leads["lookalike_faces"])]
     if pid == "C":
-        cards = [{"label": c["label"], "appearance": c["appearance"]} for c in context.get("cards") or []
-                 if c.get("appearance")]
+        cards = [_card_view(c, wardrobe=False) for c in context.get("cards") or []
+                 if c.get("appearance") or c.get("gender") or c.get("age")]
         if cards:
             lines += ["", "角色（用于判断声音是否符合性别年龄）：", _json(cards)]
     plan_rows = plan_prompt_rows(context.get("plan_units") or [], window) if pid == "D" else []
     if pid == "D":
         if plan_rows:  # 2026-11-23 (device 1101 E24): the plan per unit, answered per unit (unit_parity)
-            cast = [{"label": c["label"], **({"appearance": c["appearance"]} if c.get("appearance") else {}),
-                     **({"wardrobe": c["wardrobe"]} if c.get("wardrobe") else {})}
-                    for c in context.get("cards") or [] if c.get("appearance") or c.get("wardrobe")]
+            cast = [_card_view(c) for c in context.get("cards") or []
+                    if c.get("appearance") or c.get("wardrobe") or c.get("gender") or c.get("age")]
             lines += ["", "逐单元计划（生成合同；start/end 是这个单元在成片里的时间窗；where 地点、who 计划出场的人、does 计划的动作、"
                       "props 道具、says 计划台词；名字已隐去）：", _json(plan_rows)]
             if cast:
