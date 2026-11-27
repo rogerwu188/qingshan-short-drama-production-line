@@ -21,7 +21,7 @@ try:
     from tools.character_entity_contract import validate_character_entity_contract
     from tools.provider_scope_projection import validate_provider_scope_projection
     from tools.provider_scope_projection import DIRECTOR_V2_SECTION_MARKERS, is_director_prompt_v2
-    from tools.h3_provider_english_contract import DIRECTOR_V2_TEXT_START
+    from tools.h3_provider_english_contract import DIRECTOR_V2_TEXT_START, OFFICIAL_REF_SECTIONS, is_official_ref_text
 except ModuleNotFoundError:
     from h3_provider_prompt_renderer import render_h3_prompt
     from h3_provider_english_contract import validate_h3_provider_text_boundary
@@ -38,7 +38,9 @@ except ModuleNotFoundError:
     from character_entity_contract import validate_character_entity_contract
     from provider_scope_projection import validate_provider_scope_projection
     from provider_scope_projection import DIRECTOR_V2_SECTION_MARKERS, is_director_prompt_v2
-    from h3_provider_english_contract import DIRECTOR_V2_TEXT_START
+    from h3_provider_english_contract import DIRECTOR_V2_TEXT_START, OFFICIAL_REF_SECTIONS, is_official_ref_text
+
+OFFICIAL_REF_SECTION_MARKERS = tuple(m.strip("\n[") for m in OFFICIAL_REF_SECTIONS)
 
 try:
     from tools.compile_grouped_seedance_manifest import (
@@ -221,6 +223,8 @@ def validate_model_prompt_for_model(
         ("【任务】", "【锚点】", "【时间轴】", "【摄影】", "【声音】", "【限制】")
         if family == "seedance2"
         # DIRECTOR_PROMPT_V2 (opt-in, tools/h3_director_prompt_v2.py): the same promise in its own sections
+        # OFFICIAL_REF_V1 (tools/h3_official_ref_prompt.py): a V2 unit in MiniMax's six official sections
+        else OFFICIAL_REF_SECTION_MARKERS if is_official_ref_text(text)
         else DIRECTOR_V2_SECTION_MARKERS if (is_director_prompt_v2(unit) if unit is not None
                                              else bool(DIRECTOR_V2_TEXT_START.match(text)))
         else ("subject_definitions:", "summary:", "retention_analysis:",

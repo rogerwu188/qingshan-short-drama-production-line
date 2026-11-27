@@ -3897,6 +3897,8 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             task["dialogue_language"] = cu["dialogue_language"]
         if cu.get("h3_prompt_style"):  # opt-in DIRECTOR_PROMPT_V2; absent == V1 prompt
             task["h3_prompt_style"] = cu["h3_prompt_style"]
+        if cu.get("h3_prompt_format"):  # OFFICIAL_REF_V1 / DIRECTOR_V2 (BILI_V1 stamp); absent == V2 text
+            task["h3_prompt_format"] = cu["h3_prompt_format"]
         if cu.get("craft_profile"):  # BILI_V1 (grouped compiler stamp); absent on every LEGACY unit
             task["craft_profile"] = cu["craft_profile"]
         if cu.get("h3_constraint_language"):  # opt-in "zh" provider-expert constraint sentences; absent == en

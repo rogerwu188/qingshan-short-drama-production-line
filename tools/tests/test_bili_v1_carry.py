@@ -160,9 +160,14 @@ class CompilerAndTransport(unittest.TestCase):
                  {"unit_id": "U3", "model": "MiniMax-H3", "h3_prompt_style": "OTHER"}]
         self.assertTrue(grouped.stamp_bili_v1_units(units, {"craft_profile": "BILI_V1"}, episode="E01"))
         self.assertEqual(units[0], {"unit_id": "U1", "model": "MiniMax-H3", "craft_profile": "BILI_V1",
-                                    "h3_prompt_style": "DIRECTOR_PROMPT_V2"})
+                                    "h3_prompt_style": "DIRECTOR_PROMPT_V2", "h3_prompt_format": "OFFICIAL_REF_V1"})
         self.assertEqual(units[1], {"unit_id": "U2", "model": "Seedance"})
         self.assertEqual(units[2]["h3_prompt_style"], "OTHER")
+        # the contract's h3_prompt_format=DIRECTOR_V2 keeps the previous V2 text (official-format A/B 2026-11-27)
+        legacy = [{"unit_id": "U4", "model": "MiniMax-H3"}]
+        self.assertTrue(grouped.stamp_bili_v1_units(legacy, {"craft_profile": "BILI_V1",
+                                                             "h3_prompt_format": "DIRECTOR_V2"}, episode="E01"))
+        self.assertEqual(legacy[0]["h3_prompt_format"], "DIRECTOR_V2")
 
     def test_runtime_switch_and_legacy_default(self):
         units = [{"unit_id": "U1", "model": "MiniMax-H3"}]
@@ -175,6 +180,10 @@ class CompilerAndTransport(unittest.TestCase):
         self.assertEqual(provider_prompt_unit({"model": "MiniMax-H3", "craft_profile": "BILI_V1"})["craft_profile"],
                          "BILI_V1")
         self.assertNotIn("craft_profile", provider_prompt_unit({"model": "MiniMax-H3"}))
+        # the H3 prompt format reaches the paid-boundary re-render too, else it would re-render V2 and mismatch
+        self.assertEqual(provider_prompt_unit({"model": "MiniMax-H3", "h3_prompt_format": "OFFICIAL_REF_V1"})
+                         ["h3_prompt_format"], "OFFICIAL_REF_V1")
+        self.assertNotIn("h3_prompt_format", provider_prompt_unit({"model": "MiniMax-H3"}))
 
 
 def contract(**action) -> dict:

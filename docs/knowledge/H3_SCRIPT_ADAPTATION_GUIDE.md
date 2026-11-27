@@ -319,6 +319,22 @@ H3 当真人短剧拍，凭空加了好几双真人的手。
 - 覆盖面不变：每条执行事实仍要在 V2 文本里找到对应句子（semantic coverage receipt）；只有微表情/身体同步模板和
   非打斗、无接触时刻的拍里的接触点/反馈模板改由「每个人在做什么」表达，回执里逐条列为 `style_omitted_fact_ids`。
 
+## 7c. 官方格式 OFFICIAL_REF_V1（BILI_V1 默认，2026-11-27，K177）
+
+- **来源**：MiniMax 官方 H3 提示词指南（huggingface.co/MiniMaxAI/MiniMax-H3 `docs/VIDEO_PROMPT_WRITING_GUIDE_ref_en.md` /
+  `_base_en.md`）。参考模式六段、按序：`subject_definitions`、`summary`（以 `[keyframe completion + reference generation +
+  audio reference]` 开头）、`retention_analysis`、`detailed_description`（风格句 + `[Shot 1] …`，350–500 词）、
+  `overall_soundscape`、`non_diegetic_music`（无配乐写 `N/A`）。参考写 `<Picture N>`（第 N 张输入图）/`<Subject N>`/`<Audio N>`；
+  说话人 `(S1)`，台词 `<Subject 1> (S1), using the voice timbre referenced from <Audio 1>, says: <d>[Chinese] 原话</d>`。
+  官方没有否定清单，也没有「不要字幕」——本格式不写任何文字相关否定句。
+- **内容不变**：`tools/h3_official_ref_prompt.py` 只是把 V2 已经算好的参考、人物、服装、场景、机位、动作、编剧表演、台词与
+  delivery、声音按官方顺序重排；机位锁和身份绑定写在 retention_analysis 和 [Shot 1] 里；语义覆盖回执、范围门、自检照常跑。
+- **开关**：分组编译给 BILI_V1 的 H3 单元盖 `h3_prompt_format`（生成合同顶层的值，否则 `OFFICIAL_REF_V1`），任务带着它到付费边界
+  重渲染。合同写 `"h3_prompt_format": "DIRECTOR_V2"` 或环境变量 `QINGSHAN_H3_PROMPT_FORMAT=DIRECTOR_V2` 回到 V2 原文（逐字节不变）。
+  多机位单元、单人救援档、无人插入镜仍走 V2。
+- **实验**（E28 S01-03/05/06，干净首帧+脸+声线锚，每臂每句 2 个不同渲染，≈52 cr）：烧字 V2 0/6、官方 0/6；ASR 全句；音色贴锚；
+  身份与锁机位全部稳定；表演几乎相同（首帧主导）。实验测不出设备上的烧字率（E28 V2 线上 12/31），上线后盯 S6 烧字检查。
+
 ## 8. 写完自查（不是门禁）
 
 - [ ] **画面有变化、没有建立镜**：以中近景/近景为主，远景全集约 3 镜以内且有戏；有反应镜和正反打，关键台词和爽点给最紧的景别；不是整场同一个中景（§5）。

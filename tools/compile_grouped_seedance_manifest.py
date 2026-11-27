@@ -1395,7 +1395,8 @@ def grouping_episode(args: Any) -> str | None:
 
 def stamp_bili_v1_units(units: list[dict[str, Any]], generation_payload: Any, *, episode: str | None) -> bool:
     """BILI_V1 (craft_profile.py; contract -> brief -> runtime qingshan.json): stamp ``craft_profile`` on every H3
-    unit and ``h3_prompt_style: DIRECTOR_PROMPT_V2`` where none is declared.  LEGACY: nothing changes.  Never raises."""
+    unit and ``h3_prompt_style: DIRECTOR_PROMPT_V2`` where none is declared, plus ``h3_prompt_format`` (the contract's,
+    else OFFICIAL_REF_V1; tools/h3_official_ref_prompt.py).  LEGACY: nothing changes.  Never raises."""
     try:
         try:
             from tools import craft_profile as _cp
@@ -1403,12 +1404,20 @@ def stamp_bili_v1_units(units: list[dict[str, Any]], generation_payload: Any, *,
             import craft_profile as _cp  # type: ignore
         if not _cp.is_bili_v1(generation_payload if isinstance(generation_payload, dict) else None, episode=episode):
             return False
+        try:
+            from tools import h3_official_ref_prompt as _official
+        except ModuleNotFoundError:
+            import h3_official_ref_prompt as _official  # type: ignore
     except Exception:  # noqa: BLE001 - an unreadable profile is LEGACY
         return False
     for unit in units:
         if str(unit.get("model") or "") == "MiniMax-H3":
             unit["craft_profile"] = "BILI_V1"
             unit.setdefault("h3_prompt_style", "DIRECTOR_PROMPT_V2")
+            # OFFICIAL_REF_V1: MiniMax's six-section reference format; the contract's h3_prompt_format=DIRECTOR_V2
+            # keeps the previous V2 text (tools/h3_official_ref_prompt.py)
+            unit.setdefault("h3_prompt_format", _official.stamp_format(
+                generation_payload if isinstance(generation_payload, dict) else None))
     return True
 
 

@@ -612,6 +612,9 @@ def provider_prompt_unit(task: dict[str, Any]) -> dict[str, Any]:
     # compiler input stays byte-identical
     if task.get("h3_prompt_style") or machine.get("h3_prompt_style"):
         prompt_unit["h3_prompt_style"] = task.get("h3_prompt_style") or machine.get("h3_prompt_style")
+    # OFFICIAL_REF_V1 / DIRECTOR_V2 H3 prompt format (BILI_V1 stamp): absent on older tasks == V2 text
+    if task.get("h3_prompt_format") or machine.get("h3_prompt_format"):
+        prompt_unit["h3_prompt_format"] = task.get("h3_prompt_format") or machine.get("h3_prompt_format")
     # BILI_V1 craft profile (CHANGE_SPEC WP4, grouped compiler stamp): absent on every LEGACY task
     if task.get("craft_profile") or machine.get("craft_profile"):
         prompt_unit["craft_profile"] = task.get("craft_profile") or machine.get("craft_profile")

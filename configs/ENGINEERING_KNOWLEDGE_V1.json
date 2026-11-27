@@ -3888,7 +3888,7 @@
         "tools/h3_provider_prompt_renderer.py",
         "tools/tests/test_combat_unit_compiler.py"
       ],
-      "do_not_repeat": "Rendering a fight beat as a state change (Start from \u2026 End at \u2026) or telling it to hold after contact; one long camera move over several contacts.",
+      "do_not_repeat": "Rendering a fight beat as a state change (Start from … End at …) or telling it to hold after contact; one long camera move over several contacts.",
       "failure_code": "FIGHT_BEAT_RENDERED_AS_STATE_CHANGE",
       "decision_record": "configs/COMBAT_MOTION_V1.json",
       "regression": "tools/tests/test_combat_unit_compiler.py",
@@ -3942,6 +3942,34 @@
       "rule": "In a fight unit, one detected cut per 4 s (CUT_DENSITY_LOW otherwise), and every unit that binds a prop card keeps that prop's silhouette above 0.62 similarity (SHAPE_LOCK_LOW otherwise). Both are diagnostics: a FAIL sends the unit back to the writer, never an automatic reroll.",
       "lesson": "E15 VU-020 carried zero cuts over 7.3 s — a single unbroken camera move smeared three authored beats together — while VU-027 carried seven. The same sabre rendered as a straight sword, a curved sabre, a broad blade and a short cleaver across VU-018..021, and no check compared the weapon across units.",
       "recovery": "Run tools/combat_density_check.py on COMBAT units with --card for each bound prop reference. It is an allowed post-generation combat check (post_generation_qa_scope_gate)."
+    },
+    {
+      "id": "K177",
+      "scope": "generalizable",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "authority": "Owner 2026-11-27「好的」(~50 credit lab A/B of the official MiniMax-H3 prompt format)",
+      "runtime_gate_added": false,
+      "key": "h3-bili-v1-prompt-in-the-official-reference-format",
+      "stage": "S6",
+      "category": "PROMPT",
+      "implementation": [
+        "tools/h3_official_ref_prompt.py",
+        "tools/h3_director_prompt_v2.py",
+        "tools/compile_grouped_seedance_manifest.py",
+        "tools/provider_scope_projection.py",
+        "tools/video_prompt_compiler.py",
+        "tools/submit_giggle_video_manifest_v2.py",
+        "lines/nalu/runtime/tools/build_nalu_preproduction.py",
+        "lines/nalu/runtime/tools/prompt_batch_qa.py"
+      ],
+      "do_not_repeat": "Rendering the official format without carrying h3_prompt_format on the task (the paid-boundary re-render would produce V2 and mismatch); adding negative lists or no-subtitle sentences back into the official sections without a lab A/B.",
+      "failure_code": "H3_PROMPT_FORMAT_NOT_OFFICIAL",
+      "decision_record": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
+      "regression": "tools/tests/test_h3_official_ref_prompt.py",
+      "rule": "BILI_V1 H3 units render in MiniMax's official reference-mode format (subject_definitions, summary with a [task] prefix, retention_analysis, detailed_description with [Shot 1], overall_soundscape, non_diegetic_music; <Picture N>/<Subject N>/<Audio N> labels, (S1) speaker ids, <d>[Chinese] words</d>, no negative list). The grouped compiler stamps h3_prompt_format (contract value, else OFFICIAL_REF_V1); DIRECTOR_V2 or env QINGSHAN_H3_PROMPT_FORMAT=DIRECTOR_V2 restores the V2 text byte-identically. Multi-setup and single-subject units stay on V2.",
+      "lesson": "Lab A/B 2026-11-27 on E28 S01-03/05/06 with device-parity inputs (clean gpt-image-2 frame + faces, voice anchors), 2 distinct renders per arm per line: burned text 0/6 (V2) vs 0/6 (official), full line in every ASR, voice F0 matched the anchor, identity and locked camera held in all 12; acting near-identical (the first frame dominates). The lab cannot measure the device burn rate (E28 prod 12/31 under V2), so watch the S6 burn check after rollout.",
+      "recovery": "Set h3_prompt_format=DIRECTOR_V2 in the generation contract (or the env switch) and recompile the unit."
     }
   ]
 }

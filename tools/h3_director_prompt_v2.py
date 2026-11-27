@@ -84,6 +84,10 @@ try:
 except ModuleNotFoundError:  # pragma: no cover
     import performance_variety as _pv  # type: ignore
 try:
+    from tools import h3_official_ref_prompt as _official
+except ModuleNotFoundError:  # pragma: no cover
+    import h3_official_ref_prompt as _official  # type: ignore
+try:
     from tools import visual_culture_contract as _vcc
 except ModuleNotFoundError:  # pragma: no cover
     import visual_culture_contract as _vcc  # type: ignore
@@ -1332,6 +1336,7 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     multi_beat = len(beats) > 1
     said_once: set[str] = set()
     business_rendered = False
+    beat_records: list[dict[str, Any]] = []
     for number, (source, translated) in enumerate(zip(beats, english_beats), 1):
         prefix = f"BEAT.{number}"
         spec = _spec_for(unit, source)
@@ -1459,6 +1464,12 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         if multi_beat:
             line = f"{float(source['start_seconds']):g}–{float(source['end_seconds']):g} s: " + line
         action_lines.append(line)
+        # OFFICIAL_REF_V1 (tools/h3_official_ref_prompt.py) re-composes the same beat sentences in the official order
+        beat_records.append({"parts": list(parts), "line_index": len(action_lines) - 1, "spec": spec,
+                             "speaker_label": speaker_label, "entry": entry, "exit": exit_state,
+                             "dialogue_index": len(dialogue_rows) - 1 if raw else None,
+                             "start": float(source.get("start_seconds") or 0.0),
+                             "end": float(source.get("end_seconds") or plan["duration_seconds"])})
         # what everybody else in frame does during this beat
         actor_id = str(role.get("primary_actor_id") or (spec.get("action") or {}).get("subject_id") or "")
         speaker_id = str(role.get("dialogue_speaker_id") or "") if raw else ""
@@ -1487,6 +1498,7 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
                 action_lines.append(f"{s['label']} stays silent, watching {label_by_id[actor_id]}.")
             else:
                 action_lines.append(f"{s['label']} stays silent in place.")
+    beats_end = len(action_lines)
     if transition.get("outgoing"):
         outgoing = scrub(translated_transition.get("outgoing") or "")
         if not outgoing:
@@ -1612,9 +1624,23 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         ]
         return "\n\n".join(blocks) + "\n"
 
-    constraint_language = v1.h3_constraint_language(unit) if stamped else "en"
-    text = v1.localize_constraints(assemble(False), constraint_language)
-    if len(text) > v1._PROVIDER_RUNE_LIMIT:
+    official = None
+    if _official.applies(unit, plan, stamped=stamped, subjects=subjects, camera=camera,
+                         all_locked=all_locked, records=beat_records):
+        official = _official.compose(_official.Parts(
+            unit=unit, plan=plan, contract=contract, subjects=subjects, label_by_id=label_by_id,
+            face_hidden=face_hidden, looks={s["entity_id"]: look_of(s, False) for s in subjects},
+            crossmodal_rows=crossmodal_rows, setting_en=_sentence(scrub(setting_en)) if setting_en else "",
+            space_weather=space_weather, env_rows=env_rows, look=look, period=period, anime=anime,
+            prop_fact=prop_fact, prop_sentences=prop_sentences, camera=camera, all_locked=all_locked,
+            records=beat_records, action_lines=action_lines, beats_end=beats_end, dialogue_rows=dialogue_rows,
+            sound_rows=sound_rows, adult_line=adult_line, evidence=evidence))
+    constraint_language = v1.h3_constraint_language(unit) if stamped and official is None else "en"
+    if official is not None:  # the official six sections are English by the guide; no constraint localization
+        text = official
+    else:
+        text = v1.localize_constraints(assemble(False), constraint_language)
+    if official is None and len(text) > v1._PROVIDER_RUNE_LIMIT:
         text = v1.localize_constraints(assemble(True), constraint_language)
     if constraint_language == "zh":
         evidence = {key: v1.localize_constraints(value, "zh") for key, value in evidence.items()}
@@ -1636,7 +1662,7 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
                                                **({"keep_fact_ids": kept_fact_ids} if kept_fact_ids else {}))
     if coverage["status"] != "PASS":
         raise ValueError(";".join(coverage["failures"]))
-    self_check = director_v2_self_check(text, unit, plan, stamped=stamped)
+    self_check = director_v2_self_check(text, unit, plan, stamped=stamped, official=official is not None)
     if self_check:
         raise ValueError(f"{uid}:H3_DIRECTOR_V2_SELF_CHECK:" + ";".join(self_check))
     return text, {
@@ -1647,6 +1673,7 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         "h3_prompt_profile": str(unit.get("h3_prompt_profile") or "").strip() or "STANDARD",
         "h3_prompt_style": DIRECTOR_PROMPT_V2,
         "director_prompt_schema": SCHEMA,
+        "h3_prompt_format": _official.FORMAT if official is not None else _official.LEGACY_FORMAT,
         "immutable_contract_sha256": plan["immutable_contract_sha256"],
         "execution_semantics_sha256": plan["execution_semantics_sha256"],
         "camera_language_selection": plan["camera_language_selection"],
@@ -1675,7 +1702,7 @@ _REQUIRED_CAPS_LABELS = ("EAST-ASIAN PERIOD VISUAL LOCK:",)
 
 
 def director_v2_self_check(text: str, unit: dict[str, Any], plan: dict[str, Any], *,
-                           stamped: bool = False) -> list[str]:
+                           stamped: bool = False, official: bool = False) -> list[str]:
     """The V2 counterpart of the V1 shot-scope self check (partial clauses, locked camera) plus the
     V2 shape promises: no machine ids, no V1 templates, no CJK outside the dialogue tags."""
     findings: list[str] = []
@@ -1690,6 +1717,8 @@ def director_v2_self_check(text: str, unit: dict[str, Any], plan: dict[str, Any]
                         else f"{window}: {v1.soft_profile_clause(label)}" if row["part"] == v1.SOFT_PROFILE_PART
                         else f"{window}: only {label}'s {row['part']} in frame" if row["part"]
                         else f"{window}: {label}'s face stays out of frame")
+            if official:  # OFFICIAL_REF_V1 states the clause inside [Shot 1] prose, without the window prefix
+                expected = expected.split(": ", 1)[1]
             if expected not in text:
                 findings.append(f"PARTIAL_CLAUSE_MISSING:BEAT.{index + 1}:{label}")
     findings.extend(locked_camera_conflicts(text))
@@ -1697,6 +1726,8 @@ def director_v2_self_check(text: str, unit: dict[str, Any], plan: dict[str, Any]
     for match in INTERNAL_ID.finditer(outside):
         findings.append(f"INTERNAL_ID_IN_PROMPT:{match.group(0)}")
     for phrase in _FORBIDDEN_V2_PHRASES:
+        if official and phrase == "retention_analysis":  # a section name of the official format itself
+            continue
         if phrase.lower() in outside.lower():
             findings.append(f"V1_TEMPLATE_IN_PROMPT:{phrase}")
     # owner 2026-11-01 (lab E12 long take): H3 voiced the all-caps "CAMERA LOCK — ABSOLUTE RULE:" label;

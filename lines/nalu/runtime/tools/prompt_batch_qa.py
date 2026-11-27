@@ -79,6 +79,22 @@ H3_V2_REQUIRED = ("References:\n", "Who is in frame", "Setting:\n", "Camera:\n",
                   "Sound: ", "Never: ")
 
 
+#: OFFICIAL_REF_V1 (tools/h3_official_ref_prompt.py): the six official sections and where each QA block lives
+H3_OFFICIAL_REQUIRED = ("subject_definitions:\n", "summary:\n", "retention_analysis:\n", "detailed_description:\n",
+                        "overall_soundscape:\n", "non_diegetic_music:\n")
+H3_OFFICIAL_SECTION = {"任务": "summary", "时间轴": "detailed_description", "摄影": "detailed_description",
+                       "声音": "overall_soundscape", "锚点": "subject_definitions", "限制": "retention_analysis"}
+OFFICIAL_IDENTITY_LINE = r"^<Subject \d+> is "
+
+
+def is_h3_official(text: str) -> bool:
+    try:
+        from tools.h3_provider_english_contract import is_official_ref_text
+    except ModuleNotFoundError:
+        from h3_provider_english_contract import is_official_ref_text
+    return is_official_ref_text(text)
+
+
 def is_h3_director_v2(text: str) -> bool:
     # optionally after the opt-in strict camera-lock block (tools/h3_provider_english_contract.CAMERA_LOCK_STRICT)
     try:
@@ -93,6 +109,10 @@ def section(text: str, header: str) -> str:
     m = re.search(r"【" + re.escape(header) + r"[^】]*】\s*(.*?)(?=\n【|\Z)", text, re.S)
     if m:
         return m.group(1).strip()
+    if is_h3_official(text):
+        key = H3_OFFICIAL_SECTION.get(header)
+        m = re.search(r"(?:^|\n\n)" + re.escape(key) + r":\n(.*?)(?=\n\n[a-z_]+:\n|\Z)", text, re.S) if key else None
+        return m.group(1).strip() if m else ""
     if is_h3_director_v2(text):
         key = H3_V2_SECTION.get(header)
         body = r"\s*(.*?)" if key in ("Sound:", "Never:") else r"[^\n]*\n(.*?)"  # one-line vs headed blocks
@@ -488,6 +508,7 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
         # dialogue), rendered from the unit's bound English contract; the Chinese states and cast
         # names are checked through that contract, not by substring.
         vp_is_v2 = is_h3_director_v2(vp_text)
+        vp_is_official = is_h3_official(vp_text)
         vp_is_h3 = vp_is_v2 or vp_text.startswith("subject_definitions:") or "summary: [reference generation" in vp_text
         for sid in unit_shots:
             s = shots[sid]
@@ -520,8 +541,9 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
                 outside = outside.replace(_phrase, "")
             cjk = re.findall(r"[\u3400-\u9fff\u3041-\u3096\u30a1-\u30fa\uac00-\ud7a3]", outside)
             chk("vp_h3_no_cjk_outside_dialogue", not cjk, "".join(cjk[:10]))
-            chk("vp_h3_identity_references", "@Image1" in vp_text, "")
-            identity_lines = V2_IDENTITY_LINE if vp_is_v2 else r"^@Image\d+: exclusive identity of "
+            chk("vp_h3_identity_references", ("<Picture 1>" if vp_is_official else "@Image1") in vp_text, "")
+            identity_lines = (OFFICIAL_IDENTITY_LINE if vp_is_official else V2_IDENTITY_LINE if vp_is_v2
+                              else r"^@Image\d+: exclusive identity of ")
             chk("vp_h3_cast_count", len(re.findall(identity_lines, vp_text, flags=re.M)) >= len(
                 [n for n in vp_cast if n]) or "SUBJECT_1" in vp_text, f"{len(vp_cast)} cast")
         else:
@@ -530,7 +552,7 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
         chk("vp_duration_declared", str(int(round(unit["duration_seconds"]))) in vp_text or f"{unit['duration_seconds']}" in vp_text, str(unit["duration_seconds"]))
         h3_sections = ("subject_definitions:", "summary:", "detailed_description:", "camera:",
                        "overall_soundscape:", "negative_constraints:")
-        chk("vp_required_sections", all(h in vp_text for h in (H3_V2_REQUIRED if vp_is_v2 else h3_sections if vp_is_h3 else (
+        chk("vp_required_sections", all(h in vp_text for h in (H3_OFFICIAL_REQUIRED if vp_is_official else H3_V2_REQUIRED if vp_is_v2 else h3_sections if vp_is_h3 else (
             "【任务】", "【锚点】", "【时间轴】", "【摄影】", "【声音】", "【限制】"))), "")
         chk("vp_rune_limit", len(vp_text) <= 10000, str(len(vp_text)))
         # LOCKED_DIALOGUE_CAMERA_V1 (Roger 2026-10-30, E12 item 2 + K138): camera and silent-beat lints, only

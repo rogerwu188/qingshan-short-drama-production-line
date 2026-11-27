@@ -127,6 +127,24 @@ def strict_camera_lock_applies(payload: dict[str, Any] | None, *, stamped: bool,
     return declared == "strict" or locked_single_take
 
 
+#: OFFICIAL_REF_V1 (tools/h3_official_ref_prompt.py): MiniMax's six reference-mode sections, in order
+OFFICIAL_REF_SECTIONS = ("subject_definitions:\n", "\n\nsummary:\n[", "\n\nretention_analysis:\n",
+                         "\n\ndetailed_description:\n", "\n\noverall_soundscape:\n", "\n\nnon_diegetic_music:\n")
+
+
+def is_official_ref_text(text: str) -> bool:
+    """A DIRECTOR_PROMPT_V2 unit rendered in the official H3 reference-mode format (OFFICIAL_REF_V1)."""
+    text = str(text or "")
+    if not text.startswith(OFFICIAL_REF_SECTIONS[0] + "<Subject "):
+        return False
+    at = 0
+    for marker in OFFICIAL_REF_SECTIONS[1:]:
+        at = text.find(marker, at)
+        if at < 0:
+            return False
+    return True
+
+
 def is_director_v2_text(text: str) -> bool:
     """A DIRECTOR_PROMPT_V2 prompt (tools/h3_director_prompt_v2.py), with or without the camera-lock block."""
     return bool(DIRECTOR_V2_TEXT_START.match(text)) and "\n\nWho is in frame" in text

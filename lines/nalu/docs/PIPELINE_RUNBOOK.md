@@ -1416,3 +1416,5 @@ clips for burned text and makes 4 fps contact sheets.  One iteration is minutes 
   at 4 fps (rapidocr, CJK boxes ≥ 0.6) into `ocr.json`, frames under `frames/<clip>/`, one `<clip>_sheet.jpg` each.
   Look at the sheets yourself for acting (face / eyes / hands change vs a held pose), lip sync and identity.
 * First A/B (E28 S01 ×3 + E27 S04 ×1, old vs writer-authored performance): `~/nalu_lab/perf_lab/` (`AB_REPORT.md`).
+* Prompt-format A/B: a per-arm `LAB.json` may set `"h3_prompt_format": "OFFICIAL_REF_V1" | "DIRECTOR_V2"`;
+  official-format round 2026-11-27 in `~/nalu_lab/perf_lab/OFFICIAL_FORMAT_AB.md` (K177).
