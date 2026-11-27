@@ -25,6 +25,12 @@ dialogue shot -> ``h3_provider_prompt_renderer.render_h3_prompt``.  The unit wra
 sound, English entry / exit) is a lab stand-in for S2; everything the writer controls (action, performance,
 delivery, 脑补 visuals, listener reaction) and every guardrail comes from the engine exactly as on a device.
 
+An arm directory may hold its own ``LAB.json`` (deep-merged over the lab's: per-arm ``first_frames``, ``characters
+.<cid>.face|voice``, ``duration``, ``generate_audio``) so input levers (reference source, voice anchor, duration) are
+bisected side by side on one lab dir; ``run`` warns about inputs a device never sends (no voice anchor).  First
+frames / faces must never come from subtitled footage, not even cropped above the band: render them clean with
+gpt-image-2 (BURN_BISECT2).
+
 ``run`` is the only paid step: one POST per clip, never retried, a ledger per arm (``<lab>/<arm>/ledger.json``), a
 credit budget checked before every POST.  The HopsAPI key is taken the way paid_stage.sh does (environment, else the
 engine ``.env``, else ``~/nalu_runtime/credentials/llm_provider.json`` when that provider is HopsAPI) and never
@@ -335,12 +341,12 @@ def strip_voice_lines(text: str) -> str:
 def render(args: argparse.Namespace) -> int:
     lab = Path(args.lab)
     eng = load_engine(Path(args.engine or DEFAULT_ENGINE))
-    cfg = json.loads((lab / "LAB.json").read_text(encoding="utf-8"))
     out = compile_lab(lab, eng)
     report = out["report"]
     arm = args.arm or "render"
     dest = lab / arm
     dest.mkdir(parents=True, exist_ok=True)
+    cfg = arm_config(lab, dest)  # the arm's own voice anchor / duration shape the rendered prompt too
     (dest / "compile_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=1) + "\n", "utf-8")
     (dest / "contract.json").write_text(json.dumps(out["contract"], ensure_ascii=False, indent=1) + "\n", "utf-8")
     (dest / "directing.md").write_text(out.get("directing_md") or "", "utf-8")
@@ -408,13 +414,46 @@ def hopsapi_key(engine: Path):
             os.environ.pop("HOPSAPI_API_KEY", None)
 
 
+def _merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
+    out = dict(base)
+    for k, v in over.items():
+        out[k] = _merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+    return out
+
+
+def arm_config(lab: Path, arm_dir: Path) -> dict[str, Any]:
+    """LAB.json, deep-merged with an optional ``<arm>/LAB.json`` (per-arm first frames, faces, voice anchor,
+    ``duration``, ``generate_audio``) so one lab dir holds input-lever arms side by side."""
+    cfg = json.loads((lab / "LAB.json").read_text(encoding="utf-8"))
+    over = arm_dir / "LAB.json"
+    if over.exists():
+        cfg = _merge(cfg, json.loads(over.read_text(encoding="utf-8")))
+    return cfg
+
+
+def input_warnings(row: dict[str, Any], cfg: dict[str, Any]) -> list[str]:
+    """Lab inputs that make H3 burn the line as a subtitle where a device would not (BURN_BISECT2, 2026-11-26:
+    E28 S01-05 / S01-03 / S01-06 burned in every render with first frame + faces cropped from E27's released,
+    subtitled cut and no voice anchor; a gpt-image-2 re-render of the same refs, or an @Audio1 voice anchor, each
+    gave 0 burned renders).  A device always sends both, so a burn seen without them is not a device burn."""
+    out = []
+    speaker = row.get("speaker") or ""
+    if speaker and not ((cfg.get("characters") or {}).get(speaker) or {}).get("voice"):
+        out.append(f"no voice anchor for speaker {speaker} (a device always sends @Audio1; without it H3 burns "
+                   "far more often)")
+    if cfg.get("generate_audio") is False:
+        out.append("generate_audio=false is ignored by the HopsAPI router (the clip still speaks; observed "
+                   "2026-11-26)")
+    return out
+
+
 def run(args: argparse.Namespace) -> int:
     lab = Path(args.lab)
     engine = Path(args.engine or DEFAULT_ENGINE).resolve()
     sys.path[:0] = [str(engine), str(engine / "tools")]
     from tools import hopsapi_video_client as hv  # noqa: PLC0415
-    cfg = json.loads((lab / "LAB.json").read_text(encoding="utf-8"))
     arm_dir = lab / args.arm
+    cfg = arm_config(lab, arm_dir)
     prompts = json.loads((arm_dir / "prompts.json").read_text(encoding="utf-8"))
     ledger_path = arm_dir / "ledger.json"
     ledger = json.loads(ledger_path.read_text()) if ledger_path.exists() else {}
@@ -456,6 +495,8 @@ def run(args: argparse.Namespace) -> int:
                                                   if (chars.get(c) or {}).get("face")]
             voice = (chars.get(row.get("speaker") or "") or {}).get("voice")
             audios = [upload(voice, "audios")] if voice else []
+            for problem in input_warnings(row, cfg):
+                print(f"WARNING {key}: {problem}")
             for k in range(args.samples):
                 name = f"{key}_{k}"
                 rec = ledger.setdefault(name, {})
@@ -466,7 +507,8 @@ def run(args: argparse.Namespace) -> int:
                     break
                 payload = hv.build_omni_request(prompt=row["text"], image_urls=images, audio_urls=audios,
                                                 duration=duration, resolution=cfg.get("resolution") or "480p",
-                                                aspect_ratio="9:16")
+                                                aspect_ratio="9:16",
+                                                generate_audio=bool(cfg.get("generate_audio", True)))
                 rec.update(state="INTENT", prompt_sha=hashlib.sha256(row["text"].encode()).hexdigest()[:12])
                 save()
                 rec["task"] = hv.create_task(payload)["task_id"]

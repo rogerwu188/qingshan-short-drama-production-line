@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2621,
+  "file_count": 2623,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -501,7 +501,7 @@
     },
     {
       "path": "lines/nalu/docs/PIPELINE_RUNBOOK.md",
-      "sha256": "cddc0eccec4cf8d7121cc75f8a9452d682d353706929a8ffc2acd35a269e45d8"
+      "sha256": "fa237c6202166f51161741361411471b397981bc6b076616b1c9bc013de487f5"
     },
     {
       "path": "lines/nalu/docs/PORT_PARITY_REPORT.md",
@@ -5673,7 +5673,7 @@
     },
     {
       "path": "tools/lab/snippet_lab.py",
-      "sha256": "eab91ea9ec70541fd28bafea1ce0a16ef219872e3db78ed52c523c82c9a953af"
+      "sha256": "8d52f9e28086579e17a1e2d02c52fccfb2945a12d7000b683d48abf6f33eb3d2"
     },
     {
       "path": "tools/lang_profile.py",
@@ -8176,6 +8176,10 @@
       "sha256": "8df1c74cb9956d636b90040c92907a193ae7792d839b735ff7ad43bbb94bbf89"
     },
     {
+      "path": "tools/tests/test_execution_plan_h3_short_unit_floor.py",
+      "sha256": "5d89ca213e53f8c61e0f0ba98ff3ce3da9ad5dd9e09958bd6c83730b3c9e0a82"
+    },
+    {
       "path": "tools/tests/test_exterior_location_materials.py",
       "sha256": "fb4fcbf3ebf9f115b30ba83b1f595ce46b22846f98238f8a4b3db23a387375b3"
     },
@@ -9618,6 +9622,10 @@
     {
       "path": "tools/tests/test_silent_unit_stray_speech.py",
       "sha256": "b335d53434b1e7e5be3545f0e1c8c09b22e4935acdf1e2eb783a0754dd7e2a09"
+    },
+    {
+      "path": "tools/tests/test_snippet_lab_arm_config.py",
+      "sha256": "dbc97b71c764ee7da1a5b52fdc02b0fe3a27e8ae0b7dc4d63c893e6a12c7ba8d"
     },
     {
       "path": "tools/tests/test_sound_cue_contract.py",
