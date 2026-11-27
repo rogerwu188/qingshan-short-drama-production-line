@@ -99,6 +99,21 @@ locations, reversed roles, invented people, missing beats, 56 s against a 110 s 
   never stalls the line: RELEASE_HELD:<classes> is recorded, the X2C publisher skips the episode, it is queued as a
   redo candidate and production moves on to the next episode.
 
+v7 (2026-11-27, device 1101 E29: one unit, VU-013, still burned after the redo and its retries held a ~280-credit
+episode RELEASE_HELD:BURN_UNRESOLVED):
+
+* burn escalation -- a unit still BURNED when its retries end gets ONE more take with changed INPUTS, not words:
+  @Image1 is a fresh gpt-image-2 Img2Img re-render of the unit's start frame (:data:`CLEAN_FRAME_PROMPT`, ~1.4
+  credits; the lab's burn bisect 2026-11-26: references that never came from burned / subtitled footage gave 0 burned
+  renders), sent instead of the perturbed burned-chain frame, with the unit's voice anchor (checked, recorded) and its
+  stamped prompt format (OFFICIAL_REF_V1 when the compile stamped it).  Cap: one per unit, and
+  ``NALU_FINAL_FIX_BURN_ESCALATION_CREDITS`` (default 15) per episode for clean frames + takes together
+  (:func:`plan_burn_escalation`); the best take of all is kept;
+* a kept final-fix take still burned ONLY inside our subtitle band (:func:`confined_band`) goes through the existing
+  S7 strict burned-line check (build_burnin_subtitles --avoid-bands, #303): ACCEPT_CORRECT (the burned line is
+  exactly our line, steady) suppresses our duplicate cue and the burn no longer holds the release
+  (``objective_defects(burn_verdicts=...)``); anything else keeps the hold.  No blur, no mask.
+
 Pure functions (no I/O except :func:`write_record`); nalu_pipeline wires them into S7 / S6 / S8.
 """
 from __future__ import annotations
@@ -289,10 +304,26 @@ BURN_RETRY_SENTENCES = {
         "half of every frame shows only clothing, hands and the set."),
     2: ("Treat the frame as a clean film negative with no titles: no letter, character, caption bar or written "
         "word is ever drawn over the scene, from the first frame to the last."),
+    # the burn escalation (v7): the take after the retries, opening on a freshly re-rendered clean first frame
+    3: ("The picture is a clean photographed scene with no overlay: words are only spoken aloud, and the lower part "
+        "of the frame always shows the people, their clothes and the set, never any lettering."),
 }
 #: retries of a fix-round burned-text redo (detection-triggered, inside NALU_FINAL_FIX_BUDGET_CREDITS)
 FIX_BURN_RETRY_MAX = 2
 FIX_BURN_RETRY_ENV = "NALU_FINAL_FIX_BURN_RETRY_MAX"
+#: burn escalation (v7, 2026-11-27): ONE more take of a unit still burned after the fix-round redo and its retries,
+#: with changed INPUTS -- @Image1 is a fresh gpt-image-2 Img2Img re-render of the unit's start frame (never footage
+#: of a burned take, never an H3 tail) -- inside its own per-episode cap (video take + clean frame)
+BURN_ESCALATION_RETRY = FIX_BURN_RETRY_MAX + 1
+BURN_ESCALATION_ENV = "NALU_FINAL_FIX_BURN_ESCALATION_CREDITS"
+DEFAULT_BURN_ESCALATION_CREDITS = 15
+#: the Img2Img prompt of the clean first frame (no text in it; same people, place, pose, framing and light)
+CLEAN_FRAME_PROMPT = ("Re-render this exact frame as a fresh, clean film still: the same people with the same faces, "
+                      "hair, age, costumes and colours, the same poses, positions and expressions, the same place, "
+                      "set dressing, camera position, framing and light. Nothing is written anywhere in the image: no "
+                      "subtitles, captions, letters, characters, words, signs with lettering, logos or watermarks, "
+                      "and the lower part of the frame shows only the people, their clothes and the set. Keep the "
+                      "image's own visual style; add no new person or object.")
 _ASCII_TEXT = re.compile(r"^[A-Za-z][A-Za-z ,'\-]{0,60}$")
 
 
@@ -1165,6 +1196,55 @@ def plan_burn_retry(rec: dict[str, Any] | None, detection: dict[str, Any], *, re
     return {"action": "RETRY", "reason": "BURNED_TEXT_STILL_DETECTED", "retry": done + 1, "cost": cost}
 
 
+def burn_escalation_cap(env: dict[str, str] | None = None) -> int:
+    """``NALU_FINAL_FIX_BURN_ESCALATION_CREDITS`` (default 15; 0 disables the escalation)."""
+    raw = str((os.environ if env is None else env).get(BURN_ESCALATION_ENV, DEFAULT_BURN_ESCALATION_CREDITS)).strip()
+    try:
+        return max(0, int(float(raw)))
+    except ValueError:
+        return DEFAULT_BURN_ESCALATION_CREDITS
+
+
+def burn_escalation_spent(redo_state: dict[str, Any] | None) -> float:
+    """Credits the episode's burn escalations already planned (clean frame + video take, every unit)."""
+    return round(sum(float((row.get("burn_escalation") or {}).get("planned_credits") or 0)
+                     for row in ((redo_state or {}).get("units") or {}).values() if isinstance(row, dict)), 3)
+
+
+def plan_burn_escalation(rec: dict[str, Any] | None, detection: dict[str, Any], *, cap: int, spent: float,
+                         video_cost: int, image_cost: int, headroom: int | None) -> dict[str, Any]:
+    """Whether a fix-round burned-text unit the retries left burned gets its ONE escalation take.  Pure.
+
+    ESCALATE when the kept take is still BURNED, the unit had no escalation yet, the episode's escalation cap
+    (:func:`burn_escalation_cap` minus :func:`burn_escalation_spent`) covers the clean frame + the video take, and
+    the episode headroom covers it too; else SKIP with the reason (the best take is kept as before)."""
+    rec = rec or {}
+    cost = int(video_cost) + int(image_cost)
+    if detection.get("status") != "BURNED":
+        return {"action": "SKIP", "reason": "NOT_BURNED"}
+    if rec.get("burn_escalation"):
+        return {"action": "SKIP", "reason": "ALREADY_ESCALATED"}
+    if cap <= 0:
+        return {"action": "SKIP", "reason": "ESCALATION_DISABLED"}
+    left = round(cap - float(spent or 0), 3)
+    if cost > left:
+        return {"action": "SKIP", "reason": "ESCALATION_CAP", "cost": cost, "cap": cap, "left": left}
+    if headroom is None:
+        return {"action": "SKIP", "reason": "BUDGET_HEADROOM_UNKNOWN", "cost": cost}
+    if cost > int(headroom):
+        return {"action": "SKIP", "reason": "BUDGET_HEADROOM_SHORT", "cost": cost, "headroom": int(headroom)}
+    return {"action": "ESCALATE", "reason": "BURNED_AFTER_RETRIES", "retry": BURN_ESCALATION_RETRY, "cost": cost,
+            "video_cost": int(video_cost), "image_cost": int(image_cost), "cap": cap, "left": left}
+
+
+def confined_band(hits: list[dict[str, Any]] | None, band: tuple[float, float]) -> bool:
+    """True when every burned hit with a position sits inside ``band`` (y fractions) -- the burn is our subtitle
+    band's text only, nothing on the set.  Pure."""
+    ys = [h.get("y_centre") for h in hits or [] if isinstance(h, dict)]
+    ys = [float(y) for y in ys if isinstance(y, (int, float))]
+    return bool(ys) and all(band[0] <= y <= band[1] for y in ys)
+
+
 def round_budget_left(record: dict[str, Any] | None, redo_state: dict[str, Any] | None,
                       budget: int | None = None) -> float:
     """NALU_FINAL_FIX_BUDGET_CREDITS minus the round's planned redo spend minus every burn retry already
@@ -1322,6 +1402,9 @@ def summary(record: dict[str, Any] | None) -> dict[str, Any]:
     burn = paid.get("burn_checks") or {}
     if burn:
         out["burn_redo"] = {uid: row.get("status") for uid, row in burn.items()}
+        esc = {uid: row["escalation"] for uid, row in burn.items() if row.get("escalation")}
+        if esc:
+            out["burn_escalation"] = esc
     bugs = [f.get("unit_id") for f in [*(record.get("findings") or []),
                                        *((record.get("second_review") or {}).get("findings") or [])]
             if (f.get("voice_check") or {}).get("status") == "MAPPING_BUG"]
@@ -1353,6 +1436,8 @@ def _round_note(record: dict[str, Any] | None) -> str:
         parts.append(f"redo {','.join(s['units_redone'])} ({s['planned_credits']} cr)")
     if s.get("burn_redo"):
         parts.append("burn " + ",".join(f"{u.rsplit('-', 1)[-1]}={v}" for u, v in s["burn_redo"].items()))
+    if s.get("burn_escalation"):
+        parts.append("burn-esc " + ",".join(f"{u.rsplit('-', 1)[-1]}={v}" for u, v in s["burn_escalation"].items()))
     counts = s.get("reconciliation") or {}
     if counts:
         parts.append(f"resolved {counts.get(RESOLVED, 0)} persists {counts.get(PERSISTS, 0)} "
@@ -1537,7 +1622,8 @@ def _burn_source(record: dict[str, Any], row: dict[str, Any]) -> dict[str, Any] 
 def objective_defects(record: dict[str, Any] | None, *, runtime_s: float | None = None,
                       target_s: float | None = None, plan_parity: dict[str, Any] | None = None,
                       suspect_checks: list[dict[str, Any]] | None = None,
-                      text_removed: Any = None) -> dict[str, Any]:
+                      text_removed: Any = None,
+                      burn_verdicts: dict[str, list[str]] | None = None) -> dict[str, Any]:
     """The objective (measured, not opinion) defects left at release:
 
     runtime           the cut's content runtime vs the brief's target (short below RUNTIME_MIN_RATIO)
@@ -1551,7 +1637,10 @@ def objective_defects(record: dict[str, Any] | None, *, runtime_s: float | None 
     ``count`` sums them; ``classes`` names those present; ``blocking_classes`` those that may hold the release
     (RUNTIME_SHORT when short, BURN_UNRESOLVED when a blocking burn is left -- the policy decides).
     ``text_removed``: units whose picture in this cut is the S7 local burned-text removal's cleaned copy
-    (tools/burned_text_removal.py, 2026-11-23) -- their round-unresolved burn is listed, never blocking."""
+    (tools/burned_text_removal.py, 2026-11-23) -- their round-unresolved burn is listed, never blocking.
+    ``burn_verdicts``: unit -> the S7 strict burned-line verdicts (``burned_line_checks``) of units whose KEPT
+    final-fix take burns only inside our subtitle band (v7): all ACCEPT_CORRECT = the burned line is exactly our
+    line, steady, and S7 drew no second copy -- listed, not blocking (the same rule as an S6 unresolved burn)."""
     record = record if isinstance(record, dict) else {}
     runtime: dict[str, Any] = {}
     if _num(runtime_s) is not None and _num(target_s):
@@ -1563,6 +1652,9 @@ def objective_defects(record: dict[str, Any] | None, *, runtime_s: float | None 
         if r.get("kind") not in _BURN_KINDS:
             continue
         accepted = burn_accepted(r) or burn_accepted(_burn_source(record, r))
+        unit_verdicts = (burn_verdicts or {}).get(str(r.get("unit_id") or ""))
+        if not accepted and unit_verdicts and r.get("kind") == "BURNED_TEXT":
+            accepted = burn_accepted({"strict_burn_verdicts": unit_verdicts})
         removed = str(r.get("unit_id") or "") in set(map(str, text_removed or ()))
         burns.append({**{k: r.get(k) for k in ("kind", "unit_id", "window", "state") if r.get(k) is not None},
                       "source": "FINAL_FIX_UNRESOLVED", "blocking": not accepted and not removed,

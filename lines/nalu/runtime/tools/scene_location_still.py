@@ -215,12 +215,16 @@ def _poll(client: Any, tx_path: Path, out_path: Path, *, wait_seconds: float,
 def generate_one(row: dict[str, Any], registry: dict[str, Any], *, client: Any, engine_root: Path,
                  out_dir: Path, episode: str, wait_seconds: float = DEFAULT_WAIT_SECONDS,
                  sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
-                 save: Callable[[], None] = lambda: None) -> dict[str, Any]:
-    """Resume / submit / poll one location.  ``registry`` is mutated (the caller persists it via ``save``)."""
+                 save: Callable[[], None] = lambda: None, prompt: str | None = None, task_key: str | None = None,
+                 out_path: Path | None = None, intent_extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Resume / submit / poll one location.  ``registry`` is mutated (the caller persists it via ``save``).
+
+    ``prompt`` / ``task_key`` / ``out_path`` / ``intent_extra`` let another single-image Img2Img job reuse the same
+    durable path (burn_clean_start_frame.py, 2026-11-27); omitted, everything is exactly the location still."""
     location = row["location_id"]
     entry = registry.setdefault("locations", {}).setdefault(location, {"attempts": []})
     entry.update({k: row[k] for k in ("scene_ids", "source_shot_id", "source_keyframe", "source_keyframe_sha256")})
-    out_path = out_dir / f"{episode}_{safe_key(location)}_LOCATION_STILL.png"
+    out_path = Path(out_path) if out_path is not None else out_dir / f"{episode}_{safe_key(location)}_LOCATION_STILL.png"
     attempts = entry["attempts"]
     if attempts:
         tx_path = Path(attempts[-1]["transaction"])
@@ -247,9 +251,9 @@ def generate_one(row: dict[str, Any], registry: dict[str, Any], *, client: Any, 
             save()
             return {"location_id": location, "status": "FAILED", "attempts": len(attempts)}
     attempt_no = len(attempts) + 1
-    prompt = still_prompt(row)
+    prompt = prompt or still_prompt(row)
     prompt_sha = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
-    task_key = f"{TASK_PREFIX}__{safe_key(location)}"
+    task_key = task_key or f"{TASK_PREFIX}__{safe_key(location)}"
     try:
         prepared = client.prepare_request(prompt=prompt, reference_paths=[row["source_keyframe"]], aspect_ratio="9:16",
                                           task_key=task_key)
@@ -266,8 +270,8 @@ def generate_one(row: dict[str, Any], registry: dict[str, Any], *, client: Any, 
         "intent_recorded_at": utc_now(), "model": getattr(client, "LOGICAL_MODEL", client.MODEL),
         "prompt_sha256": prompt_sha, "reference_image_sha256s": [row["source_keyframe_sha256"]],
         "endpoint": "hopsapi:/router/task/create", "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
-        "scene_location_still": True, "location_id": location, "still_attempt": attempt_no,
-        **client.intent_fields(prepared),
+        **({"scene_location_still": True, "location_id": location} if intent_extra is None else dict(intent_extra)),
+        "still_attempt": attempt_no, **client.intent_fields(prepared),
     }
     atomic_json(tx_path, intent)
     attempts.append({"attempt": attempt_no, "transaction": str(tx_path), "intent_recorded_at": intent["intent_recorded_at"]})

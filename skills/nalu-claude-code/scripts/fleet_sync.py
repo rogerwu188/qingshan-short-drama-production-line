@@ -675,6 +675,7 @@ REVIEW_FILES = ("final_cut", "contract", "timeline", "gemini_review")
 REVIEW_EPISODE_RE = re.compile(r"E\d{2,3}")
 REVIEW_MAX_BYTES = 200 * 1024 * 1024
 REVIEW_UPLOAD_PATH = "maint-review"
+HELD_CUT_SUFFIX = "_held_cut.mp4"
 
 
 def _contract_candidates(engine: Path, runtime: Path, ep: str) -> list[Path]:
@@ -719,7 +720,16 @@ def review_files(engine: Path, runtime: Path, ep: str) -> dict[str, tuple[Path |
     out: dict[str, tuple[Path | None, str]] = {}
     cut = next((p for p in (runtime / "deliverables" / ep / f"{ep}_final_9x16.mp4",
                             runtime / "runtime" / "deliverables" / ep / f"{ep}_final_9x16.mp4") if p.is_file()), None)
-    out["final_cut"] = (cut, f"{ep}_final_9x16.mp4") if cut else (None, "NOT_FOUND")
+    if cut:
+        out["final_cut"] = (cut, f"{ep}_final_9x16.mp4")
+    else:
+        # a RELEASE_HELD episode has no deliverable (2026-11-27, 1101 E29): the newest assembly cut instead -- the
+        # S7 final candidate (the final-fix round's output, the cut the second review watched) or the subbed
+        # end-card + BGM cut -- uploaded as <EP>_held_cut.mp4 (review_upload marks it ``held``)
+        held = [p for p in (work / "assembly" / f"{ep}_final_candidate_9x16.mp4",
+                            work / "assembly" / f"{ep}_picture_native_subbed_endcard_bgm.mp4") if p.is_file()]
+        held.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        out["final_cut"] = (held[0], f"{ep}{HELD_CUT_SUFFIX}") if held else (None, "NOT_FOUND")
     contract, wrong = None, []
     for p in _contract_candidates(engine, runtime, ep):
         if p.is_file():
@@ -744,7 +754,8 @@ def _inside(path: Path, roots: tuple[Path, ...]) -> bool:
 
 def review_upload(cp: Any, payload: dict) -> tuple[bool, dict, dict]:
     """Upload fixed review files of one episode for the maintainers' daily deep review (owner 2026-11-23): the final
-    cut, its generation contract, the release timeline and the device's Gemini final review.  System code, no
+    cut, its generation contract, the release timeline and the device's Gemini final review.  A held episode (no
+    deliverable) uploads its newest assembly cut as ``<EP>_held_cut.mp4`` with ``held: true``.  System code, no
     model, no shell; only these files (resolved by fixed rules, never a caller path), <= REVIEW_MAX_BYTES each, to
     HopsAPI file storage (free) with the line's key (never printed).  Read-only for production."""
     ep = str(payload.get("episode") or "").strip().upper()
@@ -790,6 +801,9 @@ def review_upload(cp: Any, payload: dict) -> tuple[bool, dict, dict]:
                 result["missing"].append({"file": kind, "reason": f"UPLOAD_FAILED:{str(exc)[:160]}"})
                 continue
             result["files"][kind] = {k: up.get(k) for k in ("url", "sha256", "bytes", "expires_at", "file_name")}
+            if kind == "final_cut" and name.endswith(HELD_CUT_SUFFIX):
+                result["files"][kind].update(held=True, source=path.name)
+                result["held"] = True
     finally:
         if old_key is None:
             os.environ.pop(hv.API_KEY_ENV, None)

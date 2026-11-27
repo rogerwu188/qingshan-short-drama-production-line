@@ -1946,7 +1946,13 @@ def final_fix_redo_fields(out_dir: Path, episode: str) -> dict[str, dict[str, An
             out[str(uid)] = {"round": int(row.get("round") or 1), "kind": row.get("kind"),
                              "kinds": list(row.get("kinds") or [row.get("kind")]), "sentence": str(row["sentence"]),
                              # burned-text retry n of the redo (2026-11-20): the submitter's stronger perturbation
-                             **({"burn_retry": int(row["burn_retry"])} if int(row.get("burn_retry") or 0) else {})}
+                             **({"burn_retry": int(row["burn_retry"])} if int(row.get("burn_retry") or 0) else {}),
+                             # the burn escalation (final_fix_round v7, 2026-11-27): the clean re-rendered first
+                             # frame the submitter sends as @Image1 instead of a perturbed copy
+                             **({"clean_start_frame": {k: row["clean_start_frame"].get(k)
+                                                       for k in ("path", "sha256", "source_sha256")}}
+                                if isinstance(row.get("clean_start_frame"), dict)
+                                and row["clean_start_frame"].get("path") else {})}
     return out
 
 
