@@ -1401,8 +1401,17 @@ clips for burned text and makes 4 fps contact sheets.  One iteration is minutes 
 * **run** (paid): `run <lab> --arm new --samples 2 --budget 20`.  One POST per clip, never retried; ledger
   `<lab>/<arm>/ledger.json`; uploads cached in `<lab>/uploads.json`; the budget is checked before each POST.  The
   HopsAPI key comes from the environment, else the engine `.env`, else `~/nalu_runtime/credentials/llm_provider.json`
-  when that provider is HopsAPI (paid_stage.sh's lookup); it is never printed.  First frames must not carry burned
-  subtitles (crop a released cut above the subtitle band).
+  when that provider is HopsAPI (paid_stage.sh's lookup); it is never printed.  Per-arm inputs: an
+  `<arm>/LAB.json` is deep-merged over the lab's (first frames, faces, `voice`, `duration`), so reference / voice /
+  duration levers sit side by side.
+* **Device-parity inputs (BURN_BISECT2, 2026-11-26).**  First frames and faces must NOT come from a released
+  (subtitled) cut, not even cropped above the subtitle band, and every speaker needs a voice anchor
+  (`characters.<cid>.voice`, a 2-3 s clean line of that character).  With E27 release crops and no anchor, E28
+  S01-05 burned in every render (~16 distinct renders, any prompt wording); a gpt-image-2 Img2Img re-render of the
+  same crops (~0.2 cr each) or an @Audio1 anchor each gave 0 burned renders on S01-03 / S01-05 / S01-06.  A device
+  always sends both, so a lab burn without them says nothing about device burns; `run` warns when an anchor is
+  missing.  HopsAPI returns byte-identical clips for identical requests, so `--samples 2` is often ONE render:
+  count distinct md5s.  `generate_audio: false` is ignored by the router (the clip still speaks).
 * **check**: `~/nalu_verify/engine/.qingshan-venv/bin/python tools/lab/snippet_lab.py check <lab> --arm new` — OCR
   at 4 fps (rapidocr, CJK boxes ≥ 0.6) into `ocr.json`, frames under `frames/<clip>/`, one `<clip>_sheet.jpg` each.
   Look at the sheets yourself for acting (face / eyes / hands change vs a held pose), lip sync and identity.
