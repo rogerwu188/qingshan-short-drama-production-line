@@ -10357,7 +10357,7 @@
     },
     {
       "path": "tools/video_execution_plan_compiler.py",
-      "sha256": "3d7a40c9d2e50907d3a306846049f1590f723cdf2b9c814b3aeec038f366f110"
+      "sha256": "853d04c1c3b8407b19e4e6db5acc010835657edac3736d45780c09dbb2ce9463"
     },
     {
       "path": "tools/video_generation_failure_policy.py",
