@@ -2010,7 +2010,7 @@ def script_length_check(ctx: Ctx) -> dict[str, Any]:
 #: S1 blockers that are writer-fixable defects of the script itself (integrity, never taste): they return the
 #: script to the writer, free, inside the bounded integrity loop below
 S1_INTEGRITY_PREFIXES = ("SCRIPT_TOO_SHORT", "SCRIPT_TOO_LONG", "SCRIPT_INTEGRITY_FAIL", "DIRECTION_POLICY_INTEGRITY_FAIL",
-                         "RUNTIME_ESTIMATE_SHORT",
+                         "RUNTIME_ESTIMATE_SHORT", "SCRIPT_CRAFT_REVISE",
                          "CHARACTER_ENTITY_CONTRACT_FAIL", "SCRIPT_STRUCTURE_CONTRACT_FAIL",
                          "CONTINUITY_STATE_CONTRACT_FAIL", "STATIC_DESIGN_GATE_FAIL",
                          "WRITER_CAPABILITY_STEP_OWED:SCRIPT_REVIEW_NOT_INDEPENDENT")
@@ -2072,6 +2072,29 @@ def s1_runtime_feedback(p: Any, layer_shas: dict[str, Any], length: dict[str, An
     except Exception:  # noqa: BLE001 -- unknown ledger: send it once
         pass
     return advisory
+
+
+def s1_craft_feedback(p: Any, layer_shas: dict[str, Any], compile_row: dict[str, Any]) -> list[str]:
+    """SCRIPT_CRAFT_REVISE codes from the screenplay compile (E28 review 2026-11-26: performance not authored per line,
+    engine rules written into action lines, series-card voice / verbal habit missing) as ONE writer revision through
+    the bounded integrity loop, exactly like RUNTIME_ESTIMATE_SHORT: on the first failing script that carries them;
+    once an earlier script was sent back for them they are only recorded -- never a second round, never a hard stop.
+    Each code carries its fix.  [] when nothing is owed.  Never raises."""
+    codes = [str(c) for c in (compile_row or {}).get("craft_feedback") or [] if str(c).startswith("SCRIPT_CRAFT_REVISE")]
+    if not codes:
+        return []
+    try:
+        sha = hashlib.sha256(json.dumps(layer_shas or {}, sort_keys=True).encode("utf-8")).hexdigest()
+        state = read_json(Path(getattr(p, "logs")) / S1_INTEGRITY_LEDGER, {}) or {}
+        for row in state.get("rounds") or []:
+            if isinstance(row, dict) and row.get("layers_sha256") != sha and any(
+                    str(c).startswith("SCRIPT_CRAFT_REVISE") for c in row.get("codes") or []):
+                return []  # the writer already had its chance on an earlier script
+    except Exception:  # noqa: BLE001 -- unknown ledger: send it once
+        pass
+    fixes = (compile_row or {}).get("craft_feedback_fix") or {}
+    return [f"{code} (fix: {fixes.get(code.split(':')[1], '')})" if fixes.get(code.split(":")[1]) else code
+            for code in codes]
 
 
 def s1_integrity_blockers(decision: dict[str, Any], blockers: list[str]) -> list[str]:
@@ -2313,7 +2336,7 @@ def s1_screenplay_compile(ctx: Any, p: Any) -> dict[str, Any]:
             row["status"] = "UP_TO_DATE" if out.get("contract") is not None else "FAILED"
             files["report"].write_text(json.dumps(report, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
         row.update({k: report.get(k) for k in ("errors", "en_missing", "fallback_field_share", "shots", "seconds",
-                                               "inputs")})
+                                               "inputs", "craft_feedback", "craft_feedback_fix", "performance")})
         if report.get("en_fallback_used"):
             row["en_fallback_used"] = report["en_fallback_used"]
             row["en_fallback_basis"] = fallback
@@ -2468,6 +2491,10 @@ def stage_s1(ctx: Ctx) -> StageResult:
     if runtime_feedback:
         integrity_blockers.append(runtime_feedback)
         length["routed_to_writer"] = True
+    # E28 review 2026-11-26: one writer revision for the craft feedback (performance, rule talk, series-card voice)
+    craft_feedback = [] if in_flight or ctx_craft_profile(ctx) != "BILI_V1" else \
+        s1_craft_feedback(p, layer_shas, screenplay_compile)
+    integrity_blockers += craft_feedback
 
     # Writer-capability record (line owner 2026-11-01): under WRITER_CAPABILITY_V1 an
     # episode must show an arc ledger, its own adaptation disposition, an answered

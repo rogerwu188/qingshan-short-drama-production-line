@@ -1,0 +1,116 @@
+{
+ "episode": "LAB",
+ "dialogue_language": "zh",
+ "cast": [
+  {
+   "id": "CHAR-LINGYAO",
+   "name": "凌瑶",
+   "english_name": "Lingyao",
+   "aliases": [
+    "凌瑶战神",
+    "战神"
+   ],
+   "gender": "女",
+   "age": "26-30",
+   "wardrobe": {
+    "outer_layer": "瑰丽红色交领长裙，紧束腰带；审判回忆加暗银铠甲",
+    "description": "瑰丽红色交领长裙，紧束腰带；审判回忆加暗银铠甲"
+   }
+  },
+  {
+   "id": "CHAR-DONGYANG",
+   "name": "东阳",
+   "english_name": "Dongyang",
+   "aliases": [
+    "东阳神君"
+   ],
+   "gender": "男",
+   "age": "30-35",
+   "wardrobe": {
+    "outer_layer": "纤尘不染的白色交领长袍",
+    "description": "纤尘不染的白色交领长袍"
+   }
+  },
+  {
+   "id": "CHAR-AYE",
+   "name": "阿夜",
+   "english_name": "Aye",
+   "aliases": [
+    "龙夜澈"
+   ],
+   "gender": "男",
+   "age": "16-20",
+   "wardrobe": {
+    "outer_layer": "脏兮兮的白色交领外门修行服",
+    "description": "脏兮兮的白色交领外门修行服"
+   }
+  }
+ ],
+ "props": [
+  {
+   "id": "PROP-SLEEVE",
+   "name": "衣袖",
+   "aliases": [],
+   "owner": "CHAR-LINGYAO",
+   "hand": "左手",
+   "description": "红裙衣袖，袖口有深红织边",
+   "description_en": "A red skirt's sleeve with dark red woven edging at the cuff."
+  },
+  {
+   "id": "PROP-BLANKET",
+   "name": "薄被",
+   "aliases": [],
+   "owner": "CHAR-AYE",
+   "hand": "身上",
+   "description": "素灰色棉被，盖到胸口",
+   "description_en": "A plain gray cotton blanket covering the body up to the chest."
+  },
+  {
+   "id": "PROP-BOWL",
+   "name": "药碗",
+   "aliases": [],
+   "owner": "CHAR-DONGYANG",
+   "hand": "左手",
+   "description": "无纹黑陶小碗，置于床边木桌",
+   "description_en": "A small unpatterned black earthenware bowl placed on a wooden table beside the bed."
+  }
+ ],
+ "locations": [
+  {
+   "id": "LOC-BEDROOM",
+   "name": "缥缈山寝殿",
+   "set_pieces": [
+    "木床",
+    "药桌",
+    "无字屏风"
+   ],
+   "weather": "阴",
+   "ambience": "阿夜细弱呼吸、窗纸受风轻响"
+  }
+ ],
+ "visual_culture_contract": {
+  "era_lock": "EAST_ASIAN_PERIOD",
+  "profile_id": "LINGYAO-XIANXIA",
+  "decision_owner": "WRITER_DIRECTOR",
+  "decision_basis": "沿用本剧写实仙侠古装风格",
+  "source_ref": "SERIES_CARD.yaml",
+  "story_world": "东亚古代仙侠",
+  "production_design": "古式交领衣袍、木殿与石庭院",
+  "image_texture": "写实摄影，自然皮肤和布料",
+  "armor_tradition": "古式暗银甲片",
+  "palette_system": {
+   "base": "冷灰石白",
+   "accent": "凌瑶深红",
+   "skin": "真实自然肤色"
+  },
+  "lighting_language": "cool moonlight at night and soft mountain daylight by day",
+  "forbidden_influences": [
+   "现代服装",
+   "现代兵器",
+   "玻璃罩煤油灯",
+   "西式教堂",
+   "霓虹灯",
+   "科幻机械"
+  ]
+ }
+}

@@ -1379,3 +1379,31 @@ Owner: 「不要等我了，我自己看不过来」 — episodes never stop and
   stabilised huayuan clips): the schema was followed (6/6 rows), but Gemini at 2 fps did not see a 1–1.5 % set
   wobble by itself and confirmed / dismissed it according to the suspects it was given — the S6 measurement is the
   authority for mild wobble, Gemini a reviewer of it.  Budget unchanged (≤ 8 credits / episode).
+
+## Lab: snippet harness (E28 review, 2026-11-26)
+
+Line owner: "可以本地跑一些片段来测，不用跑一整集，现在迭代的太慢了，一集就是一天".  `tools/lab/snippet_lab.py` compiles a
+few screenplay lines with the engine on a laptop — no device, no episode — prints the exact H3 prompts, and optionally
+runs them on MiniMax-H3 (480p, 4–6 s) with a first frame + face references (+ optional voice anchor), then OCRs the
+clips for burned text and makes 4 fps contact sheets.  One iteration is minutes and ~4.3 credits per 4 s clip.
+
+* **Lab dir** = the writer's normal files for the snippet (`SERIES_CARD.yaml`, `LAB_SCREENPLAY.md`,
+  `LAB_CAST_PROPS.yaml` (JSON accepted), `LAB_SCREENPLAY_EN.json`) + `LAB.json` (English wardrobe / setting / sound,
+  `characters.<cid>.face|voice`, `first_frames.<Snn-kk>`, `duration`, `resolution`).  `extract` builds one from a
+  compiled contract (`--contract E28_GENERATION_CONTRACT_v1.json --shots E28-S01-01,…`), English twins included.
+* **render** = `screenplay_compile.compile_screenplay` → `director_pass.direct` → one single-shot H3 unit per dialogue
+  shot → `render_h3_prompt`.  `--engine <checkout>` compiles / renders with another checkout (A/B: origin/main vs a
+  branch on the same lab dir).  Writes `<lab>/<arm>/{Snn-kk.txt, prompts.json, contract.json, directing.md,
+  compile_report.json, en_request.json}`; missing English twins are listed in `en_request.json` (answer them in
+  `LAB_SCREENPLAY_EN.json`, render again).  The unit wrapper (references, roster, setting, sound, English entry /
+  exit) is a lab stand-in for S2; action, performance, delivery, 脑补 visuals, listener reaction and every guardrail
+  are the engine's own text.
+* **run** (paid): `run <lab> --arm new --samples 2 --budget 20`.  One POST per clip, never retried; ledger
+  `<lab>/<arm>/ledger.json`; uploads cached in `<lab>/uploads.json`; the budget is checked before each POST.  The
+  HopsAPI key comes from the environment, else the engine `.env`, else `~/nalu_runtime/credentials/llm_provider.json`
+  when that provider is HopsAPI (paid_stage.sh's lookup); it is never printed.  First frames must not carry burned
+  subtitles (crop a released cut above the subtitle band).
+* **check**: `~/nalu_verify/engine/.qingshan-venv/bin/python tools/lab/snippet_lab.py check <lab> --arm new` — OCR
+  at 4 fps (rapidocr, CJK boxes ≥ 0.6) into `ocr.json`, frames under `frames/<clip>/`, one `<clip>_sheet.jpg` each.
+  Look at the sheets yourself for acting (face / eyes / hands change vs a held pose), lip sync and identity.
+* First A/B (E28 S01 ×3 + E27 S04 ×1, old vs writer-authored performance): `~/nalu_lab/perf_lab/` (`AB_REPORT.md`).

@@ -18,6 +18,13 @@ A disfluency is chosen by psychology (shame -> failed start; misunderstood -> ha
 at most ``disfluency_max_per_scene`` per scene, and written as body -- never as added or repeated words, so the line
 stays verbatim for the burned subtitles and the ASR match.
 
+Writer-authored performance (E28 review 2026-11-26, line owner "现在迭代的太慢了"): the lexicon above is only the
+FALLBACK.  Under SCREENPLAY_V1 the writer authors, per dialogue line, an ``@演`` block (want / hide / leak / crack /
+visible business / end state / listener) and per character per scene an ``@arc`` (entry -> exit); the compiler then
+builds the timeline from those (:func:`build_authored`, ``source: writer``) and takes the trigger word from the writer's
+stress note (:func:`stress_word`), never from :func:`trigger_word`.  A line without ``@演`` keeps the lexicon timeline,
+marked ``source: lexicon_fallback``.
+
 Data: ``configs/PERFORMANCE_EMOTION_LEXICON_v1.json`` ``micro_performance``.  Pure functions, stdlib only.
 Timeline beats carry ``from`` / ``to`` as fractions of the line's window; ``{who}`` / ``{listener}`` / ``{trigger}``
 placeholders in the English text are filled by the renderer (``tools/bili_carry.py``) with the unit's provider labels.
@@ -156,7 +163,9 @@ def build(*, who: str, emotion: str, emotion_en: str, line: str, paren: str = ""
     if not row or not line:
         return None
     curve = curve if curve is not None else EmotionCurve()
-    word, index = trigger_word(line, names)
+    word, index, stress_source = stress_word(line, paren)  # the writer's stress note first (E28 review)
+    if not word:
+        word, index = trigger_word(line, names)
     at = _spoken_fraction(line, index)
     start = 0.3 if lead_in else 0.0
     t_change = round(min(0.6, max(start + 0.15, start + (1.0 - start) * at)), 2)
@@ -189,8 +198,9 @@ def build(*, who: str, emotion: str, emotion_en: str, line: str, paren: str = ""
          "en": "end frame: " + exit_state["en"] + ("" if "lips" in exit_state["en"] else ", lips closed")},
     ]
     curve.close(who, emotion, emotion_en, exit_state)
-    return {"schema": SCHEMA, "emotion": emotion, "stage": stage_of(emotion), "curve": note,
-            "trigger_word": word, "disfluency": disfluency, "beats": beats}
+    return {"schema": SCHEMA, "source": "lexicon_fallback", "emotion": emotion, "stage": stage_of(emotion),
+            "curve": note, "trigger_word": word, "trigger_source": stress_source or "auto", "disfluency": disfluency,
+            "beats": beats}
 
 
 def zh_summary(timeline: dict[str, Any] | None) -> str:
@@ -200,5 +210,134 @@ def zh_summary(timeline: dict[str, Any] | None) -> str:
     return "｜".join(f"{round(b['from'] * 100)}–{round(b['to'] * 100)}%：{b['zh']}" for b in timeline.get("beats") or [])
 
 
-__all__ = ["SCHEMA", "EmotionCurve", "build", "emotion_row", "lexicon", "psychology", "stage_of", "trigger_word",
+# --------------------------------------------------------------------------- writer-authored performance (E28)
+#: ``@演 要=… | 压=… | 漏=… | 裂=… | 做=… | 收=… | 听=…`` keys (Chinese and English spellings) -> field
+PERF_KEYS = {"要": "want", "想要": "want", "want": "want", "目的": "want",
+             "压": "hide", "藏": "hide", "hide": "hide", "压着": "hide",
+             "漏": "leak", "泄": "leak", "leak": "leak",
+             "裂": "crack", "破": "crack", "crack": "crack",
+             "做": "visible", "可见": "visible", "visible": "visible", "动作": "visible",
+             "收": "end", "结束": "end", "end": "end",
+             "听": "listener", "听者": "listener", "listener": "listener"}
+PERF_FIELDS = ("want", "hide", "leak", "crack", "visible", "end", "listener")
+#: the Chinese directing note may anchor the crack on a word (「到"救他"时……」); the English twin never does (#352)
+_ANCHOR = re.compile(r"(?:说到|到|在|念到|讲到)?\s*[「『“\"'‘](?P<word>[^」』”\"'’]{1,12})[」』”\"'’]\s*(?:时|的时候|那里|这里|处|上|前|后)?\s*[，,：:]?\s*")
+#: stress / pacing notes in the parenthetical: 「先救他三个字落重」「等不起突然加重」「在一部分前停顿」「天君压到耳语」
+_STRESS_NOTE = re.compile(r"(?:在)?(?P<word>[㐀-鿿]{1,8}?)(?:这?[一二两三四五六七八九]?个?字|二字|两字|三字)?\s*"
+                          r"(?:突然|明显|狠狠|轻轻)?(?:落重|加重|重读|咬重|咬字|压低|放慢|压到耳语|由轻转稳|拖长|前停顿|停顿|说得清楚|干脆收住)")
+
+
+#: the same stress / pacing note with its word removed -- what the voice does, never which words (lab A/B 2026-11-26:
+#: a Delivery that names or paraphrases the stressed words -- "stresses saving him first", "becomes steady on going to
+#: find him" -- went with burned subtitles in 12 of 14 E28 clips; voice-only Delivery: 3 of 8 -- fewer, not none)
+_WORDED_NOTE = re.compile(r"(?:在)?(?P<word>[㐀-鿿]{1,8}?)(?:这?[一二两三四五六七八九]?个?字|二字|两字|三字)?\s*前?"
+                          r"(?P<voice>(?:突然|明显|狠狠|轻轻)?(?:落重|加重|重读|咬重|咬字|压低|放慢|压到耳语|由轻转稳|拖长|"
+                          r"停顿|说得清楚|干脆收住))")
+
+
+#: a note that points at a part of the line without quoting it (后半句 / 药名 / 最后一句 …) points at the words too
+_LINE_PART = re.compile(r"半句|一句|几个字|两个字|句尾|句首|药名|人名|名字|名号|这个词|那个词|称呼")
+
+
+def voice_only(note: str, line: str = "") -> str:
+    """A delivery note without the words of ``line`` it points at: 「截住推想，先救他三个字落重」 -> 「截住推想，落重」
+    (「困惑地放慢」 stays: 困惑地 is not in the line); quoted words go too.  The full note stays in the data and the
+    directing script (and feeds :func:`stress_word`)."""
+    text = _ANCHOR.sub("", str(note or ""))
+
+    def drop(m: re.Match) -> str:
+        word = m.group("word")
+        return m.group("voice") if _in_line(word, line or "") or _LINE_PART.search(word) else m.group(0)
+
+    clauses = [_WORDED_NOTE.sub(drop, clause.strip()) for clause in re.split(r"[，,；;]", text)]
+    return "，".join(c for c in clauses if c)
+
+
+def parse_authored(body: str) -> dict[str, str]:
+    """``要=… | 压=… | …`` -> {want, hide, leak, crack, visible, end, listener} (unknown keys ignored)."""
+    out: dict[str, str] = {}
+    for part in re.split(r"\s*[|｜]\s*", str(body or "").strip()):
+        key, sep, value = part.partition("=")
+        if not sep:
+            key, sep, value = part.partition("＝")
+        field = PERF_KEYS.get(key.strip()) or PERF_KEYS.get(key.strip().lower())
+        value = " ".join(value.split())
+        if sep and field and value:
+            out[field] = "；".join(x for x in (out.get(field), value) if x)
+    return out
+
+
+def strip_anchor(text: str) -> str:
+    """The crack without its word anchor (「到"救他"时声音发紧」 -> 「声音发紧」): what goes to the translator / H3."""
+    return _ANCHOR.sub("", str(text or "")).strip("，,；; ")
+
+
+def _in_line(candidate: str, line: str) -> str:
+    """``candidate`` if it occurs in ``line``, else its longest substring (>= 2 chars) that does, else ''."""
+    if candidate and candidate in line:
+        return candidate
+    for size in range(len(candidate) - 1, 1, -1):
+        for start in range(0, len(candidate) - size + 1):
+            piece = candidate[start:start + size]
+            if piece in line:
+                return piece
+    return ""
+
+
+def stress_word(line: str, paren: str = "", crack: str = "") -> tuple[str, int, str]:
+    """(word, index in line, source) from the WRITER's stress note: the crack's quoted anchor first, then the
+    parenthetical's stress / pacing note (落重 / 加重 / 压低 / 停顿 …).  ('', 0, '') when the writer gave none."""
+    line = line or ""
+    for source, text in (("crack", crack), ("paren", paren)):
+        pattern = _ANCHOR if source == "crack" else _STRESS_NOTE
+        for m in pattern.finditer(str(text or "")):
+            word = _in_line(m.group("word"), line)
+            if word:
+                return word, line.find(word), source
+    return "", 0, ""
+
+
+def build_authored(*, who: str, authored: dict[str, str], authored_en: dict[str, str], line: str,
+                   paren: str = "", emotion: str = "", emotion_en: str = "", listener_name: str = "",
+                   arc: dict[str, str] | None = None, arc_en: dict[str, str] | None = None,
+                   curve: EmotionCurve | None = None, lead_in: bool = False) -> dict[str, Any]:
+    """The unit's performance from the writer's ``@演`` block: ENTRY (this character's previous exit in the scene,
+    else the ``@arc`` entry, else what they hold back) -> CHANGE (the leak, then the crack) -> EXIT (the end state).
+    English beats come from the writer's twins only (no lexicon text); the curve still chains exit -> entry."""
+    curve = curve if curve is not None else EmotionCurve()
+    arc, arc_en = arc or {}, arc_en or {}
+    word, index, source = stress_word(line, paren, authored.get("crack", ""))
+    at = _spoken_fraction(line, index) if word else 0.5
+    start = 0.3 if lead_in else 0.0
+    t_change = round(min(0.6, max(start + 0.15, start + (1.0 - start) * at)), 2)
+    t_exit = round(min(0.85, max(t_change + 0.2, 0.75)), 2)
+    prev = curve.last.get(who)
+    if prev:
+        entry = {"zh": f"接上一句的状态：{prev['exit_zh']}", "en": prev.get("exit_en") or ""}
+        note = "carried"
+    elif arc.get("entry"):
+        entry = {"zh": arc["entry"], "en": arc_en.get("entry", "")}
+        note = "arc_entry"
+    else:
+        entry = {"zh": f"压着：{authored.get('hide', '')}" if authored.get("hide") else "",
+                 "en": authored_en.get("hide", "")}
+        note = "scene_start"
+    change_zh = "；".join(x for x in (authored.get("leak"), authored.get("crack")) if x)
+    change_en = "; then ".join(x for x in (authored_en.get("leak"), authored_en.get("crack")) if x)
+    exit_state = {"zh": authored.get("end") or arc.get("exit") or "",
+                  "en": authored_en.get("end") or arc_en.get("exit") or ""}
+    beats = [
+        {"from": start, "to": t_change, "kind": "ENTRY", "zh": entry["zh"], "en": entry["en"]},
+        {"from": t_change, "to": t_exit, "kind": "CHANGE", "trigger_word": word, "trigger_at": t_change,
+         "zh": (f"到「{word}」时：" if word else "") + change_zh, "en": change_en},
+        {"from": t_exit, "to": 1.0, "kind": "EXIT", "zh": "收尾定格：" + exit_state["zh"], "en": exit_state["en"]},
+    ]
+    curve.last[who] = {"emotion": emotion, "emotion_en": emotion_en, "stage": stage_of(emotion),
+                       "exit_zh": exit_state["zh"], "exit_en": exit_state["en"]}
+    return {"schema": SCHEMA, "source": "writer", "emotion": emotion, "stage": stage_of(emotion), "curve": note,
+            "trigger_word": word, "trigger_source": source or "none", "disfluency": None, "beats": beats}
+
+
+__all__ = ["SCHEMA", "EmotionCurve", "PERF_FIELDS", "build", "build_authored", "parse_authored", "strip_anchor",
+           "stress_word", "voice_only", "emotion_row", "lexicon", "psychology", "stage_of", "trigger_word",
            "zh_summary"]

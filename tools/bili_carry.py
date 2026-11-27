@@ -122,8 +122,10 @@ def listener_reaction_sentences(action: Any, listeners: list[tuple[str, str]]) -
 #: as large mid-frame text and as a second subtitle row in 12 of 31 speaking units (E27, same lines without the
 #: timeline: none).  The performance is now rendered as an untimed face-and-body sequence: no seconds, no reference
 #: to the line, its words, syllables or voice, no FACS codes (letters + digits); the voice belongs to "Delivery:".
-_SPOKEN_CLAUSE = re.compile(r"\{trigger\}|\b(?:words?|lines?|syllables?|sentences?|speech|speak\w*|spoken|says?|said|"
-                            r"talk\w*|voice[sd]?|stress(?:ed)?|trigger\w*|pronounc\w*|utter\w*|subtitles?|captions?)\b",
+_SPOKEN_CLAUSE = re.compile(r"\{trigger\}|\b(?:words?|syllables?|sentences?|speech|speak\w*|spoken|says?|said|"
+                            r"talk\w*|voice[sd]?|stress(?:ed)?|trigger\w*|pronounc\w*|utter\w*|subtitles?|captions?)\b|"
+                            # "the line" / "her line" is the spoken line; "a thin line" / "in a line" is not (E28 review)
+                            r"\b(?:the|this|that|his|her|their|its|each|every|last|next|first|spoken|whole)\s+lines?\b",
                             re.I)
 _FACS = re.compile(r"\s*\((?:one-sided\s+)?AU\s*\d+[A-E]?(?:\s*\+\s*AU\s*\d+[A-E]?)*\)|\bAU\s*\d+[A-E]?\b", re.I)
 _BEAT_PREFIX = re.compile(r"^(?:on \{trigger\}|during the line|end frame|carried over from the (?:last line|previous "
@@ -183,6 +185,46 @@ def performance_timeline_line(action: Any, who: str, listener: str = "",
         steps = ["at first"] + ["then"] * (len(rows) - 2) + ["at the end"]
     body = "; ".join(f"{step}, {row}" for step, row in zip(steps, rows))
     return f"{who}'s face and body change visibly, never a held pose: {body}."
+
+
+# --------------------------------------------------------------------------- writer-authored performance (E28 review)
+#: E28 review (2026-11-26): the writer's own acting for the line (screenplay ``@演``, English twins in
+#: ``performance.authored_en``) is the bulk of the prompt -- what the character wants from the other right now, what
+#: they hold back, the physical leak, where the guard cracks, the visible face / eyes / hands / breath, the end state.
+#: Untimed, never a reference to the spoken words (#352): every clause naming the line, a word, the voice or a time is
+#: dropped (``silent_performance_text``).
+PERFORMANCE_HEAD = ("{who}'s performance — a real actor playing against {other}: the feeling shows through small, "
+                    "resisted, specific changes in the face, eyes, hands and breath, never a held pose or a recital:")
+AUTHORED_ROWS = (("entry", "Starts"), ("want", "Wants right now"), ("hide", "Holding back"),
+                 ("leak", "What leaks out"), ("crack", "Then the guard cracks"), ("visible", "Visibly"),
+                 ("end", "Ends on"))
+
+
+def authored_performance_lines(action: Any, who: str, listener: str = "") -> list[str]:
+    """[head, "- Wants from <listener> right now: ...", ...] from ``performance.authored_en`` ([] when the writer
+    authored none: the lexicon timeline line is the fallback).  The ENTRY is the timeline's first beat (the
+    character's previous exit in the scene, or the scene arc's entry), when it is not the same as what they hold."""
+    performance = action.get("performance") if isinstance(action, dict) else None
+    authored = performance.get("authored_en") if isinstance(performance, dict) else None
+    if not who or not isinstance(authored, dict) or not authored:
+        return []
+    other = listener or "the other person"
+    rows = dict(authored)
+    timeline = performance.get("timeline") if isinstance(performance.get("timeline"), dict) else {}
+    beats = timeline.get("beats") if isinstance(timeline.get("beats"), list) else []
+    if beats and isinstance(beats[0], dict) and timeline.get("curve") in ("carried", "arc_entry"):
+        entry = str(beats[0].get("en") or "")
+        if entry and entry != rows.get("hide"):
+            rows["entry"] = entry
+    out = []
+    for key, head in AUTHORED_ROWS:
+        text = silent_performance_text(str(rows.get(key) or "").replace("{listener}", other).replace("{who}", who))
+        if not text or CJK.search(text):
+            continue
+        out.append(f"- {head.format(other=other)}: {text[:1].lower() + text[1:] if not text[:2].isupper() else text}.")
+    if not out:
+        return []
+    return [PERFORMANCE_HEAD.format(who=who, other=other)] + out
 
 
 # --------------------------------------------------------------------------- 脑补: what the viewer must see (E27)
@@ -372,5 +414,6 @@ __all__ = [
     "active", "english", "lead_in_sentences", "listener_reaction_sentences", "held_prop_sentences",
     "field_source", "authored", "field_sources", "en_twin_failures", "en_twin_check", "LEAD_IN_SECONDS",
     "TRANSLATE_RULE", "FALLBACK_FIELDS", "performance_timeline_sentences", "performance_timeline_line",
+           "authored_performance_lines", "PERFORMANCE_HEAD",
     "visual_sentences", "VISUAL_MAX_CHARS", "FOLDED_WHILE_SPEAKING", "silent_performance_text",
 ]

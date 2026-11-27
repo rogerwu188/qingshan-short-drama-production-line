@@ -1,0 +1,20 @@
+{
+ "premise": "冷艳女战神在改写命运的仙侠世界里救下被命运遗弃的人。",
+ "engine": "把徒弟的旧情当成证据，把每次救人演成对天界规则的反击。",
+ "characters": [
+  {
+   "id": "CHAR-LINGYAO",
+   "name": "凌瑶",
+   "voice": "短句、冷静、反问时收紧尾音",
+   "verbal_habit": "说到关键处只留最后两个字",
+   "signature_business": "压平左手衣袖后抬眼",
+   "signature_prop": "衣袖"
+  },
+  {
+   "id": "CHAR-DONGYANG",
+   "name": "东阳",
+   "voice": "慢条斯理，先绕半句再落到要害",
+   "verbal_habit": "爱用“怪就怪在”“若是”起头，话留半句"
+  }
+ ]
+}

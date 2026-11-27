@@ -36,9 +36,10 @@ class StampedDeliveryTest(unittest.TestCase):
     def test_emotion_leads_and_the_contour_follows(self):
         perf = {"emotion": "怒", "delivery_en": "voice climbing on 'clean house' and slamming the last word; a beat "
                                                 "of silence before"}
+        # lab A/B 2026-11-26: a clause that names the stressed words ("on 'clean house'", "the last word") is cut
+        # at that point -- H3 burned the line as subtitles whenever the Delivery pointed at its words
         self.assertEqual(stamped_delivery(perf), (
-            "Delivery: Angry — voice climbing on 'clean house' and slamming the last word, a beat of silence "
-            "before.", []))
+            "Delivery: Angry — voice climbing, a beat of silence before.", []))
 
     def test_anti_error_meta_is_dropped_and_the_redo_note_split_out(self):
         delivery, redo = stamped_delivery({"emotion": "倦", "delivery_en": E04_REDO})
@@ -50,7 +51,8 @@ class StampedDeliveryTest(unittest.TestCase):
         delivery, _ = stamped_delivery({"emotion": "冷", "delivery_en": (
             "Speak the short question once, starting immediately; do not quote or echo the voice-reference sample. "
             "Keep his firm low timbre, stress the final word with a frustrated upward inflection.")})
-        self.assertEqual(delivery, "Delivery: Cold — stress the final word with a frustrated upward inflection.")
+        # "stress the final word" points at the words (lab A/B 2026-11-26): the canned contour replaces it
+        self.assertEqual(delivery, "Delivery: Cold, the pitch and volume rising and falling with the meaning.")
 
     def test_emotion_already_in_the_contour_is_not_repeated(self):
         delivery, _ = stamped_delivery({"emotion": "厌", "delivery_en": "cold and contemptuous, low and clipped"})
@@ -58,16 +60,16 @@ class StampedDeliveryTest(unittest.TestCase):
 
     def test_emotion_only_and_nothing(self):
         self.assertEqual(stamped_delivery({"emotion": "怒"})[0], "Delivery: Angry, the pitch and volume rising and "
-                                                                  "falling with the meaning, the key word stressed.")
+                                                                  "falling with the meaning.")
         self.assertEqual(stamped_delivery({"emotion": "focused"}), ("", []))
         self.assertEqual(stamped_delivery({"emotion": "focused", "delivery_en": "愤怒"}), ("", []))
         self.assertEqual(stamped_delivery(None), ("", []))
 
     def test_long_contour_is_cut_on_a_clause_boundary(self):
-        long = ", ".join(f"then rise sharply on word {n}" for n in range(1, 20))
+        long = ", ".join(f"then rise sharply in step {n}" for n in range(1, 20))
         delivery, _ = stamped_delivery({"delivery_en": long})
         self.assertLess(len(delivery), 270)
-        self.assertTrue(delivery.endswith(("word 8.", "word 9.")), delivery)
+        self.assertTrue(delivery.endswith(("step 8.", "step 9.", "step 10.")), delivery)
 
 
 class StampedPromptTest(unittest.TestCase):

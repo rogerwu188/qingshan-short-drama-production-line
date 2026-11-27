@@ -270,8 +270,10 @@ class VisualExpansionTest(unittest.TestCase):
         self.assertTrue(out["report"]["opening"]["stakes_visible"])
         self.assertFalse([w for w in out["report"]["warnings"] if w.startswith(("OPENING_", "SEE_MISSING"))])
         self.assertIn("檐水", visual["environment"])
-        self.assertEqual(visual["business"], {"CHAR-MASTER": "指节一下下敲着桌沿",
-                                              "CHAR-LINGYAO": "说话前先把左手衣袖压平"})
+        # E28 review: the master has his own action line in this shot -- it is his truth here; the scene-wide
+        # @see business stays for the others (one source of truth per shot)
+        self.assertEqual(visual["business"], {"CHAR-LINGYAO": "说话前先把左手衣袖压平"})
+        self.assertEqual(visual["business_superseded"], ["CHAR-MASTER"])
         detail = next(s for s in s01(out) if "冤枉你的人" in (s.get("dialogue") or ""))
         self.assertIn("红痕", detail["prompt_spec"]["visual"]["detail"])
         # English twins: one request row per distinct text; the fallback leaves the field out, never stalls
@@ -284,7 +286,7 @@ class VisualExpansionTest(unittest.TestCase):
         answers = {"schema": spc.EN_SCHEMA, "rows": {r["key"]: f"English {i}" for i, r in enumerate(rows)}}
         visual = s01(compile_md(self._see_md(), answers))[0]["prompt_spec"]["visual"]
         self.assertTrue(visual["stakes_en"].startswith("English"))
-        self.assertEqual(set(visual["business_en"]), {"CHAR-MASTER", "CHAR-LINGYAO"})
+        self.assertEqual(set(visual["business_en"]), {"CHAR-LINGYAO"})
 
     def test_parse_see_keys(self):
         see = spc.parse_see("赌注=A | 关系=B ｜ env=C | 感官=D | 人[凌瑶]=E | 掌门=F | 掌门=G")

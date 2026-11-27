@@ -363,6 +363,15 @@ _PROP = re.compile(r"^\{道具\s+(?P<name>[^\s@}]+)\s*(?:@(?P<owner>[^.\s}]+)(?:
 _SILENT = re.compile(r"^[（(](?:无声|silent)[)）]\s*")
 _VISUAL = re.compile(r"^[（(](?:画面|visual)[)）]\s*")
 _SEE = re.compile(r"^@(?:see|画面)\s+(?P<body>.+)$")
+#: E28 review (2026-11-26): the writer's own acting for the line above (``@演``) and a character's emotional arc
+#: across the scene (``@arc 凌瑶=强撑的冷静→第一次求人``)
+_PERF = re.compile(r"^@(?:演|表演|perf)\s+(?P<body>.+)$")
+_ARC = re.compile(r"^@(?:arc|弧|情绪线)\s+(?P<body>.+)$")
+#: engine rules leaking into the script (E28: 「拇指离开桌面，不让药碗进入首帧」): the engine enforces first-frame /
+#: framing / prop-visibility rules itself; the script says what the character does and wants
+RULE_TALK = re.compile(r"首帧|尾帧|画面外|画面之外|入画|出画|镜头|机位|景别|构图|取景|画框|"
+                       r"不让[^，。；]{0,12}(?:进入|出现|入|露出)|(?:进入|离开|留在|保持在)(?:首帧|画面|画内|画外)|"
+                       r"(?:不|别|勿)(?:进入|出现在)画面")
 _SEE_KEYS = {"赌注": "stakes", "处境": "stakes", "stakes": "stakes", "关系": "relations", "站位": "relations",
              "relations": "relations", "relation": "relations", "环境": "environment", "env": "environment",
              "environment": "environment", "感官": "senses", "senses": "senses", "sense": "senses"}
@@ -471,6 +480,20 @@ def parse(md: str) -> dict[str, Any]:
             goals = current["card"].get("goals", []) + card.pop("goals", [])
             current["card"].update(card)
             current["card"]["goals"] = goals
+            continue
+        m = _PERF.match(line)
+        if m:
+            current["items"].append({"kind": "perf", "body": m.group("body").strip(), "tags": [], "line_no": no})
+            continue
+        m = _ARC.match(line)
+        if m:
+            for part in re.split(r"\s*[|｜]\s*", m.group("body").strip()):
+                who, sep, value = part.partition("=")
+                if not sep:
+                    who, sep, value = part.partition("＝")
+                if sep and who.strip() and value.strip():
+                    ends = re.split(r"\s*(?:→|->|=>|＞|>)\s*", value.strip(), maxsplit=1) + [""]
+                    current.setdefault("arc", {})[who.strip()] = {"entry": _clean(ends[0]), "exit": _clean(ends[1])}
             continue
         m = _SEE.match(line)
         if m:
@@ -767,6 +790,14 @@ def _shot_items(scene: dict[str, Any], cast: Cast, errors: list[str]) -> list[di
 
     for index, it in enumerate(items):
         kind = it["kind"]
+        if kind == "perf":
+            # the writer's acting for the line just above (E28 review): attaches to the last dialogue shot
+            target = next((sh for sh in reversed(shots) if sh["kind"] == "dialogue"), None)
+            if target is None:  # a warning, never a blocker
+                scene.setdefault("warnings", []).append(f"SCREENPLAY_PERF_WITHOUT_LINE:{scene['num']}:{it['line_no']}")
+            else:
+                target["perf"] = {**(target.get("perf") or {}), **_ptl.parse_authored(it["body"])}
+            continue
         if kind == "prop":
             props_next.append(it)
             continue
@@ -1122,6 +1153,41 @@ def _delivery_cues(paren: str) -> str:
     return "，".join(keep)
 
 
+def rule_talk(text: str) -> tuple[str, list[str]]:
+    """(text without the clauses that state an engine rule, the dropped clauses) -- E28 review: 「拇指离开桌面，不让
+    药碗进入首帧」.  The engine enforces first-frame / framing / prop-visibility itself (director pass, keyframe
+    builder); a script line describes acting and visible business only."""
+    parts = re.split(r"(?<=[，,；;。！？!?])", str(text or ""))
+    kept, dropped = [], []
+    for part in parts:
+        if part and RULE_TALK.search(part):
+            dropped.append(part.strip("，,；;。 "))
+        elif part:
+            kept.append(part)
+    out = "".join(kept).strip().rstrip("，,；;")
+    if out and dropped and not re.search(r"[。！？!?]$", out):
+        out += "。"
+    return out, dropped
+
+
+#: the writer's acting, rendered on H3 only from its English twin (field ``perf``; ``(none)`` = deliberately empty)
+PERF_EN_NONE = "(none)"
+#: one-time writer feedback (S1 sends the codes back once, like RUNTIME_ESTIMATE_SHORT; never a hard stop)
+CRAFT_FEEDBACK_PREFIX = "SCRIPT_CRAFT_REVISE"
+PERF_UNAUTHORED_SHARE = 1 / 3
+CRAFT_FIX = {
+    "PERFORMANCE_UNAUTHORED": ("write an @演 block under every on-screen line: 要 (what the character wants from the "
+                               "other right now) | 压 (what they hold back) | 漏 (the physical leak) | 裂 (where the "
+                               "guard cracks, by meaning) | 做 (visible face / eyes / hands / breath) | 收 (the end "
+                               "state) | 听 (the listener's visible reaction if in frame); add @arc per character per "
+                               "scene (entry→exit)"),
+    "SERIES_CARD_VOICE_MISSING": ("add voice (diction + rhythm) and verbal_habit (one habit only this character has) "
+                                  "for these characters to SERIES_CARD.yaml once; change nothing else on the card"),
+    "RULE_TALK": ("action lines describe acting, intent and visible business only; the engine handles first frames, "
+                  "framing and what is in or out of the picture -- delete phrases like 首帧 / 画面外 / 不让…进入 / 镜头"),
+}
+
+
 def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], series_card: dict[str, Any] | None,
                        outline: dict[str, Any] | None, *, episode: str, translations: dict[str, Any] | None = None,
                        brief: dict[str, Any] | None = None, en_fallback: bool = False) -> dict[str, Any]:
@@ -1168,6 +1234,8 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
     turn_shots: dict[str, tuple[str, str]] = {}
     silent_applied: list[str] = []
     silent_counts: list[dict[str, Any]] = []
+    rule_talk_hits: list[str] = []
+    perf_counts = {"authored": 0, "fallback": 0, "unauthored_shots": []}
 
     # group every scene first: the runtime budget of the silent policy is episode-wide (opening scene first)
     grouped = [(scene["num"], _shot_items(scene, cast, errors)) for scene in parsed.get("scenes") or []]
@@ -1205,6 +1273,29 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                 if pr["hand"]:
                     prop_rows[pid]["hand"] = pr["hand"]
         shots = grouped[scene_index][1]
+        warnings.extend(scene.get("warnings") or [])
+        # E28 review: engine rules written into the script are dropped from the acting text and reported
+        for sh in shots:
+            for a in list(sh["actions"]):
+                clean, dropped = rule_talk(a["text"])
+                if dropped:
+                    rule_talk_hits.append(f"{scene['num']}:{'/'.join(dropped)[:40]}")
+                    a["rule_talk_dropped"] = dropped
+                    a["text"] = clean
+                    if not clean:
+                        sh["actions"].remove(a)
+            for v in sh.get("visual") or []:
+                clean, dropped = rule_talk(v["text"])
+                if dropped:
+                    rule_talk_hits.append(f"{scene['num']}:{'/'.join(dropped)[:40]}")
+                    v["text"] = clean
+        arc_by_id: dict[str, dict[str, str]] = {}
+        for name, row in (scene.get("arc") or {}).items():
+            cid = cast.resolve(name) or (cast.prefix(name) or ("", ""))[0]
+            if cid:
+                arc_by_id[cid] = row
+            else:
+                warnings.append(f"ARC_WHO_UNKNOWN:{scene['num']}:{name}")
         policy = apply_silent_policy(shots, scene["num"], budget["allowed"])
         silent_applied.extend(policy["applied"])
         warnings.extend(policy["warnings"])
@@ -1212,7 +1303,13 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
         # 脑补 (E27): what the viewer must SEE.  The scene's stakes / relations play in its first shot (the
         # establishing beat: whoever they name is put in frame); the environment and each character's business
         # ride on every shot of the scene; （画面） lines describe the shot that follows them.
-        see = scene.get("see") or {}
+        see = dict(scene.get("see") or {})
+        for key in ("stakes", "relations", "environment", "senses"):
+            if see.get(key):
+                clean, dropped = rule_talk(see[key])
+                if dropped:
+                    rule_talk_hits.append(f"{scene['num']}:{'/'.join(dropped)[:40]}")
+                    see[key] = clean
         stakes_zh = "；".join(_clean(see.get(k)) for k in ("stakes", "relations") if _clean(see.get(k)))
         env_zh = "；".join(_clean(see.get(k)) for k in ("environment", "senses") if _clean(see.get(k)))
         business_by_id: dict[str, str] = {}
@@ -1244,6 +1341,8 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
         directing.append(f"## {sid} {loc_name} · {time_of_day} · {light}")
         directing.append(f"场景卡：目标={card.get('goal') or '—'}｜阻力={card.get('obstacle') or '—'}｜"
                          f"转折={card.get('turn') or '—'}｜类型={scene_type or '—'}")
+        for cid, row in arc_by_id.items():
+            directing.append(f"情绪线：{cast.name(cid)} {row.get('entry') or '—'} → {row.get('exit') or '—'}")
         directing.append("")
         for index, sh in enumerate(shots, 1):
             shot_id = f"{sid}-{index:02d}"
@@ -1291,6 +1390,12 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                 visible.append((addressee, "FRONT_FACE_VISIBLE" if offscreen_speaker else "BACK_AND_SHOULDERS_ONLY"))
             if not visible and subject:
                 visible.append((subject, "FRONT_FACE_VISIBLE"))
+            authored = dict(sh.get("perf") or {}) if speaking and not offscreen_speaker else {}
+            if authored.get("listener") and not sh["reactions"] and addressee and \
+                    addressee in [v[0] for v in visible]:
+                # the @演 listener note is the in-frame listener's visible reaction (E28 review)
+                sh["reactions"] = [{"kind": "reaction", "who_id": addressee, "text": authored["listener"],
+                                    "tags": [], "line_no": sh.get("line_no"), "from_perf": True}]
             cast_rows = []
             for cid, face in visible:
                 row = cast.rows.get(cid) or {}
@@ -1373,15 +1478,19 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                 if own_actions else ""
             action_en = tr.get("action", "".join(action_texts), shot_id,
                                _en_action_fallback(cast, "".join(action_texts))) if action_texts else ""
-            delivery_en = tr.get("delivery", delivery, shot_id,
-                                 EMOTION_EN.get(emotion, "steady") + ", clear and natural") if speaking and cues else ""
+            # the H3 Delivery is the voice only: the stress note's words are dropped before translation (lab A/B
+            # 2026-11-26: a Delivery naming / paraphrasing the stressed words made H3 burn the line as subtitles)
+            voice_cues = _ptl.voice_only(cues, line) if cues else ""
+            delivery_en = tr.get("delivery", voice_cues, shot_id,
+                                 EMOTION_EN.get(emotion, "steady") + ", clear and natural") \
+                if speaking and voice_cues else ""
             # WP4 EN twins: an authored zh field is translated (request rows); a compiler fallback gets the
             # compiler's own English (marked fallback, never sent to the translator)
             if speaking and not action_texts:
                 action_en = (f"{_en_name(cast, speaker)} says the line to {_en_name(cast, addressee)}"
                              if addressee else f"{_en_name(cast, speaker)} says the line")
                 sources["business_en"] = FALLBACK
-            if speaking and not cues:
+            if speaking and not voice_cues:
                 delivery_en = EMOTION_EN.get(emotion, "steady") + ", clear and natural, the voice unchanged"
                 sources["delivery_en"] = FALLBACK
             reaction_en = tr.get("reaction", reaction_zh, shot_id, _en_reaction_fallback(cast, sh["reactions"])) \
@@ -1479,21 +1588,51 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                 "field_sources": sources,
             }
             timeline = None
-            if speaking and not offscreen_speaker:
+            authored_en: dict[str, str] = {}
+            if authored:
+                for key in ("want", "hide", "leak", "crack", "visible", "end"):
+                    zh = _ptl.strip_anchor(authored[key]) if key == "crack" and authored.get(key) else \
+                        authored.get(key, "")
+                    value = tr.get("perf", zh, shot_id, PERF_EN_NONE) if zh else ""
+                    if value and value != PERF_EN_NONE:
+                        authored_en[key] = value
+            arc = arc_by_id.get(speaker) or {}
+            arc_en = {k: v for k, v in ((k, tr.get("arc", arc[k], shot_id, PERF_EN_NONE)) for k in ("entry", "exit")
+                                        if arc.get(k)) if v and v != PERF_EN_NONE}
+            if speaking and not offscreen_speaker and authored:
+                timeline = _ptl.build_authored(
+                    who=speaker, authored=authored, authored_en=authored_en, line=line, paren=paren,
+                    emotion=emotion, emotion_en=EMOTION_EN.get(emotion, ""), listener_name=listener_name,
+                    arc=arc, arc_en=arc_en, curve=curve, lead_in=bool(sh["lead_in"]))
+                perf_counts["authored"] += 1
+            elif speaking and not offscreen_speaker:
                 others = [c for c in present if c != speaker]
                 timeline = _ptl.build(
                     who=speaker, emotion=emotion, emotion_en=EMOTION_EN.get(emotion, ""), line=line, paren=paren,
                     listener_name=listener_name,
                     names=[n for c in others for n in (cast.name(c), cast.short(c))],
                     hardest=bool(is_turn), curve=curve, lead_in=bool(sh["lead_in"]))
+                perf_counts["fallback"] += 1
+                perf_counts["unauthored_shots"].append(shot_id)
             if speaking:
                 action["performance"] = {"emotion": emotion, "emotion_basis": emotion_basis,
+                                         "source": "writer" if authored else "lexicon_fallback",
                                          "body_action": body_action, "delivery": delivery,
                                          **({"delivery_en": delivery_en} if delivery_en else {}),
                                          **({"business_en": business_en} if business_en else {}),
+                                         **({"authored": authored} if authored else {}),
+                                         **({"authored_en": authored_en} if authored_en else {}),
+                                         **({"arc": arc} if arc and authored else {}),
+                                         **({"arc_en": arc_en} if arc_en and authored else {}),
                                          **({"timeline": timeline} if timeline else {})}
             if reaction_zh:
                 action["listener_reaction"] = reaction_zh
+                reactors_here = list(dict.fromkeys(r["who_id"] for r in sh["reactions"]))
+                if reaction_en and len(reactors_here) == 1 and \
+                        len([v for v in visible if v[1] != "BACK_AND_SHOULDERS_ONLY"]) > 2:
+                    # one reacting listener among several people: the reaction is theirs only (E28 review -- a plain
+                    # string is applied to every listener in frame)
+                    reaction_en = {reactors_here[0]: reaction_en}
                 if reaction_en:
                     action["listener_reaction_en"] = reaction_en
             if lead_zh:
@@ -1512,7 +1651,15 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                 # a silent procedure step folded into this line (E27 silent policy): it plays while the line is
                 # spoken -- S7 cuts a dialogue unit to the words, so nothing may wait for before / after the line
                 action["folded_silent"] = [dict(row) for row in sh["folded"]]
-            visual = _visual_block(sh, shot_id, visible, env_zh, business_by_id, tr)
+            # one source of truth per shot (E28 review): a character's own action line (or the speaker's @演 做) is
+            # what they do in THIS shot; the scene-wide @see business is used only for the others
+            acting = {a.get("subject") for a in sh["actions"] if a.get("subject")} | \
+                ({speaker} if authored.get("visible") else set())
+            business_here = {cid: text for cid, text in business_by_id.items() if cid not in acting}
+            visual = _visual_block(sh, shot_id, visible, env_zh, business_here, tr)
+            superseded = sorted(cid for cid in business_by_id if cid in acting and cid in [v[0] for v in visible])
+            if superseded:
+                visual["business_superseded"] = superseded
             tag_heads = [t.partition(":")[0] for t in tags]
             wp6: dict[str, Any] = {}
             if "招牌" in tag_heads:
@@ -1594,6 +1741,7 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
             if speaking:
                 block_lines.append({"kind": "dialogue", "speaker": speaker, "listener": addressee, "text": line,
                                     "paren": paren, "emotion": emotion, "shot_id": shot_id,
+                                    **({"perf": dict(sh.get("perf") or {})} if sh.get("perf") else {}),
                                     **({"line_kind": "report"} if "交代" in tags or "交代" in paren else {}),
                                     **({"offscreen": True} if offscreen_speaker else {})})
             for r in sh["reactions"]:
@@ -1616,8 +1764,13 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                 directing.append(f"先反应：{lead_zh}")
             if dialogue:
                 directing.append(f"对白：{dialogue}（{emotion}；{delivery}）")
+                if authored:
+                    labels_zh = {"want": "要", "hide": "压", "leak": "漏", "crack": "裂", "visible": "做", "end": "收",
+                                 "listener": "听"}
+                    directing.append("表演（写手）：" + "｜".join(f"{labels_zh[k]}={authored[k]}" for k in
+                                                              labels_zh if authored.get(k)))
                 if timeline:
-                    directing.append(f"表演分拍：{_ptl.zh_summary(timeline)}")
+                    directing.append(f"表演分拍：{'' if authored else '（词表兜底）'}{_ptl.zh_summary(timeline)}")
             if reaction_zh:
                 directing.append(f"反应：{reaction_zh}")
             if sh.get("folded"):
@@ -1844,6 +1997,17 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                   "instruction": ("translate each zh text literally into one English sentence for the H3 prompt: keep "
                                   "the object, the hand, the verb and who acts on whom; no paraphrase into mood words; "
                                   "write the answers to <EP>_SCREENPLAY_EN.json as {schema, rows: {key: english}}"),
+                  # E28 review: the acting rows reach H3 as the performance block -- visible behaviour and intent
+                  # only, never the spoken words (#352: a quoted / time-coded word is burned in as text)
+                  "instruction_by_field": {
+                      "perf": ("the character's acting: translate the meaning as plain visible behaviour or intent "
+                               "(face, eyes, hands, breath, posture, what they want from the other person); never "
+                               "quote, name or point at the spoken words, the line, a word, a syllable, the voice or "
+                               "a time; no Chinese; one short clause"),
+                      "arc": "the character's emotional state at the start / end of the scene, in plain visible words",
+                      "delivery": ("the voice only -- volume, pace, pitch, breath, pauses; never quote, paraphrase or "
+                                   "name the spoken words or a part of the line (a Delivery that names the stressed "
+                                   "words makes H3 burn the line in as subtitles)")},
                   "answer_schema": EN_SCHEMA, "rows": list(tr.requests.values())}
     fallback_fields = sum(1 for s in shots_out for v in s["prompt_spec"]["action"]["field_sources"].values()
                           if v == FALLBACK)
@@ -1855,6 +2019,20 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
     if runtime["warning"]:
         warnings.append(runtime["warning"])
         runtime["fix"] = RUNTIME_SHORT_FIX
+    # one-time writer feedback (E28 review; S1 sends it back once, then records it -- never a hard stop)
+    craft: list[str] = []
+    on_screen_lines = perf_counts["authored"] + perf_counts["fallback"]
+    if perf_counts["fallback"]:
+        warnings.append(f"PERFORMANCE_LEXICON_FALLBACK:{perf_counts['fallback']}/{on_screen_lines}")
+        if on_screen_lines >= 3 and perf_counts["fallback"] > on_screen_lines * PERF_UNAUTHORED_SHARE:
+            craft.append(f"{CRAFT_FEEDBACK_PREFIX}:PERFORMANCE_UNAUTHORED:{perf_counts['fallback']}/{on_screen_lines}")
+    warnings.extend(f"SCRIPT_RULE_TALK:{hit}" for hit in rule_talk_hits[:8])
+    if rule_talk_hits:
+        craft.append(f"{CRAFT_FEEDBACK_PREFIX}:RULE_TALK:{len(rule_talk_hits)}")
+    voiceless = series_card_voice_missing(series_card, cast, dialogue_units)
+    if voiceless:
+        warnings.append("SERIES_CARD_VOICE_MISSING:" + ",".join(voiceless))
+        craft.append(f"{CRAFT_FEEDBACK_PREFIX}:SERIES_CARD_VOICE_MISSING:" + ",".join(voiceless))
     fallback_keys = {k for _, _, k in tr.fallback_log}
     unanswered = set(tr.requests) - fallback_keys
     report = {"schema": SCHEMA, "episode": episode, "status": "FAIL" if errors else
@@ -1870,6 +2048,10 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
                                 "runtime_budget": {k: v for k, v in budget.items() if k != "allowed"},
                                 "silent_shots": sum(1 for s in shots_out if not s.get("dialogue"))},
               "opening": {k: v for k, v in opening.items() if k != "warnings"},
+              "performance": {"authored": perf_counts["authored"], "lexicon_fallback": perf_counts["fallback"],
+                              "unauthored_shots": perf_counts["unauthored_shots"][:24]},
+              "craft_feedback": craft,
+              "craft_feedback_fix": {code.split(":")[1]: CRAFT_FIX[code.split(":")[1]] for code in craft},
               "runtime_estimate": runtime}
     return {"contract": contract, "narrative_md": narrative_md, "directing_md": directing_md, "manifest": manifest,
             "en_request": en_request, "report": report}
@@ -1899,11 +2081,39 @@ def _prop_ref(row: dict[str, Any], cast: Cast) -> dict[str, Any]:
             **({"hand": _clean(row.get("hand"))} if _clean(row.get("hand")) else {})}
 
 
-def _character_entity(cid: str, row: dict[str, Any], series_card: dict[str, Any]) -> dict[str, Any]:
-    card = {}
+def _card_row(series_card: dict[str, Any], cid: str, name: str = "") -> dict[str, Any]:
     for c in series_card.get("characters") or []:
-        if isinstance(c, dict) and _clean(c.get("id")) == cid:
-            card = c
+        if isinstance(c, dict) and (_clean(c.get("id") or c.get("character_id")) == cid
+                                    or (name and _clean(c.get("name")) == name)):
+            return c
+    return {}
+
+
+#: a speaker with at least this many lines in the episode needs a voice on the series card (E28 review)
+VOICE_CARD_MIN_LINES = 2
+
+
+def series_card_voice_missing(series_card: dict[str, Any], cast: "Cast", dialogue_units: list[dict[str, Any]]
+                              ) -> list[str]:
+    """Names of the episode's speakers (>= VOICE_CARD_MIN_LINES lines) whose series-card row has no ``voice`` or no
+    ``verbal_habit`` -- an existing series that switched engines mid-run never got them (E28).  A one-time writer
+    step backfills them (free)."""
+    counts: dict[str, int] = {}
+    for row in dialogue_units:
+        counts[row["speaker_id"]] = counts.get(row["speaker_id"], 0) + 1
+    out = []
+    for cid, n in counts.items():
+        if n < VOICE_CARD_MIN_LINES:
+            continue
+        card = _card_row(series_card or {}, cid, cast.name(cid))
+        if not (_clean(card.get("voice")) and _clean(card.get("verbal_habit"))):
+            out.append(cast.name(cid))
+    return out
+
+
+def _character_entity(cid: str, row: dict[str, Any], series_card: dict[str, Any]) -> dict[str, Any]:
+    name0 = _clean(row.get("name") or row.get("canonical_name"))
+    card = _card_row(series_card, cid, name0)
     name = _clean(row.get("name") or row.get("canonical_name"))
     out = {"character_id": cid, "canonical_name": name,
            "aliases": [_clean(a) for a in row.get("aliases") or [] if _clean(a) and _clean(a) != name],
@@ -1920,6 +2130,12 @@ def _character_entity(cid: str, row: dict[str, Any], series_card: dict[str, Any]
         value = card.get(key) if key in card else row.get(key)
         if _clean(value):
             out[key] = _clean(value)
+    # the character's speech (series card ``voice`` = diction + rhythm; CAST_PROPS ``voice`` is the voice-reference
+    # id, hence ``voice_style``) and verbal habit reach the contract (E28: both were missing)
+    if _clean(card.get("voice")):
+        out["voice_style"] = _clean(card["voice"])
+    if _clean(card.get("verbal_habit")):
+        out["verbal_habit"] = _clean(card["verbal_habit"])
     mannerisms = [m for m in (row.get("mannerisms") or []) if _clean(m)]
     if mannerisms:
         out["mannerisms"] = mannerisms
