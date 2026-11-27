@@ -252,6 +252,18 @@ def _camera_authority(unit: dict[str, Any], *, combat: bool) -> dict[str, Any]:
     }
 
 
+def _h3_min_unit_seconds() -> float:
+    """Shortest H3 request HopsAPI accepts (tools/h3_limits.py; live 2 s) -- the director's reaction / insert units."""
+    try:
+        try:
+            from tools import h3_limits as _limits  # noqa: PLC0415
+        except ModuleNotFoundError:
+            import h3_limits as _limits  # type: ignore  # noqa: PLC0415
+        return float(min(3, _limits.min_unit_seconds()))
+    except Exception:  # noqa: BLE001 -- the historical H3 floor
+        return 3.0
+
+
 def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bool = False) -> dict[str, Any]:
     model = str(unit.get("model") or "").strip().lower()
     family = MODEL_FAMILY_BY_NAME.get(model)
@@ -261,7 +273,7 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
     if not specs:
         raise ValueError(f"{unit.get('unit_id')}:ORDERED_PROMPT_SPECS_MISSING")
     duration = float(unit.get("duration_seconds") or 0.0)
-    minimum_duration = 3.0 if family == "MINIMAX_H3" else 4.0
+    minimum_duration = _h3_min_unit_seconds() if family == "MINIMAX_H3" else 4.0
     if duration < minimum_duration or duration > 15:
         raise ValueError(f"{unit.get('unit_id')}:VIDEO_DURATION_OUT_OF_RANGE:{duration}")
     source_spans = [
