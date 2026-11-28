@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2633,
+  "file_count": 2634,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -813,7 +813,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/identity_qa_lock.py",
-      "sha256": "5eab5cc7fcda73bb0212d7db469e2f44c7b837e511d0d5f2572ab79f45659980"
+      "sha256": "c13b9eb7b8b201628ee8e7ab54eef43a60af0c0b003f0e7b54829bafa5255aa5"
     },
     {
       "path": "lines/nalu/runtime/tools/ingest_yewujiang_source.py",
@@ -873,7 +873,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "69b1a222621f205346b12344be489bca72bf4a346acd3586ab2aaa1f0e1212f8"
+      "sha256": "43cca127e4feaeb38ad2c11bf43ce733e3ec5be400bef6cb519437fe3d0551c6"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -8538,6 +8538,10 @@
     {
       "path": "tools/tests/test_identity_cards_period_lock.py",
       "sha256": "46c4b3e51b729e7a4c5439f4d1a42a44d1685887c9018b4f8d356ea51ce85ee4"
+    },
+    {
+      "path": "tools/tests/test_identity_lock_default_acceptance.py",
+      "sha256": "f5532ad7279deb0da4905634529a57aa23df8dd43a6309e6b983488199cb1d40"
     },
     {
       "path": "tools/tests/test_identity_lock_reused_subject_guard.py",
