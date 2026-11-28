@@ -359,6 +359,11 @@ def build_status(cp: Any, tick_result: dict) -> tuple[dict, str, str]:
         "dialogue_language": dialogue_language(runtime),
         "deployment_mode": deployment,
     }
+    try:  # did the last wake-up of the agent heartbeat work (heartbeat_kick.py)?
+        import heartbeat_kick  # noqa: PLC0415
+        status["heartbeat_kick"] = heartbeat_kick.report()
+    except Exception:  # noqa: BLE001
+        status["heartbeat_kick"] = None
     try:
         status["hopsapi_credits"] = hopsapi_credits(engine, runtime)
     except Exception:  # noqa: BLE001 -- the report never fails on the balance probe
@@ -600,7 +605,14 @@ def _cron_jobs() -> list[dict]:
     # the whole stdout: the job list carries every prompt and is far longer than _run's 2000-character tail, so
     # the cut-off document was never JSON and agent_task could not find the heartbeat job to kick (…1324, …0030,
     # …0841 2026-11-15: heartbeat_kick null, the task waited for the 6-hourly heartbeat)
-    rc, out = _run_full(["openclaw", "cron", "list", "--json"], 30)
+    # with the running gateway's OPENCLAW_* environment: from the crontab the CLI lacked the gateway credentials
+    # (…1101 2026-11-25..27 "missing scope: operator.read"; heartbeat_kick.py)
+    try:
+        import heartbeat_kick  # noqa: PLC0415
+        gw_env = heartbeat_kick.gateway_env()
+    except Exception:  # noqa: BLE001
+        gw_env = {}
+    rc, out = _run_full(["openclaw", "cron", "list", "--json"], 30, gw_env or None)
     if rc != 0:
         return [{"error": f"openclaw cron list rc={rc}", "tail": out.strip()[-200:]}]
     starts = [i for i in (out.find("{"), out.find("[")) if i >= 0]
@@ -646,11 +658,25 @@ def diagnose(cp: Any) -> dict:
     env = {"NALU_ENGINE_ROOT": str(engine), "NALU_RUNTIME_ROOT": str(runtime)}
     out["codex_provider"] = _short(_run(["python3", str(scripts / "configure_codex.py"), "--verify"], 180, env), 1)
     out["cron_jobs"] = _cron_jobs()
+    try:  # names only (never values): which gateway variables the OpenClaw CLI gets under the cron
+        import heartbeat_kick  # noqa: PLC0415
+        out["openclaw_gateway_env"] = sorted(heartbeat_kick.gateway_env())
+        out["heartbeat_kick"] = heartbeat_kick.report()
+    except Exception:  # noqa: BLE001
+        out["openclaw_gateway_env"] = None
     # which account production bills (line owner 2026-11-12: never StoryClaw); provenance only, no values
     out["billing_keys"] = _short(_run(["python3", str(scripts / "billing_key_guard.py"), "report"], 30, env), 1)
     # cloud shared knowledge base (collective learning): configured / synced / applied? booleans + counts only
     out["knowledge"] = _short(_run(["python3", str(scripts / "knowledge_status.py")], 60, env), 1)
     return out
+
+
+def agent_task_kick_key(path: Path) -> str:
+    """One hand-off key per queued task (the file is rewritten for every task)."""
+    try:
+        return f"agent_task:{path.stat().st_mtime_ns}"
+    except OSError:
+        return "agent_task"
 
 
 def agent_task(cp: Any, message: str) -> tuple[bool, dict, dict]:
@@ -662,12 +688,17 @@ def agent_task(cp: Any, message: str) -> tuple[bool, dict, dict]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"message": message, "queued_at": datetime.now(timezone.utc).isoformat(),
                                 "delivered": False}, ensure_ascii=False), encoding="utf-8")
-    kicked = None
-    for job in _cron_jobs():
-        name = str(job.get("name") or "")
-        if job.get("id") and ("心跳" in name or "heartbeat" in name.lower()):
-            kicked = _short(_run(["openclaw", "cron", "run", str(job["id"])], 60), 1) | {"job": name}
-            break
+    # the kick runs detached once this tick releases the tick lock: kicked from inside the tick, the heartbeat's
+    # own `tick` answered TICK_ALREADY_RUNNING and the task waited for the next one (heartbeat_kick.py)
+    try:
+        import heartbeat_kick  # noqa: PLC0415
+        job, err = heartbeat_kick.find_job()
+        kicked: dict = {"job": job.get("name")} if job else {"error": err}
+        if job:
+            kicked.update(heartbeat_kick.request(agent_task_kick_key(path), "FLEET_AGENT_TASK",
+                                                 lock=runtime / "claude_code" / ".tick.lock"))
+    except Exception as exc:  # noqa: BLE001
+        kicked = {"status": "ERROR", "error": type(exc).__name__}
     return True, {"status": "QUEUED_FOR_AGENT", "heartbeat_kick": kicked}, {}
 
 

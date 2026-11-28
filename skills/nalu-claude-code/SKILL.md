@@ -154,7 +154,8 @@ python3 $S/codex_production.py resume --episode <EP> --message "<文本>"
 python3 $S/codex_production.py tick                                  # 心跳：例行动作脚本自己做，见下
 python3 $S/codex_production.py report                                # 给线主的进度摘要（一次 X2C 查询）
 ```
-**系统 cron**（`setup_host.sh` 安装，crontab 标记 `# nalu-system-tick`）每 3 分钟跑 `tick --system`：推进生产（含接续下一集，§7）、fleet 上报与指令，不用模型；它不消耗交给代理的 AGENT 情况（报 `AGENT_PENDING`）。两者共用一把锁，不会同时跑。装好系统 cron 的机器心跳降到每 6 小时（兜底），见 AGENTS.md §6。
+**系统 cron**（`setup_host.sh` 安装，crontab 标记 `# nalu-system-tick`）每 3 分钟跑 `tick --system`：推进生产（含接续下一集，§7）、fleet 上报与指令，不用模型；它不消耗交给代理的 AGENT 情况（报 `AGENT_PENDING`），但会**立即唤醒心跳**（`heartbeat_kick.py`：`openclaw cron run <心跳任务>`，等 tick 锁释放后跑，全机每 15 分钟最多一次、同一情况最多 4 次；fleet `agent_task` 同样立即唤醒），不再等 6 小时；结果在 fleet 状态的 `heartbeat_kick` 字段。两者共用一把锁，不会同时跑。装好系统 cron 的机器心跳降到每 6 小时（兜底），见 AGENTS.md §6。
+线主默认条款已经决定的停点由系统 tick 自己处理、不交给你（线主 2026-11-28「这么慢？」：…1205 E17 S1/S2 PASS 后在 S3 前 `OWNER_DECISION_REQUIRED` 等了 6 小时心跳）：S3–S8 的 `OWNER_DECISION_REQUIRED`，只要 Giggle key 在、本集未到上限、问题不是合同 §3 的停下情况（key 缺失/失效、余额不足、追加后预算仍不够、新付费类别）、S8 没设 `owner_review_required`，tick 按默认条款 resume（每阶段一次，回执记 `series/DEFAULT_TERMS_RESUMES.json` + `STATUS.md`）；同一阶段再停才交给你。BLOCKED 后的每小时更新检查也由 tick 自己做（`fleet_sync.scripted_update`），不再交回 `BLOCKED_RECHECK_UPDATE`。
 
 **心跳（有系统 cron 时每 6 小时，没有时每 15 分钟）只跑 `tick`**，只读最后一行 `NALU_TICK: {...}` 的 `action`：
 - `NONE`：脚本已处理完（在跑、已续跑、已发行或发行暂缓、在等线主），**立即结束本轮**，不要再读别的文件。
@@ -169,7 +170,7 @@ python3 $S/codex_production.py report                                # 给线主
   把 `question` 原样转给线主，**本项目暂停**等回复；线主回复后用 `resume --message "线主原话：<逐字>"`。不得替线主回答。
 - `IDLE` + `WAITING_REMOTE`：系统 tick 自己跟进（见上），不用你恢复；只有 `RESUME_FAILED:<原因>` 交给你时才处理该原因。
 - fleet 指令（`resume` / `update` / `pause` / `unpause` / `query` / `diagnose`）全部由脚本执行，你不用处理；只有 `agent_task`（维护者给代理的环境 / 凭据修复指令）会在心跳以 `AGENT` / `FLEET_AGENT_TASK` 交给你一次，原文在 `fleet_agent_task` 字段，照做即可。其余：`update` = `self_update.sh` 不带 --restart → 读**更新后**磁盘 AGENTS.md 的 pin 跑 `setup_host.sh` → 引擎 HEAD 变了且本集是 BLOCKED / FINAL_REVIEW_REQUIRED 就 resume（`fleet_sync.scripted_update`）。旧版本交回的 `FLEET_UPDATE` 按同样顺序处理一次。
-- `BLOCKED_RECHECK_UPDATE`（BLOCKED 后每小时交给你一次），按这个顺序，**不要带 `--restart`**（重启网关会打断本轮，
+- `BLOCKED_RECHECK_UPDATE`（旧版本才会出现；现在 tick 每小时自己做这一步）：若仍收到，按这个顺序，**不要带 `--restart`**（重启网关会打断本轮，
   引擎就停在旧版；实地设备 …1324 E02，2026-11-07）：
   1. `self_update.sh --agent-id <本代理 id>`（不论返回 UPDATED 还是 UP_TO_DATE 都继续下一步）；
   2. 读磁盘上本代理 AGENTS.md 里的 pin，跑 `setup_host.sh --pin <pin>`（同版本时很快结束）；

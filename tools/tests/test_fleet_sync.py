@@ -74,6 +74,10 @@ class FleetSyncTest(unittest.TestCase):
         import json
         # the real list carries every job's prompt: far longer than the 2000-character tail _run keeps, and the
         # CLI may print a notice first (…1324 2026-11-15: "not JSON", so the heartbeat was never kicked)
+        import heartbeat_kick  # noqa: PLC0415
+        saved_request = heartbeat_kick.request
+        heartbeat_kick.request = lambda key, reason="", **kw: {"status": "SCHEDULED", "key": key}
+        self.addCleanup(setattr, heartbeat_kick, "request", saved_request)
         saved = fleet_sync._run_full
         fleet_sync._run_full = lambda argv, timeout, extra_env=None: (0, "config notice\n" + json.dumps({"jobs": [
             {"id": "hb1", "name": "NALU 生产心跳", "enabled": True,
@@ -89,6 +93,7 @@ class FleetSyncTest(unittest.TestCase):
                 ok, res, _ = fleet_sync.run_command(cp, {"type": "agent_task", "payload": {"message": "重写 Giggle key"}})
                 self.assertTrue(ok)
                 self.assertEqual(res["heartbeat_kick"]["job"], "NALU 生产心跳")
+                self.assertEqual(res["heartbeat_kick"]["status"], "SCHEDULED")  # after the tick lock is released
                 task = json.loads((Path(d) / "series" / "FLEET_AGENT_TASK.json").read_text(encoding="utf-8"))
                 self.assertIn("重写 Giggle key", task["message"])
                 self.assertFalse(fleet_sync.run_command(cp, {"type": "agent_task", "payload": {}})[0])
