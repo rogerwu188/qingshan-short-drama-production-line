@@ -1073,10 +1073,7 @@ def validate_task(task: dict[str, Any]) -> None:
             # still transported by the bound reference audio URLs, while the
             # provider-facing prompt uses opaque entity tokens plus exact
             # <d>[Chinese] dialogue literals.
-            # the H3 renderer serializes the canonical @音频N slot in its English form @AudioN
-            prompt_slot = (re.sub(r"^@音频(\d+)$", r"@Audio\1", slot)
-                           if str(task.get("model") or "").lower() in {"minimax-h3", "h3"} else slot)
-            if not english_machine_rescue and prompt_slot not in prompt_text:
+            if not english_machine_rescue and not _prompt_carries_audio_slot(task, slot, prompt_text):
                 raise ValueError(f"{task['task_key']} canonical speaker audio slot missing from prompt")
         if english_machine_rescue:
             if not task.get("provider_entity_token_map"):
@@ -1632,6 +1629,21 @@ def _final_fix_burn_retry(task: dict[str, Any]) -> int:
         return max(0, int((fix or {}).get("burn_retry") or 0)) if isinstance(fix, dict) else 0
     except (TypeError, ValueError):
         return 0
+
+
+def _prompt_carries_audio_slot(task: dict[str, Any], slot: str, prompt_text: str) -> bool:
+    """True when the provider prompt names the canonical speaker audio slot.  The H3 renderer serializes the
+    canonical @音频N slot in its English form @AudioN; the OFFICIAL_REF_V1 format (tools/h3_official_ref_prompt.py)
+    writes the same slot as MiniMax's official label ``<Audio N>``."""
+    if slot in prompt_text:
+        return True
+    if str(task.get("model") or "").lower() not in {"minimax-h3", "h3"}:
+        return False
+    match = re.match(r"^@(?:音频|Audio)(\d+)$", slot)
+    if not match:
+        return False
+    n = match.group(1)
+    return f"@Audio{n}" in prompt_text or f"<Audio {n}>" in prompt_text
 
 
 def _final_fix_clean_start_frame(task: dict[str, Any]) -> dict[str, Any] | None:

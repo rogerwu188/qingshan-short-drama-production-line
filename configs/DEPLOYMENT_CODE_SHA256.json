@@ -7097,7 +7097,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "4b965a58a340dabba3540542d33036d08c7c24dce0176ee306aae55845b80533"
+      "sha256": "aab5a9875790aa3d6bcf39834b7d12db84a925da6978fae80cbb0ef44afc10b9"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
