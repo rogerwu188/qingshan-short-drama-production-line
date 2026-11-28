@@ -9,7 +9,7 @@
   "verbatim_allowance_max_chars": {"zh": 12, "en": 12, "ja": 16, "ko": 14},
   "bili_v1_note": "CHANGE_SPEC WP1 item 6 (owner 2026-11-23): under craft_profile BILI_V1 the gate is active from E01 and up to 2 lines per scene may reuse a short source line verbatim (zh <= 12 / ja <= 16 / ko <= 14 chars) when listed in that scene's source_lines. LEGACY series keep enabled_from_episode and no allowance.",
   "verbatim_min_run": 8,
-  "verbatim_min_run_by_language": {"ja": 12, "ko": 10},
+  "verbatim_min_run_by_language": {"ja": 12, "ko": 10, "en": 30},
   "rules": {
     "DR1": "DIALOGUE_SOURCE_VERBATIM: a spoken line shares a run of >= verbatim_min_run characters with the episode's source chapter — the novel's sentence was moved into the script instead of adapted",
     "DR2": "DIALOGUE_WRITTEN_REGISTER: a spoken line carries written/classical register markers (为何/之/乃/特制/灵性 …) or narrates a judged comparison about the speaker ('我的力气比他大，速度比他慢') — that is prose or inner monologue, not speech",

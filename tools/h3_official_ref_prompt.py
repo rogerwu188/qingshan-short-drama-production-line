@@ -43,6 +43,9 @@ FIELD = "h3_prompt_format"
 SECTIONS = ("subject_definitions", "summary", "retention_analysis", "detailed_description", "overall_soundscape",
             "non_diegetic_music")
 
+#: the leading "WORLD VISUAL LOCK:" style title of a non-required lock (English authored-world lines, 1205
+#: 2026-11-28: it reached detailed_description and failed H3_DIRECTOR_V2_SELF_CHECK:ALL_CAPS_LABEL_IN_PROMPT)
+_LOCK_TITLE = re.compile(r"^[A-Z]{2,}(?:[ \t]+[A-Z]{2,})*[ \t]*(?:[\u2014\u2013-][^:\n]{0,40})?:\s*")
 _IMAGE = re.compile(r"@Image(\d+)")
 _AUDIO = re.compile(r"@Audio(\d+)")
 _OPENING_ENTRY = re.compile(r"^\s*as (?:in|shown in) the (?:opening|first) frame\.?\s*$", re.IGNORECASE)
@@ -364,6 +367,8 @@ def compose(p: Parts) -> str:
                   if sentence.strip() and (required_lock or not sentence.strip().lower().startswith(("never", "no ")))]
     style = ("The target video is a live-action, cinematic vertical drama with natural matte skin texture."
              if not p.anime else "The target video is a 2D anime vertical drama.")
+    if not required_lock:  # an authored-world / neutral lock's all-caps title would trip the V2 self-check
+        style_bits = [b for b in (_LOCK_TITLE.sub("", b, count=1).strip() for b in style_bits) if b]
     if style_bits:
         style += " " + " ".join(_s(b) for b in style_bits)
     body: list[str] = []

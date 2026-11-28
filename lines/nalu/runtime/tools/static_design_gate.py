@@ -25,7 +25,7 @@ for E01/E02 (already generated; the E02 reroll shots were restaged by hand) and 
 exit 0 PASS / REPORT_ONLY, 3 BLOCK, 2 unreadable.
 """
 from __future__ import annotations
-import argparse, json, sys, datetime
+import argparse, json, re, sys, datetime
 from pathlib import Path
 
 import nalu_policy_profile as _policy_profile
@@ -219,10 +219,14 @@ def evaluate(contract: dict, policy: dict, *, current_policy: bool = False) -> d
                 dtxt = ps.get("dialogue")
                 dtxt = dtxt if isinstance(dtxt, str) else " ".join(
                     str(x.get("text") if isinstance(x, dict) else x) for x in (dtxt or []))
+                raw = dtxt
                 dtxt = dtxt.split("：", 1)[1] if "：" in dtxt[:8] else dtxt
                 cps = (sh.get("dialogue_delivery") or {}).get("chinese_characters_per_second")
                 if language == "en":  # words, not letters (CAMERA_GRAMMAR_V1 contracts only)
-                    dtxt = dtxt.split(":", 1)[1] if ":" in dtxt[:24] else dtxt
+                    # one speaker label, either colon, long English names too (the screenplay compiler writes
+                    # "Mara Quinn：line"; 1205 BILI_V1 2026-11-28: the name was counted as spoken words)
+                    head = re.match(r"^[^:：]{1,24}[:：]", raw)
+                    dtxt = raw[head.end():] if head else raw
                     cps = (sh.get("dialogue_delivery") or {}).get("english_words_per_second")
                 need = npr.min_dialogue_seconds(dtxt, cps, language)
             if dlg:

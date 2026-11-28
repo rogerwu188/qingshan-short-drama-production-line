@@ -1,0 +1,6 @@
+{"episode":"LAB","duration":5,"resolution":"480p",
+ "characters":{"CHAR-MARA":{"wardrobe_en":"white and gold coat","face":"f.png","voice":"v.wav"},
+  "CHAR-DOYLE":{"wardrobe_en":"dark green armour","face":"f.png","voice":"v.wav"},
+  "CHAR-RHYS":{"wardrobe_en":"black long coat","face":"f.png","voice":"v.wav"}},
+ "locations":{"LOC-HALL":{"setting_en":"A great stone hall","sound_en":"echo, wind"}},
+ "first_frames":{},"time_en":"Day","h3_prompt_format":"OFFICIAL_REF_V1"}
