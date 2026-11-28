@@ -377,6 +377,70 @@ def _studio_link(project_id: str, category: str, asset_id: str, libraries: dict,
     except Exception as exc:  # noqa: BLE001
         return {"status": "STUDIO_LINK_NOT_RUN", "error": f"{type(exc).__name__}:{exc}"}
 
+def _identity_acceptance_orders() -> tuple[list[dict[str, Any]], str]:
+    """Inbox rows a CHARACTER-IDENTITY-ADMISSION acceptance may read (same env coordinates as the Q2 overlay)."""
+    orders_path = os.environ.get("NALU_SUPERVISOR_ORDERS_PATH") or ""
+    issuer = str(os.environ.get("NALU_LINE_OWNER_ID") or "")
+    if not orders_path or not issuer or not Path(orders_path).is_absolute():
+        return [], issuer
+    try:
+        expected_latest_seq = int(os.environ.get("NALU_LATEST_ORDER_SEQ") or 0)
+    except ValueError:
+        expected_latest_seq = 0
+    try:
+        import roger_gate_acceptance as _rga
+    except ImportError:
+        return [], issuer
+    rows, _diag = _rga.gate_acceptance_orders(Path(orders_path), expected_latest_seq=expected_latest_seq,
+                                              engine_root=Path(f"{_np.ENGINE_ROOT}"), expected_issuer=issuer)
+    return rows, issuer
+
+
+def line_owner_identity_acceptance(orders: list[dict[str, Any]], *, episode: str, asset_id: str,
+                                   verdict: str, plates: list[Path], issuer: str,
+                                   review_path: Path) -> dict[str, Any] | None:
+    """Admit a VLM-rejected identity subject on an explicit, plate-bound line-owner order (device 1205 E17,
+    2026-11-28: default acceptance seq 335 for an honest P2 hair-length FAIL was never read by this lock).
+
+    Only the reviewer's verdict is accepted: the caller requires the plates on disk and the objective
+    measurement PASS.  The order must be an active, receipted GATE_FAIL_ACCEPTANCE for this episode and gate
+    whose detectors name this subject (``<asset_id>:<defect>``, ``<asset_id>`` or ``VLM_REVIEW_<verdict>``) and
+    whose media sha equals one of this subject's identity plates exactly (keyed by asset id, plate file name,
+    plate path, or the plain ``media_sha256``).  The review stays on disk with its FAIL observation."""
+    if not orders or not issuer or not plates:
+        return None
+    try:
+        import roger_gate_acceptance as _rga
+    except ImportError:
+        return None
+    aid = asset_id.upper()
+    detector_sets: list[list[str]] = []
+    for row in orders:
+        dec = row.get("decision") or {}
+        if _rga.normalize_gate_id(dec.get("gate_id")) != GATE_ID:
+            continue
+        dets = sorted({str(d) for d in dec.get("detectors") or []
+                       if str(d).upper() in {aid, f"VLM_REVIEW_{str(verdict).upper()}"}
+                       or str(d).upper().startswith(aid + ":")})
+        if dets and dets not in detector_sets:
+            detector_sets.append(dets)
+    for plate in plates:
+        sha = sha256_file(plate)
+        keys: list[str | None] = [asset_id, plate.name, str(plate), plate.stem, None]
+        for dets in detector_sets:
+            order, key = _rga.find_acceptance_any_binding(
+                orders, episode=episode, gate_id=GATE_ID, failing=dets, media_sha256=sha,
+                expected_issuer=issuer, media_item_ids=keys, engine_root=Path(f"{_np.ENGINE_ROOT}"))
+            if order is None:
+                continue
+            record = _rga.acceptance_record(order, episode=episode, gate_id=GATE_ID, failing=dets,
+                                            media_sha256=sha, media_item_id=key,
+                                            gate_result_path=str(review_path))
+            record.update({"asset_id": asset_id, "review_verdict_kept": verdict,
+                           "accepted_blockers": [f"VLM_REVIEW_{verdict}"], "bound_plate": str(plate)})
+            return record
+    return None
+
 
 def materialise(episode: str, submitted: dict[str, Any],
                 submitted_path: Path, *, rights_basis: str | None = None) -> dict[str, Any]:
@@ -397,6 +461,8 @@ def materialise(episode: str, submitted: dict[str, Any],
                 "failures": [f"asset_library_absent:{p.identity_library}"]}
 
     rows: list[dict[str, Any]] = []
+    acceptance_orders: list[dict[str, Any]] | None = None
+    acceptance_issuer = ""
     libraries = {path: read_json(path, {}) or {} for path in targets}
     for path, library in libraries.items():
         if library.get("schema") != LIBRARY_SCHEMA:
@@ -481,12 +547,19 @@ def materialise(episode: str, submitted: dict[str, Any],
         review_pass = item["verdict"] in {"PASS", "PASS_WITH_P2"}
         measure_pass = str(measurement.get("decision")) in {"PASS", "NOT_APPLICABLE", "PASS_WITH_SOURCE_LIKENESS_ADVISORY"}
         plate_present = bool(plates)
-        qa_status = "PASS" if (review_pass and measure_pass and plate_present) else "FAIL"
+        acceptance = None
+        if not review_pass and measure_pass and plate_present:
+            if acceptance_orders is None:
+                acceptance_orders, acceptance_issuer = _identity_acceptance_orders()
+            acceptance = line_owner_identity_acceptance(
+                acceptance_orders, episode=episode, asset_id=asset_id, verdict=str(item["verdict"]),
+                plates=plates, issuer=acceptance_issuer, review_path=submitted_path)
+        qa_status = "PASS" if ((review_pass or acceptance) and measure_pass and plate_present) else "FAIL"
 
         blockers: list[str] = []
         if not plate_present:
             blockers.append("IDENTITY_PLATE_NOT_ON_DISK")
-        if not review_pass:
+        if not review_pass and not acceptance:
             blockers.append(f"VLM_REVIEW_{item['verdict']}")
         if not measure_pass:
             blockers.extend(measurement.get("failures") or ["INSIGHTFACE_MEASUREMENT_FAILED"])
@@ -508,6 +581,9 @@ def materialise(episode: str, submitted: dict[str, Any],
             "advisories": ([adjudication] if adjudication and measurement.get("source_likeness_adjudication") else []),
             "blockers": blockers,
         }
+        if acceptance:
+            qa_block["line_owner_acceptance"] = acceptance
+            qa_block["review_verdict"] = item["verdict"]
 
         applied: list[str] = []
         for path, library in libraries.items():
@@ -554,6 +630,7 @@ def materialise(episode: str, submitted: dict[str, Any],
             "verdict": item["verdict"], "plate_count": len(plates),
             "objective_decision": measurement.get("decision"),
             "blockers": blockers, "libraries_updated": applied,
+            **({"line_owner_acceptance_seq": acceptance.get("order_seq")} if acceptance else {}),
             "studio_asset_library": _studio_link(
                 p.series_id, category, asset_id, libraries, plates, deliverables, qa_status,
                 review_sha, submitted_path, submitted, episode),

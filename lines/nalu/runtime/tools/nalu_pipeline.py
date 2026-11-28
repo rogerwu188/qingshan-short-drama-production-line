@@ -5114,7 +5114,12 @@ def s3_qa(ctx: Ctx, res: StageResult, *, harvested_dir: Path) -> dict[str, Any]:
                      "--review", review_path,
                      "--rights-basis", ctx.rights_basis]
         detail["rights_basis"] = ctx.rights_declaration
-        lock_step = qa_run(ctx, lock_argv, name="s3_qa_identity_lock")
+        # device 1205 E17 (2026-11-28): the lock reads CHARACTER-IDENTITY-ADMISSION default acceptances from
+        # the private inbox; hand it the same coordinates the other gate overlays use (paths / ids, no secrets).
+        authority = getattr(ctx, "authority", None) or {}
+        lock_env = {env: str(authority.get(key)) for key, env in AUTH_ENV.items()
+                    if key in ("orders_path", "latest_order_seq", "line_owner_id") and authority.get(key)}
+        lock_step = qa_run(ctx, lock_argv, name="s3_qa_identity_lock", extra_env=lock_env or None)
         res.steps.append(lock_step)
         verdict = qa_json(lock_step)
         detail.update({
