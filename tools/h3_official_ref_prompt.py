@@ -465,6 +465,17 @@ def compose(p: Parts) -> str:
     if (outgoing and p.records and last_exit_key in ev
             and _flat(outgoing) == _flat(p.records[-1].get("exit") or "")):
         ev["TRANSITION.OUTGOING"] = ev[last_exit_key]
+    # likewise an incoming transition equal to the first beat's entry: V2 adds no "Open directly from ..." sentence
+    # and registers the raw entry; the official order rewrote it as "Continuing straight from ..." (1205 E17-VU-002)
+    incoming = ev.get("TRANSITION.INCOMING")
+    if (incoming and p.records and "BEAT.1.ENTRY" in ev
+            and _flat(incoming) == _flat(p.records[0].get("entry") or "")):
+        ev["TRANSITION.INCOMING"] = ev["BEAT.1.ENTRY"]
+    # and a force origin V2 defaulted to the raw entry (no force_origin translation) follows the rewritten entry too
+    for number, record in enumerate(p.records, 1):
+        force, entry_key = ev.get(f"BEAT.{number}.FORCE_ORIGIN"), f"BEAT.{number}.ENTRY"
+        if force and entry_key in ev and _flat(force) == _flat(record.get("entry") or ""):
+            ev[f"BEAT.{number}.FORCE_ORIGIN"] = ev[entry_key]
     tail = p.action_lines[p.beats_end:]
     for line in tail:
         if line.startswith("Everyone keeps the posture"):
