@@ -162,3 +162,51 @@ class ImportRoots(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SeriesSwitchCli(unittest.TestCase):
+    """craft_profile.py set/show: the deterministic series switch (fleet 2026-11-28, English series 1205)."""
+
+    def test_set_backs_up_and_keeps_other_keys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = root / "qingshan.json"
+            cfg.write_text(json.dumps({"project": {"language": "en-US", "name": "x"}, "deployment": {"mode": "fleet"}}))
+            cfg.chmod(0o640)
+            out = cp.write_runtime(root, "bili-v1", "screenplay", True, stamp="T")
+            data = json.loads(cfg.read_text())
+            self.assertEqual(data["project"], {"language": "en-US", "name": "x", "craft_profile": "BILI_V1",
+                                               "writer_format": "SCREENPLAY_V1", "bgm_mood_cues": True})
+            self.assertEqual(data["deployment"], {"mode": "fleet"})
+            self.assertEqual(cfg.stat().st_mode & 0o777, 0o640)
+            backup = root / "qingshan.json.bak-craft-T"
+            self.assertEqual(json.loads(backup.read_text())["project"], {"language": "en-US", "name": "x"})
+            self.assertEqual(out["settings"], {"craft_profile": "BILI_V1", "bgm_mood_cues": True,
+                                               "writer_format": "SCREENPLAY_V1"})
+            self.assertTrue(cp.is_bili_v1(root))
+            self.assertEqual(cp.writer_format(root), "SCREENPLAY_V1")
+
+    def test_unknown_values_write_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "qingshan.json").write_text('{"project": {}}')
+            for args in (("BILI_V9", None), ("BILI_V1", "PROSE")):
+                with self.assertRaises(ValueError):
+                    cp.write_runtime(root, *args)
+            self.assertEqual((root / "qingshan.json").read_text(), '{"project": {}}')
+            self.assertEqual(sorted(p.name for p in root.iterdir()), ["qingshan.json"])
+
+    def test_cli_set_then_show(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            script = TOOLS / "craft_profile.py"
+            done = subprocess.run([sys.executable, str(script), "--runtime", tmp, "set", "--profile", "BILI_V1",
+                                   "--writer-format", "SCREENPLAY_V1", "--bgm-mood-cues", "on"],
+                                  capture_output=True, text=True, check=True)
+            self.assertIn("CRAFT_PROFILE: ", done.stdout)
+            shown = subprocess.run([sys.executable, str(script), "--runtime", tmp, "show"],
+                                   capture_output=True, text=True, check=True)
+            self.assertEqual(json.loads(shown.stdout)["settings"],
+                             {"craft_profile": "BILI_V1", "bgm_mood_cues": True, "writer_format": "SCREENPLAY_V1"})
+            bad = subprocess.run([sys.executable, str(script), "--runtime", tmp, "set", "--profile", "BILI_V1",
+                                  "--bgm-mood-cues", "maybe"], capture_output=True, text=True)
+            self.assertEqual(bad.returncode, 2)

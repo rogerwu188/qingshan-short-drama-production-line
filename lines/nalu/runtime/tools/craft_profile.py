@@ -30,10 +30,20 @@ Import (works under both the runtime-tools and the engine-tools roots)::
         import craft_profile as _cp
 
 Pure data and functions; the runtime lookups read two small JSON files and never raise.
+
+CLI (the series switch, deterministic -- no hand-edited JSON; ``$NALU_RUNTIME_ROOT`` or ``--runtime``)::
+
+    craft_profile.py show [--episode E17]
+    craft_profile.py set --profile BILI_V1 [--writer-format SCREENPLAY_V1] [--bgm-mood-cues on|off]
+
+``set`` backs ``qingshan.json`` up once per call (``qingshan.json.bak-craft-<UTC stamp>``), writes the three
+``project`` keys atomically (other keys untouched, file mode kept) and prints the resolved settings.
 """
 from __future__ import annotations
 
 import json
+import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -268,5 +278,107 @@ __all__ = [
     "CONTRACT_JSON", "SCREENPLAY_V1", "WRITER_FORMATS", "DEFAULTS", "KEYS", "normalise", "normalise_writer_format",
     "from_contract", "from_brief", "from_config", "resolve", "settings", "default_runtime_root", "brief_path",
     "runtime_sources", "settings_runtime", "resolve_runtime", "profile_of", "is_bili_v1", "is_legacy",
-    "writer_format", "bgm_mood_cues", "enabled",
+    "writer_format", "bgm_mood_cues", "enabled", "write_runtime",
 ]
+
+
+# --------------------------------------------------------------------------- CLI (series switch)
+def write_runtime(runtime_root: Path | str, profile: str, writer_format_value: str | None = None,
+                  mood_cues: bool | None = None, *, stamp: str | None = None) -> dict[str, Any]:
+    """Set ``project.craft_profile`` (+ the two sub-switches when given) in ``<runtime>/qingshan.json``.
+
+    Backs the file up first (``qingshan.json.bak-craft-<stamp>``), writes atomically, keeps the file mode and every
+    other key.  Raises ValueError on an unknown value or an unreadable config (nothing is written then)."""
+    import shutil  # noqa: PLC0415
+    import stat  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+    from datetime import datetime, timezone  # noqa: PLC0415
+    prof = normalise(profile)
+    if prof is None:
+        raise ValueError(f"UNKNOWN_CRAFT_PROFILE:{profile}")
+    fmt = None
+    if writer_format_value is not None:
+        fmt = normalise_writer_format(writer_format_value)
+        if fmt is None:
+            raise ValueError(f"UNKNOWN_WRITER_FORMAT:{writer_format_value}")
+    path = Path(runtime_root) / "qingshan.json"
+    cfg: Any = {}
+    if path.is_file():
+        try:
+            cfg = json.loads(path.read_text(encoding="utf-8"))
+        except ValueError as exc:
+            raise ValueError(f"QINGSHAN_JSON_UNPARSEABLE:{path}") from exc
+    if not isinstance(cfg, dict):
+        raise ValueError(f"QINGSHAN_JSON_NOT_AN_OBJECT:{path}")
+    project = dict(cfg.get("project")) if isinstance(cfg.get("project"), dict) else {}
+    project[FIELD] = prof
+    if fmt is not None:
+        project[WRITER_FORMAT] = fmt
+    if mood_cues is not None:
+        project[BGM_MOOD_CUES] = bool(mood_cues)
+    cfg["project"] = project
+    backup = None
+    if path.is_file():
+        stamp = stamp or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        backup = path.with_name(f"qingshan.json.bak-craft-{stamp}")
+        shutil.copy2(path, backup)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        perm = stat.S_IMODE(path.stat().st_mode)
+    except OSError:
+        perm = 0o600
+    fd, tmp = tempfile.mkstemp(prefix=".qingshan.", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n")
+        os.chmod(tmp, perm)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    return {"status": "OK", "path": str(path), "backup": str(backup) if backup else None,
+            "settings": settings(None, None, cfg)}
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse  # noqa: PLC0415
+    ap = argparse.ArgumentParser(description="Per-series craft profile (runtime qingshan.json project.*).")
+    ap.add_argument("--runtime", default="", help="runtime root (default: $NALU_RUNTIME_ROOT, else the pinned root)")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sh = sub.add_parser("show", help="print the resolved settings")
+    sh.add_argument("--episode", default="")
+    st = sub.add_parser("set", help="write project.craft_profile (+ writer_format / bgm_mood_cues)")
+    st.add_argument("--profile", required=True, help="LEGACY | BILI_V1")
+    st.add_argument("--writer-format", default=None, help="CONTRACT_JSON | SCREENPLAY_V1")
+    st.add_argument("--bgm-mood-cues", default=None, help="on | off")
+    a = ap.parse_args(argv)
+    root = Path(a.runtime).expanduser() if a.runtime else (
+        Path(os.environ["NALU_RUNTIME_ROOT"]).expanduser() if os.environ.get("NALU_RUNTIME_ROOT")
+        else default_runtime_root())
+    if root is None:
+        print(json.dumps({"status": "ERROR", "reason": "NO_RUNTIME_ROOT"}))
+        return 2
+    if a.cmd == "show":
+        print(json.dumps({"status": "OK", "runtime": str(root),
+                          "settings": settings_runtime(a.episode or None, runtime_root=root)}, ensure_ascii=False))
+        return 0
+    cues = None
+    if a.bgm_mood_cues is not None:
+        cues = _bool(a.bgm_mood_cues)
+        if cues is None:
+            print(json.dumps({"status": "ERROR", "reason": f"BAD_BGM_MOOD_CUES:{a.bgm_mood_cues}"}))
+            return 2
+    try:
+        out = write_runtime(root, a.profile, a.writer_format, cues)
+    except (ValueError, OSError) as exc:
+        print(json.dumps({"status": "ERROR", "reason": str(exc)[:300]}, ensure_ascii=False))
+        return 2
+    print("CRAFT_PROFILE: " + json.dumps(out, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

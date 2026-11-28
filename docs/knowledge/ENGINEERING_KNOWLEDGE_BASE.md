@@ -1761,3 +1761,12 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **实现**：`tools/combat_density_check.py`、`tools/post_generation_qa_scope_gate.py`、`tools/tests/test_combat_density_check.py`
 - **授权**：Roger 2026-11-08 E15 看片（SUPERVISOR_ORDERS seq=219）：打斗没有专业感；同一把刀在不同单元形状不同
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K177 — S6
+
+- **规则**：BILI_V1 H3 units render in MiniMax's official reference-mode format (subject_definitions, summary with a [task] prefix, retention_analysis, detailed_description with [Shot 1], overall_soundscape, non_diegetic_music; <Picture N>/<Subject N>/<Audio N> labels, (S1) speaker ids, <d>[Chinese] words</d>, no negative list). The grouped compiler stamps h3_prompt_format (contract value, else OFFICIAL_REF_V1); DIRECTOR_V2 or env QINGSHAN_H3_PROMPT_FORMAT=DIRECTOR_V2 restores the V2 text byte-identically. Multi-setup and single-subject units stay on V2.
+- **教训**：Lab A/B 2026-11-27 on E28 S01-03/05/06 with device-parity inputs (clean gpt-image-2 frame + faces, voice anchors), 2 distinct renders per arm per line: burned text 0/6 (V2) vs 0/6 (official), full line in every ASR, voice F0 matched the anchor, identity and locked camera held in all 12; acting near-identical (the first frame dominates). The lab cannot measure the device burn rate (E28 prod 12/31 under V2), so watch the S6 burn check after rollout.
+- **恢复**：Set h3_prompt_format=DIRECTOR_V2 in the generation contract (or the env switch) and recompile the unit.
+- **实现**：`tools/h3_official_ref_prompt.py`、`tools/h3_director_prompt_v2.py`、`tools/compile_grouped_seedance_manifest.py`、`tools/provider_scope_projection.py`、`tools/video_prompt_compiler.py`、`tools/submit_giggle_video_manifest_v2.py`、`lines/nalu/runtime/tools/build_nalu_preproduction.py`、`lines/nalu/runtime/tools/prompt_batch_qa.py`
+- **授权**：Owner 2026-11-27「好的」(~50 credit lab A/B of the official MiniMax-H3 prompt format)
+- **状态**：REFERENCE_IMPLEMENTATION

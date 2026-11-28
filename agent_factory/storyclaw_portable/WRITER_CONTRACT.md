@@ -233,6 +233,11 @@ Every other series keeps the sections above unchanged.
   `<EP>_SCREENPLAY.md` (L2 scene cards + L3 Chinese prose screenplay, the compile input) and
   `<EP>_CAST_PROPS.yaml` (cast, props with owner and hand, locations, `ledger`). Format:
   `docs/knowledge/SCREENPLAY_FORMAT_V1.md`; worked example (E25, ch.226): `tools/tests/fixtures/screenplay_e25/`.
+- **Non-Chinese series** (`project.language` en etc.): write dialogue, action lines and reactions in the series
+  language (English), never Chinese-then-translate; keep the markup words as they are (`反应`, `道具`, `（无声）`,
+  `（画面）`, `@card`/`@see` keys, `#` tags); set `dialogue_language` in `<EP>_CAST_PROPS.yaml` to the series
+  language (do not copy the example's `zh`); names and props inside markup are one token without spaces
+  (`[Mara 反应：…]`, `{道具 brass_token @Mara.右手 …}`), the full names live in CAST_PROPS.
 - **Compile.** `python3 lines/nalu/runtime/tools/screenplay_compile.py <EP>` writes the four legacy layers, so S2–S8 are
   untouched. S1 recompiles by itself when the screenplay is newer than the contract. Exit 3 = English twins missing:
   **always answer the request in the same run** -- translate every row of `<EP>_SCREENPLAY_EN_REQUEST.json`

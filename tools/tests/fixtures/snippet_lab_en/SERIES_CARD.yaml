@@ -1,0 +1,21 @@
+series_id: NALU-TEST-EN
+premise: A bounty hunter comes to collect a king who refuses to hide
+engine: play every threat as a negotiation
+protagonist_ids: [CHAR-RHYS]
+characters:
+  - id: CHAR-RHYS
+    name: Rhys Calder
+    want: protect his people
+    fear: being seen as weak
+    voice: few words, short sentences
+    verbal_habit: answers a question with a question
+    signature_business: a reassuring look over his shoulder
+    signature_prop: his coat cuff
+  - id: CHAR-MARA
+    name: Mara Quinn
+    want: deliver the surrender and leave
+    fear: looking foolish
+    voice: slow, barbed
+    verbal_habit: repeats the other's words back mockingly
+    signature_business: spins the token
+    signature_prop: brass token

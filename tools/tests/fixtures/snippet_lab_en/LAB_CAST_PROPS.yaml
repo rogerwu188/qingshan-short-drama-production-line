@@ -1,0 +1,52 @@
+episode: LAB
+title: The Oath
+project_id: NALU-TEST-EN
+dialogue_language: en
+protagonist_ids: [CHAR-RHYS]
+cast:
+  - id: CHAR-MARA
+    name: Mara Quinn
+    short_names: [Mara]
+    english_name: Mara Quinn
+    gender: female
+    age: 24-28
+    appearance: oval face, narrow chin, long eyes
+    wardrobe: white and gold coat
+    voice: Mara Quinn
+  - id: CHAR-DOYLE
+    name: Doyle
+    english_name: Doyle
+    gender: male
+    age: 35-45
+    appearance: square jaw, short beard
+    wardrobe: dark green armour
+    voice: Doyle
+  - id: CHAR-RHYS
+    name: Rhys Calder
+    short_names: [Rhys]
+    english_name: Rhys Calder
+    gender: male
+    age: 25-32
+    appearance: long face, high nose bridge
+    wardrobe: black long coat, silver belt
+    voice: Rhys Calder
+props:
+  - id: PROP-TOKEN
+    name: brass token
+    aliases: [token]
+    owner: CHAR-MARA
+    hand: right hand
+    description: a palm-sized brass token engraved with a crown
+locations:
+  - id: LOC-HALL
+    name: Great Hall
+    time: day
+    weather: clear
+    light: backlight from the doors
+    set_pieces: [throne, steps, pillar, doors]
+    ambience: echo of an empty stone hall, wind outside
+    axis: throne to doors, steps in the middle
+source:
+  work: The Oath
+  author: Someone
+  chapters: [12]

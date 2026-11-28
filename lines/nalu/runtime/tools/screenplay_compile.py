@@ -357,7 +357,8 @@ def screenplay_lexicon() -> dict[str, Any]:
 # =========================================================================== parse
 _HEADING = re.compile(r"^##\s+(?P<num>S\d+)\s*(?P<rest>.*)$")
 _CARD = re.compile(r"^@card\s+(?P<body>.+)$")
-_REACTION = re.compile(r"^\[(?P<who>[^\]\s：:]+?)\s*反应\s*[：:](?P<text>[^\]]+)\]$")
+#: ``who`` may be a multi-word English name ("[Mara Quinn 反应：…]", 1205 English BILI_V1 2026-11-28)
+_REACTION = re.compile(r"^\[(?P<who>[^\]\s：:](?:[^\]：:]*?[^\]\s：:])?)\s*反应\s*[：:](?P<text>[^\]]+)\]$")
 _PROP = re.compile(r"^\{道具\s+(?P<name>[^\s@}]+)\s*(?:@(?P<owner>[^.\s}]+)(?:\.(?P<hand>[^\s}]+))?)?\s*"
                    r"(?P<desc>[^}]*)\}$")
 _SILENT = re.compile(r"^[（(](?:无声|silent)[)）]\s*")
@@ -376,7 +377,8 @@ _SEE_KEYS = {"赌注": "stakes", "处境": "stakes", "stakes": "stakes", "关系
              "relations": "relations", "relation": "relations", "环境": "environment", "env": "environment",
              "environment": "environment", "感官": "senses", "senses": "senses", "sense": "senses"}
 _DIALOGUE = re.compile(r"^(?P<pre>[^：:（(\[{。！？]{1,40}?)(?:[（(](?P<paren>[^）)]*)[）)])?\s*[：:](?P<line>.+)$")
-_TAG = re.compile(r"\s+#(?P<tag>[^\s#]+)\s*$")
+#: a colon tag's later segments may hold spaces ("#先物:PROP:brass token:TILT_UP", an English prop name)
+_TAG = re.compile(r"\s+#(?P<tag>[^\s#:]+(?::[^#:\n]*[^\s#:])*:?)\s*$")
 
 
 def _clean(value: Any) -> str:
@@ -655,6 +657,8 @@ class Translations:
         zh = _clean(zh)
         if not zh:
             return ""
+        if not re.search(r"[㐀-鿿]", zh):  # already English (an English series' own prose): its own twin
+            return zh
         key = en_key(field, zh)
         self.used.add(key)
         value = self.rows.get(key, "")
@@ -689,8 +693,26 @@ def _has_any(text: str, words: list[str]) -> bool:
     return any(w and w in (text or "") for w in words)
 
 
+def _has_any_en(text: str, words: list[str]) -> bool:
+    """English verbs as whole words with their inflections (grab / grabs / grabbed / grabbing); never inside a
+    longer word ("hand" never matches "handsome")."""
+    low = (text or "").lower()
+    return any(w and re.search(rf"\b{re.escape(w)}(?:s|es|ed|d|ing|\w?ed|\w?ing)?\b", low) for w in words)
+
+
+#: English prose (an English series writes its actions in English, 1205 BILI_V1 2026-11-28): the same three
+#: dimensions as the Chinese lists below, so an English action is not POSTURE-only
+_POSSESSION_EN = ["hand over", "hands over", "handed over", "pass", "give", "gave", "take", "took", "taken",
+                  "pick up", "picks up", "picked up", "snatch", "seize", "grab", "tuck", "put down", "puts down",
+                  "set down", "sets down", "draw", "drew", "pocket", "offer", "toss", "throw", "threw", "drop"]
+_POSITION_EN = ["stand", "stood", "rise", "rose", "sit", "sat", "walk", "step", "stride", "strode", "rush", "run",
+                "ran", "enter", "leave", "left the", "exit", "turn", "back away", "backs away", "retreat", "kneel",
+                "knelt", "approach", "cross", "crosses", "lunge", "climb", "descend", "move", "storm"]
+
+
 def _contact(text: str) -> bool:
-    return _has_any(text, screenplay_lexicon().get("contact_verbs_zh") or [])
+    lex = screenplay_lexicon()
+    return _has_any(text, lex.get("contact_verbs_zh") or []) or _has_any_en(text, lex.get("contact_verbs_en") or [])
 
 
 def _dims(texts: list[str], speaking: bool) -> list[str]:
@@ -698,9 +720,11 @@ def _dims(texts: list[str], speaking: bool) -> list[str]:
     dims: list[str] = []
     if _contact(blob):
         dims.append("CONTACT")
-    if _has_any(blob, ["递", "接过", "收回", "亮到", "拿起", "抢", "夺", "塞", "交给", "放下"]):
+    if (_has_any(blob, ["递", "接过", "收回", "亮到", "拿起", "抢", "夺", "塞", "交给", "放下"])
+            or _has_any_en(blob, _POSSESSION_EN)):
         dims.append("POSSESSION")
-    if _has_any(blob, ["起身", "下两级", "走", "冲上", "进", "出殿", "退", "转身", "跨", "坐直", "站起", "离开"]):
+    if (_has_any(blob, ["起身", "下两级", "走", "冲上", "进", "出殿", "退", "转身", "跨", "坐直", "站起", "离开"])
+            or _has_any_en(blob, _POSITION_EN)):
         dims.append("POSITION")
     if not dims or speaking:
         dims.append("POSTURE")
@@ -1200,7 +1224,19 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
     outline = outline if isinstance(outline, dict) else {}
     brief = brief if isinstance(brief, dict) else {}
     episode = _clean(episode or cast_props.get("episode")).upper()
-    language = _clean(cast_props.get("dialogue_language") or brief.get("dialogue_language") or "zh") or "zh"
+    # brief dialogue_language > a non-zh series language (runtime project.language, passed by S1 as
+    # series_dialogue_language) > CAST_PROPS > zh.  A CAST_PROPS copied from the zh worked example must not turn an
+    # English series Chinese (1205 BILI_V1, 2026-11-28); a zh series keeps the historical CAST_PROPS-first order.
+    declared_language = _clean(cast_props.get("dialogue_language"))
+    series_language = _clean(brief.get("series_dialogue_language"))
+    if _clean(brief.get("dialogue_language")):
+        language = _clean(brief.get("dialogue_language"))
+    elif series_language and series_language.lower()[:2] != "zh":
+        language = series_language
+    else:
+        language = declared_language or series_language or "zh"
+    if declared_language and declared_language.lower()[:2] != language.lower()[:2]:
+        warnings.append(f"DIALOGUE_LANGUAGE_OVERRIDDEN:{declared_language}->{language}")
     cast = Cast(list(cast_props.get("cast") or []))
     if not cast.rows:
         errors.append("CAST_PROPS_NO_CAST")
@@ -1901,6 +1937,12 @@ def compile_screenplay(parsed: dict[str, Any], cast_props: dict[str, Any], serie
     shot_ids = [s["shot_id"] for s in shots_out]
     if not shots_out:
         errors.append("SCREENPLAY_NO_SHOTS")
+    if language.lower()[:2] != "zh":  # a non-zh series speaks its own language (speaker names may stay Chinese)
+        for s in shots_out:
+            line = str((s.get("prompt_spec") or {}).get("dialogue") or "")
+            head = re.match(r"^[^:：]{1,24}[:：]", line)
+            if re.search(r"[㐀-鿿]", line[head.end():] if head else line):
+                errors.append(f"DIALOGUE_NOT_IN_SERIES_LANGUAGE:{s['shot_id']}:{language}")
     hook = outline.get("hook") if isinstance(outline.get("hook"), dict) else {}
     end_hook = outline.get("end_hook") if isinstance(outline.get("end_hook"), dict) else {}
     ending_shot = next((s["shot_id"] for s in reversed(shots_out)

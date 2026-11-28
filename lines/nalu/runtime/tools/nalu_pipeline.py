@@ -2317,7 +2317,13 @@ def s1_screenplay_compile(ctx: Any, p: Any) -> dict[str, Any]:
         if s1_pacing_in_flight(p):
             return {**row, "status": "SKIPPED_PAID_STAGE_RAN"}
         brief = read_json(RUNTIME / "briefs" / f"{ctx.episode}_PRODUCTION_BRIEF.json", None)
-        brief = brief if isinstance(brief, dict) else None
+        brief = dict(brief) if isinstance(brief, dict) else {}
+        # the series' spoken language (runtime project.language) outranks a CAST_PROPS copied from the zh worked
+        # example (1205 English BILI_V1, 2026-11-28); an explicit brief dialogue_language still wins
+        series_language = resolve_dialogue_language(None, getattr(ctx, "config", None))
+        if getattr(ctx, "config", None) and not brief.get("dialogue_language"):
+            brief["series_dialogue_language"] = series_language
+        brief = brief or None
         out = _spc.compile_files(scripts, ctx.episode, brief=brief)
         report = out.get("report") or {}
         fallback = ""

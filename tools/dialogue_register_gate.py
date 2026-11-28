@@ -51,12 +51,13 @@ POLICY_PATH = Path(__file__).resolve().parents[1] / "configs" / f"{POLICY_ID}.js
 
 #: a run this long shared with the source is the writer copying, not adapting
 VERBATIM_MIN_RUN = 8
-#: the same copied phrase is longer in Japanese characters / Korean syllables (2026-11-18)
-VERBATIM_MIN_RUN_BY_LANGUAGE = {"ja": 12, "ko": 10}
+#: the same copied phrase is longer in Japanese characters / Korean syllables (2026-11-18); English letters (spaces
+#: dropped) need ~6 words -- 8 letters is one common word ("destroyed") or "are the king" (1205 BILI_V1, 2026-11-28)
+VERBATIM_MIN_RUN_BY_LANGUAGE = {"ja": 12, "ko": 10, "en": 30}
 
 
 def verbatim_min_run_for(language: Any, policy: dict[str, Any] | None = None) -> int:
-    """zh / en: the policy's verbatim_min_run (unchanged); ja / ko: verbatim_min_run_by_language, else 12 / 10."""
+    """zh: the policy's verbatim_min_run; ja / ko / en: verbatim_min_run_by_language, else 12 / 10 / 30."""
     policy = policy or {}
     code = str(language or "").strip().lower()[:2]
     if code in VERBATIM_MIN_RUN_BY_LANGUAGE:
