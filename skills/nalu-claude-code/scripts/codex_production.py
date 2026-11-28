@@ -1542,11 +1542,128 @@ def engine_modification() -> dict[str, Any] | None:
     return {"files": files, "patch": str(out), "sha": sha}
 
 
+# ------------------------------------------------------------------ owner's standing terms, applied by the tick
+# Line owner 2026-11-28「这么慢？」: device …1205 E17 (restart on 68e0e22) passed S1/S2 at ~10:05Z, Codex stopped at
+# OWNER_DECISION_REQUIRED before the paid S3 with no question, and nothing moved until the 6-hourly agent heartbeat
+# at 16:02Z resumed it 「已按线主默认条款授权」.  That decision is not the agent's: the default terms (AGENTS.md §4,
+# contract §3/§5: providing the key authorises every episode's paid production; quality and S8 never wait for the
+# owner) already made it.  The system tick now resumes such a stop itself, once per stage, and writes the receipt
+# (runtime/series/DEFAULT_TERMS_RESUMES.json + a STATUS.md line).  The contract's real stops stay with the agent:
+# key missing / invalid, balance, budget still short after the one automatic top-up, a new paid category, source
+# acquisition, owner_review_required, or the same stage stopping again after the default-terms resume.
+DEFAULT_TERMS_STAGES = ("S3", "S4", "S5", "S6", "S7", "S8")
+GENUINE_OWNER_STOP_RE = re.compile(
+    r"(api[ _-]?key|key|密钥)[^。；;\n]{0,24}(缺|没有|未配置|无效|失效|过期|错误|被拒|missing|invalid|expired|rejected|\b40[13]\b)"
+    r"|(缺|没有|未配置|missing|no |请[^。；;\n]{0,8}(发|提供|配置|更换)|send|provide)[^。；;\n]{0,12}(api[ _-]?key|key|密钥)"
+    r"|余额|balance|insufficient|积分不足|额度不足|充值|recharge|\b402\b"
+    r"|追加[^。；;\n]{0,40}(仍|还|依然)[^。；;\n]{0,8}(不够|不足|超)|仍不够|HARD_STOP"
+    r"|budget[^.;\n]{0,40}(exceed|exhaust|insufficient|still)"
+    r"|新付费类别|订单范围外|new paid categor|out of (order )?scope"
+    r"|SOURCE_|线主原话|暂停|停止花费|owner_review_required|AWAITING_LINE_OWNER_APPROVAL",
+    re.I)
+DEFAULT_TERMS_MESSAGE = (
+    "系统心跳按线主默认条款处理本次停点（AGENTS.md §4、合同 §1/§3/§5：用户提供 Giggle API key 即授权本项目每一集的付费生产；"
+    "预算按本集上限、超支自动追加一次；质量问题默认接受；S8 由引擎按默认条款批准）——这不是需要线主回答的问题，不要再等线主。"
+    "本集还没有付费订单时，按合同 §3 第 2–3 步用简报 authorization / budget_cap 记订单（`--recorded-by codex`）并同步 "
+    "qingshan.json 与 .env 的授权坐标，然后从 {stage} 继续生产。只有合同明确写了「停下」的情况（key 缺失/失效、余额不足、"
+    "追加一次后预算仍不够、订单范围外的新付费类别）才再报 OWNER_DECISION_REQUIRED，并在 question 里写清是哪一种。")
+
+
+def _first_open_stage(pipeline: dict[str, Any]) -> str:
+    return next((sid for sid in ("S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8")
+                 if (pipeline.get(sid) or {}).get("status") not in ("PASS", "SKIPPED_ALREADY_PASS")), "")
+
+
+def giggle_key_present() -> bool:
+    """GIGGLE_API_KEY= non-empty in the engine .env (presence only; the value is never read out)."""
+    try:
+        text = (roots()[0] / ".env").read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+    return re.search(r"^(export\s+)?GIGGLE_API_KEY=['\"]?[^'\"\s]+", text, re.M) is not None
+
+
+def _episode_budget_exhausted(episode: str) -> bool:
+    ledger = read_json(roots()[1] / "runtime" / "budget" / "ledger.json")
+    rows = [r for r in ledger.get("entries") or [] if isinstance(r, dict) and r.get("episode") == episode]
+    if not rows:
+        return False
+    spent, cap = rows[-1].get("recorded_total_credits"), rows[-1].get("cap_credits")
+    return isinstance(spent, (int, float)) and isinstance(cap, (int, float)) and cap > 0 and spent >= cap
+
+
+def _owner_review_required() -> bool:
+    project = read_json(roots()[1] / "qingshan.json").get("project") or {}
+    return project.get("owner_review_required") is True
+
+
+def default_terms_resume_due(episode: str, session: dict[str, Any], ns: dict[str, Any]) -> tuple[str, str]:
+    """(stage, '') when this OWNER_DECISION_REQUIRED is one the owner's default terms already answer, else
+    ('', why it stays with the agent)."""
+    stage = _first_open_stage(pipeline_status(episode))
+    text = " ".join(str(ns.get(k) or "") for k in ("question", "note", "stage", "reason"))
+    if stage not in DEFAULT_TERMS_STAGES:
+        return "", f"STAGE_{stage or 'NONE'}"   # S1/S2 stops (source, script) are the agent's / owner's
+    if GENUINE_OWNER_STOP_RE.search(text):
+        return "", "CONTRACT_STOP"
+    if not giggle_key_present():
+        return "", "NO_GIGGLE_KEY"
+    if _episode_budget_exhausted(episode):
+        return "", "BUDGET_AT_CAP"
+    if stage == "S8" and _owner_review_required():
+        return "", "OWNER_REVIEW_REQUIRED"
+    if stage in (session.get("default_terms_resumed") or []):
+        return "", "ALREADY_RESUMED_ONCE"   # stopped again at the same stage: a person looks at it
+    return stage, ""
+
+
+def record_default_terms_resume(episode: str, stage: str, ns: dict[str, Any], out: dict[str, Any]) -> None:
+    path = roots()[1] / "series" / "DEFAULT_TERMS_RESUMES.json"
+    data = read_json(path)
+    rows = data.get("resumes") if isinstance(data.get("resumes"), list) else []
+    rows.append({"episode": episode, "stage": stage, "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                 "state": "OWNER_DECISION_REQUIRED", "question": str(ns.get("question") or "")[:300],
+                 "note": str(ns.get("note") or "")[:300], "resume": out.get("status"),
+                 "basis": "AGENTS.md §4 / CLAUDE_CODE_PRODUCTION.md §3,§5 默认条款（用户提供 Giggle key 即授权每集付费生产）",
+                 "by": "codex_production.tick"})
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_json(path, {"schema": "nalu.default_terms_resumes.v1", "resumes": rows[-200:]})
+    note(f"{episode} {stage} 前停在 OWNER_DECISION_REQUIRED（{str(ns.get('question') or ns.get('note') or '无问题')[:80]}），"
+         f"系统心跳按线主默认条款授权并 resume（{out.get('status')}），不等代理心跳")
+
+
+def blocked_recheck(episode: str, session: dict[str, Any], notify_key: str) -> dict[str, Any] | None:
+    """Hourly, model-free update check for a BLOCKED episode: self_update -> setup on the disk pin -> resume when the
+    engine moved (fleet_sync.scripted_update, the same steps the agent's BLOCKED_RECHECK_UPDATE duty did by hand;
+    …1324 E02 2026-11-07: a fix only lands when someone checks).  None when not due."""
+    d = run_dir(episode)
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rec = session.get("blocked_recheck") or {}
+    if rec.get("key") != notify_key:
+        session["blocked_recheck"] = {"key": notify_key, "at": now}
+        write_json(d / "session.json", session)
+        return None
+    if _hours_since(rec.get("at")) < BLOCKED_RECHECK_HOURS:
+        return None
+    session["blocked_recheck"] = {"key": notify_key, "at": now}
+    write_json(d / "session.json", session)
+    try:
+        if str(HERE) not in sys.path:
+            sys.path.insert(0, str(HERE))
+        import fleet_sync  # noqa: PLC0415
+        ok, result, _ = fleet_sync.scripted_update(sys.modules[__name__], "")
+    except Exception as exc:  # noqa: BLE001 -- a failed check is retried next hour
+        return {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:160]}"}
+    return {"ok": ok, **{k: result.get(k) for k in ("pin", "before", "after", "resumed", "setup_status", "error")
+                         if result.get(k) is not None}}
+
+
 # 0.9, not 1.0: the heartbeat fires every 15 min, so a strict hour slipped a whole extra cycle when the previous hand-off
 # was a few seconds late (field device …1324, 2026-11-08: a fix took ~2 h to land)
 BLOCKED_RECHECK_HOURS = 0.9
 #: idle states handed back to the agent every BLOCKED_RECHECK_HOURS (state -> reason the agent receives)
-RECHECK_STATES = {"BLOCKED": "BLOCKED_RECHECK_UPDATE", "FINAL_REVIEW_REQUIRED": "FINAL_REVIEW_REQUIRED"}
+#: BLOCKED is no longer handed back: the tick does the update check itself (blocked_recheck, 2026-11-28)
+RECHECK_STATES = {"FINAL_REVIEW_REQUIRED": "FINAL_REVIEW_REQUIRED"}
 
 
 def _hours_since(stamp: Any) -> float:
@@ -1682,7 +1799,9 @@ def tick(system: bool = False) -> dict[str, Any]:
     if modified:
         seen = runtime / "engine_patches" / ".reported"
         reported = set(seen.read_text(encoding="utf-8").split()) if seen.is_file() else set()
-        if modified["sha"] not in reported:
+        if modified["sha"] not in reported and system:  # the agent's to report: leave it, wake the heartbeat
+            res.update(action="AGENT_PENDING", reason="ENGINE_MODIFIED_ON_HOST", hand_off=f"engine:{modified['sha']}")
+        elif modified["sha"] not in reported:
             seen.write_text("\n".join(sorted(reported | {modified["sha"]})) + "\n", encoding="utf-8")
             note(f"【需要处理】引擎源码被改（{len(modified['files'])} 个文件），完整 diff 已存 {modified['patch']}；"
                  "不要在本机保留补丁，交给维护者修上游")
@@ -1833,6 +1952,18 @@ def tick(system: bool = False) -> dict[str, Any]:
         # the resume itself failed (e.g. CODEX_NOT_INSTALLED under the cron): surface it instead of silently
         # retrying every 3 min (…1101 sat at WAITING_REMOTE for hours)
         reason = f"RESUME_FAILED:{out.get('reason') or out.get('status')}"
+    elif state == "OWNER_DECISION_REQUIRED" and default_terms_resume_due(ep, session, ns)[0]:
+        stage = default_terms_resume_due(ep, session, ns)[0]
+        out = resume(ep, DEFAULT_TERMS_MESSAGE.format(stage=stage))
+        session = read_json(d / "session.json")
+        session["default_terms_resumed"] = sorted(set(session.get("default_terms_resumed") or []) | {stage})
+        write_json(d / "session.json", session)
+        record_default_terms_resume(ep, stage, ns, out)
+        did.append(f"resume_default_terms:{stage}:{out.get('status')}")
+        if out.get("status") == "STARTED":
+            res["reason"] = f"DEFAULT_TERMS_RESUMED:{stage}"
+            return res
+        reason = f"RESUME_FAILED:{out.get('reason') or out.get('status')}"
     elif state == "FINAL_REVIEW_REQUIRED":
         step = final_review_step(ep)
         res["final_review"] = step
@@ -1866,6 +1997,15 @@ def tick(system: bool = False) -> dict[str, Any]:
         reason = f"NEXT_EPISODE_{out.get('reason') or out.get('status')}"  # the agent takes over once
     else:
         reason = state
+    if state == "BLOCKED" and reason == "BLOCKED":
+        check = blocked_recheck(ep, session, notify_key)
+        if check is not None:
+            res["blocked_recheck"] = check
+            did.append(f"blocked_recheck:{check.get('resumed') or ('no_engine_change' if check.get('ok') else 'failed')}")
+            if check.get("resumed") == "STARTED":
+                res["reason"] = "BLOCKED_RECHECK_RESUMED"
+                return res
+        session = read_json(d / "session.json")
     if session.get("tick_notified") == notify_key:  # already handed to the agent once; wait
         # BLOCKED waits on a maintainer fix that arrives as a new agent version.  An idle heartbeat never runs
         # self_update, so a blocked machine would never pick the fix up (field device …1324 E02, 2026-11-07):
@@ -1876,8 +2016,8 @@ def tick(system: bool = False) -> dict[str, Any]:
             res["reason"] = f"WAITING_ON_AGENT_OR_OWNER:{reason}"
             return res
         reason = RECHECK_STATES[state]
-    if system:  # the system cron never consumes a hand-off meant for the agent heartbeat
-        res.update(action="AGENT_PENDING", reason=reason)
+    if system:  # the system cron never consumes a hand-off meant for the agent heartbeat; main() wakes it
+        res.update(action="AGENT_PENDING", reason=reason, hand_off=notify_key)
         return res
     session["tick_notified"] = notify_key
     session["tick_notified_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -1940,6 +2080,35 @@ def report() -> dict[str, Any]:
     return out
 
 
+#: system-tick results that are handed to the agent and recur every tick until it acts (START_FAILED, PUBLISH_*)
+KICK_AGENT_REASONS = re.compile(r"^(START_FAILED|PUBLISH_|NEXT_EPISODE_)")
+
+
+def heartbeat_kick_for(res: dict[str, Any]) -> dict[str, Any] | None:
+    """Wake the agent heartbeat now when the system tick left it something (rate-limited, heartbeat_kick.py):
+    an AGENT_PENDING hand-off, an undelivered fleet agent_task, or a recurring system AGENT result."""
+    runtime = roots()[1]
+    task_path = runtime / "series" / "FLEET_AGENT_TASK.json"
+    key = reason = ""
+    task = read_json(task_path) if task_path.is_file() else {}
+    if task.get("message") and not task.get("delivered"):
+        sys.path.insert(0, str(HERE))
+        import fleet_sync  # noqa: PLC0415
+        key, reason = fleet_sync.agent_task_kick_key(task_path), "FLEET_AGENT_TASK"
+    elif res.get("action") == "AGENT_PENDING":
+        key, reason = f"{res.get('episode')}|{res.get('hand_off') or res.get('reason')}", str(res.get("reason") or "")
+    elif res.get("action") == "AGENT" and KICK_AGENT_REASONS.match(str(res.get("reason") or "")):
+        key, reason = f"{res.get('episode')}|{res.get('reason')}", str(res.get("reason"))
+    if not key:
+        return None
+    try:
+        sys.path.insert(0, str(HERE))
+        import heartbeat_kick  # noqa: PLC0415
+        return heartbeat_kick.request(key, reason, lock=runtime / "claude_code" / ".tick.lock")
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "ERROR", "error": type(exc).__name__}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1974,6 +2143,10 @@ def main() -> int:
         sys.path.insert(0, str(HERE))
         import fleet_sync  # noqa: PLC0415
         res.update(fleet_sync.sync(sys.modules[__name__], res))
+        if a.system:
+            kick = heartbeat_kick_for(res)
+            if kick:
+                res["heartbeat_kick"] = kick
         print("NALU_TICK: " + json.dumps(res, ensure_ascii=False))
         return 0
     if a.cmd == "start":

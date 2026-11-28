@@ -251,19 +251,88 @@ class CodexExecutorTests(unittest.TestCase):
         t = self.cp.tick()
         self.assertEqual((t["action"], t["reason"]), ("NONE", "SERIES_DONE"))
 
-    def test_blocked_is_handed_back_hourly_for_an_update_check(self):
-        # field device …1324 E02: a blocked machine never ran self_update, so a maintainer fix never reached it
+    def test_blocked_gets_an_hourly_scripted_update_check_without_the_agent(self):
+        # field device …1324 E02: a blocked machine never ran self_update, so a maintainer fix never reached it;
+        # 2026-11-28: the check is scripted (self_update -> setup -> resume when the engine moved), no agent turn
+        import fleet_sync  # noqa: PLC0415
+        calls = []
+        saved = fleet_sync.scripted_update
+        fleet_sync.scripted_update = lambda cp, pin, **kw: (calls.append(pin) or True,
+                                                            {"pin": "a" * 40, "before": "a", "after": "a"}, {})
+        self.addCleanup(setattr, fleet_sync, "scripted_update", saved)
         self.write_provider()
         self.run_episode('卡住\nNALU_STATUS: {"episode":"E05","state":"BLOCKED","note":"CODE_BLOCKER"}', "E05")
+        self.assertEqual(self.cp.tick(system=True)["action"], "AGENT_PENDING")  # the first hand-off stays
         self.assertEqual(self.cp.tick()["reason"], "BLOCKED")
         self.assertEqual(self.cp.tick()["action"], "NONE")  # within the hour: quiet
+        self.assertEqual(calls, [])
         session_path = self.runtime / "claude_code/E05/session.json"
         session = json.loads(session_path.read_text())
+        session["blocked_recheck"]["at"] = "2020-01-01T00:00:00Z"
         session["tick_notified_at"] = "2020-01-01T00:00:00Z"
         session_path.write_text(json.dumps(session))
-        again = self.cp.tick()
-        self.assertEqual((again["action"], again["reason"]), ("AGENT", "BLOCKED_RECHECK_UPDATE"))
-        self.assertEqual(self.cp.tick()["action"], "NONE")
+        again = self.cp.tick(system=True)
+        self.assertEqual(calls, [""])  # the disk pin, as the agent's duty did
+        self.assertEqual(again["action"], "NONE")
+        self.assertTrue(again["reason"].startswith("WAITING_ON_AGENT_OR_OWNER"))
+        self.assertIn("blocked_recheck:no_engine_change", again["did"])
+        self.assertEqual(self.cp.tick()["action"], "NONE")  # never BLOCKED_RECHECK_UPDATE for the agent
+        self.assertEqual(calls, [""])
+        fleet_sync.scripted_update = lambda cp, pin, **kw: (True, {"before": "a", "after": "b",
+                                                                    "resumed": "STARTED"}, {})
+        session = json.loads(session_path.read_text())
+        session["blocked_recheck"]["at"] = "2020-01-01T00:00:00Z"
+        session_path.write_text(json.dumps(session))
+        self.assertEqual(self.cp.tick(system=True)["reason"], "BLOCKED_RECHECK_RESUMED")
+
+    def _paid_entry_stop(self, ep, question="", key=True):
+        self.write_provider()
+        (self.engine / ".env").write_text("GIGGLE_API_KEY=gk-test\n" if key else "GIGGLE_API_KEY=\n", encoding="utf-8")
+        self.run_episode(f'需要线主\nNALU_STATUS: {{"episode":"{ep}","state":"OWNER_DECISION_REQUIRED",'
+                         f'"stage":"S3","question":"{question}"}}', ep)
+        self.set_stages(ep, {"S1": {"status": "PASS"}, "S2": {"status": "PASS"}, "S3": {"status": "NOT_RUN"}})
+
+    def test_paid_stage_entry_is_resumed_by_the_system_tick_on_default_terms(self):
+        # …1205 E17 2026-11-28: S1/S2 PASS at 10:05Z, OWNER_DECISION_REQUIRED before S3, resumed by the 6-hourly
+        # agent heartbeat at 16:02Z「已按线主默认条款授权」; the default terms already decided it
+        self._paid_entry_stop("E10")
+        os.environ["FAKE_REPLY"] = '又停\nNALU_STATUS: {"episode":"E10","state":"OWNER_DECISION_REQUIRED","stage":"S3"}'
+        t = self.cp.tick(system=True)
+        self.assertEqual((t["action"], t["reason"]), ("NONE", "DEFAULT_TERMS_RESUMED:S3"))
+        session = json.loads((self.runtime / "claude_code/E10/session.json").read_text())
+        self.reap(session["pid"])
+        self.assertEqual(session["default_terms_resumed"], ["S3"])
+        receipt = json.loads((self.runtime / "series/DEFAULT_TERMS_RESUMES.json").read_text())["resumes"][-1]
+        self.assertEqual((receipt["episode"], receipt["stage"], receipt["resume"]), ("E10", "S3", "STARTED"))
+        self.assertIn("默认条款", (self.runtime / "series/STATUS.md").read_text(encoding="utf-8"))
+        # the same stage stopping again is a person's to look at
+        self.assertEqual(self.cp.tick(system=True)["action"], "AGENT_PENDING")
+
+    def test_contract_stops_stay_with_the_agent(self):
+        self._paid_entry_stop("E11", "Giggle 余额不足，请线主去控制台充值")
+        self.assertEqual(self.cp.tick(system=True)["action"], "AGENT_PENDING")
+        self._paid_entry_stop("E12", key=False)
+        self.assertEqual(self.cp.tick(system=True)["action"], "AGENT_PENDING")
+        self.write_provider()
+        self.run_episode('原著\nNALU_STATUS: {"episode":"E13","state":"OWNER_DECISION_REQUIRED","stage":"S1"}', "E13")
+        self.set_stages("E13", {"S1": {"status": "BLOCKED"}})
+        self.assertEqual(self.cp.tick(system=True)["action"], "AGENT_PENDING")
+
+    def test_pending_hand_offs_wake_the_heartbeat(self):
+        import heartbeat_kick  # noqa: PLC0415
+        seen = []
+        saved = heartbeat_kick.request
+        heartbeat_kick.request = lambda key, reason="", **kw: seen.append((key, reason)) or {"status": "SCHEDULED"}
+        self.addCleanup(setattr, heartbeat_kick, "request", saved)
+        self.assertEqual(self.cp.heartbeat_kick_for({"action": "AGENT_PENDING", "episode": "E07", "reason": "BLOCKED",
+                                                     "hand_off": "log|BLOCKED"}), {"status": "SCHEDULED"})
+        self.assertEqual(seen[-1], ("E07|log|BLOCKED", "BLOCKED"))
+        self.assertIsNone(self.cp.heartbeat_kick_for({"action": "NONE", "reason": "WAITING_ON_AGENT_OR_OWNER:x"}))
+        task = self.runtime / "series/FLEET_AGENT_TASK.json"
+        task.parent.mkdir(parents=True, exist_ok=True)
+        task.write_text(json.dumps({"message": "修心跳模型", "delivered": False}), encoding="utf-8")
+        self.cp.heartbeat_kick_for({"action": "NONE"})
+        self.assertEqual(seen[-1][1], "FLEET_AGENT_TASK")
 
     def test_system_tick_leaves_the_hand_off_for_the_agent(self):
         # line owner + boss 2026-11-10: the system cron advances production; AGENT hand-offs stay with the agent
