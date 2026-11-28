@@ -142,6 +142,11 @@ def _low(text: str) -> str:
     return text[:1].lower() + text[1:] if text and not text[:2].isupper() else text
 
 
+def _flat(text: str) -> str:
+    """The V2 renderer's sameness test (h3_director_prompt_v2._same)."""
+    return re.sub(r"[\s.;,]+", " ", str(text or "")).strip().lower()
+
+
 def _labels(text: str) -> str:
     """@ImageN -> <Picture N>, @AudioN -> <Audio N> (the official label names)."""
     return _AUDIO.sub(lambda m: f"<Audio {m.group(1)}>", _IMAGE.sub(lambda m: f"<Picture {m.group(1)}>", text))
@@ -453,6 +458,13 @@ def compose(p: Parts) -> str:
         if multi:
             text = f"From {record['start']:g} to {record['end']:g} seconds, " + text[:1].lower() + text[1:]
         body.append(text)
+    # an outgoing transition equal to the last beat's exit is covered by that exit sentence (V2 adds no handoff);
+    # the official order rewrote it as "By the end, ...", so the evidence follows the rewritten text (1205 E17)
+    last_exit_key = f"BEAT.{len(p.records)}.EXIT"
+    outgoing = ev.get("TRANSITION.OUTGOING")
+    if (outgoing and p.records and last_exit_key in ev
+            and _flat(outgoing) == _flat(p.records[-1].get("exit") or "")):
+        ev["TRANSITION.OUTGOING"] = ev[last_exit_key]
     tail = p.action_lines[p.beats_end:]
     for line in tail:
         if line.startswith("Everyone keeps the posture"):
