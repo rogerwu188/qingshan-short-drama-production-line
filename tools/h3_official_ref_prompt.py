@@ -412,6 +412,11 @@ def compose(p: Parts) -> str:
                          *([_s("Props: " + "; ".join(p.prop_sentences))] if p.prop_sentences else [])) if v]
     if scene:
         body.append(f"<Subject {setting_no}>: " + " ".join(scene))
+    # V2's lines between the "Action (0-N s):" header and the first beat (content window, a non-equal inherited
+    # opening, the "Throughout:" lock) are stated before the beats; dropping them left PACING.CONTENT_WINDOW
+    # uncovered (1205 E17-VU-006)
+    first_beat = p.records[0]["line_index"] if p.records else p.beats_end
+    body.extend(_labels(x) for x in p.action_lines[1:first_beat] if x)
     multi = len(p.records) > 1
     for number, record in enumerate(p.records):
         prefix = f"BEAT.{number + 1}"

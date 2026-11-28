@@ -5425,7 +5425,7 @@
     },
     {
       "path": "tools/h3_official_ref_prompt.py",
-      "sha256": "c277aefc182d08c13199ff6ed848afd8b1054be72a6dad816e02066222c951b7"
+      "sha256": "e58deb874531e68e107ada047aad5b52925d0bdf9e71e2db73bceb7efad7cb1c"
     },
     {
       "path": "tools/h3_provider_english_contract.py",
