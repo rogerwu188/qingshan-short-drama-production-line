@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2632,
+  "file_count": 2633,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -197,7 +197,7 @@
     },
     {
       "path": "agent_factory/storyclaw_portable/WRITER_CONTRACT.md",
-      "sha256": "cdedfac1a97078cfca99d4452b84a6b247245dff69ff1a39966eabb6641c6f24"
+      "sha256": "bdfd34229dd1ffc149362b733ef794b042d13cbfffc0ec63c00e06a9ee3919bf"
     },
     {
       "path": "configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json",
@@ -1009,7 +1009,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/script_pacing_check.py",
-      "sha256": "f581b90775f88debd52dc678ad3155d249072166fd70abb78113a34ac8b0a5d0"
+      "sha256": "4ff12a0a2343e8c44c9815d16472f6413b4530c123fabde09589e482fdc255a2"
     },
     {
       "path": "lines/nalu/runtime/tools/script_review.py",
@@ -9414,6 +9414,10 @@
     {
       "path": "tools/tests/test_release_signoff_integrity_gate.py",
       "sha256": "1a57801b32cc1113fa24db1cc0155689d1a98e89d0af4c69f0c5fc8ec7d35856"
+    },
+    {
+      "path": "tools/tests/test_remote_call_one_place.py",
+      "sha256": "b022da0aa077232623786962484e5db89b07ff2c0a3c904faa7b2205d8f92a9f"
     },
     {
       "path": "tools/tests/test_render_agentcut_audio_master.py",

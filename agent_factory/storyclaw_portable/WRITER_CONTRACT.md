@@ -175,6 +175,13 @@ an episode already past a paid stage that relies on the default is grandfathered
   consecutive scene_ids in the same place without a time skip are one scene (merge them). Only motivated changes
   count toward the pacing target; relocating a conversation to fake a scene change is reported
   (`CONVERSATION_SPLIT_ACROSS_LOCATIONS`, `SCENE_SPLIT_SAME_LOCATION`) and must be revised.
+- **A phone / video call is one conversation in two places.** Keep one scene_id for the call, but every shot of the
+  far caller gets its own place as a cross-cut (`shot_scene_overrides[shot_id].location_id`, plus its lighting); never
+  seat both callers at the same table. In every on-camera call shot the phone is visible in hand or at the ear from
+  the first frame (`entry_state` and `frame_content` say so; the phone is a `props.reference_cards` row), the speaker
+  looks toward the person on the line (not at someone else in the room), and people the script puts in the room with
+  a caller (friends gathering round, a hand on the shoulder) are written into that caller's frame and cast.
+  A call staged in one place is reported (`REMOTE_CALL_ONE_PLACE`) and revised.
 - **Every speaking shot's performance is written from its own line.** `entry_state` / `primary_action` /
   `completion_state` / `contact_point` / `force_feedback` name one concrete movement of THAT beat (a head tilt, a look
   away and back, a half step, turning away, crossing the arms, adjusting a sleeve or hair, a prop in hand) and the

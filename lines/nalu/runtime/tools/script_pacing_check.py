@@ -458,6 +458,38 @@ def _at(ref: Any, rows: list[dict[str, Any]]) -> float | None:
     return None
 
 
+# --------------------------------------------------------------------------- remote calls (deep review 1205 E15)
+#: a shot that stages a phone / video call: the device at the ear, the call answered / ended, the voice on the line
+_REMOTE_CALL = re.compile(
+    r"phone (?:to|at) (?:his|her|their|my|the) ear|(?:on|over) the (?:phone|line)|answers? the (?:phone|call)"
+    r"|hangs? up|ends? the call|video[- ]call|facetime|phone call|the call\b|calls? (?:him|her|them) back"
+    r"|电话|通话|视频通话|挂断|電話|通話|전화|통화", re.I)
+
+
+def remote_call_one_place(contract: dict[str, Any], rows: list[dict[str, Any]]) -> list[str]:
+    """Scenes that stage a phone / video call (2+ shots say so) with two or more speakers, every speaking shot in ONE
+    location and no ``shot_scene_overrides`` cross-cut: the far caller is rendered sitting in the same room (1205 E15:
+    father and daughter both "seated at the meeting table" of the refuge room, the phone visible in 2 of 17 shots).
+    A call is one conversation in two places: the far side's shots carry their own location as a cross-cut."""
+    by_index = {i: s for i, s in enumerate((contract or {}).get("shots") or []) if isinstance(s, dict)}
+    out: list[str] = []
+    scenes: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        scenes.setdefault(r["scene_id"], []).append(r)
+    for scene_id, rs in scenes.items():
+        calls = 0
+        for r in rs:
+            shot = by_index.get(r["index"]) or {}
+            text = " ".join([action_text(shot), _clean(shot.get("frame_content")), _clean(shot.get("entry_state"))])
+            calls += bool(_REMOTE_CALL.search(text))
+        speaking = [r for r in rs if r["lines"]]
+        places = {r["location"] for r in speaking if r["location"]}
+        if (calls >= 2 and len(_speakers(speaking)) >= 2 and len(places) == 1
+                and not any(r["cross_cut"] for r in rs)):
+            out.append(scene_id)
+    return out
+
+
 # --------------------------------------------------------------------------- scene changes (JA-01 E08)
 def _speakers(rows: list[dict[str, Any]]) -> set[str]:
     return {_clean(ln.get("speaker")) for r in rows for ln in r["lines"] if _clean(ln.get("speaker"))} | {
@@ -833,6 +865,9 @@ def measure(contract: dict[str, Any], language: str | None = None) -> dict[str, 
         "conversation_splits": [f"{c['from_scene']}>{c['to_scene']}" for c in changes
                                 if c["kind"] == "CONVERSATION_SPLIT"],
         "same_place_splits": [f"{c['from_scene']}>{c['to_scene']}" for c in changes if c["kind"] == "SAME_PLACE_SPLIT"],
+        # only present when a call is staged in one place: legacy reports stay byte-identical
+        **({"remote_call_one_place": calls_one_place} if (calls_one_place := remote_call_one_place(contract, rows))
+           else {}),
         "in_place_variety": variety, "visual_variety_count": variety_count,
         "placeholder_acting": placeholder_acting(contract),
         "required_visual_variety": required_variety,
@@ -1194,6 +1229,12 @@ FIXES = {
                                            "place; only if the story really moves on, open the new place on a silent "
                                            "establishing / arrival shot, or make it a real time jump (scene time "
                                            "changes, or scene_plan change_reason TIME_SKIP told by a line)",
+    "REMOTE_CALL_ONE_PLACE": "a phone / video call is one conversation in TWO places: keep one scene_id, but give "
+                             "every shot of the far caller its own place via shot_scene_overrides[shot_id].location_id "
+                             "(a cross-cut, not a split); in every on-camera call shot the phone is visible in hand / "
+                             "at the ear in entry_state and frame_content (declare it in props.reference_cards); the "
+                             "speaker looks toward the person on the line; people the script puts in the room with a "
+                             "caller are in that caller's frame",
     "PERFORMANCE_PLACEHOLDER": "write each speaking shot's entry / action / exit from THAT line: one concrete movement "
                                "(a head tilt, a look away, a step, crossing the arms, touching a prop, a posture shift) "
                                "and the listener's reaction; never one template sentence on every line, never 'a clear "
@@ -1273,6 +1314,8 @@ def evaluate(contract: dict[str, Any], language: str | None = None,
                         f"(motivated_scene_changes={m['motivated_scene_changes']})")
     for pair in m["conversation_splits"][:4]:
         failures.append(f"CONVERSATION_SPLIT_ACROSS_LOCATIONS:{pair}")
+    for sid in (m.get("remote_call_one_place") or [])[:4]:
+        failures.append(f"REMOTE_CALL_ONE_PLACE:{sid}")  # taste: revised by the writer, admitted after the rounds
     integrity = integrity_failures(contract, language, m)
     screenplay_row = screenplay_checks_row(contract)  # BILI_V1 (WP2 anti-template v2); {} under LEGACY
     if screenplay_row:
